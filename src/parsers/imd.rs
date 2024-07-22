@@ -25,10 +25,11 @@
     --------------------------------------------------------------------------
 */
 use crate::chs::{DiskCh, DiskChs};
-use crate::diskimage::TrackFormat;
-use crate::io::ReadSeek;
+use crate::diskimage::{DiskConsistency, TrackFormat};
+use crate::io::{ReadSeek, ReadWriteSeek};
+use crate::parsers::ParserWriteCompatibility;
 use crate::util::{get_length, read_ascii};
-use crate::{DiskDataEncoding, DiskDataRate, DiskImage, DiskImageError, DiskImageFormat};
+use crate::{DiskDataEncoding, DiskDataRate, DiskImage, DiskImageError, DiskImageFormat, DEFAULT_SECTOR_SIZE};
 use binrw::{binrw, BinRead, BinReaderExt};
 use regex::Regex;
 
@@ -117,7 +118,36 @@ impl ImdFormat {
         detected
     }
 
-    pub(crate) fn from_image<RWS: ReadSeek>(mut image: RWS) -> Result<DiskImage, DiskImageError> {
+    pub(crate) fn can_write(image: &DiskImage) -> ParserWriteCompatibility {
+        let mut data_loss = false;
+        if image.consistency.weak || image.consistency.deleted {
+            data_loss = true;
+        }
+
+        if let Some(sector_size) = image.consistency.consistent_sector_size {
+            if sector_size < DEFAULT_SECTOR_SIZE as u32 {
+                // Sectors must be at least 512 bytes to save as IMG.
+                return ParserWriteCompatibility::Incompatible;
+            }
+            if sector_size != DEFAULT_SECTOR_SIZE as u32 {
+                data_loss = true;
+            }
+            if let Some(_) = image.consistency.consistent_track_length {
+                // Track length is consistent
+            } else {
+                // Track length is not consistent
+                data_loss = true;
+            }
+        }
+
+        if data_loss {
+            ParserWriteCompatibility::DataLoss
+        } else {
+            ParserWriteCompatibility::Ok
+        }
+    }
+
+    pub(crate) fn load_image<RWS: ReadSeek>(mut image: RWS) -> Result<DiskImage, DiskImageError> {
         let mut disk_image = DiskImage::default();
 
         // Assign the disk geometry or return error.
@@ -148,6 +178,12 @@ impl ImdFormat {
         let mut rate_opt = None;
         let mut encoding_opt = None;
 
+        let mut consistent_track_length = None;
+        let mut last_track_length = None;
+
+        let mut consistent_sector_size = None;
+        let mut last_sector_size = None;
+
         while let Ok(track_header) = ImdTrack::read_le(&mut image) {
             log::trace!("from_image: Track header: {:?} @ {:X}", &track_header, header_offset);
             log::trace!("from_image: Track header valid: {}", &track_header.is_valid());
@@ -161,6 +197,28 @@ impl ImdFormat {
                 &track_header.has_cylinder_map(),
                 &track_header.has_head_map()
             );
+
+            if last_track_length.is_none() {
+                // First track. Set the first track length seen as the consistent track length.
+                last_track_length = Some(track_header.sector_ct as u8);
+                consistent_track_length = Some(track_header.sector_ct as u8);
+            } else {
+                // Not the first track. See if track length has changed.
+                if last_track_length.unwrap() != track_header.sector_ct as u8 {
+                    consistent_track_length = None;
+                }
+            }
+
+            if last_sector_size.is_none() {
+                // First track. Set the first sector size seen as the consistent sector size.
+                last_sector_size = Some(track_header.sector_size as u32);
+                consistent_sector_size = Some(track_header.sector_size as u32);
+            } else {
+                // Not the first track. See if sector size has changed.
+                if last_sector_size.unwrap() != track_header.sector_size as u32 {
+                    consistent_sector_size = None;
+                }
+            }
 
             //let sector_size = imd_sector_size_to_usize(track_header.sector_size).unwrap();
             let mut sector_numbers = vec![0; track_header.sector_ct as usize];
@@ -250,6 +308,13 @@ impl ImdFormat {
         disk_image.set_data_rate(rate_opt.unwrap());
         disk_image.set_data_encoding(encoding_opt.unwrap());
 
+        disk_image.consistency = DiskConsistency {
+            weak: false,
+            deleted: false,
+            consistent_sector_size,
+            consistent_track_length,
+        };
+
         Ok(disk_image)
     }
 
@@ -332,5 +397,9 @@ impl ImdFormat {
                 return Err(DiskImageError::FormatParseError);
             }
         }
+    }
+
+    pub fn save_image<RWS: ReadWriteSeek>(_image: &DiskImage, _output: &mut RWS) -> Result<(), DiskImageError> {
+        Err(DiskImageError::UnsupportedFormat)
     }
 }

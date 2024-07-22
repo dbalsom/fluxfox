@@ -54,6 +54,8 @@ pub enum DiskImageError {
     IoError,
     #[error("Unknown disk image format")]
     UnknownFormat,
+    #[error("Unsupported disk image format for requested operation")]
+    UnsupportedFormat,
     #[error("The disk image format parser encountered an error")]
     FormatParseError,
     #[error("The requested sector could not be found")]
@@ -121,3 +123,4 @@ impl Display for DiskRpm {
 
 pub use crate::chs::{DiskCh, DiskChs};
 pub use crate::diskimage::{DiskImage, DiskImageFormat};
+pub use crate::parsers::ImageParser;

@@ -24,30 +24,60 @@
 
     --------------------------------------------------------------------------
 */
-use crate::io::ReadSeek;
+use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::{DiskImage, DiskImageError, DiskImageFormat};
 
 pub mod imd;
 pub mod raw;
 
+pub enum ParserWriteCompatibility {
+    Ok,
+    DataLoss,
+    Incompatible,
+    UnsupportedFormat,
+}
+
+/// A trait to be implemented by disk image parsers. Called via enum dispatch.
 pub trait ImageParser {
-    fn detect<RWS: ReadSeek>(&self, image: RWS) -> bool;
-    fn from_image<RWS: ReadSeek>(&self, image: RWS) -> Result<DiskImage, DiskImageError>;
+    /// Detect and return true if the image is of a format that the parser can read.
+    fn detect<RWS: ReadSeek>(&self, image_buf: RWS) -> bool;
+    /// Create a DiskImage from the specified image buffer, or DiskImageError if the format is not supported.
+    fn load_image<RWS: ReadSeek>(&self, image_buf: RWS) -> Result<DiskImage, DiskImageError>;
+    /// Return true if the parser can write the specified disk image. Not all formats are writable
+    /// at all, and not all DiskImages can be represented in the specified format.
+    fn can_save(&self, image: &DiskImage) -> ParserWriteCompatibility;
+    fn save_image<RWS: ReadWriteSeek>(self, image: &DiskImage, image_buf: &mut RWS) -> Result<(), DiskImageError>;
 }
 
 impl ImageParser for DiskImageFormat {
-    fn detect<RWS: ReadSeek>(&self, image: RWS) -> bool {
+    fn detect<RWS: ReadSeek>(&self, image_buf: RWS) -> bool {
         match self {
-            DiskImageFormat::RawSectorImage => raw::RawFormat::detect(image),
-            DiskImageFormat::ImageDisk => imd::ImdFormat::detect(image),
+            DiskImageFormat::RawSectorImage => raw::RawFormat::detect(image_buf),
+            DiskImageFormat::ImageDisk => imd::ImdFormat::detect(image_buf),
             _ => false,
         }
     }
 
-    fn from_image<RWS: ReadSeek>(&self, image: RWS) -> Result<DiskImage, DiskImageError> {
+    fn load_image<RWS: ReadSeek>(&self, image_buf: RWS) -> Result<DiskImage, DiskImageError> {
         match self {
-            DiskImageFormat::RawSectorImage => raw::RawFormat::from_image(image),
-            DiskImageFormat::ImageDisk => imd::ImdFormat::from_image(image),
+            DiskImageFormat::RawSectorImage => raw::RawFormat::load_image(image_buf),
+            DiskImageFormat::ImageDisk => imd::ImdFormat::load_image(image_buf),
+            _ => Err(DiskImageError::UnknownFormat),
+        }
+    }
+
+    fn can_save(&self, image: &DiskImage) -> ParserWriteCompatibility {
+        match self {
+            DiskImageFormat::RawSectorImage => raw::RawFormat::can_write(image),
+            DiskImageFormat::ImageDisk => imd::ImdFormat::can_write(image),
+            _ => ParserWriteCompatibility::UnsupportedFormat,
+        }
+    }
+
+    fn save_image<RWS: ReadWriteSeek>(self, image: &DiskImage, image_buf: &mut RWS) -> Result<(), DiskImageError> {
+        match self {
+            DiskImageFormat::RawSectorImage => raw::RawFormat::save_image(image, image_buf),
+            DiskImageFormat::ImageDisk => imd::ImdFormat::save_image(image, image_buf),
             _ => Err(DiskImageError::UnknownFormat),
         }
     }

@@ -73,10 +73,10 @@ impl FloppyFormat {
         match self {
             FloppyFormat::Unknown => DiskChs::default(),
             FloppyFormat::FloppyCustom(chs) => *chs,
-            FloppyFormat::PcFloppy160 => DiskChs::new(40, 2, 8),
-            FloppyFormat::PcFloppy180 => DiskChs::new(40, 2, 9),
-            FloppyFormat::PcFloppy320 => DiskChs::new(40, 2, 16),
-            FloppyFormat::PcFloppy360 => DiskChs::new(40, 2, 18),
+            FloppyFormat::PcFloppy160 => DiskChs::new(40, 1, 8),
+            FloppyFormat::PcFloppy180 => DiskChs::new(40, 1, 9),
+            FloppyFormat::PcFloppy320 => DiskChs::new(40, 2, 8),
+            FloppyFormat::PcFloppy360 => DiskChs::new(40, 2, 9),
             FloppyFormat::PcFloppy720 => DiskChs::new(80, 2, 9),
             FloppyFormat::PcFloppy1200 => DiskChs::new(80, 2, 15),
             FloppyFormat::PcFloppy1440 => DiskChs::new(80, 2, 18),
@@ -165,6 +165,29 @@ impl From<usize> for FloppyFormat {
     }
 }
 
+/// A DiskConsistency structure maintains information about the consistency of a disk image.
+pub struct DiskConsistency {
+    /// Whether the disk image contains weak bits.
+    pub weak: bool,
+    /// Whether the disk image contains deleted sectors.
+    pub deleted: bool,
+    /// The sector size if the disk image has consistent sector sizes, otherwise None.
+    pub consistent_sector_size: Option<u32>,
+    /// The track length in sectors if the disk image has consistent track lengths, otherwise None.
+    pub consistent_track_length: Option<u8>,
+}
+
+impl Default for DiskConsistency {
+    fn default() -> Self {
+        Self {
+            weak: false,
+            deleted: false,
+            consistent_sector_size: None,
+            consistent_track_length: None,
+        }
+    }
+}
+
 /// A sector definition maintains an index into continuous track data.
 /// This permits overlapping sectors, and reading beyond sector boundaries.
 pub struct DiskSector {
@@ -236,7 +259,7 @@ pub struct ImageFormat {
 pub struct DiskImage {
     pub disk_format: FloppyFormat,
     pub image_format: ImageFormat,
-
+    pub consistency: DiskConsistency,
     pub sector_size: usize,
     // The volume name of the disk image, if any.
     pub volume_name: Option<String>,
@@ -252,6 +275,7 @@ impl Default for DiskImage {
         Self {
             disk_format: FloppyFormat::PcFloppy360,
             image_format: ImageFormat::default(),
+            consistency: Default::default(),
             sector_size: DEFAULT_SECTOR_SIZE,
             volume_name: None,
             comment: None,
@@ -270,6 +294,12 @@ impl DiskImage {
             disk_format,
             image_format: disk_format.get_image_format(),
             sector_size: DEFAULT_SECTOR_SIZE,
+            consistency: DiskConsistency {
+                weak: false,
+                deleted: false,
+                consistent_sector_size: Some(DEFAULT_SECTOR_SIZE as u32),
+                consistent_track_length: Some(disk_format.get_chs().s()),
+            },
             volume_name: None,
             comment: None,
             tracks: [Vec::new(), Vec::new()],
@@ -278,7 +308,7 @@ impl DiskImage {
 
     pub fn load<RS: ReadSeek>(image_io: &mut RS) -> Result<Self, DiskImageError> {
         let format = DiskImage::detect_format(image_io)?;
-        let image = format.from_image(image_io)?;
+        let image = format.load_image(image_io)?;
         Ok(image)
     }
 

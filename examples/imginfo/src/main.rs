@@ -30,6 +30,7 @@
     print out some basic information about it.
 */
 use bpaf::*;
+use fluxfox::DiskChs;
 use fluxfox::DiskImage;
 use std::path::PathBuf;
 
