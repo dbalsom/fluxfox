@@ -28,7 +28,7 @@ use crate::chs::{DiskCh, DiskChs};
 use crate::detect::detect_image_format;
 use crate::io::ReadSeek;
 use crate::parsers::ImageParser;
-use crate::{DiskDataEncoding, DiskDataRate, DiskImageError, DiskRpm, FoxHashMap, DEFAULT_SECTOR_SIZE};
+use crate::{DiskDataEncoding, DiskDataRate, DiskImageError, DiskRpm, DEFAULT_SECTOR_SIZE};
 use std::fmt::Display;
 
 /// An enumeration describing the type of disk image.
@@ -347,7 +347,7 @@ impl DiskImage {
             None => vec![0; data.len()],
         };
 
-        let mut track = &mut self.tracks[chs.h() as usize][chs.c() as usize];
+        let track = &mut self.tracks[chs.h() as usize][chs.c() as usize];
 
         track.data.sectors.push(TrackSectorIndex {
             sector_id: id,

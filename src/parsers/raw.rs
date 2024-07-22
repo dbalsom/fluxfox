@@ -71,7 +71,6 @@ impl RawFormat {
         let track_size = disk_chs.s() as usize * DEFAULT_SECTOR_SIZE;
         let track_ct = raw_len / track_size;
         let track_ct_overflow = raw_len % track_size;
-        let track_idx: usize = 0;
 
         if track_ct_overflow != 0 {
             return Err(DiskImageError::UnknownFormat);

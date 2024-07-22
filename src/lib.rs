@@ -119,4 +119,5 @@ impl Display for DiskRpm {
     }
 }
 
+pub use crate::chs::{DiskCh, DiskChs};
 pub use crate::diskimage::{DiskImage, DiskImageFormat};
