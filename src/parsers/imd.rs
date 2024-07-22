@@ -145,6 +145,9 @@ impl ImdFormat {
 
         let mut header_offset = image.seek(std::io::SeekFrom::Current(0)).unwrap();
 
+        let mut rate_opt = None;
+        let mut encoding_opt = None;
+
         while let Ok(track_header) = ImdTrack::read_le(&mut image) {
             log::trace!("from_image: Track header: {:?} @ {:X}", &track_header, header_offset);
             log::trace!("from_image: Track header valid: {}", &track_header.is_valid());
@@ -184,10 +187,27 @@ impl ImdFormat {
                 &head_map
             );
 
-            // Create a buffer to hold the track data.
-            let mut track_data: Vec<u8> =
-                Vec::with_capacity(track_header.sector_ct as usize * track_header.sector_size as usize);
-            let mut track_idx: usize = 0;
+            // Add track to image.
+            let (data_rate, data_encoding) = match imd_mode_to_rate(track_header.mode) {
+                Some((rate, encoding)) => (rate, encoding),
+                None => return Err(DiskImageError::FormatParseError),
+            };
+
+            if rate_opt.is_none() {
+                rate_opt = Some(data_rate);
+            }
+            if encoding_opt.is_none() {
+                encoding_opt = Some(data_encoding);
+            }
+
+            log::trace!("Adding track: C: {} H: {}", track_header.c, track_header.h);
+            disk_image.add_track(
+                TrackFormat {
+                    data_rate,
+                    data_encoding,
+                },
+                DiskCh::from((track_header.c(), track_header.h())),
+            );
 
             // Read all sectors for this track.
             for s in 0..sector_numbers.len() {
@@ -208,18 +228,14 @@ impl ImdFormat {
                             &data.error
                         );
 
-                        // Add this sector's data to track.
-                        track_data.extend(&data.data);
-                        track_idx += data.data.len();
-
                         // Add this sector to track.
-                        disk_image.add_sector(
+                        disk_image.write_sector(
                             DiskChs::from((track_header.c(), track_header.h(), sector_numbers[s])),
                             sector_numbers[s],
                             Some(cylinder_map[s]),
                             Some(head_map[s]),
-                            track_header.sector_size(),
-                            track_idx,
+                            &data.data,
+                            None,
                         )?;
                     }
                     _ => {
@@ -228,24 +244,11 @@ impl ImdFormat {
                 }
             }
 
-            // Add track to image.
-            let (data_rate, data_encoding) = match imd_mode_to_rate(track_header.mode) {
-                Some((rate, encoding)) => (rate, encoding),
-                None => return Err(DiskImageError::FormatParseError),
-            };
-
-            disk_image.add_track(
-                TrackFormat {
-                    data_rate,
-                    data_encoding,
-                },
-                DiskCh::from((track_header.c(), track_header.h())),
-                &track_data,
-                None,
-            );
-
             header_offset = image.seek(std::io::SeekFrom::Current(0)).unwrap();
         }
+
+        disk_image.set_data_rate(rate_opt.unwrap());
+        disk_image.set_data_encoding(encoding_opt.unwrap());
 
         Ok(disk_image)
     }

@@ -91,12 +91,10 @@ impl RawFormat {
                     data_encoding,
                 },
                 cursor_chs.into(),
-                &track_buffer,
-                None,
             );
 
             for _s in 0..disk_chs.s() {
-                disk_image.add_sector(cursor_chs, sector_id, None, None, DEFAULT_SECTOR_SIZE, track_idx)?;
+                disk_image.write_sector(cursor_chs, sector_id, None, None, &track_buffer, None)?;
                 cursor_chs.seek_forward(1, &disk_chs);
                 sector_id += 1;
             }

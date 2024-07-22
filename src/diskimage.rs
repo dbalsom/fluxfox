@@ -195,8 +195,17 @@ pub struct TrackFormat {
 pub struct TrackData {
     pub cylinder: u8,
     pub head: u8,
+    pub sectors: Vec<TrackSectorIndex>,
     pub data: Vec<u8>,
     pub weak_mask: Vec<u8>,
+}
+
+pub struct TrackSectorIndex {
+    pub sector_id: u8,
+    pub cylinder_id: u8,
+    pub head_id: u8,
+    pub t_idx: usize,
+    pub len: usize,
 }
 
 impl DiskSector {}
@@ -236,8 +245,6 @@ pub struct DiskImage {
     /// An array of track vectors. The containing array represents the number of heads (maximum of 2)
     /// and the vectors represent the tracks on the disk.
     pub tracks: [Vec<DiskTrack>; 2],
-    /// A hash map of sectors, indexed by CHS. Each DiskSector is an index into the track data.
-    pub sectors: FoxHashMap<DiskChs, DiskSector>,
 }
 
 impl Default for DiskImage {
@@ -249,7 +256,6 @@ impl Default for DiskImage {
             volume_name: None,
             comment: None,
             tracks: [Vec::new(), Vec::new()],
-            sectors: FoxHashMap::new(),
         }
     }
 }
@@ -267,7 +273,6 @@ impl DiskImage {
             volume_name: None,
             comment: None,
             tracks: [Vec::new(), Vec::new()],
-            sectors: FoxHashMap::new(),
         }
     }
 
@@ -293,6 +298,14 @@ impl DiskImage {
         self.image_format.data_rate
     }
 
+    pub fn set_data_encoding(&mut self, encoding: DiskDataEncoding) {
+        self.image_format.data_encoding = encoding;
+    }
+
+    pub fn data_encoding(&self) -> DiskDataEncoding {
+        self.image_format.data_encoding
+    }
+
     pub fn set_image_format(&mut self, format: ImageFormat) {
         self.image_format = format;
     }
@@ -301,57 +314,66 @@ impl DiskImage {
         self.image_format
     }
 
-    pub fn add_track(&mut self, format: TrackFormat, ch: DiskCh, data: &[u8], weak: Option<&[u8]>) {
-        // Create an empty weak bit mask if none is provided.
-        let weak_buf_vec = match weak {
-            Some(weak_buf) => weak_buf.to_vec(),
-            None => vec![0; data.len()],
-        };
-
+    pub fn add_track(&mut self, format: TrackFormat, ch: DiskCh) {
         assert!(ch.h < 2);
         self.tracks[ch.h as usize].push(DiskTrack {
             format,
             data: TrackData {
                 cylinder: ch.c,
                 head: ch.h,
-                data: data.to_vec(),
-                weak_mask: weak_buf_vec,
+                sectors: Vec::new(),
+                data: Vec::new(),
+                weak_mask: Vec::new(),
             },
         });
     }
 
-    pub fn add_sector(
+    pub fn write_sector(
         &mut self,
         chs: DiskChs,
         id: u8,
         cylinder_id: Option<u8>,
         head_id: Option<u8>,
-        len: usize,
-        t_idx: usize,
+        data: &[u8],
+        weak: Option<&[u8]>,
     ) -> Result<(), DiskImageError> {
-        self.sectors.insert(
-            chs,
-            DiskSector {
-                id,
-                cylinder_id: cylinder_id.unwrap_or(chs.c()),
-                head_id: head_id.unwrap_or(chs.h()),
-                chs,
-                len,
-                t_idx,
-            },
-        );
+        if chs.h() >= 2 || self.tracks[chs.h() as usize].len() < chs.c() as usize {
+            return Err(DiskImageError::SeekError);
+        }
+
+        // Create an empty weak bit mask if none is provided.
+        let weak_buf_vec = match weak {
+            Some(weak_buf) => weak_buf.to_vec(),
+            None => vec![0; data.len()],
+        };
+
+        let mut track = &mut self.tracks[chs.h() as usize][chs.c() as usize];
+
+        track.data.sectors.push(TrackSectorIndex {
+            sector_id: id,
+            cylinder_id: cylinder_id.unwrap_or(chs.c()),
+            head_id: head_id.unwrap_or(chs.h()),
+            t_idx: track.data.data.len(),
+            len: data.len(),
+        });
+        track.data.data.extend(data);
+        track.data.weak_mask.extend(weak_buf_vec);
+
         Ok(())
     }
 
+    /// Read the specified 'len' bytes from the disk image starting at the sector mark given by 'chs'.
     pub fn read_sector(&self, chs: DiskChs, len: usize) -> Result<Vec<u8>, DiskImageError> {
-        if let Some(sector) = self.sectors.get(&chs) {
-            let track_len = self.tracks[chs.h() as usize][chs.c() as usize].data.data.len();
-            Ok(self.tracks[chs.h() as usize][chs.c() as usize].data.data
-                [sector.t_idx..std::cmp::min(sector.t_idx + len, track_len)]
-                .to_vec())
-        } else {
-            Err(DiskImageError::SeekError)
+        if chs.h() >= 2 || chs.c() as usize >= self.tracks[chs.h() as usize].len() {
+            return Err(DiskImageError::SeekError);
         }
+        let track = &self.tracks[chs.h() as usize][chs.c() as usize];
+        for s in &track.data.sectors {
+            if s.sector_id == chs.s() {
+                return Ok(track.data.data[s.t_idx..std::cmp::min(s.t_idx + len, track.data.data.len())].to_vec());
+            }
+        }
+        Err(DiskImageError::SeekError)
     }
 
     pub fn dump_info<W: crate::io::Write>(&self, mut out: W) {
