@@ -113,22 +113,13 @@ impl RawFormat {
         Ok(disk_image)
     }
 
-    pub fn save_image<RWS: ReadWriteSeek>(image: &DiskImage, mut output: &mut RWS) -> Result<(), DiskImageError> {
-        let mut total_len = 0;
+    pub fn save_image<RWS: ReadWriteSeek>(image: &DiskImage, output: &mut RWS) -> Result<(), DiskImageError> {
         for track_n in 0..image.tracks[0].len() {
             for head in 0..2 {
                 let track = &image.tracks[head][track_n];
 
                 for sector in &track.data.sectors {
-                    let chs = DiskChs::from((track_n as u8, head as u8, sector.sector_id as u8));
-
                     let sector_len = std::cmp::min(sector.len, DEFAULT_SECTOR_SIZE);
-                    /*
-                    log::trace!(
-                        "Exporting sector {} of length {}, total_len: {}",
-                        chs, sector_len, total_len
-                    );
-                    */
                     output
                         .write_all(
                             track.data.data
@@ -136,8 +127,6 @@ impl RawFormat {
                                 .as_ref(),
                         )
                         .map_err(|_e| DiskImageError::IoError)?;
-
-                    total_len += sector_len;
                 }
             }
         }
