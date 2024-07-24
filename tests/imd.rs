@@ -12,7 +12,7 @@ fn test_img() {
 
     let img_image = DiskImage::load(&mut in_buffer).unwrap();
 
-    println!("Loaded IMD image...");
+    println!("Loaded IMD image of geometry {}...", img_image.image_format().geometry);
 
     let mut out_buffer = Cursor::new(Vec::new());
 

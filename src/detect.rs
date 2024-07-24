@@ -31,7 +31,11 @@ use crate::io::ReadSeek;
 use crate::parsers::ImageParser;
 use crate::DiskImageError;
 
-const IMAGE_FORMATS: [DiskImageFormat; 2] = [DiskImageFormat::ImageDisk, DiskImageFormat::RawSectorImage];
+const IMAGE_FORMATS: [DiskImageFormat; 3] = [
+    DiskImageFormat::ImageDisk,
+    DiskImageFormat::PceSectorImage,
+    DiskImageFormat::RawSectorImage,
+];
 
 /// Attempt to detect the format of a disk image. If the format cannot be determined, UnknownFormat is returned.
 pub fn detect_image_format<T: ReadSeek>(image_io: &mut T) -> Result<DiskImageFormat, DiskImageError> {

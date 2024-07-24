@@ -27,7 +27,7 @@
 
 use crate::chs::DiskChs;
 use crate::detect::chs_from_raw_size;
-use crate::diskimage::{DiskConsistency, DiskImage, FloppyFormat, TrackFormat};
+use crate::diskimage::{DiskConsistency, DiskImage, FloppyFormat, ImageFormat, TrackFormat};
 use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::parsers::ParserWriteCompatibility;
 use crate::util::get_length;
@@ -65,7 +65,7 @@ impl RawFormat {
         }
 
         let disk_chs = floppy_format.get_chs();
-        println!("Disk CHS: {}", disk_chs);
+        log::trace!("load_image(): Disk CHS: {}", disk_chs);
         let data_rate = floppy_format.get_data_rate();
         let data_encoding = floppy_format.get_encoding();
 
@@ -99,7 +99,16 @@ impl RawFormat {
                     .map_err(|_e| DiskImageError::IoError)?;
 
                 //log::trace!("Importing sector {} of length {}", cursor_chs, DEFAULT_SECTOR_SIZE);
-                disk_image.write_sector(cursor_chs, sector_id, None, None, &sector_buffer, None)?;
+                disk_image.master_sector(
+                    cursor_chs,
+                    sector_id + 1,
+                    None,
+                    None,
+                    &sector_buffer,
+                    None,
+                    false,
+                    false,
+                )?;
                 cursor_chs.seek_forward(1, &disk_chs);
             }
         }
@@ -110,6 +119,14 @@ impl RawFormat {
             consistent_sector_size: Some(DEFAULT_SECTOR_SIZE as u32),
             consistent_track_length: Some(disk_chs.s()),
         };
+
+        disk_image.image_format = ImageFormat {
+            geometry: disk_chs,
+            data_rate,
+            data_encoding,
+            default_sector_size: DEFAULT_SECTOR_SIZE,
+        };
+
         Ok(disk_image)
     }
 

@@ -36,6 +36,7 @@ use std::fmt::Display;
 pub enum DiskImageFormat {
     RawSectorImage,
     ImageDisk,
+    PceSectorImage,
     TeleDisk,
     KryofluxStream,
 }
@@ -44,6 +45,7 @@ impl Display for DiskImageFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str = match self {
             DiskImageFormat::RawSectorImage => "Raw Sector Image".to_string(),
+            DiskImageFormat::PceSectorImage => "PCE Sector Image".to_string(),
             DiskImageFormat::ImageDisk => "ImageDisk".to_string(),
             DiskImageFormat::TeleDisk => "TeleDisk".to_string(),
             DiskImageFormat::KryofluxStream => "Kryoflux Stream".to_string(),
@@ -229,6 +231,8 @@ pub struct TrackSectorIndex {
     pub head_id: u8,
     pub t_idx: usize,
     pub len: usize,
+    pub crc_error: bool,
+    pub deleted_mark: bool,
 }
 
 impl DiskSector {}
@@ -251,6 +255,13 @@ pub struct ImageFormat {
     pub data_encoding: DiskDataEncoding,
     /// The data rate of the disk
     pub data_rate: DiskDataRate,
+}
+
+pub struct ReadSectorResult {
+    pub deleted_mark: bool,
+    pub crc_error: bool,
+    pub wrong_cylinder: bool,
+    pub data: Vec<u8>,
 }
 
 /// A DiskImage represents an image of a floppy disk in memory. It comprises a pool of sectors, and an ordered
@@ -358,7 +369,7 @@ impl DiskImage {
         });
     }
 
-    pub fn write_sector(
+    pub fn master_sector(
         &mut self,
         chs: DiskChs,
         id: u8,
@@ -366,6 +377,8 @@ impl DiskImage {
         head_id: Option<u8>,
         data: &[u8],
         weak: Option<&[u8]>,
+        crc_error: bool,
+        deleted_mark: bool,
     ) -> Result<(), DiskImageError> {
         if chs.h() >= 2 || self.tracks[chs.h() as usize].len() < chs.c() as usize {
             return Err(DiskImageError::SeekError);
@@ -385,6 +398,8 @@ impl DiskImage {
             head_id: head_id.unwrap_or(chs.h()),
             t_idx: track.data.data.len(),
             len: data.len(),
+            crc_error,
+            deleted_mark,
         });
         track.data.data.extend(data);
         track.data.weak_mask.extend(weak_buf_vec);
@@ -392,18 +407,62 @@ impl DiskImage {
         Ok(())
     }
 
-    /// Read the specified 'len' bytes from the disk image starting at the sector mark given by 'chs'.
-    pub fn read_sector(&self, chs: DiskChs, len: usize) -> Result<Vec<u8>, DiskImageError> {
+    /// Read the sectors of 'len' bytes from the disk image starting at the sector mark given by 'chs'.
+    pub fn read_sector(&self, chs: DiskChs, ct: usize, len: usize) -> Result<ReadSectorResult, DiskImageError> {
         if chs.h() >= 2 || chs.c() as usize >= self.tracks[chs.h() as usize].len() {
             return Err(DiskImageError::SeekError);
         }
         let track = &self.tracks[chs.h() as usize][chs.c() as usize];
-        for s in &track.data.sectors {
-            if s.sector_id == chs.s() {
-                return Ok(track.data.data[s.t_idx..std::cmp::min(s.t_idx + len, track.data.data.len())].to_vec());
+
+        let mut read_vec = Vec::new();
+
+        let mut sid = chs.s();
+        let mut deleted_mark = false;
+        let mut crc_error = false;
+        let mut wrong_cylinder = false;
+        for _s in 0..ct {
+            for si in &track.data.sectors {
+                if si.sector_id == sid {
+                    log::trace!("found sector_id: {} at t_idx: {}", si.sector_id, si.t_idx);
+                    read_vec.extend(
+                        track.data.data[si.t_idx..std::cmp::min(si.t_idx + len, track.data.data.len())].to_vec(),
+                    );
+
+                    if si.crc_error {
+                        crc_error = true;
+                    }
+
+                    if si.cylinder_id != chs.c() {
+                        wrong_cylinder = true;
+                    }
+
+                    if si.deleted_mark {
+                        deleted_mark = true;
+                    }
+                }
+            }
+            sid += 1;
+        }
+
+        Ok(ReadSectorResult {
+            deleted_mark,
+            crc_error,
+            wrong_cylinder,
+            data: read_vec,
+        })
+    }
+
+    pub fn is_id_valid(&self, chs: DiskChs) -> bool {
+        if chs.h() >= 2 || chs.c() as usize >= self.tracks[chs.h() as usize].len() {
+            return false;
+        }
+        let track = &self.tracks[chs.h() as usize][chs.c() as usize];
+        for si in &track.data.sectors {
+            if si.sector_id == chs.s() {
+                return true;
             }
         }
-        Err(DiskImageError::SeekError)
+        false
     }
 
     pub fn dump_info<W: crate::io::Write>(&self, mut out: W) {

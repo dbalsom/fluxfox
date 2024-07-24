@@ -60,6 +60,8 @@ pub enum DiskImageError {
     FormatParseError,
     #[error("The requested sector could not be found")]
     SeekError,
+    #[error("A CRC error was detected in the disk image")]
+    CrcError,
 }
 
 #[repr(usize)]
@@ -89,8 +91,9 @@ impl Display for DiskDataEncoding {
 
 #[derive(Copy, Clone, Debug, Default)]
 pub enum DiskDataRate {
-    Rate250Kbps,
+    Rate125Kbps,
     #[default]
+    Rate250Kbps,
     Rate300Kbps,
     Rate500Kbps,
 }
@@ -98,6 +101,7 @@ pub enum DiskDataRate {
 impl Display for DiskDataRate {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
+            DiskDataRate::Rate125Kbps => write!(f, "125Kbps"),
             DiskDataRate::Rate250Kbps => write!(f, "250Kbps"),
             DiskDataRate::Rate300Kbps => write!(f, "300Kbps"),
             DiskDataRate::Rate500Kbps => write!(f, "500Kbps"),

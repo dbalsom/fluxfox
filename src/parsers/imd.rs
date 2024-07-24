@@ -25,11 +25,14 @@
     --------------------------------------------------------------------------
 */
 use crate::chs::{DiskCh, DiskChs};
-use crate::diskimage::{DiskConsistency, TrackFormat};
+use crate::diskimage::{DiskConsistency, ImageFormat, TrackFormat};
 use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::parsers::ParserWriteCompatibility;
 use crate::util::{get_length, read_ascii};
-use crate::{DiskDataEncoding, DiskDataRate, DiskImage, DiskImageError, DiskImageFormat, DEFAULT_SECTOR_SIZE};
+use crate::{
+    DiskDataEncoding, DiskDataRate, DiskImage, DiskImageError, DiskImageFormat, FoxHashMap, FoxHashSet,
+    DEFAULT_SECTOR_SIZE,
+};
 use binrw::{binrw, BinRead, BinReaderExt};
 use regex::Regex;
 
@@ -174,6 +177,8 @@ impl ImdFormat {
         }
 
         let mut header_offset = image.seek(std::io::SeekFrom::Current(0)).unwrap();
+        let mut sector_counts: FoxHashMap<u8, u32> = FoxHashMap::new();
+        let mut heads_seen: FoxHashSet<u8> = FoxHashSet::new();
 
         let mut rate_opt = None;
         let mut encoding_opt = None;
@@ -183,6 +188,8 @@ impl ImdFormat {
 
         let mut consistent_sector_size = None;
         let mut last_sector_size = None;
+
+        let mut track_ct = 0;
 
         while let Ok(track_header) = ImdTrack::read_le(&mut image) {
             log::trace!("from_image: Track header: {:?} @ {:X}", &track_header, header_offset);
@@ -224,6 +231,18 @@ impl ImdFormat {
             let mut sector_numbers = vec![0; track_header.sector_ct as usize];
             let mut cylinder_map = vec![track_header.c(); track_header.sector_ct as usize];
             let mut head_map = vec![track_header.h(); track_header.sector_ct as usize];
+
+            // Keep a histogram of sector counts.
+            if track_header.sector_ct > 0 {
+                sector_counts
+                    .entry(track_header.sector_ct)
+                    .and_modify(|e| *e += 1)
+                    .or_insert(1);
+            }
+
+            // Keep a set of heads seen.
+            heads_seen.insert(track_header.h());
+
             image
                 .read_exact(&mut sector_numbers)
                 .map_err(|_e| DiskImageError::IoError)?;
@@ -287,13 +306,15 @@ impl ImdFormat {
                         );
 
                         // Add this sector to track.
-                        disk_image.write_sector(
+                        disk_image.master_sector(
                             DiskChs::from((track_header.c(), track_header.h(), sector_numbers[s])),
                             sector_numbers[s],
                             Some(cylinder_map[s]),
                             Some(head_map[s]),
                             &data.data,
                             None,
+                            data.error,
+                            data.deleted,
                         )?;
                     }
                     _ => {
@@ -303,6 +324,11 @@ impl ImdFormat {
             }
 
             header_offset = image.seek(std::io::SeekFrom::Current(0)).unwrap();
+
+            if track_header.sector_ct == 0 {
+                continue;
+            }
+            track_ct += 1;
         }
 
         disk_image.set_data_rate(rate_opt.unwrap());
@@ -313,6 +339,21 @@ impl ImdFormat {
             deleted: false,
             consistent_sector_size,
             consistent_track_length,
+        };
+
+        let most_common_sector_count = sector_counts
+            .iter()
+            .max_by_key(|&(_, count)| count)
+            .map(|(&value, _)| value)
+            .unwrap_or(0);
+
+        let head_ct = heads_seen.len() as u8;
+
+        disk_image.image_format = ImageFormat {
+            geometry: DiskChs::from((track_ct / head_ct, head_ct, most_common_sector_count)),
+            data_rate: rate_opt.unwrap(),
+            data_encoding: encoding_opt.unwrap(),
+            default_sector_size: DEFAULT_SECTOR_SIZE,
         };
 
         Ok(disk_image)

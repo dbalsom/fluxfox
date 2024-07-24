@@ -28,6 +28,7 @@ use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::{DiskImage, DiskImageError, DiskImageFormat};
 
 pub mod imd;
+mod psi;
 pub mod raw;
 
 pub enum ParserWriteCompatibility {
@@ -41,6 +42,8 @@ pub enum ParserWriteCompatibility {
 pub trait ImageParser {
     /// Detect and return true if the image is of a format that the parser can read.
     fn detect<RWS: ReadSeek>(&self, image_buf: RWS) -> bool;
+    /// Return a list of file extensions associated with the parser.
+    fn extensions(&self) -> Vec<&'static str>;
     /// Create a DiskImage from the specified image buffer, or DiskImageError if the format is not supported.
     fn load_image<RWS: ReadSeek>(&self, image_buf: RWS) -> Result<DiskImage, DiskImageError>;
     /// Return true if the parser can write the specified disk image. Not all formats are writable
@@ -54,7 +57,17 @@ impl ImageParser for DiskImageFormat {
         match self {
             DiskImageFormat::RawSectorImage => raw::RawFormat::detect(image_buf),
             DiskImageFormat::ImageDisk => imd::ImdFormat::detect(image_buf),
+            DiskImageFormat::PceSectorImage => psi::PsiFormat::detect(image_buf),
             _ => false,
+        }
+    }
+
+    fn extensions(&self) -> Vec<&'static str> {
+        match self {
+            DiskImageFormat::RawSectorImage => vec!["img", "ima", "dsk", "bin"],
+            DiskImageFormat::ImageDisk => vec!["imd"],
+            DiskImageFormat::PceSectorImage => vec!["psi"],
+            _ => vec![],
         }
     }
 
@@ -62,6 +75,7 @@ impl ImageParser for DiskImageFormat {
         match self {
             DiskImageFormat::RawSectorImage => raw::RawFormat::load_image(image_buf),
             DiskImageFormat::ImageDisk => imd::ImdFormat::load_image(image_buf),
+            DiskImageFormat::PceSectorImage => psi::PsiFormat::load_image(image_buf),
             _ => Err(DiskImageError::UnknownFormat),
         }
     }
@@ -70,6 +84,7 @@ impl ImageParser for DiskImageFormat {
         match self {
             DiskImageFormat::RawSectorImage => raw::RawFormat::can_write(image),
             DiskImageFormat::ImageDisk => imd::ImdFormat::can_write(image),
+            DiskImageFormat::PceSectorImage => psi::PsiFormat::can_write(image),
             _ => ParserWriteCompatibility::UnsupportedFormat,
         }
     }
@@ -78,6 +93,7 @@ impl ImageParser for DiskImageFormat {
         match self {
             DiskImageFormat::RawSectorImage => raw::RawFormat::save_image(image, image_buf),
             DiskImageFormat::ImageDisk => imd::ImdFormat::save_image(image, image_buf),
+            DiskImageFormat::PceSectorImage => psi::PsiFormat::save_image(image, image_buf),
             _ => Err(DiskImageError::UnknownFormat),
         }
     }

@@ -25,6 +25,7 @@
     --------------------------------------------------------------------------
 */
 
+pub use std::io::Cursor;
 pub use std::io::Error;
 /// Reexport the standard library's IO traits.
 /// This gives an opportunity to implement our own versions if we wish to add no-std support.

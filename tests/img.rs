@@ -12,7 +12,9 @@ fn test_img() {
 
     let img_image = DiskImage::load(&mut in_buffer).unwrap();
 
-    println!("Loaded image...");
+    let geometry = img_image.image_format().geometry;
+
+    println!("Loaded IMG of geometry {}...", geometry);
 
     let mut out_buffer = Cursor::new(Vec::new());
     let fmt = DiskImageFormat::RawSectorImage;
