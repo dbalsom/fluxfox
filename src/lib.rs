@@ -25,14 +25,17 @@
     --------------------------------------------------------------------------
 */
 
+mod bitstream;
 mod chs;
-mod diskimage;
-mod sector;
-
 mod detect;
+mod diskimage;
 mod io;
 mod parsers;
+mod sector;
 mod util;
+
+#[cfg(feature = "viz")]
+pub mod visualization;
 
 use std::fmt;
 use std::fmt::{Display, Formatter};
@@ -58,10 +61,14 @@ pub enum DiskImageError {
     UnsupportedFormat,
     #[error("The disk image format parser encountered an error")]
     FormatParseError,
+    #[error("The disk image format parser determined the image was corrupt")]
+    ImageCorruptError,
     #[error("The requested sector could not be found")]
     SeekError,
     #[error("A CRC error was detected in the disk image")]
     CrcError,
+    #[error("Invalid parameters were specified to a library function")]
+    ParameterError,
 }
 
 #[repr(usize)]
@@ -73,11 +80,35 @@ pub enum TrackDataType {
     FluxStream = 2,
 }
 
-#[derive(Default, Copy, Clone)]
+#[derive(Default, Copy, Clone, Debug)]
 pub enum DiskDataEncoding {
     #[default]
     Fm,
     Mfm,
+    Gcr,
+}
+
+#[derive(Default, Copy, Clone, Debug)]
+pub enum DiskDensity {
+    Standard,
+    #[default]
+    Double,
+    High,
+    Extended,
+}
+
+pub enum EncodingSync {
+    Even,
+    Odd,
+}
+
+impl From<EncodingSync> for usize {
+    fn from(sync: EncodingSync) -> Self {
+        match sync {
+            EncodingSync::Even => 0,
+            EncodingSync::Odd => 1,
+        }
+    }
 }
 
 impl Display for DiskDataEncoding {
@@ -85,26 +116,55 @@ impl Display for DiskDataEncoding {
         match self {
             DiskDataEncoding::Fm => write!(f, "FM"),
             DiskDataEncoding::Mfm => write!(f, "MFM"),
+            DiskDataEncoding::Gcr => write!(f, "GCR"),
         }
     }
 }
 
 #[derive(Copy, Clone, Debug, Default)]
 pub enum DiskDataRate {
+    RateNonstandard(u32),
     Rate125Kbps,
     #[default]
     Rate250Kbps,
     Rate300Kbps,
     Rate500Kbps,
+    Rate1000Kbps,
+}
+
+impl From<u32> for DiskDataRate {
+    fn from(rate: u32) -> Self {
+        match rate {
+            125000 => DiskDataRate::Rate125Kbps,
+            250000 => DiskDataRate::Rate250Kbps,
+            300000 => DiskDataRate::Rate300Kbps,
+            500000 => DiskDataRate::Rate500Kbps,
+            1000000 => DiskDataRate::Rate1000Kbps,
+            _ => DiskDataRate::RateNonstandard(rate),
+        }
+    }
+}
+
+impl From<DiskDensity> for DiskDataRate {
+    fn from(density: DiskDensity) -> Self {
+        match density {
+            DiskDensity::Standard => DiskDataRate::Rate125Kbps,
+            DiskDensity::Double => DiskDataRate::Rate250Kbps,
+            DiskDensity::High => DiskDataRate::Rate500Kbps,
+            DiskDensity::Extended => DiskDataRate::Rate1000Kbps,
+        }
+    }
 }
 
 impl Display for DiskDataRate {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
+            DiskDataRate::RateNonstandard(rate) => write!(f, "{}Kbps", rate / 1000),
             DiskDataRate::Rate125Kbps => write!(f, "125Kbps"),
             DiskDataRate::Rate250Kbps => write!(f, "250Kbps"),
             DiskDataRate::Rate300Kbps => write!(f, "300Kbps"),
             DiskDataRate::Rate500Kbps => write!(f, "500Kbps"),
+            DiskDataRate::Rate1000Kbps => write!(f, "1000Kbps"),
         }
     }
 }

@@ -30,6 +30,7 @@
     print out some basic information about it.
 */
 use bpaf::*;
+use fluxfox::visualization::{render_tracks, ResolutionType, RotationDirection};
 use fluxfox::DiskChs;
 use fluxfox::DiskImage;
 use std::path::PathBuf;
@@ -52,7 +53,7 @@ fn opts() -> OptionParser<Out> {
 
     construct!(Out { debug, filename })
         .to_options()
-        .descr("opl3-rs: play_tune example")
+        .descr("imginfo: display info about disk image")
 }
 
 fn main() {
@@ -81,7 +82,7 @@ fn main() {
 
     println!("Detected disk image type: {:?}", disk_image_type);
 
-    let disk = match DiskImage::load(&mut reader) {
+    let mut disk = match DiskImage::load(&mut reader) {
         Ok(disk) => disk,
         Err(e) => {
             eprintln!("Error loading disk image: {}", e);
@@ -92,4 +93,28 @@ fn main() {
     println!("Disk image info:");
     println!("----------------");
     disk.dump_info(&mut std::io::stdout());
+
+    #[cfg(feature = "viz")]
+    {
+        let high_res_size = (4096, 4096); // High-resolution image size
+        let direction = RotationDirection::Clockwise; // Change to Clockwise if needed
+        let resolution = ResolutionType::Byte; // Change to Bit if needed
+        let num_tracks = 40;
+        let min_radius_fraction = 0.33; // Minimum radius as a fraction of the image size
+        let track_gap_weight = 2.0; // Thickness of the boundary circles
+
+        let image_result = render_tracks(
+            &disk,
+            0,
+            high_res_size,
+            min_radius_fraction,
+            track_gap_weight,
+            direction,
+            resolution,
+        );
+
+        if let Ok(out_image) = image_result {
+            out_image.save("tracks_hires.png").unwrap();
+        }
+    }
 }

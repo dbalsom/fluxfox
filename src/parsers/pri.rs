@@ -24,11 +24,11 @@
 
     --------------------------------------------------------------------------
 
-    src/parsers/psi.rs
+    src/parsers/pri.rs
 
-    A parser for the PSI disk image format.
+    A parser for the PRI disk image format.
 
-    PSI format images are PCE Sector Images, an internal format used by the PCE emulator and
+    PRI format images are PCE bitstream images, an internal format used by the PCE emulator and
     devised by Hampa Hug.
 
     It is a chunk-based format similar to RIFF.
@@ -41,17 +41,18 @@ use crate::io::{Cursor, ReadSeek, ReadWriteSeek};
 use crate::parsers::ParserWriteCompatibility;
 
 use crate::{
-    DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat, FoxHashMap, FoxHashSet,
+    DiskDataEncoding, DiskDataRate, DiskImage, DiskImageError, DiskImageFormat, FoxHashMap, FoxHashSet,
     DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, BinRead};
 
-pub struct PsiFormat;
+pub struct PriFormat;
 pub const MAXIMUM_CHUNK_SIZE: usize = 0x100000; // Reasonable 1MB limit for chunk sizes.
 
 pub const SH_FLAG_COMPRESSED: u8 = 0b0001;
 pub const SH_FLAG_ALTERNATE: u8 = 0b0010;
 pub const SH_FLAG_CRC_ERROR: u8 = 0b0100;
+
 pub const SH_IBM_FLAG_CRC_ERROR_ID: u8 = 0b0001;
 pub const SH_IBM_FLAG_CRC_ERROR_DATA: u8 = 0b0010;
 pub const SH_IBM_DELETED_DATA: u8 = 0b0100;
@@ -60,7 +61,7 @@ pub const SH_IBM_MISSING_DATA: u8 = 0b1000;
 #[derive(Debug)]
 #[binrw]
 #[brw(big)]
-pub struct PsiChunkHeader {
+pub struct PriChunkHeader {
     pub id: [u8; 4],
     pub size: u32,
 }
@@ -68,51 +69,59 @@ pub struct PsiChunkHeader {
 #[derive(Debug)]
 #[binrw]
 #[brw(big)]
-pub struct PsiHeader {
+pub struct PriHeader {
     pub version: u16,
-    pub sector_format: [u8; 2],
+    pub reserved: u16,
 }
 
 #[derive(Debug)]
 #[binrw]
 #[brw(big)]
-pub struct PsiChunkCrc {
+pub struct PriChunkCrc {
     pub crc: u32,
 }
 
 #[binrw]
 #[brw(big)]
-pub struct PsiSectorHeader {
-    pub cylinder: u16,
-    pub head: u8,
-    pub sector: u8,
-    pub size: u16,
-    pub flags: u8,
-    pub compressed_data: u8,
+pub struct PriTrackHeader {
+    pub cylinder: u32,
+    pub head: u32,
+    pub bit_length: u32,
+    pub clock_rate: u32,
+}
+
+#[binrw]
+#[brw(big)]
+pub struct PriWeakMask {
+    pub bit_offset: u32,
+}
+
+#[binrw]
+#[brw(big)]
+pub struct PriAlternateClock {
+    pub bit_offset: u32,
+    pub new_clock: u32,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub enum PsiChunkType {
+pub enum PriChunkType {
     FileHeader,
     Text,
-    SectorHeader,
-    SectorData,
+    TrackHeader,
+    TrackData,
     WeakMask,
-    IbmFmSectorHeader,
-    IbmMfmSectorHeader,
-    MacintoshSectorHeader,
-    SectorPositionOffset,
-    ClockRateAdjustment,
+    AlternateBitClock,
     End,
     Unknown,
 }
 
-pub struct PsiChunk {
-    pub chunk_type: PsiChunkType,
+pub struct PriChunk {
+    pub chunk_type: PriChunkType,
+    pub size: u32,
     pub data: Vec<u8>,
 }
 
-pub(crate) fn psi_crc(buf: &[u8]) -> u32 {
+pub(crate) fn pri_crc(buf: &[u8]) -> u32 {
     let mut crc = 0;
     for i in 0..buf.len() {
         crc ^= ((buf[i] & 0xff) as u32) << 24;
@@ -128,30 +137,17 @@ pub(crate) fn psi_crc(buf: &[u8]) -> u32 {
     return crc & 0xffffffff;
 }
 
-pub(crate) fn decode_psi_sector_format(sector_format: [u8; 2]) -> Option<(DiskDataEncoding, DiskDensity)> {
-    match sector_format {
-        [0x00, 0x00] => Some((DiskDataEncoding::Fm, DiskDensity::Standard)),
-        [0x01, 0x00] => Some((DiskDataEncoding::Fm, DiskDensity::Double)),
-        [0x02, 0x00] => Some((DiskDataEncoding::Fm, DiskDensity::High)),
-        [0x02, 0x01] => Some((DiskDataEncoding::Fm, DiskDensity::High)),
-        [0x02, 0x02] => Some((DiskDataEncoding::Mfm, DiskDensity::Extended)),
-        // TODO: What density are GCR disks? Are they all the same? PSI doesn't specify any variants.
-        [0x03, 0x00] => Some((DiskDataEncoding::Gcr, DiskDensity::Double)),
-        _ => None,
-    }
-}
-
-impl PsiFormat {
+impl PriFormat {
     fn format() -> DiskImageFormat {
-        DiskImageFormat::PceSectorImage
+        DiskImageFormat::PceBitstreamImage
     }
 
     pub(crate) fn detect<RWS: ReadSeek>(mut image: RWS) -> bool {
         let mut detected = false;
         _ = image.seek(std::io::SeekFrom::Start(0));
 
-        if let Ok(file_header) = PsiChunkHeader::read_be(&mut image) {
-            if &file_header.id == "PSI ".as_bytes() {
+        if let Ok(file_header) = PriChunkHeader::read_be(&mut image) {
+            if &file_header.id == "PRI ".as_bytes() {
                 detected = true;
             }
         }
@@ -164,13 +160,13 @@ impl PsiFormat {
         ParserWriteCompatibility::Ok
     }
 
-    pub(crate) fn read_chunk<RWS: ReadSeek>(mut image: RWS) -> Result<PsiChunk, DiskImageError> {
+    pub(crate) fn read_chunk<RWS: ReadSeek>(mut image: RWS) -> Result<PriChunk, DiskImageError> {
         let chunk_pos = image
             .seek(std::io::SeekFrom::Current(0))
             .map_err(|_| DiskImageError::IoError)?;
 
         //log::trace!("Reading chunk header...");
-        let chunk_header = PsiChunkHeader::read(&mut image).map_err(|_| DiskImageError::IoError)?;
+        let chunk_header = PriChunkHeader::read(&mut image).map_err(|_| DiskImageError::IoError)?;
 
         if let Ok(id) = std::str::from_utf8(&chunk_header.id) {
             log::trace!("Chunk ID: {} Size: {}", id, chunk_header.size);
@@ -179,20 +175,16 @@ impl PsiFormat {
         }
 
         let chunk_type = match &chunk_header.id {
-            b"PSI " => PsiChunkType::FileHeader,
-            b"TEXT" => PsiChunkType::Text,
-            b"END " => PsiChunkType::End,
-            b"SECT" => PsiChunkType::SectorHeader,
-            b"DATA" => PsiChunkType::SectorData,
-            b"WEAK" => PsiChunkType::WeakMask,
-            b"IBMF" => PsiChunkType::IbmFmSectorHeader,
-            b"IMFM" => PsiChunkType::IbmMfmSectorHeader,
-            b"MACG" => PsiChunkType::MacintoshSectorHeader,
-            b"OFFS" => PsiChunkType::SectorPositionOffset,
-            b"TIME" => PsiChunkType::ClockRateAdjustment,
+            b"PRI " => PriChunkType::FileHeader,
+            b"TEXT" => PriChunkType::Text,
+            b"END " => PriChunkType::End,
+            b"TRAK" => PriChunkType::TrackHeader,
+            b"DATA" => PriChunkType::TrackData,
+            b"WEAK" => PriChunkType::WeakMask,
+            b"BCLK" => PriChunkType::AlternateBitClock,
             _ => {
                 log::trace!("Unknown chunk type.");
-                PsiChunkType::Unknown
+                PriChunkType::Unknown
             }
         };
 
@@ -208,8 +200,8 @@ impl PsiFormat {
             .map_err(|_| DiskImageError::IoError)?;
         image.read_exact(&mut buffer).map_err(|_| DiskImageError::IoError)?;
 
-        let crc_calc = psi_crc(&buffer);
-        let chunk_crc = PsiChunkCrc::read(&mut image).map_err(|_| DiskImageError::IoError)?;
+        let crc_calc = pri_crc(&buffer);
+        let chunk_crc = PriChunkCrc::read(&mut image).map_err(|_| DiskImageError::IoError)?;
 
         if chunk_crc.crc != crc_calc {
             return Err(DiskImageError::CrcError);
@@ -217,8 +209,9 @@ impl PsiFormat {
 
         //log::trace!("CRC matched: {:04X} {:04X}", chunk_crc.crc, crc_calc);
 
-        let chunk = PsiChunk {
+        let chunk = PriChunk {
             chunk_type,
+            size: chunk_header.size,
             data: buffer[8..].to_vec(),
         };
         Ok(chunk)
@@ -232,18 +225,16 @@ impl PsiFormat {
             .seek(std::io::SeekFrom::Start(0))
             .map_err(|_| DiskImageError::IoError)?;
 
-        let mut chunk = PsiFormat::read_chunk(&mut image)?;
+        let mut chunk = PriFormat::read_chunk(&mut image)?;
         // File header must be first chunk.
-        if chunk.chunk_type != PsiChunkType::FileHeader {
+        if chunk.chunk_type != PriChunkType::FileHeader {
             return Err(DiskImageError::UnknownFormat);
         }
 
         let file_header =
-            PsiHeader::read(&mut Cursor::new(&chunk.data)).map_err(|_| DiskImageError::FormatParseError)?;
-        log::trace!("Read PSI file header. Format version: {}", file_header.version);
+            PriHeader::read(&mut Cursor::new(&chunk.data)).map_err(|_| DiskImageError::FormatParseError)?;
+        log::trace!("Read PRI file header. Format version: {}", file_header.version);
 
-        let (default_encoding, disk_density) =
-            decode_psi_sector_format(file_header.sector_format).ok_or(DiskImageError::FormatParseError)?;
         let mut comment_string = String::new();
         let mut current_chs = DiskChs::default();
         let mut current_crc_error = false;
@@ -258,97 +249,92 @@ impl PsiFormat {
         let mut sector_counts: FoxHashMap<u8, u32> = FoxHashMap::new();
         let mut heads_seen: FoxHashSet<u8> = FoxHashSet::new();
         let mut sectors_per_track = 0;
+        let mut default_bit_clock = 0;
+        let mut current_bit_clock = 0;
+        let mut expected_data_size = 0;
 
-        while chunk.chunk_type != PsiChunkType::End {
+        while chunk.chunk_type != PriChunkType::End {
             match chunk.chunk_type {
-                PsiChunkType::SectorHeader => {
-                    //log::trace!("Sector header chunk.");
-                    let sector_header = PsiSectorHeader::read(&mut Cursor::new(&chunk.data))
+                PriChunkType::TrackHeader => {
+                    let track_header = PriTrackHeader::read(&mut Cursor::new(&chunk.data))
                         .map_err(|_| DiskImageError::FormatParseError)?;
-                    let chs = DiskChs::from((sector_header.cylinder as u8, sector_header.head, sector_header.sector));
-                    let ch = DiskCh::from((sector_header.cylinder as u8, sector_header.head));
 
-                    heads_seen.insert(sector_header.head);
-
-                    if !track_set.contains(&ch) {
-                        log::trace!("Adding track...");
-                        disk_image.add_track_bytestream(default_encoding, DiskDataRate::from(disk_density), ch);
-                        track_set.insert(ch);
-                        log::trace!("Observing sector count: {}", sectors_per_track);
-                        sector_counts
-                            .entry(sectors_per_track)
-                            .and_modify(|e| *e += 1)
-                            .or_insert(1);
-                        sectors_per_track = 0;
-                    }
-
-                    if sector_header.flags & SH_FLAG_ALTERNATE != 0 {
-                        log::trace!("Alternate sector data.");
-                    }
-
-                    current_crc_error = if sector_header.flags & SH_FLAG_CRC_ERROR != 0 {
-                        true
-                    } else {
-                        false
-                    };
-
-                    // Write sector data immediately if compressed data is indicated (no sector data chunk follows)
-                    if sector_header.flags & SH_FLAG_COMPRESSED != 0 {
-                        log::trace!("Compressed sector data: {:02X}", sector_header.compressed_data);
-
-                        let chunk_expand = vec![sector_header.compressed_data; sector_header.size as usize];
-                        disk_image.master_sector(
-                            chs,
-                            chs.s(),
-                            None,
-                            None,
-                            &chunk_expand,
-                            None,
-                            current_crc_error,
-                            false,
-                        )?;
-                    }
-
-                    current_chs = chs;
+                    let ch = DiskCh::from((track_header.cylinder as u8, track_header.head as u8));
                     log::trace!(
-                        "Sector CHS: {} size: {} crc_error: {}",
-                        chs,
-                        sector_header.size,
-                        current_crc_error
+                        "Track header: {:?} Bitcells: {} Clock Rate: {}",
+                        ch,
+                        track_header.bit_length,
+                        track_header.clock_rate
+                    );
+
+                    expected_data_size =
+                        track_header.bit_length as usize / 8 + if track_header.bit_length % 8 != 0 { 1 } else { 0 };
+
+                    default_bit_clock = track_header.clock_rate;
+                    heads_seen.insert(track_header.head as u8);
+                }
+                PriChunkType::AlternateBitClock => {
+                    let alt_clock = PriAlternateClock::read(&mut Cursor::new(&chunk.data))
+                        .map_err(|_| DiskImageError::FormatParseError)?;
+
+                    if alt_clock.new_clock == 0 {
+                        current_bit_clock = default_bit_clock;
+                    } else {
+                        let new_bit_clock =
+                            ((alt_clock.new_clock as f64 / u16::MAX as f64) * default_bit_clock as f64) as u32;
+
+                        current_bit_clock = new_bit_clock;
+                    }
+                    log::trace!(
+                        "Alternate bit clock. Bit offset: {} New clock: {}",
+                        alt_clock.bit_offset,
+                        current_bit_clock
                     );
                 }
-                PsiChunkType::SectorData => {
-                    log::trace!("Sector data chunk: {} crc_error: {}", current_chs, current_crc_error);
-
-                    disk_image.master_sector(
+                PriChunkType::TrackData => {
+                    log::trace!(
+                        "Track data chunk: {} size: {} expected size: {} crc_error: {}",
                         current_chs,
-                        current_chs.s(),
-                        None,
-                        None,
+                        chunk.size,
+                        expected_data_size,
+                        current_crc_error
+                    );
+
+                    disk_image.add_track_bitstream(
+                        DiskDataEncoding::Mfm,
+                        DiskDataRate::from(current_bit_clock),
+                        current_chs.into(),
+                        current_bit_clock,
                         &chunk.data,
                         None,
-                        current_crc_error,
-                        false,
                     )?;
-                    sectors_per_track += 1;
                 }
-                PsiChunkType::Text => {
+                PriChunkType::WeakMask => {
+                    let weak_mask = PriWeakMask::read(&mut Cursor::new(&chunk.data))
+                        .map_err(|_| DiskImageError::FormatParseError)?;
+                    log::trace!(
+                        "Weak mask chunk. Size: {} Bit offset: {}",
+                        chunk.size,
+                        weak_mask.bit_offset
+                    );
+                }
+                PriChunkType::Text => {
                     // PSI docs:
                     // `If there are multiple TEXT chunks, their contents should be concatenated`
                     if let Ok(text) = std::str::from_utf8(&chunk.data) {
                         comment_string.push_str(text);
                     }
                 }
-                PsiChunkType::End => {
+                PriChunkType::End => {
                     log::trace!("End chunk.");
                     break;
                 }
                 _ => {
-                    println!("Chunk type: {:?}", chunk.chunk_type);
+                    log::trace!("Chunk type: {:?}", chunk.chunk_type);
                 }
             }
 
-            chunk = PsiFormat::read_chunk(&mut image)?;
+            chunk = PriFormat::read_chunk(&mut image)?;
         }
 
         disk_image.consistency = DiskConsistency {
@@ -366,8 +352,9 @@ impl PsiFormat {
             .map(|(&value, _)| value)
             .unwrap_or(0);
 
-        let head_ct = heads_seen.len() as u8;
+        log::trace!("Comment: {}", comment_string);
 
+        let head_ct = heads_seen.len() as u8;
         let track_ct = track_set.len() as u8;
         disk_image.image_format = ImageFormat {
             geometry: DiskChs::from((track_ct / head_ct, head_ct, most_common_sector_count)),

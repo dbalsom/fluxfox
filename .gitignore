@@ -15,6 +15,11 @@ Cargo.lock
 
 # Test images
 examples/imginfo/test_images/*
+tests/images/*
+!tests/images/LICENSE.txt
+
+# Output images
+*.png
 
 # Added by cargo
 /target

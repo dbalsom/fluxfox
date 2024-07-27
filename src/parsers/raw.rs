@@ -27,7 +27,7 @@
 
 use crate::chs::DiskChs;
 use crate::detect::chs_from_raw_size;
-use crate::diskimage::{DiskConsistency, DiskImage, FloppyFormat, ImageFormat, TrackFormat};
+use crate::diskimage::{DiskConsistency, DiskImage, FloppyFormat, ImageFormat, TrackData};
 use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::parsers::ParserWriteCompatibility;
 use crate::util::get_length;
@@ -86,13 +86,7 @@ impl RawFormat {
 
         // Insert sectors in order encountered.
         for _t in 0..track_ct {
-            disk_image.add_track(
-                TrackFormat {
-                    data_rate,
-                    data_encoding,
-                },
-                cursor_chs.into(),
-            );
+            disk_image.add_track_bytestream(data_encoding, data_rate, cursor_chs.into());
 
             for sector_id in 0..disk_chs.s() {
                 raw.read_exact(&mut sector_buffer)
@@ -135,15 +129,20 @@ impl RawFormat {
             for head in 0..2 {
                 let track = &image.tracks[head][track_n];
 
-                for sector in &track.data.sectors {
-                    let sector_len = std::cmp::min(sector.len, DEFAULT_SECTOR_SIZE);
-                    output
-                        .write_all(
-                            track.data.data
-                                [sector.t_idx..std::cmp::min(sector.t_idx + sector_len, track.data.data.len())]
-                                .as_ref(),
-                        )
-                        .map_err(|_e| DiskImageError::IoError)?;
+                match &track.data {
+                    TrackData::ByteStream { data, sectors, .. } => {
+                        for sector in sectors {
+                            let sector_len = std::cmp::min(sector.len, DEFAULT_SECTOR_SIZE);
+                            output
+                                .write_all(
+                                    data[sector.t_idx..std::cmp::min(sector.t_idx + sector_len, data.len())].as_ref(),
+                                )
+                                .map_err(|_e| DiskImageError::IoError)?;
+                        }
+                    }
+                    _ => {
+                        return Err(DiskImageError::UnsupportedFormat);
+                    }
                 }
             }
         }

@@ -25,14 +25,9 @@
     --------------------------------------------------------------------------
 */
 
-pub use std::io::Cursor;
-pub use std::io::Error;
 /// Reexport the standard library's IO traits.
 /// This gives an opportunity to implement our own versions if we wish to add no-std support.
-pub use std::io::Read;
-pub use std::io::Seek;
-pub use std::io::SeekFrom;
-pub use std::io::Write;
+pub use std::io::{Cursor, Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
 
 /// A sum of `Read` and `Seek` traits.
 pub trait ReadSeek: Read + Seek {}

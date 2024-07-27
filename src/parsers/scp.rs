@@ -23,38 +23,45 @@
     DEALINGS IN THE SOFTWARE.
 
     --------------------------------------------------------------------------
+
+    src/parsers/scp.rs
+
+    A parser for the SuperCardPro format.
+
+    SCP format images encode raw flux information for each track of the disk.
+
 */
-use crate::chs::DiskChs;
 
-use crate::diskimage::{DiskImageFormat, FloppyFormat};
-use crate::io::ReadSeek;
-use crate::parsers::ImageParser;
-use crate::DiskImageError;
+pub const MAX_TRACK_NUMBER: usize = 167;
 
-const IMAGE_FORMATS: [DiskImageFormat; 5] = [
-    DiskImageFormat::ImageDisk,
-    DiskImageFormat::TeleDisk,
-    DiskImageFormat::PceSectorImage,
-    DiskImageFormat::PceBitstreamImage,
-    DiskImageFormat::RawSectorImage,
-];
-
-/// Attempt to detect the format of a disk image. If the format cannot be determined, UnknownFormat is returned.
-pub fn detect_image_format<T: ReadSeek>(image_io: &mut T) -> Result<DiskImageFormat, DiskImageError> {
-    for format in IMAGE_FORMATS.iter() {
-        if format.detect(&mut *image_io) {
-            return Ok(*format);
-        }
-    }
-    Err(DiskImageError::UnknownFormat)
+#[derive(Debug)]
+#[binrw]
+#[brw(little)]
+pub struct ScpFileHeader {
+    pub id: [u8; 3],
+    pub version: u8,
+    pub disk_type: u8,
+    pub revolutions: u8,
+    pub start_track: u8,
+    pub end_track: u8,
+    pub flags: u8,
+    pub bit_cell_width: u8,
+    pub heads: u8,
+    pub resolution: u8,
+    pub checksum: u32,
 }
 
-/// Attempt to return a DiskChs structure representing the geometry of a disk image from the size of a raw sector image.
-/// Returns None if the size does not match a known raw disk image size.
-pub fn chs_from_raw_size(size: usize) -> Option<DiskChs> {
-    let raw_size_fmt = FloppyFormat::from(size);
-    if raw_size_fmt != FloppyFormat::Unknown {
-        return Some(raw_size_fmt.get_chs());
-    }
-    None
+#[derive(Debug)]
+#[binrw]
+#[brw(little)]
+pub struct ScpTrackOffsetTable {
+    pub track_offsets: [u32; 168],
+}
+
+#[derive(Debug)]
+#[binrw]
+#[brw(little)]
+pub struct ScpTrackHeader {
+    pub id: [u8; 3],
+    pub track_number: u8,
 }

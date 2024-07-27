@@ -27,9 +27,12 @@
 use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::{DiskImage, DiskImageError, DiskImageFormat};
 
+pub mod compression;
 pub mod imd;
-mod psi;
+pub mod pri;
+pub mod psi;
 pub mod raw;
+pub mod td0;
 
 pub enum ParserWriteCompatibility {
     Ok,
@@ -57,7 +60,9 @@ impl ImageParser for DiskImageFormat {
         match self {
             DiskImageFormat::RawSectorImage => raw::RawFormat::detect(image_buf),
             DiskImageFormat::ImageDisk => imd::ImdFormat::detect(image_buf),
+            DiskImageFormat::TeleDisk => td0::Td0Format::detect(image_buf),
             DiskImageFormat::PceSectorImage => psi::PsiFormat::detect(image_buf),
+            DiskImageFormat::PceBitstreamImage => pri::PriFormat::detect(image_buf),
             _ => false,
         }
     }
@@ -66,7 +71,9 @@ impl ImageParser for DiskImageFormat {
         match self {
             DiskImageFormat::RawSectorImage => vec!["img", "ima", "dsk", "bin"],
             DiskImageFormat::ImageDisk => vec!["imd"],
+            DiskImageFormat::TeleDisk => vec!["td0"],
             DiskImageFormat::PceSectorImage => vec!["psi"],
+            DiskImageFormat::PceBitstreamImage => vec!["pri"],
             _ => vec![],
         }
     }
@@ -75,7 +82,9 @@ impl ImageParser for DiskImageFormat {
         match self {
             DiskImageFormat::RawSectorImage => raw::RawFormat::load_image(image_buf),
             DiskImageFormat::ImageDisk => imd::ImdFormat::load_image(image_buf),
+            DiskImageFormat::TeleDisk => td0::Td0Format::load_image(image_buf),
             DiskImageFormat::PceSectorImage => psi::PsiFormat::load_image(image_buf),
+            DiskImageFormat::PceBitstreamImage => pri::PriFormat::load_image(image_buf),
             _ => Err(DiskImageError::UnknownFormat),
         }
     }
@@ -84,7 +93,9 @@ impl ImageParser for DiskImageFormat {
         match self {
             DiskImageFormat::RawSectorImage => raw::RawFormat::can_write(image),
             DiskImageFormat::ImageDisk => imd::ImdFormat::can_write(image),
+            DiskImageFormat::TeleDisk => td0::Td0Format::can_write(image),
             DiskImageFormat::PceSectorImage => psi::PsiFormat::can_write(image),
+            DiskImageFormat::PceBitstreamImage => pri::PriFormat::can_write(image),
             _ => ParserWriteCompatibility::UnsupportedFormat,
         }
     }
@@ -93,7 +104,9 @@ impl ImageParser for DiskImageFormat {
         match self {
             DiskImageFormat::RawSectorImage => raw::RawFormat::save_image(image, image_buf),
             DiskImageFormat::ImageDisk => imd::ImdFormat::save_image(image, image_buf),
+            DiskImageFormat::TeleDisk => td0::Td0Format::save_image(image, image_buf),
             DiskImageFormat::PceSectorImage => psi::PsiFormat::save_image(image, image_buf),
+            DiskImageFormat::PceBitstreamImage => pri::PriFormat::save_image(image, image_buf),
             _ => Err(DiskImageError::UnknownFormat),
         }
     }

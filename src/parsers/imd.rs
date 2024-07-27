@@ -25,7 +25,7 @@
     --------------------------------------------------------------------------
 */
 use crate::chs::{DiskCh, DiskChs};
-use crate::diskimage::{DiskConsistency, ImageFormat, TrackFormat};
+use crate::diskimage::{DiskConsistency, ImageFormat};
 use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::parsers::ParserWriteCompatibility;
 use crate::util::{get_length, read_ascii};
@@ -121,33 +121,9 @@ impl ImdFormat {
         detected
     }
 
-    pub(crate) fn can_write(image: &DiskImage) -> ParserWriteCompatibility {
-        let mut data_loss = false;
-        if image.consistency.weak || image.consistency.deleted {
-            data_loss = true;
-        }
-
-        if let Some(sector_size) = image.consistency.consistent_sector_size {
-            if sector_size < DEFAULT_SECTOR_SIZE as u32 {
-                // Sectors must be at least 512 bytes to save as IMG.
-                return ParserWriteCompatibility::Incompatible;
-            }
-            if sector_size != DEFAULT_SECTOR_SIZE as u32 {
-                data_loss = true;
-            }
-            if let Some(_) = image.consistency.consistent_track_length {
-                // Track length is consistent
-            } else {
-                // Track length is not consistent
-                data_loss = true;
-            }
-        }
-
-        if data_loss {
-            ParserWriteCompatibility::DataLoss
-        } else {
-            ParserWriteCompatibility::Ok
-        }
+    pub(crate) fn can_write(_image: &DiskImage) -> ParserWriteCompatibility {
+        // TODO: Determine what data representations would lead to data loss for IMD.
+        ParserWriteCompatibility::Ok
     }
 
     pub(crate) fn load_image<RWS: ReadSeek>(mut image: RWS) -> Result<DiskImage, DiskImageError> {
@@ -278,11 +254,9 @@ impl ImdFormat {
             }
 
             log::trace!("Adding track: C: {} H: {}", track_header.c, track_header.h);
-            disk_image.add_track(
-                TrackFormat {
-                    data_rate,
-                    data_encoding,
-                },
+            disk_image.add_track_bytestream(
+                data_encoding,
+                data_rate,
                 DiskCh::from((track_header.c(), track_header.h())),
             );
 
