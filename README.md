@@ -66,6 +66,9 @@ manipulate and write back to.
 * **PCE Raw Image** (PRI)
     * One of several image formats developed by Hampa Hug for use with his emulator, [PCE](http://www.hampa.ch/pce/).
       Along with track bitstream data, PRI supports weak bit masks.
+* **MFM Bitstream Image** (MFM)
+    * A bitstream format created for use with the HxC drive emulation software.
+    * Only MFM-encoded track data is included. There is no support for weak bits or other metadata.
 
 ### Flux-Based Disk Images
 
@@ -99,18 +102,21 @@ you can add `fluxfox=error` to your `RUST_LOG` environment variable to limit out
 ## Visualization
 
 fluxfox can produce a graphical visualization of a disk image if the image is of bitstream resolution or higher, and
-includes MFM-encoded data. Currently, the only supported image that meets this requirement is PRI, but this should
-expand over time.
+includes MFM-encoded data. This currently encompasses PRI and MFM disk image formats.
 
 Visualization requires the `viz` feature to be specified.
 
 An included example, `imgviz`, is a command-line utility that can produce a visualization and save it to PNG.
 
-The following command will run `imgviz` and produce a 1024x1024 pixel visualization with 4x supersampling:
+The following command will run `imgviz` and produce a 1024x1024 (or 2048x1024) resolution visualization with 4x
+supersampling:
 
 ```
-run -p imgviz -- --size=1024 --ss=4 -i "input_image.pri" -o="output.png" 
+run -p imgviz -- -r=1024 --ss=4 -i "input_image.pri" -o="output.png" 
 ```
+
+The image will be square with a single disk surface if the image is single-sided. Otherwise, both sides of the disk will
+be rendered side by side.
 
 Run with the `-h` parameter to see more command-line options.
 
