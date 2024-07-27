@@ -31,12 +31,13 @@ use crate::io::ReadSeek;
 use crate::parsers::ImageParser;
 use crate::DiskImageError;
 
-const IMAGE_FORMATS: [DiskImageFormat; 5] = [
+const IMAGE_FORMATS: [DiskImageFormat; 6] = [
     DiskImageFormat::ImageDisk,
     DiskImageFormat::TeleDisk,
     DiskImageFormat::PceSectorImage,
     DiskImageFormat::PceBitstreamImage,
     DiskImageFormat::RawSectorImage,
+    DiskImageFormat::MfmBitstreamImage,
 ];
 
 /// Attempt to detect the format of a disk image. If the format cannot be determined, UnknownFormat is returned.

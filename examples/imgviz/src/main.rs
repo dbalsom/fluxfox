@@ -45,7 +45,7 @@ struct Out {
     debug: bool,
     in_filename: PathBuf,
     out_filename: PathBuf,
-    size: u32,
+    resolution: u32,
     cc: bool,
     supersample: u32,
 }
@@ -64,7 +64,8 @@ fn opts() -> OptionParser<Out> {
         .help("Filename of image to write")
         .argument::<PathBuf>("OUT_FILE");
 
-    let size = long("size")
+    let resolution = short('r')
+        .long("resolution")
         .help("Size of resulting image, in pixels")
         .argument::<u32>("SIZE");
 
@@ -79,7 +80,7 @@ fn opts() -> OptionParser<Out> {
         debug,
         in_filename,
         out_filename,
-        size,
+        resolution,
         cc,
         supersample
     })
@@ -93,16 +94,16 @@ fn main() {
     // Get the command line options.
     let opts = opts().run();
 
-    if !is_power_of_two(opts.size) {
+    if !is_power_of_two(opts.resolution) {
         eprintln!("Image size must be a power of two");
         return;
     }
 
     let render_size = match opts.supersample {
-        1 => opts.size,
-        2 => opts.size * 2,
-        4 => opts.size * 4,
-        8 => opts.size * 8,
+        1 => opts.resolution,
+        2 => opts.resolution * 2,
+        4 => opts.resolution * 4,
+        8 => opts.resolution * 8,
         _ => {
             eprintln!("Supersample must be 2, 4, or 8");
             std::process::exit(1);
@@ -137,9 +138,6 @@ fn main() {
         }
     };
 
-    let final_size = (opts.size, opts.size);
-    let high_res_size = (render_size, render_size); // High-resolution image size
-
     let direction = match &opts.cc {
         true => RotationDirection::CounterClockwise,
         false => RotationDirection::Clockwise,
@@ -149,24 +147,77 @@ fn main() {
     let min_radius_fraction = 0.33; // Minimum radius as a fraction of the image size
     let track_gap_weight = 2.0; // Thickness of the boundary circles
 
-    println!("Rendering tracks...");
-    let rendered_image = match render_tracks(
-        &disk,
-        0,
-        high_res_size,
-        min_radius_fraction,
-        track_gap_weight,
-        direction,
-        resolution,
-    ) {
-        Ok(image) => image,
-        Err(e) => {
-            eprintln!("Error rendering tracks: {}", e);
-            std::process::exit(1);
-        }
+    let heads = if disk.heads() > 1 { 2 } else { 1 };
+    let high_res_size = (render_size, render_size); // High-resolution image size
+    let final_size = (opts.resolution * heads, opts.resolution);
+
+    println!("Rendering {} heads, {} tracks...", heads, disk.tracks[0].len());
+
+    let rendered_image = if heads > 0 {
+        let mut imgbuf = ImageBuffer::new(render_size * heads, render_size);
+
+        match render_tracks(
+            &disk,
+            &mut imgbuf,
+            0,
+            high_res_size,
+            (0, 0),
+            min_radius_fraction,
+            track_gap_weight,
+            direction,
+            resolution,
+        ) {
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("Error rendering tracks: {}", e);
+                std::process::exit(1);
+            }
+        };
+
+        match render_tracks(
+            &disk,
+            &mut imgbuf,
+            1,
+            high_res_size,
+            (high_res_size.0, 0),
+            min_radius_fraction,
+            track_gap_weight,
+            direction.opposite(),
+            resolution,
+        ) {
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("Error rendering tracks: {}", e);
+                std::process::exit(1);
+            }
+        };
+
+        imgbuf
+    } else {
+        let mut imgbuf = ImageBuffer::new(render_size, render_size);
+
+        match render_tracks(
+            &disk,
+            &mut imgbuf,
+            0,
+            high_res_size,
+            (0, 0),
+            min_radius_fraction,
+            track_gap_weight,
+            direction,
+            resolution,
+        ) {
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("Error rendering tracks: {}", e);
+                std::process::exit(1);
+            }
+        };
+
+        imgbuf
     };
 
-    match opts.supersample {
+    let rendered_image = match opts.supersample {
         1 => match rendered_image.save(opts.out_filename.clone()) {
             Ok(_) => {
                 println!("Output image saved to {}", opts.out_filename.display());
@@ -218,7 +269,7 @@ fn main() {
                 }
             }
         }
-    }
+    };
 }
 
 fn is_power_of_two(n: u32) -> bool {

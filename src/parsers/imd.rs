@@ -25,7 +25,7 @@
     --------------------------------------------------------------------------
 */
 use crate::chs::{DiskCh, DiskChs};
-use crate::diskimage::{DiskConsistency, ImageFormat};
+use crate::diskimage::{DiskConsistency, DiskDescriptor};
 use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::parsers::ParserWriteCompatibility;
 use crate::util::{get_length, read_ascii};
@@ -323,11 +323,12 @@ impl ImdFormat {
 
         let head_ct = heads_seen.len() as u8;
 
-        disk_image.image_format = ImageFormat {
+        disk_image.image_format = DiskDescriptor {
             geometry: DiskChs::from((track_ct / head_ct, head_ct, most_common_sector_count)),
             data_rate: rate_opt.unwrap(),
             data_encoding: encoding_opt.unwrap(),
             default_sector_size: DEFAULT_SECTOR_SIZE,
+            rpm: None,
         };
 
         Ok(disk_image)

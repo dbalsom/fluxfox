@@ -42,6 +42,7 @@ pub enum DiskImageFormat {
     ImageDisk,
     PceSectorImage,
     PceBitstreamImage,
+    MfmBitstreamImage,
     TeleDisk,
     KryofluxStream,
 }
@@ -55,6 +56,7 @@ impl Display for DiskImageFormat {
             DiskImageFormat::ImageDisk => "ImageDisk".to_string(),
             DiskImageFormat::TeleDisk => "TeleDisk".to_string(),
             DiskImageFormat::KryofluxStream => "Kryoflux Stream".to_string(),
+            DiskImageFormat::MfmBitstreamImage => "HxC MFM Bitstream Image".to_string(),
         };
         write!(f, "{}", str)
     }
@@ -126,12 +128,13 @@ impl FloppyFormat {
         }
     }
 
-    pub fn get_image_format(&self) -> ImageFormat {
-        ImageFormat {
+    pub fn get_image_format(&self) -> DiskDescriptor {
+        DiskDescriptor {
             geometry: self.get_chs(),
             default_sector_size: DEFAULT_SECTOR_SIZE,
             data_encoding: DiskDataEncoding::Mfm,
             data_rate: DiskDataRate::Rate500Kbps,
+            rpm: Some(DiskRpm::Rpm300),
         }
     }
 
@@ -271,15 +274,17 @@ pub struct DiskTrack {
 }
 
 #[derive(Copy, Clone, Default)]
-pub struct ImageFormat {
-    /// The basic geometry of the disk.
+pub struct DiskDescriptor {
+    /// The basic geometry of the disk. Not all tracks present need to conform to the specified sector count (s).
     pub geometry: DiskChs,
-    /// The "default" sector size of the disk. Larger or smaller sectors may be present in the disk image.
+    /// The "default" sector size of the disk. Larger or smaller sectors may still be present in the disk image.
     pub default_sector_size: usize,
-    /// The data encoding used
+    /// The default data encoding used. The disk may still contain tracks in different encodings.
     pub data_encoding: DiskDataEncoding,
     /// The data rate of the disk
     pub data_rate: DiskDataRate,
+    /// The rotation rate of the disk. If not provided, this can be determined from other parameters.
+    pub rpm: Option<DiskRpm>,
 }
 
 pub struct ReadSectorResult {
@@ -294,7 +299,7 @@ pub struct ReadSectorResult {
 /// Sectors may be variable length due to various copy protection schemes.
 pub struct DiskImage {
     pub disk_format: FloppyFormat,
-    pub image_format: ImageFormat,
+    pub image_format: DiskDescriptor,
     pub consistency: DiskConsistency,
     pub sector_size: usize,
     // The volume name of the disk image, if any.
@@ -310,7 +315,7 @@ impl Default for DiskImage {
     fn default() -> Self {
         Self {
             disk_format: FloppyFormat::PcFloppy360,
-            image_format: ImageFormat::default(),
+            image_format: DiskDescriptor::default(),
             consistency: Default::default(),
             sector_size: DEFAULT_SECTOR_SIZE,
             volume_name: None,
@@ -372,12 +377,16 @@ impl DiskImage {
         self.image_format.data_encoding
     }
 
-    pub fn set_image_format(&mut self, format: ImageFormat) {
+    pub fn set_image_format(&mut self, format: DiskDescriptor) {
         self.image_format = format;
     }
 
-    pub fn image_format(&self) -> ImageFormat {
+    pub fn image_format(&self) -> DiskDescriptor {
         self.image_format
+    }
+
+    pub fn heads(&self) -> u8 {
+        self.image_format.geometry.h()
     }
 
     pub fn add_track_bytestream(&mut self, data_encoding: DiskDataEncoding, data_rate: DiskDataRate, ch: DiskCh) {

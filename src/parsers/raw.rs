@@ -27,7 +27,7 @@
 
 use crate::chs::DiskChs;
 use crate::detect::chs_from_raw_size;
-use crate::diskimage::{DiskConsistency, DiskImage, FloppyFormat, ImageFormat, TrackData};
+use crate::diskimage::{DiskConsistency, DiskDescriptor, DiskImage, FloppyFormat, TrackData};
 use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::parsers::ParserWriteCompatibility;
 use crate::util::get_length;
@@ -68,6 +68,7 @@ impl RawFormat {
         log::trace!("load_image(): Disk CHS: {}", disk_chs);
         let data_rate = floppy_format.get_data_rate();
         let data_encoding = floppy_format.get_encoding();
+        let rpm = floppy_format.get_rpm();
 
         let mut cursor_chs = DiskChs::default();
 
@@ -114,11 +115,12 @@ impl RawFormat {
             consistent_track_length: Some(disk_chs.s()),
         };
 
-        disk_image.image_format = ImageFormat {
+        disk_image.image_format = DiskDescriptor {
             geometry: disk_chs,
             data_rate,
             data_encoding,
             default_sector_size: DEFAULT_SECTOR_SIZE,
+            rpm: Some(rpm),
         };
 
         Ok(disk_image)

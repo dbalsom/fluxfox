@@ -37,12 +37,23 @@ use image::{ImageBuffer, Rgb, Rgba, RgbaImage};
 use std::cmp::min;
 use std::f32::consts::PI;
 
+#[derive(Copy, Clone, Debug)]
 pub enum RotationDirection {
     Clockwise,
     CounterClockwise,
 }
 
+impl RotationDirection {
+    pub fn opposite(&self) -> Self {
+        match self {
+            RotationDirection::Clockwise => RotationDirection::CounterClockwise,
+            RotationDirection::CounterClockwise => RotationDirection::Clockwise,
+        }
+    }
+}
+
 // Define an enum to choose between bit and byte resolution
+#[derive(Copy, Clone, Debug)]
 pub enum ResolutionType {
     Bit,
     Byte,
@@ -74,16 +85,18 @@ fn collect_streams(head: u8, disk_image: &DiskImage) -> Vec<&TrackDataStream> {
 /// Render a disk image to an image buffer.
 pub fn render_tracks(
     disk_image: &DiskImage,
+    imgbuf: &mut ImageBuffer<Rgba<u8>, Vec<u8>>,
     head: u8,
-    //tracks: Vec<BitVec>,
     image_size: (u32, u32),
+    image_pos: (u32, u32),
     min_radius_fraction: f32, // Minimum radius as a fraction (0.0 to 1.0)
     track_gap_weight: f32,
     direction: RotationDirection, // Added parameter for rotation direction
     resolution: ResolutionType,   // Added parameter for resolution type
-) -> Result<ImageBuffer<Rgba<u8>, Vec<u8>>, DiskImageError> {
+) -> Result<(), DiskImageError> {
+    let span = imgbuf.width();
     let (width, height) = image_size;
-    let mut imgbuf = RgbaImage::new(width, height);
+    let (x_offset, y_offset) = image_pos;
 
     let center_x = width as f32 / 2.0;
     let center_y = height as f32 / 2.0;
@@ -161,7 +174,7 @@ pub fn render_tracks(
                         }
                     };
 
-                    imgbuf.put_pixel(x, y, color);
+                    imgbuf.put_pixel(x + x_offset, y + y_offset, color);
                 }
             }
         }
@@ -179,11 +192,11 @@ pub fn render_tracks(
 
                 if distance >= radius - track_gap_weight / 2.0 && distance <= radius + track_gap_weight / 2.0 {
                     let color = Rgba([0, 0, 0, 255]);
-                    imgbuf.put_pixel(x, y, color);
+                    imgbuf.put_pixel(x + x_offset, y + y_offset, color);
                 }
             }
         }
     }
 
-    Ok(imgbuf)
+    Ok(())
 }

@@ -29,6 +29,7 @@ use crate::{DiskImage, DiskImageError, DiskImageFormat};
 
 pub mod compression;
 pub mod imd;
+mod mfm;
 pub mod pri;
 pub mod psi;
 pub mod raw;
@@ -63,6 +64,7 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::TeleDisk => td0::Td0Format::detect(image_buf),
             DiskImageFormat::PceSectorImage => psi::PsiFormat::detect(image_buf),
             DiskImageFormat::PceBitstreamImage => pri::PriFormat::detect(image_buf),
+            DiskImageFormat::MfmBitstreamImage => mfm::MfmFormat::detect(image_buf),
             _ => false,
         }
     }
@@ -74,6 +76,7 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::TeleDisk => vec!["td0"],
             DiskImageFormat::PceSectorImage => vec!["psi"],
             DiskImageFormat::PceBitstreamImage => vec!["pri"],
+            DiskImageFormat::MfmBitstreamImage => vec!["mfm"],
             _ => vec![],
         }
     }
@@ -85,6 +88,7 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::TeleDisk => td0::Td0Format::load_image(image_buf),
             DiskImageFormat::PceSectorImage => psi::PsiFormat::load_image(image_buf),
             DiskImageFormat::PceBitstreamImage => pri::PriFormat::load_image(image_buf),
+            DiskImageFormat::MfmBitstreamImage => mfm::MfmFormat::load_image(image_buf),
             _ => Err(DiskImageError::UnknownFormat),
         }
     }
@@ -96,6 +100,7 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::TeleDisk => td0::Td0Format::can_write(image),
             DiskImageFormat::PceSectorImage => psi::PsiFormat::can_write(image),
             DiskImageFormat::PceBitstreamImage => pri::PriFormat::can_write(image),
+            DiskImageFormat::MfmBitstreamImage => mfm::MfmFormat::can_write(image),
             _ => ParserWriteCompatibility::UnsupportedFormat,
         }
     }
@@ -107,6 +112,7 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::TeleDisk => td0::Td0Format::save_image(image, image_buf),
             DiskImageFormat::PceSectorImage => psi::PsiFormat::save_image(image, image_buf),
             DiskImageFormat::PceBitstreamImage => pri::PriFormat::save_image(image, image_buf),
+            DiskImageFormat::MfmBitstreamImage => mfm::MfmFormat::save_image(image, image_buf),
             _ => Err(DiskImageError::UnknownFormat),
         }
     }
