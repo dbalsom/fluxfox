@@ -21,5 +21,8 @@ tests/images/*
 # Output images
 *.png
 
+# Allow doc images
+!/doc/img/*
+
 # Added by cargo
 /target
