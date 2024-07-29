@@ -33,7 +33,7 @@
 use crate::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom};
 use crate::EncodingSync;
 use bit_vec::BitVec;
-use std::ops::Index;
+use std::ops::{Index, Range};
 
 pub struct MfmDecoder {
     bit_vec: BitVec,
@@ -208,6 +208,23 @@ impl MfmDecoder {
         } else {
             Some(self.bit_vec[self.sync + (index << 1)])
         }
+    }
+    pub fn read_byte(&self, index: usize) -> Option<u8> {
+        if index >= self.len() {
+            return None;
+        }
+
+        let mut byte_val = 0;
+        for i in 0..8 {
+            byte_val = (byte_val << 1)
+                //| if self.bit_vec[self.sync + ((index + i) << 1)] {
+                | if *self.ref_bit_at(index + i) {
+                    1
+                } else {
+                    0
+                };
+        }
+        Some(byte_val)
     }
 
     fn ref_bit_at(&self, index: usize) -> &bool {

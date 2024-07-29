@@ -28,8 +28,8 @@
 use crate::chs::DiskChs;
 use crate::detect::chs_from_raw_size;
 use crate::diskimage::{DiskConsistency, DiskDescriptor, DiskImage, FloppyFormat, TrackData};
+use crate::file_parsers::ParserWriteCompatibility;
 use crate::io::{ReadSeek, ReadWriteSeek};
-use crate::parsers::ParserWriteCompatibility;
 use crate::util::get_length;
 use crate::{DiskImageError, DiskImageFormat, DEFAULT_SECTOR_SIZE};
 
@@ -127,9 +127,10 @@ impl RawFormat {
     }
 
     pub fn save_image<RWS: ReadWriteSeek>(image: &DiskImage, output: &mut RWS) -> Result<(), DiskImageError> {
-        for track_n in 0..image.tracks[0].len() {
+        for track_n in 0..image.track_map[0].len() {
             for head in 0..2 {
-                let track = &image.tracks[head][track_n];
+                let ti = image.track_map[head][track_n];
+                let track = &image.track_pool[ti];
 
                 match &track.data {
                     TrackData::ByteStream { data, sectors, .. } => {

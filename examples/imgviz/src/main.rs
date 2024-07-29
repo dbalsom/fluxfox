@@ -151,9 +151,9 @@ fn main() {
     let high_res_size = (render_size, render_size); // High-resolution image size
     let final_size = (opts.resolution * heads, opts.resolution);
 
-    println!("Rendering {} heads, {} tracks...", heads, disk.tracks[0].len());
+    println!("Rendering {} heads, {} tracks...", heads, disk.track_map[0].len());
 
-    let rendered_image = if heads > 0 {
+    let rendered_image = if heads > 1 {
         let mut imgbuf = ImageBuffer::new(render_size * heads, render_size);
 
         match render_tracks(

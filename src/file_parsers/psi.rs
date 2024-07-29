@@ -37,8 +37,8 @@
 
 use crate::chs::{DiskCh, DiskChs};
 use crate::diskimage::{DiskConsistency, DiskDescriptor};
+use crate::file_parsers::ParserWriteCompatibility;
 use crate::io::{Cursor, ReadSeek, ReadWriteSeek};
-use crate::parsers::ParserWriteCompatibility;
 
 use crate::{
     DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat, FoxHashMap, FoxHashSet,

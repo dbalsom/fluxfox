@@ -27,8 +27,8 @@
 use crate::chs::DiskChs;
 
 use crate::diskimage::{DiskImageFormat, FloppyFormat};
+use crate::file_parsers::ImageParser;
 use crate::io::ReadSeek;
-use crate::parsers::ImageParser;
 use crate::DiskImageError;
 
 const IMAGE_FORMATS: [DiskImageFormat; 6] = [

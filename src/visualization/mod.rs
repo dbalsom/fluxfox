@@ -32,10 +32,12 @@
 
 use crate::diskimage::{TrackData, TrackDataStream};
 use crate::{DiskImage, DiskImageError};
-use image::{ImageBuffer, Rgb, Rgba, RgbaImage};
+use image::{ImageBuffer, Pixel, Rgb, Rgba, RgbaImage};
 
+use crate::structure_parsers::system34::System34Element;
+use crate::structure_parsers::{DiskStructureElement, DiskStructureMetadata};
 use std::cmp::min;
-use std::f32::consts::PI;
+use std::f32::consts::{PI, TAU};
 
 #[derive(Copy, Clone, Debug)]
 pub enum RotationDirection {
@@ -59,6 +61,23 @@ pub enum ResolutionType {
     Byte,
 }
 
+impl From<System34Element> for Rgba<u8> {
+    fn from(element: System34Element) -> Self {
+        match element {
+            System34Element::Gap1 => Rgba([0, 0, 0, 128]),
+            System34Element::Gap2 => Rgba([0, 0, 0, 128]),
+            System34Element::Gap3 => Rgba([0, 0, 0, 128]),
+            System34Element::Gap4a => Rgba([0, 0, 0, 128]),
+            System34Element::Gap4b => Rgba([0, 0, 0, 128]),
+            System34Element::Sync => Rgba([0, 255, 255, 128]),
+            System34Element::Iam => Rgba([0, 0, 255, 128]),
+            System34Element::Idam => Rgba([0, 128, 255, 200]),
+            System34Element::Dam => Rgba([255, 255, 0, 200]),
+            System34Element::Data => Rgba([0, 255, 0, 64]),
+        }
+    }
+}
+
 /// Create a lookup table to map a u8 value to a grayscale gradient value based on the number of
 /// bits set in the u8 value (popcount)
 const POPCOUNT_TABLE: [u8; 256] = {
@@ -73,12 +92,19 @@ const POPCOUNT_TABLE: [u8; 256] = {
 };
 
 fn collect_streams(head: u8, disk_image: &DiskImage) -> Vec<&TrackDataStream> {
-    disk_image.tracks[head as usize]
+    disk_image.track_map[head as usize]
         .iter()
-        .filter_map(|track| match track.data {
+        .filter_map(|track_i| match disk_image.track_pool[*track_i].data {
             TrackData::BitStream { ref data, .. } => Some(data),
             _ => None,
         })
+        .collect()
+}
+
+fn collect_metadata(head: u8, disk_image: &DiskImage) -> Vec<&DiskStructureMetadata> {
+    disk_image.track_map[head as usize]
+        .iter()
+        .filter_map(|track_i| Some(&disk_image.track_pool[*track_i].metadata))
         .collect()
 }
 
@@ -104,6 +130,7 @@ pub fn render_tracks(
     let min_radius = min_radius_fraction * total_radius; // Scale min_radius to pixel value
 
     let rtracks = collect_streams(head, disk_image);
+    let rmetadata = collect_metadata(head, disk_image);
     let num_tracks = rtracks.len();
 
     log::trace!("collected {} track references.", num_tracks);
@@ -119,7 +146,7 @@ pub fn render_tracks(
             let dx = x as f32 - center_x;
             let dy = y as f32 - center_y;
             let distance = (dx * dx + dy * dy).sqrt();
-            let angle = (dy.atan2(dx) + PI) % (2.0 * PI);
+            let angle = (dy.atan2(dx) + PI) % TAU;
 
             if distance >= min_radius && distance <= total_radius {
                 let track_index =
@@ -130,11 +157,11 @@ pub fn render_tracks(
                     let normalized_angle = if matches!(direction, RotationDirection::Clockwise) {
                         angle
                     } else {
-                        2.0 * PI - angle
+                        TAU - angle
                     };
 
-                    let normalized_angle = (normalized_angle + PI) % (2.0 * PI);
-                    let bit_index = ((normalized_angle / (2.0 * PI)) * rtracks[track_index].len() as f32) as usize;
+                    let normalized_angle = (normalized_angle + PI) % TAU;
+                    let bit_index = ((normalized_angle / TAU) * rtracks[track_index].len() as f32) as usize;
 
                     // Ensure bit_index is within bounds
                     let bit_index = min(bit_index, rtracks[track_index].len() - 1);
@@ -164,18 +191,36 @@ pub fn render_tracks(
 
                             let gray_value = POPCOUNT_TABLE[byte_value as usize];
 
-                            if track_index > 39 {
+                            let mut data_color = if track_index > 39 {
                                 Rgba([255, 0, 0, 255])
                             } else if track_index == 0 {
-                                Rgba([gray_value, gray_value, 255, 255])
+                                //Rgba([gray_value, gray_value, 255, 255])
+                                Rgba([gray_value, gray_value, gray_value, 255])
                             } else {
                                 Rgba([gray_value, gray_value, gray_value, 255])
+                            };
+
+                            let meta_color: Option<Rgba<u8>> = match rmetadata[track_index].item_at(bit_index) {
+                                Some(item) => {
+                                    let DiskStructureElement::System34(element) = item.elem_type;
+                                    Some(element.into())
+                                }
+                                None => None,
+                            };
+
+                            if let Some(meta_color) = meta_color {
+                                data_color.blend(&meta_color);
+                                data_color
+                            } else {
+                                data_color
                             }
                         }
                     };
 
                     imgbuf.put_pixel(x + x_offset, y + y_offset, color);
                 }
+            } else {
+                imgbuf.put_pixel(x + x_offset, y + y_offset, Rgba([0, 0, 0, 0]));
             }
         }
     }

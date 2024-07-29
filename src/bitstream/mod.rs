@@ -28,11 +28,12 @@
 pub mod mfm;
 pub mod raw;
 
+use crate::bitstream::mfm::MfmDecoder;
 use crate::diskimage::TrackDataStream;
 use crate::io::Seek;
 use crate::EncodingSync;
 use bit_vec::BitVec;
-use std::ops::Index;
+use std::ops::{Index, Range};
 
 pub trait TrackDataStreamT: Iterator + Seek + Index<usize> {}
 
@@ -75,50 +76,12 @@ impl TrackDataStream {
             _ => None,
         }
     }
-}
 
-pub fn find_idam(track: &mut TrackDataStream, start_idx: usize) -> Option<usize> {
-    let mut i = start_idx;
-
-    let mut shift_reg: u32 = 0;
-    let mut last_bit = false;
-    let mut last2_bit = false;
-    let mut data_ct = 0;
-
-    for track_bit in track {
-        let cur_bit = track_bit;
-        shift_reg = shift_reg << 1 | (cur_bit as u32);
-
-        last2_bit = last_bit;
-        last_bit = cur_bit;
-        i += 2;
-
-        if shift_reg == 0x4E4E4E4E {
-            // In gap
-            log::trace!("In gap");
-        }
-        if shift_reg == 0xC2C2C2FC {
-            // Found IDAM
-            log::trace!("Found IDAM marker at offset: {}", i - 32);
-            return Some(i - 32);
-        }
-
-        if i % 16 == 0 {
-            log::trace!("Shift reg: {:08X}", shift_reg);
+    pub fn read_byte(&self, index: usize) -> Option<u8> {
+        match self {
+            TrackDataStream::Raw(data) => data.read_byte(index),
+            TrackDataStream::Mfm(data) => data.read_byte(index),
+            _ => None,
         }
     }
-
-    log::trace!("Decoded {} bytes of data", data_ct);
-    None
-}
-
-pub fn decode_mfm(track: &BitVec, start_idx: usize) -> BitVec {
-    let mut data_bits = BitVec::with_capacity(track.len() / 2);
-
-    let mut i = start_idx;
-    while i < track.len() {
-        data_bits.push(track[i]);
-        i += 2;
-    }
-    data_bits
 }

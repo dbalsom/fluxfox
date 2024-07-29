@@ -25,13 +25,14 @@
     --------------------------------------------------------------------------
 */
 
-mod bitstream;
+pub mod bitstream;
 mod chs;
 mod detect;
-mod diskimage;
+pub mod diskimage;
+mod file_parsers;
 mod io;
-mod parsers;
 mod sector;
+pub mod structure_parsers;
 mod util;
 
 #[cfg(feature = "viz")]
@@ -187,4 +188,4 @@ impl Display for DiskRpm {
 
 pub use crate::chs::{DiskCh, DiskChs};
 pub use crate::diskimage::{DiskImage, DiskImageFormat};
-pub use crate::parsers::ImageParser;
+pub use crate::file_parsers::ImageParser;

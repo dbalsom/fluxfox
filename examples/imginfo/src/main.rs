@@ -30,8 +30,9 @@
     print out some basic information about it.
 */
 use bpaf::*;
-use fluxfox::visualization::{render_tracks, ResolutionType, RotationDirection};
-use fluxfox::DiskChs;
+use fluxfox::diskimage::{TrackData, TrackDataStream};
+use fluxfox::structure_parsers::system34::System34Parser;
+use fluxfox::structure_parsers::DiskStructureParser;
 use fluxfox::DiskImage;
 use std::path::PathBuf;
 
@@ -94,27 +95,16 @@ fn main() {
     println!("----------------");
     disk.dump_info(&mut std::io::stdout());
 
-    #[cfg(feature = "viz")]
-    {
-        let high_res_size = (4096, 4096); // High-resolution image size
-        let direction = RotationDirection::Clockwise; // Change to Clockwise if needed
-        let resolution = ResolutionType::Byte; // Change to Bit if needed
-        let num_tracks = 40;
-        let min_radius_fraction = 0.33; // Minimum radius as a fraction of the image size
-        let track_gap_weight = 2.0; // Thickness of the boundary circles
+    for track in disk.track_pool.iter() {
+        match &track.data {
+            TrackData::BitStream { data, .. } => {
+                let elements = System34Parser::scan_track_elements(data);
 
-        let image_result = render_tracks(
-            &disk,
-            0,
-            high_res_size,
-            min_radius_fraction,
-            track_gap_weight,
-            direction,
-            resolution,
-        );
-
-        if let Ok(out_image) = image_result {
-            out_image.save("tracks_hires.png").unwrap();
+                log::trace!("Found {} elements on track.", elements.len());
+            }
+            _ => {
+                println!("Track data is not a bitstream. Skipping track element scan.");
+            }
         }
     }
 }

@@ -37,9 +37,9 @@
 
 */
 
+use crate::file_parsers::compression::lzhuf::{expand, TD0_READ_OPTIONS};
+use crate::file_parsers::ParserWriteCompatibility;
 use crate::io::{Cursor, Read, ReadSeek, ReadWriteSeek, Seek};
-use crate::parsers::compression::lzhuf::{expand, TD0_READ_OPTIONS};
-use crate::parsers::ParserWriteCompatibility;
 use crate::{DiskImage, DiskImageError, DiskImageFormat};
 use binrw::{binrw, BinRead};
 
