@@ -25,13 +25,14 @@
     --------------------------------------------------------------------------
 */
 
+#[macro_export]
 pub mod mfm;
 pub mod raw;
 
 use crate::bitstream::mfm::MfmDecoder;
 use crate::diskimage::TrackDataStream;
-use crate::io::Seek;
-use crate::EncodingSync;
+use crate::io::{Read, Seek};
+use crate::EncodingPhase;
 use bit_vec::BitVec;
 use std::ops::{Index, Range};
 
@@ -70,7 +71,21 @@ impl TrackDataStream {
         }
     }
 
-    pub fn get_sync(&self) -> Option<EncodingSync> {
+    pub fn set_clock_map(&mut self, clock_map: BitVec) {
+        match self {
+            TrackDataStream::Mfm(data) => data.set_clock_map(clock_map),
+            _ => {}
+        }
+    }
+
+    pub fn clock_map_mut(&mut self) -> Option<&mut BitVec> {
+        match self {
+            TrackDataStream::Mfm(data) => Some(data.clock_map_mut()),
+            _ => None,
+        }
+    }
+
+    pub fn get_sync(&self) -> Option<EncodingPhase> {
         match self {
             TrackDataStream::Mfm(data) => data.get_sync(),
             _ => None,
@@ -82,6 +97,29 @@ impl TrackDataStream {
             TrackDataStream::Raw(data) => data.read_byte(index),
             TrackDataStream::Mfm(data) => data.read_byte(index),
             _ => None,
+        }
+    }
+
+    pub fn read_encoded_byte(&self, index: usize) -> Option<u8> {
+        match self {
+            TrackDataStream::Raw(data) => data.read_byte(index),
+            TrackDataStream::Mfm(data) => data.read_encoded_byte(index),
+            _ => None,
+        }
+    }
+
+    pub fn read_exact(&mut self, buf: &mut [u8]) -> Option<usize> {
+        match self {
+            TrackDataStream::Raw(data) => data.read_exact(buf).ok().map(|_| buf.len()),
+            TrackDataStream::Mfm(data) => data.read_exact(buf).ok().map(|_| buf.len()),
+            _ => None,
+        }
+    }
+
+    pub fn debug_marker(&self, index: usize) -> String {
+        match self {
+            TrackDataStream::Mfm(data) => data.debug_marker(index),
+            _ => String::new(),
         }
     }
 }

@@ -166,6 +166,7 @@ fn main() {
             track_gap_weight,
             direction,
             resolution,
+            true,
         ) {
             Ok(_) => {}
             Err(e) => {
@@ -184,6 +185,7 @@ fn main() {
             track_gap_weight,
             direction.opposite(),
             resolution,
+            true,
         ) {
             Ok(_) => {}
             Err(e) => {
@@ -206,6 +208,7 @@ fn main() {
             track_gap_weight,
             direction,
             resolution,
+            true,
         ) {
             Ok(_) => {}
             Err(e) => {

@@ -34,7 +34,7 @@ use crate::diskimage::{TrackData, TrackDataStream};
 use crate::{DiskImage, DiskImageError};
 use image::{ImageBuffer, Pixel, Rgb, Rgba, RgbaImage};
 
-use crate::structure_parsers::system34::System34Element;
+use crate::structure_parsers::system34::{System34Element, System34Marker};
 use crate::structure_parsers::{DiskStructureElement, DiskStructureMetadata};
 use std::cmp::min;
 use std::f32::consts::{PI, TAU};
@@ -70,10 +70,49 @@ impl From<System34Element> for Rgba<u8> {
             System34Element::Gap4a => Rgba([0, 0, 0, 128]),
             System34Element::Gap4b => Rgba([0, 0, 0, 128]),
             System34Element::Sync => Rgba([0, 255, 255, 128]),
-            System34Element::Iam => Rgba([0, 0, 255, 128]),
-            System34Element::Idam => Rgba([0, 128, 255, 200]),
-            System34Element::Dam => Rgba([255, 255, 0, 200]),
-            System34Element::Data => Rgba([0, 255, 0, 64]),
+            System34Element::Marker(System34Marker::Iam, Some(false)) => Rgba([255, 0, 255, 128]),
+            System34Element::Marker(System34Marker::Iam, _) => Rgba([0, 0, 255, 128]),
+            System34Element::Marker(System34Marker::Idam, _) => Rgba([0, 128, 255, 200]),
+            System34Element::Marker(System34Marker::Dam, _) => Rgba([255, 255, 0, 200]),
+            System34Element::Data(true) => Rgba([0, 255, 0, 64]),
+            System34Element::Data(false) => Rgba([255, 128, 0, 64]),
+        }
+    }
+}
+
+impl System34Element {
+    pub fn alpha(&self) -> u8 {
+        match self {
+            System34Element::Gap1 => 128,
+            System34Element::Gap2 => 128,
+            System34Element::Gap3 => 128,
+            System34Element::Gap4a => 128,
+            System34Element::Gap4b => 128,
+            System34Element::Sync => 128,
+            System34Element::Marker(System34Marker::Iam, Some(false)) => 200,
+            System34Element::Marker(System34Marker::Iam, _) => 200,
+            System34Element::Marker(System34Marker::Idam, _) => 200,
+            System34Element::Marker(System34Marker::Dam, _) => 200,
+            System34Element::Data(_) => 64,
+        }
+    }
+
+    pub fn to_rgba_nested(&self, nest_lvl: u32) -> Rgba<u8> {
+        match (nest_lvl, self) {
+            (_, System34Element::Gap1) => Rgba([0, 0, 0, 128]),
+            (_, System34Element::Gap2) => Rgba([0, 0, 0, 128]),
+            (_, System34Element::Gap3) => Rgba([0, 0, 0, 128]),
+            (_, System34Element::Gap4a) => Rgba([0, 0, 0, 128]),
+            (_, System34Element::Gap4b) => Rgba([0, 0, 0, 128]),
+            (_, System34Element::Sync) => Rgba([0, 255, 255, 128]),
+            (_, System34Element::Marker(System34Marker::Iam, Some(false))) => Rgba([255, 0, 255, 128]),
+            (_, System34Element::Marker(System34Marker::Iam, _)) => Rgba([0, 0, 255, 128]),
+            (_, System34Element::Marker(System34Marker::Idam, _)) => Rgba([0, 128, 255, 200]),
+            (_, System34Element::Marker(System34Marker::Dam, _)) => Rgba([255, 255, 0, 200]),
+            (1, System34Element::Data(true)) => Rgba([0, 255, 0, 64]),
+            (_, System34Element::Data(true)) => Rgba([0, 255, 168, 80]),
+            (1, System34Element::Data(false)) => Rgba([255, 128, 0, 128]),
+            (_, System34Element::Data(false)) => Rgba([255, 128, 168, 160]),
         }
     }
 }
@@ -119,6 +158,7 @@ pub fn render_tracks(
     track_gap_weight: f32,
     direction: RotationDirection, // Added parameter for rotation direction
     resolution: ResolutionType,   // Added parameter for resolution type
+    colorize: bool,
 ) -> Result<(), DiskImageError> {
     let span = imgbuf.width();
     let (width, height) = image_size;
@@ -200,16 +240,18 @@ pub fn render_tracks(
                                 Rgba([gray_value, gray_value, gray_value, 255])
                             };
 
-                            let meta_color: Option<Rgba<u8>> = match rmetadata[track_index].item_at(bit_index) {
-                                Some(item) => {
+                            let meta_color: Option<Rgba<u8>> = match rmetadata[track_index].item_at(bit_index << 1) {
+                                Some((item, nest_ct)) => {
                                     let DiskStructureElement::System34(element) = item.elem_type;
-                                    Some(element.into())
+                                    Some(element.to_rgba_nested(nest_ct))
                                 }
                                 None => None,
                             };
 
                             if let Some(meta_color) = meta_color {
-                                data_color.blend(&meta_color);
+                                if colorize {
+                                    data_color.blend(&meta_color);
+                                }
                                 data_color
                             } else {
                                 data_color

@@ -98,16 +98,44 @@ pub enum DiskDensity {
     Extended,
 }
 
-pub enum EncodingSync {
+#[derive(Copy, Clone, Debug)]
+pub enum EncodingPhase {
     Even,
     Odd,
 }
 
-impl From<EncodingSync> for usize {
-    fn from(sync: EncodingSync) -> Self {
-        match sync {
-            EncodingSync::Even => 0,
-            EncodingSync::Odd => 1,
+impl From<EncodingPhase> for usize {
+    fn from(phase: EncodingPhase) -> Self {
+        match phase {
+            EncodingPhase::Even => 0,
+            EncodingPhase::Odd => 1,
+        }
+    }
+}
+
+impl From<EncodingPhase> for bool {
+    fn from(phase: EncodingPhase) -> Self {
+        match phase {
+            EncodingPhase::Even => false,
+            EncodingPhase::Odd => true,
+        }
+    }
+}
+
+impl From<bool> for EncodingPhase {
+    fn from(phase: bool) -> Self {
+        match phase {
+            false => EncodingPhase::Even,
+            true => EncodingPhase::Odd,
+        }
+    }
+}
+
+impl From<usize> for EncodingPhase {
+    fn from(phase: usize) -> Self {
+        match phase {
+            0 => EncodingPhase::Even,
+            _ => EncodingPhase::Odd,
         }
     }
 }

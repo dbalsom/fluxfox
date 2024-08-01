@@ -37,3 +37,14 @@ impl<T: Read + Seek> ReadSeek for T {}
 /// A sum of `Read`, `Write` and `Seek` traits.
 pub trait ReadWriteSeek: Read + Write + Seek {}
 impl<T: Read + Write + Seek> ReadWriteSeek for T {}
+
+pub trait ReadBytesExt: Read {
+    #[inline]
+    fn read_u8(&mut self) -> Result<u8> {
+        let mut buf = [0; 1];
+        self.read_exact(&mut buf)?;
+        Ok(buf[0])
+    }
+}
+
+impl<R: Read> ReadBytesExt for R {}

@@ -95,10 +95,10 @@ fn main() {
     println!("----------------");
     disk.dump_info(&mut std::io::stdout());
 
-    for track in disk.track_pool.iter() {
-        match &track.data {
+    /*    for track in disk.track_pool.iter_mut() {
+        match &mut track.data {
             TrackData::BitStream { data, .. } => {
-                let elements = System34Parser::scan_track_elements(data);
+                let elements = System34Parser::scan_track_metadata(data);
 
                 log::trace!("Found {} elements on track.", elements.len());
             }
@@ -106,5 +106,5 @@ fn main() {
                 println!("Track data is not a bitstream. Skipping track element scan.");
             }
         }
-    }
+    }*/
 }

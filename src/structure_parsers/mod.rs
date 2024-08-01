@@ -39,9 +39,11 @@
 
 pub mod system34;
 
-use crate::bitstream::mfm::MfmDecoder;
 use crate::diskimage::TrackDataStream;
-use crate::structure_parsers::system34::System34Element;
+use crate::structure_parsers::system34::{System34Element, System34Marker};
+use crate::EncodingPhase;
+use bit_vec::BitVec;
+use num_derive::NumCast;
 use std::ops::Index;
 
 pub struct DiskStructureMetadata {
@@ -63,16 +65,43 @@ impl DiskStructureMetadata {
         self.items.push(item);
     }
 
-    pub fn item_at(&self, index: usize) -> Option<&DiskStructureMetadataItem> {
+    /// Return a reference to the innermost metadata item that contains the specified index,
+    /// along with a count of the total number of matching items (to handle overlapping items).
+    /// Returns None if no match.
+    pub fn item_at(&self, index: usize) -> Option<(&DiskStructureMetadataItem, u32)> {
+        let mut ref_stack = Vec::new();
+        let mut match_ct = 0;
         for item in &self.items {
             if item.start <= index && item.end >= index {
-                return Some(&item);
+                ref_stack.push(item);
+                match_ct += 1;
             }
         }
-        None
+
+        if ref_stack.is_empty() {
+            None
+        } else {
+            // Sort by smallest element to allow address markers to have highest
+            // priority.
+            ref_stack.sort_by(|a, b| {
+                let a_len = a.end - a.start;
+                let b_len = b.end - b.start;
+                a.start.cmp(&b.start)
+            });
+            Some((ref_stack.pop().unwrap(), match_ct))
+        }
     }
 }
 
+#[derive(Copy, Clone, Debug)]
+pub struct DiskStructureMarkerItem {
+    pub(crate) elem_type: DiskStructureMarker,
+    start: usize,
+}
+
+/// A DiskStructureMetadataItem represents a single element of a disk structure, such as an
+/// address mark or data mark. It encodes the start and end of the element (as raw bitstream
+/// addresses) as well as optionally the status of any CRC field (valid for IDAM and DAM marks)
 #[derive(Copy, Clone, Debug)]
 pub struct DiskStructureMetadataItem {
     pub(crate) elem_type: DiskStructureElement,
@@ -82,9 +111,20 @@ pub struct DiskStructureMetadataItem {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub enum DiskStructureCrc {
-    System34Crc8(u8),
-    System34Crc16(u16),
+pub struct DiskStructureCrc {
+    stored: u16,
+    calculated: u16,
+}
+
+impl DiskStructureCrc {
+    pub fn valid(&self) -> bool {
+        self.stored == self.calculated
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum DiskStructureMarker {
+    System34(System34Marker),
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -97,15 +137,24 @@ pub trait DiskStructureParser {
     /// into the track.
     /// The bit offset of the pattern is returned if found, otherwise None.
     /// The pattern length is limited to 8 characters.
-    fn find_pattern(track: &TrackDataStream, pattern: &[u8], offset: usize) -> Option<usize>;
+    fn find_data_pattern(track: &TrackDataStream, pattern: &[u8], offset: usize) -> Option<usize>;
 
+    fn find_marker(track: &TrackDataStream, marker: DiskStructureMarker, offset: usize) -> Option<usize>;
     fn find_element(track: &TrackDataStream, element: DiskStructureElement, offset: usize) -> Option<usize>;
 
-    fn scan_track_elements(track: &TrackDataStream) -> Vec<DiskStructureMetadataItem>;
+    fn scan_track_markers(track: &mut TrackDataStream) -> Vec<DiskStructureMarkerItem>;
+    fn scan_track_metadata(
+        track: &mut TrackDataStream,
+        markers: Vec<DiskStructureMarkerItem>,
+    ) -> Vec<DiskStructureMetadataItem>;
+
+    fn create_clock_map(markers: &Vec<DiskStructureMarkerItem>, clock_map: &mut BitVec);
 
     /// Read `length` bytes from the sector containing the specified sector_id from a
     /// TrackBitStream. If Some value of sector_n is provided, the value of n must match as well
     /// for data to be returned. The `length` parameter allows data to be returned after the end
     /// of the sector, allowing reading into inter-sector gaps.
     fn read_sector(track: &TrackDataStream, sector_id: u8, sector_n: Option<u8>, length: usize) -> Option<Vec<u8>>;
+
+    fn crc16(track: &mut TrackDataStream, start: usize, end: usize) -> u16;
 }

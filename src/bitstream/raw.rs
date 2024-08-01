@@ -32,7 +32,7 @@
 
 use crate::bitstream::mfm::MfmDecoder;
 use crate::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom};
-use crate::EncodingSync;
+use crate::EncodingPhase;
 use bit_vec::BitVec;
 use std::ops::{Index, Range};
 
@@ -64,7 +64,7 @@ impl RawDecoder {
         self.bit_vec.len()
     }
 
-    pub fn get_sync(&self) -> Option<EncodingSync> {
+    pub fn get_sync(&self) -> Option<EncodingPhase> {
         None
     }
     // Add other necessary methods here

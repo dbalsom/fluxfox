@@ -32,8 +32,9 @@ use crate::file_parsers::ImageParser;
 use crate::io::ReadSeek;
 use crate::structure_parsers::system34::System34Parser;
 use crate::structure_parsers::{DiskStructureMetadata, DiskStructureParser};
-use crate::{DiskDataEncoding, DiskDataRate, DiskImageError, DiskRpm, EncodingSync, DEFAULT_SECTOR_SIZE};
+use crate::{DiskDataEncoding, DiskDataRate, DiskImageError, DiskRpm, EncodingPhase, DEFAULT_SECTOR_SIZE};
 use bit_vec::BitVec;
+use std::arch::x86_64::_mm_stream_ss;
 use std::fmt::Display;
 
 /// An enumeration describing the type of disk image.
@@ -204,7 +205,7 @@ impl Default for DiskConsistency {
 /// this per-track, so we store it here.
 pub struct TrackFormat {
     pub data_encoding: DiskDataEncoding,
-    pub data_sync: Option<EncodingSync>,
+    pub data_sync: Option<EncodingPhase>,
     pub data_rate: DiskDataRate,
 }
 
@@ -439,13 +440,19 @@ impl DiskImage {
         let weak_mask = BitVec::from_elem(data.len(), false);
 
         log::trace!("add_track_bitstream(): Encoding is {:?}", data_encoding);
-        let data_stream = match data_encoding {
-            DiskDataEncoding::Mfm => TrackDataStream::Mfm(MfmDecoder::new(data, Some(weak_mask))),
+        let (mut data_stream, markers) = match data_encoding {
+            DiskDataEncoding::Mfm => {
+                let mut data_stream = TrackDataStream::Mfm(MfmDecoder::new(data, Some(weak_mask)));
+                let markers = System34Parser::scan_track_markers(&mut data_stream);
+
+                System34Parser::create_clock_map(&markers, data_stream.clock_map_mut().unwrap());
+                (data_stream, markers)
+            }
             DiskDataEncoding::Fm => {
                 // TODO: Handle FM encoding sync
-                TrackDataStream::Raw(RawDecoder::new(data, Some(weak_mask)))
+                (TrackDataStream::Raw(RawDecoder::new(data, Some(weak_mask))), Vec::new())
             }
-            _ => TrackDataStream::Raw(RawDecoder::new(data, Some(weak_mask))),
+            _ => (TrackDataStream::Raw(RawDecoder::new(data, Some(weak_mask))), Vec::new()),
         };
 
         let format = TrackFormat {
@@ -454,7 +461,7 @@ impl DiskImage {
             data_rate,
         };
 
-        let mut metadata = DiskStructureMetadata::new(System34Parser::scan_track_elements(&data_stream));
+        let mut metadata = DiskStructureMetadata::new(System34Parser::scan_track_metadata(&mut data_stream, markers));
 
         self.track_pool.push(DiskTrack {
             format,
@@ -468,6 +475,7 @@ impl DiskImage {
             },
         });
         self.track_map[ch.h() as usize].push(self.track_pool.len() - 1);
+
         Ok(())
     }
 
