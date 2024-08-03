@@ -25,7 +25,109 @@
     --------------------------------------------------------------------------
 */
 
+use crate::MAXIMUM_SECTOR_SIZE;
 use std::fmt::Display;
+
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
+pub struct DiskChsn {
+    chs: DiskChs,
+    n: u8,
+}
+
+impl Default for DiskChsn {
+    fn default() -> Self {
+        Self {
+            chs: DiskChs::default(),
+            n: 0,
+        }
+    }
+}
+
+impl From<(u16, u8, u8, u8)> for DiskChsn {
+    fn from((c, h, s, n): (u16, u8, u8, u8)) -> Self {
+        Self {
+            chs: DiskChs::from((c, h, s)),
+            n,
+        }
+    }
+}
+
+impl Display for DiskChsn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[c:{} h:{} s:{} n: {}]", self.c(), self.h(), self.s(), self.n)
+    }
+}
+
+impl DiskChsn {
+    pub fn new(c: u16, h: u8, s: u8, n: u8) -> Self {
+        Self {
+            chs: DiskChs::from((c, h, s)),
+            n,
+        }
+    }
+
+    pub fn get(&self) -> (u16, u8, u8, u8) {
+        (self.c(), self.h(), self.s(), self.n())
+    }
+    pub fn c(&self) -> u16 {
+        self.c()
+    }
+    pub fn h(&self) -> u8 {
+        self.h()
+    }
+    pub fn s(&self) -> u8 {
+        self.s()
+    }
+    pub fn n(&self) -> u8 {
+        self.n
+    }
+    /// Return the size of the 'n' parameter in bytes.
+    /// The formula for calculating size from n is (128 * 2^n)
+    /// We enforce a maximum size of 8192 bytes for a single sector.
+    pub fn n_size(&self) -> usize {
+        std::cmp::min(MAXIMUM_SECTOR_SIZE, 128usize.overflowing_shl(self.n as u32).0)
+    }
+    pub fn set(&mut self, c: u16, h: u8, s: u8, n: u8) {
+        self.set_c(c);
+        self.set_h(h);
+        self.set_s(s);
+        self.n = n;
+    }
+    pub fn set_c(&mut self, c: u16) {
+        self.chs.set_c(c)
+    }
+    pub fn set_h(&mut self, h: u8) {
+        self.chs.set_h(h)
+    }
+    pub fn set_s(&mut self, s: u8) {
+        self.chs.set_s(s)
+    }
+    pub fn seek(&mut self, dst_chs: &DiskChs) {
+        self.chs = *dst_chs;
+    }
+
+    /// Return the number of sectors represented by a DiskChs structure, interpreted as drive geometry.
+    pub fn get_sector_count(&self) -> u32 {
+        self.chs.get_sector_count()
+    }
+
+    /// Convert a DiskChs struct to an LBA sector address. A reference drive geometry is required to calculate the
+    /// address.
+    pub fn to_lba(&self, geom: &DiskChs) -> usize {
+        self.chs.to_lba(geom)
+    }
+
+    /// Return a new CHS that is the next sector on the disk.
+    /// If the current CHS is the last sector on the disk, the next CHS will be the first sector on the disk.
+    pub(crate) fn get_next_sector(&self, geom: &DiskChs) -> DiskChs {
+        self.chs.get_next_sector(geom)
+    }
+
+    pub(crate) fn seek_forward(&mut self, sectors: u32, geom: &DiskChs) -> &mut Self {
+        self.chs.seek_forward(sectors, geom);
+        self
+    }
+}
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub struct DiskChs {

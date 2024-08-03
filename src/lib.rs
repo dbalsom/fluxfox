@@ -44,6 +44,7 @@ use std::hash::RandomState;
 
 use thiserror::Error;
 
+pub const MAXIMUM_SECTOR_SIZE: usize = 8192;
 pub const DEFAULT_SECTOR_SIZE: usize = 512;
 pub const ASCII_EOF: u8 = 0x1A;
 
