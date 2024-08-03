@@ -33,7 +33,7 @@
 use crate::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom};
 use crate::EncodingPhase;
 use bit_vec::BitVec;
-use std::ops::{Index};
+use std::ops::Index;
 
 pub const MFM_BYTE_LEN: usize = 16;
 pub const MFM_MARKER_LEN: usize = 64;
@@ -53,7 +53,7 @@ pub struct MfmDecoder {
     bit_cursor: usize,
 }
 
-enum MfmEncodingType {
+pub enum MfmEncodingType {
     Data,
     AddressMark,
 }
@@ -74,7 +74,7 @@ pub fn encode_mfm(data: &[u8], encoding_type: MfmEncodingType) -> BitVec {
                 bitvec.push(true);
             } else {
                 // 0 is encoded as 10 if previous bit was 0, otherwise 00
-                if bitvec.len() > 0 && !bitvec[bitvec.len() - 1] {
+                if !bitvec.is_empty() && !bitvec[bitvec.len() - 1] {
                     bitvec.push(true);
                 } else {
                     bitvec.push(false);
@@ -177,7 +177,6 @@ impl MfmDecoder {
         assert_eq!(data.len(), 4);
 
         let mut accum: u64 = 0;
-        let mut bit_count = 0;
         // A mark is always preceded by a SYNC block of 0's, so we know the previous bit will always
         // be 0.
         let mut previous_bit = false;
@@ -193,14 +192,11 @@ impl MfmDecoder {
                     if !previous_bit {
                         accum = (accum << 2) | 0b10;
                     } else {
-                        accum = accum << 2;
+                        accum <<= 2;
                     }
                 }
                 previous_bit = bit;
-                bit_count += 1;
             }
-            // Reset bit_count for the next byte
-            bit_count = 0;
         }
         accum
     }

@@ -25,7 +25,6 @@
     --------------------------------------------------------------------------
 */
 
-#[macro_export]
 pub mod mfm;
 pub mod raw;
 
@@ -33,7 +32,7 @@ use crate::diskimage::TrackDataStream;
 use crate::io::{Read, Seek};
 use crate::EncodingPhase;
 use bit_vec::BitVec;
-use std::ops::{Index};
+use std::ops::Index;
 
 pub trait TrackDataStreamT: Iterator + Seek + Index<usize> {}
 

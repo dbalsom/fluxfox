@@ -39,3 +39,7 @@ members = [
 default = ["viz", "zip"]
 viz = ["dep:image"]
 zip = ["dep:zip"]
+
+[lints.clippy]
+too-many-arguments = "allow"
+identity_op = "allow"

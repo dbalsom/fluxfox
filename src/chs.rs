@@ -58,6 +58,7 @@ impl Display for DiskChsn {
     }
 }
 
+#[allow(dead_code)]
 impl DiskChsn {
     pub fn new(c: u16, h: u8, s: u8, n: u8) -> Self {
         Self {
@@ -70,13 +71,13 @@ impl DiskChsn {
         (self.c(), self.h(), self.s(), self.n())
     }
     pub fn c(&self) -> u16 {
-        self.c()
+        self.chs.c()
     }
     pub fn h(&self) -> u8 {
-        self.h()
+        self.chs.h()
     }
     pub fn s(&self) -> u8 {
-        self.s()
+        self.chs.s()
     }
     pub fn n(&self) -> u8 {
         self.n

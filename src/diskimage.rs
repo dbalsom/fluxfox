@@ -182,6 +182,7 @@ impl From<usize> for FloppyFormat {
 }
 
 /// A DiskConsistency structure maintains information about the consistency of a disk image.
+#[derive(Default)]
 pub struct DiskConsistency {
     /// Whether the disk image contains weak bits.
     pub weak: bool,
@@ -191,17 +192,6 @@ pub struct DiskConsistency {
     pub consistent_sector_size: Option<u32>,
     /// The track length in sectors if the disk image has consistent track lengths, otherwise None.
     pub consistent_track_length: Option<u8>,
-}
-
-impl Default for DiskConsistency {
-    fn default() -> Self {
-        Self {
-            weak: false,
-            deleted: false,
-            consistent_sector_size: None,
-            consistent_track_length: None,
-        }
-    }
 }
 
 /// Per-track format settings. In most cases, this will not change per-track. Some formats encode
@@ -473,7 +463,7 @@ impl DiskImage {
             .items
             .iter()
             .filter_map(|i| {
-                if let DiskStructureElement::System34(System34Element::Data(crc)) = i.elem_type {
+                if let DiskStructureElement::System34(System34Element::Data(_crc)) = i.elem_type {
                     //log::trace!("Got Data element, returning start address: {}", i.start);
                     Some(i.start)
                 } else {
@@ -599,7 +589,7 @@ impl DiskImage {
                     }
                 }
             }
-            TrackData::ByteStream {   .. } => {}
+            TrackData::ByteStream { .. } => {}
         }
 
         None
@@ -637,8 +627,12 @@ impl DiskImage {
                 } => {
                     read_vec = vec![0; 512];
 
-                    mfm_decoder.seek(SeekFrom::Start((sector_offset >> 1) as u64 + 32));
-                    mfm_decoder.read_exact(&mut read_vec);
+                    mfm_decoder
+                        .seek(SeekFrom::Start((sector_offset >> 1) as u64 + 32))
+                        .map_err(|_| DiskImageError::SeekError)?;
+                    mfm_decoder
+                        .read_exact(&mut read_vec)
+                        .map_err(|_| DiskImageError::IoError)?;
 
                     log::trace!("read_sector(): Found sector_id: {} at offset: {}", sid, sector_offset);
                 }
@@ -732,10 +726,21 @@ impl DiskImage {
         let rows = si.data.len() / bytes_per_row;
         let last_row_size = si.data.len() % bytes_per_row;
 
+        // Print all full rows.
         for r in 0..rows {
-            out.write_fmt(format_args!("{:04X}| ", r * bytes_per_row)).unwrap();
+            out.write_fmt(format_args!("{:04X} | ", r * bytes_per_row)).unwrap();
             for b in 0..bytes_per_row {
                 out.write_fmt(format_args!("{:02X} ", si.data[r * bytes_per_row + b]))
+                    .unwrap();
+            }
+            out.write_fmt(format_args!("\n")).unwrap();
+        }
+
+        // Print last incomplete row, if any bytes left over.
+        if last_row_size > 0 {
+            out.write_fmt(format_args!("{:04X} | ", rows * bytes_per_row)).unwrap();
+            for b in 0..last_row_size {
+                out.write_fmt(format_args!("{:02X} ", si.data[rows * bytes_per_row + b]))
                     .unwrap();
             }
             out.write_fmt(format_args!("\n")).unwrap();

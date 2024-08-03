@@ -146,7 +146,7 @@ fn collect_streams(head: u8, disk_image: &DiskImage) -> Vec<&TrackDataStream> {
 fn collect_metadata(head: u8, disk_image: &DiskImage) -> Vec<&DiskStructureMetadata> {
     disk_image.track_map[head as usize]
         .iter()
-        .filter_map(|track_i| Some(&disk_image.track_pool[*track_i].metadata))
+        .map(|track_i| &disk_image.track_pool[*track_i].metadata)
         .collect()
 }
 
@@ -163,7 +163,6 @@ pub fn render_tracks(
     resolution: ResolutionType,   // Added parameter for resolution type
     colorize: bool,
 ) -> Result<(), DiskImageError> {
-    let span = imgbuf.width();
     let (width, height) = image_size;
     let (x_offset, y_offset) = image_pos;
 

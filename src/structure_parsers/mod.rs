@@ -41,7 +41,7 @@ pub mod system34;
 
 use crate::diskimage::TrackDataStream;
 use crate::structure_parsers::system34::{System34Element, System34Marker};
-use crate::{DiskChs};
+use crate::DiskChs;
 use bit_vec::BitVec;
 
 pub struct DiskStructureMetadata {
@@ -81,11 +81,7 @@ impl DiskStructureMetadata {
         } else {
             // Sort by smallest element to allow address markers to have highest
             // priority.
-            ref_stack.sort_by(|a, b| {
-                let a_len = a.end - a.start;
-                let b_len = b.end - b.start;
-                a.start.cmp(&b.start)
-            });
+            ref_stack.sort_by(|a, b| a.start.cmp(&b.start));
             Some((ref_stack.pop().unwrap(), match_ct))
         }
     }
@@ -149,7 +145,7 @@ pub trait DiskStructureParser {
         markers: Vec<DiskStructureMarkerItem>,
     ) -> Vec<DiskStructureMetadataItem>;
 
-    fn create_clock_map(markers: &Vec<DiskStructureMarkerItem>, clock_map: &mut BitVec);
+    fn create_clock_map(markers: &[DiskStructureMarkerItem], clock_map: &mut BitVec);
 
     /// Read `length` bytes from the sector containing the specified sector_id from a
     /// TrackBitStream. If Some value of sector_n is provided, the value of n must match as well

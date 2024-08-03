@@ -34,8 +34,7 @@ use crate::diskimage::DiskDescriptor;
 use crate::file_parsers::ParserWriteCompatibility;
 use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::{
-    DiskCh, DiskChs, DiskDataEncoding, DiskDataRate, DiskImage, DiskImageError, DiskImageFormat,
-    DEFAULT_SECTOR_SIZE,
+    DiskCh, DiskChs, DiskDataEncoding, DiskDataRate, DiskImage, DiskImageError, DiskImageFormat, DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, BinRead};
 
@@ -75,7 +74,7 @@ struct MfmAdvancedTrackHeader {
     track_offset: u32,
 }
 
-pub enum TrackHeader {
+enum TrackHeader {
     Standard(MfmTrackHeader),
     Advanced(MfmAdvancedTrackHeader),
 }
@@ -90,7 +89,7 @@ impl MfmFormat {
         _ = image.seek(std::io::SeekFrom::Start(0));
 
         if let Ok(file_header) = MfmFileHeader::read_le(&mut image) {
-            if &file_header.id == "HXCMFM".as_bytes() {
+            if file_header.id == "HXCMFM".as_bytes() {
                 detected = true;
             }
         }
@@ -201,10 +200,10 @@ impl MfmFormat {
         // We now have a table of tracks. Read the data for each track and add it to the DiskImage.
 
         for header in &track_headers {
-            let mut cylinder = 0;
-            let mut head = 0;
-            let mut track_data = Vec::new();
-            let mut data_rate = 0;
+            let cylinder;
+            let head;
+            let track_data;
+            let data_rate;
             match header {
                 TrackHeader::Standard(s_header) => {
                     track_data = MfmFormat::read_track_data(

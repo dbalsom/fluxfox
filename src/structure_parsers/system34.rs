@@ -34,8 +34,7 @@ use crate::bitstream::mfm::{MfmDecoder, MFM_BYTE_LEN, MFM_MARKER_LEN};
 use crate::diskimage::TrackDataStream;
 use crate::io::{Read, Seek, SeekFrom};
 use crate::structure_parsers::{
-    DiskStructureElement, DiskStructureMarker, DiskStructureMarkerItem,
-    DiskStructureMetadataItem, DiskStructureParser,
+    DiskStructureElement, DiskStructureMarker, DiskStructureMarkerItem, DiskStructureMetadataItem, DiskStructureParser,
 };
 use crate::util::crc_ccitt;
 use crate::{mfm_offset, DiskChs};
@@ -205,7 +204,7 @@ impl DiskStructureParser for System34Parser {
         if let DiskStructureElement::System34(element) = element {
             use System34Element::*;
 
-            let (marker, pattern) = match element {
+            let (marker, _pattern) = match element {
                 Gap1 | Gap2 | Gap3 | Gap4a | Gap4b => (System34Parser::encode_marker(&[0x4E; 4]), &[0x4E; 4]),
                 Sync => (MfmDecoder::encode_marker(&[0x00; 4]), &[0x00; 4]),
                 _ => return None,
@@ -355,7 +354,7 @@ impl DiskStructureParser for System34Parser {
             if let DiskStructureMarker::System34(sys34_marker) = marker.elem_type {
                 match (last_marker_opt, sys34_marker) {
                     (_, System34Marker::Idam) => {
-                        let mut sector_header = vec![0; 8];
+                        let mut sector_header = [0; 8];
 
                         // TODO: Don't unwrap in a library unless provably safe.
                         //       Consider removing option return type from read_encoded_byte.
@@ -471,10 +470,11 @@ impl DiskStructureParser for System34Parser {
     /// for the proper functioning of the Read and Seek traits on MfmDecoder. A clock phase map is
     /// basically a bit vector congruent to the stream bitvec that indicates whether the
     /// corresponding stream bit is a clock or data bit.
-    fn create_clock_map(markers: &Vec<DiskStructureMarkerItem>, clock_map: &mut BitVec) {
+    fn create_clock_map(markers: &[DiskStructureMarkerItem], clock_map: &mut BitVec) {
         let mut last_marker_index: usize = 0;
 
         log::trace!("Creating clock map from {} markers...", markers.len());
+        #[allow(unused)]
         let mut bit_set = 0;
         for marker in markers {
             if let DiskStructureMarker::System34(_) = marker.elem_type {
