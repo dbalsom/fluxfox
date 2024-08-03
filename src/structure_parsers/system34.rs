@@ -227,12 +227,40 @@ impl DiskStructureParser for System34Parser {
         None
     }
 
+    /// Scan a track bitstream for address markers, including the IAM, IDAM and DAM markers. Return
+    /// their positions. The marker positions will be used to create the clock phase map for the
+    /// track, which must be performed before we can read the data off the disk which is done in
+    /// a second pass.
     fn scan_track_markers(track: &mut TrackDataStream) -> Vec<DiskStructureMarkerItem> {
         let mut bit_cursor: usize = 0;
         let mut markers = Vec::new();
         let mut last_marker_opt: Option<System34Marker> = None;
         let mut last_marker_offset = 0;
-        let mut marker = System34Marker::Iam;
+
+        // Look for the IAM marker first - but it may not be present.
+        // Potential optimization:
+        //       It may be unnecessary to scan the entire track for the IAM. If it is not present
+        //       within the first 10% of the track it is probably not there.
+
+        if let Some(marker_offset) =
+            System34Parser::find_marker(track, DiskStructureMarker::System34(System34Marker::Iam), bit_cursor)
+        {
+            log::trace!(
+                "scan_track_markers(): Found IAM marker at bit offset: {}",
+                marker_offset
+            );
+            markers.push(DiskStructureMarkerItem {
+                elem_type: DiskStructureMarker::System34(System34Marker::Iam),
+                start: marker_offset,
+            });
+
+            last_marker_offset = marker_offset;
+            last_marker_opt = Some(System34Marker::Iam);
+            bit_cursor = marker_offset + 4 * MFM_BYTE_LEN;
+        }
+
+        // Scan for the remaining markers.
+        let mut marker = System34Marker::Idam;
 
         while let Some(marker_offset) =
             System34Parser::find_marker(track, DiskStructureMarker::System34(marker), bit_cursor)
