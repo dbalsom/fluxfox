@@ -31,6 +31,7 @@
 */
 
 use crate::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom};
+use crate::structure_parsers::DiskStructureMarker;
 use crate::EncodingPhase;
 use bit_vec::BitVec;
 use std::ops::{Index, Range};
@@ -203,6 +204,28 @@ impl MfmDecoder {
             bit_count = 0;
         }
         accum
+    }
+
+    pub fn find_next_marker(&self, marker: u64, mask: u64, start: usize) -> Option<(usize, u16)> {
+        let mut shift_reg: u64 = 0;
+        let mut shift_ct: u32 = 0;
+
+        for bi in start..self.bit_vec.len() {
+            shift_reg = (shift_reg << 1) | self.bit_vec[bi] as u64;
+            shift_ct += 1;
+
+            /*            if (bi == 2528 + 64) {
+                log::trace!("find_marker(): {:016X}, {:016X}", shift_reg, marker);
+                log::trace!("find_marker(): debug_marker(): {}", self.debug_marker(bi - 64));
+                log::trace!("find_marker(): binary diff: {:064b}", shift_reg ^ marker);
+            }*/
+
+            if shift_ct >= 64 && ((shift_reg & mask) == marker) {
+                return Some(((bi - 64) + 1, (shift_reg & 0xFFFF) as u16));
+            }
+        }
+        log::trace!("find_next_marker(): Failed to find marker!");
+        None
     }
 
     pub fn find_marker(&self, marker: u64, start: usize) -> Option<usize> {

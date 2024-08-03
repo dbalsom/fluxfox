@@ -33,7 +33,7 @@ mod file_parsers;
 mod io;
 mod sector;
 pub mod structure_parsers;
-mod util;
+pub mod util;
 
 #[cfg(feature = "viz")]
 pub mod visualization;

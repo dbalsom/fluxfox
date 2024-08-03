@@ -140,6 +140,7 @@ pub trait DiskStructureParser {
     /// The bit offset of the pattern is returned if found, otherwise None.
     /// The pattern length is limited to 8 characters.
     fn find_data_pattern(track: &TrackDataStream, pattern: &[u8], offset: usize) -> Option<usize>;
+    fn find_next_marker(track: &TrackDataStream, offset: usize) -> Option<(DiskStructureMarker, usize)>;
 
     fn find_marker(track: &TrackDataStream, marker: DiskStructureMarker, offset: usize) -> Option<usize>;
     fn find_element(track: &TrackDataStream, element: DiskStructureElement, offset: usize) -> Option<usize>;
