@@ -231,7 +231,7 @@ impl MfmFormat {
             disk_image.add_track_bitstream(
                 DiskDataEncoding::Mfm,
                 disk_data_rate,
-                DiskCh::from((cylinder, head)),
+                DiskCh::from((cylinder as u16, head)),
                 data_rate,
                 &track_data,
                 None,
@@ -239,7 +239,7 @@ impl MfmFormat {
         }
 
         disk_image.image_format = DiskDescriptor {
-            geometry: DiskChs::from((file_header.track_ct as u8, file_header.head_ct, 0)),
+            geometry: DiskChs::from((file_header.track_ct, file_header.head_ct, 0)),
             data_rate: disk_data_rate,
             data_encoding: DiskDataEncoding::Mfm,
             default_sector_size: DEFAULT_SECTOR_SIZE,

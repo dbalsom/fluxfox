@@ -259,7 +259,7 @@ impl PriFormat {
                     let track_header = PriTrackHeader::read(&mut Cursor::new(&chunk.data))
                         .map_err(|_| DiskImageError::FormatParseError)?;
 
-                    let ch = DiskCh::from((track_header.cylinder as u8, track_header.head as u8));
+                    let ch = DiskCh::from((track_header.cylinder as u16, track_header.head as u8));
                     log::trace!(
                         "Track header: {:?} Bitcells: {} Clock Rate: {}",
                         ch,
@@ -354,10 +354,10 @@ impl PriFormat {
 
         log::trace!("Comment: {}", comment_string);
 
-        let head_ct = heads_seen.len() as u8;
-        let track_ct = track_set.len() as u8;
+        let head_ct = heads_seen.len() as u16;
+        let track_ct = track_set.len() as u16;
         disk_image.image_format = DiskDescriptor {
-            geometry: DiskChs::from((track_ct / head_ct, head_ct, most_common_sector_count)),
+            geometry: DiskChs::from((track_ct / head_ct, head_ct as u8, most_common_sector_count)),
             data_rate: Default::default(),
             data_encoding: DiskDataEncoding::Mfm,
             default_sector_size: DEFAULT_SECTOR_SIZE,

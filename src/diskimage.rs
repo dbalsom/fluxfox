@@ -29,9 +29,11 @@ use crate::bitstream::raw::RawDecoder;
 use crate::chs::{DiskCh, DiskChs};
 use crate::detect::detect_image_format;
 use crate::file_parsers::ImageParser;
-use crate::io::ReadSeek;
-use crate::structure_parsers::system34::System34Parser;
-use crate::structure_parsers::{DiskStructureMetadata, DiskStructureParser};
+use crate::io::{Read, ReadSeek, Seek, SeekFrom};
+use crate::structure_parsers::system34::{System34Element, System34Marker, System34Parser};
+use crate::structure_parsers::{
+    DiskStructureElement, DiskStructureMetadata, DiskStructureMetadataItem, DiskStructureParser,
+};
 use crate::{DiskDataEncoding, DiskDataRate, DiskImageError, DiskRpm, EncodingPhase, DEFAULT_SECTOR_SIZE};
 use bit_vec::BitVec;
 use std::arch::x86_64::_mm_stream_ss;
@@ -47,6 +49,7 @@ pub enum DiskImageFormat {
     MfmBitstreamImage,
     TeleDisk,
     KryofluxStream,
+    HfeImage,
 }
 
 impl Display for DiskImageFormat {
@@ -59,6 +62,7 @@ impl Display for DiskImageFormat {
             DiskImageFormat::TeleDisk => "TeleDisk".to_string(),
             DiskImageFormat::KryofluxStream => "Kryoflux Stream".to_string(),
             DiskImageFormat::MfmBitstreamImage => "HxC MFM Bitstream Image".to_string(),
+            DiskImageFormat::HfeImage => "HFEv1 Bitstream Image".to_string(),
         };
         write!(f, "{}", str)
     }
@@ -221,14 +225,14 @@ pub enum TrackDataStream {
 ///
 pub enum TrackData {
     BitStream {
-        cylinder: u8,
+        cylinder: u16,
         head: u8,
         data_clock: u32,
         data: TrackDataStream,
         metadata: Vec<TrackRegion>,
     },
     ByteStream {
-        cylinder: u8,
+        cylinder: u16,
         head: u8,
         sectors: Vec<TrackSectorIndex>,
         data: Vec<u8>,
@@ -259,7 +263,7 @@ pub struct TrackRegion {
 
 pub struct TrackSectorIndex {
     pub sector_id: u8,
-    pub cylinder_id: u8,
+    pub cylinder_id: u16,
     pub head_id: u8,
     pub t_idx: usize,
     pub len: usize,
@@ -314,6 +318,7 @@ pub struct DiskImage {
     /// An array of vectors containing indices into the track pool. The first index is the head
     /// number, the second is the cylinder number.
     pub track_map: [Vec<usize>; 2],
+    pub sector_map: [Vec<Vec<usize>>; 2],
 }
 
 impl Default for DiskImage {
@@ -327,6 +332,7 @@ impl Default for DiskImage {
             comment: None,
             track_pool: Vec::new(),
             track_map: [Vec::new(), Vec::new()],
+            sector_map: [Vec::new(), Vec::new()],
         }
     }
 }
@@ -351,6 +357,7 @@ impl DiskImage {
             comment: None,
             track_pool: Vec::new(),
             track_map: [Vec::new(), Vec::new()],
+            sector_map: [Vec::new(), Vec::new()],
         }
     }
 
@@ -463,6 +470,24 @@ impl DiskImage {
 
         let mut metadata = DiskStructureMetadata::new(System34Parser::scan_track_metadata(&mut data_stream, markers));
 
+        let sector_offsets = metadata
+            .items
+            .iter()
+            .filter_map(|i| {
+                if let DiskStructureElement::System34(System34Element::Data(crc)) = i.elem_type {
+                    //log::trace!("Got Data element, returning start address: {}", i.start);
+                    Some(i.start)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        log::warn!(
+            "Retrieved {} sector bitstream offsets from metadata.",
+            sector_offsets.len()
+        );
+
         self.track_pool.push(DiskTrack {
             format,
             metadata,
@@ -485,7 +510,7 @@ impl DiskImage {
         &mut self,
         chs: DiskChs,
         id: u8,
-        cylinder_id: Option<u8>,
+        cylinder_id: Option<u16>,
         head_id: Option<u8>,
         sector_data: &[u8],
         weak: Option<&[u8]>,
@@ -532,14 +557,71 @@ impl DiskImage {
         Ok(())
     }
 
+    pub fn get_sector_bit_index(&self, seek_chs: DiskChs) -> Option<usize> {
+        let ti = self.track_map[seek_chs.h() as usize][seek_chs.c() as usize];
+        let track = &self.track_pool[ti];
+
+        log::trace!("metadata items: {:?}", track.metadata.items);
+
+        match &track.data {
+            TrackData::BitStream { .. } => {
+                let mut last_marker_was_idam = false;
+                let mut idam_chs: Option<DiskChs> = None;
+                for mdi in &track.metadata.items {
+                    match mdi {
+                        DiskStructureMetadataItem {
+                            elem_type: DiskStructureElement::System34(System34Element::Marker(System34Marker::Idam, _)),
+                            chs,
+                            ..
+                        } => {
+                            if let Some(idam_chs) = chs {
+                                if *idam_chs == seek_chs {
+                                    log::warn!("Found matching IDAM at CHS: {:?}", idam_chs);
+                                    last_marker_was_idam = true;
+                                }
+                            }
+                            idam_chs = *chs;
+                        }
+                        DiskStructureMetadataItem {
+                            elem_type: DiskStructureElement::System34(System34Element::Data(_)),
+                            ..
+                        } => {
+                            log::debug!(
+                                "Found DAM at CHS: {:?}, index: {} last idam matched? {}",
+                                idam_chs,
+                                mdi.start,
+                                last_marker_was_idam
+                            );
+                            if last_marker_was_idam {
+                                return Some(mdi.start);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            TrackData::ByteStream { sectors, data, .. } => {}
+        }
+
+        None
+    }
+
     /// Read the sectors of 'len' bytes from the disk image starting at the sector mark given by 'chs'.
-    pub fn read_sector(&self, chs: DiskChs, ct: usize, len: usize) -> Result<ReadSectorResult, DiskImageError> {
+    pub fn read_sector(&mut self, chs: DiskChs, ct: usize, len: usize) -> Result<ReadSectorResult, DiskImageError> {
         if chs.h() >= 2 || chs.c() as usize >= self.track_map[chs.h() as usize].len() {
             return Err(DiskImageError::SeekError);
         }
 
+        let sector_offset = match self.get_sector_bit_index(chs) {
+            Some(offset) => offset,
+            None => {
+                log::error!("Sector marker not found reading sector!");
+                return Err(DiskImageError::SeekError);
+            }
+        };
+
         let ti = self.track_map[chs.h() as usize][chs.c() as usize];
-        let track = &self.track_pool[ti];
+        let track = &mut self.track_pool[ti];
 
         let mut read_vec = Vec::new();
 
@@ -547,15 +629,28 @@ impl DiskImage {
         let mut deleted_mark = false;
         let mut crc_error = false;
         let mut wrong_cylinder = false;
+
         for _s in 0..ct {
-            match &track.data {
-                TrackData::BitStream { .. } => {
-                    return Err(DiskImageError::UnsupportedFormat);
+            match &mut track.data {
+                TrackData::BitStream {
+                    data: TrackDataStream::Mfm(mfm_decoder),
+                    ..
+                } => {
+                    read_vec = vec![0; 512];
+
+                    mfm_decoder.seek(SeekFrom::Start((sector_offset >> 1) as u64 + 32));
+                    mfm_decoder.read_exact(&mut read_vec);
+
+                    log::trace!("read_sector(): Found sector_id: {} at offset: {}", sid, sector_offset);
                 }
                 TrackData::ByteStream { sectors, data, .. } => {
                     for si in sectors {
                         if si.sector_id == sid {
-                            log::trace!("found sector_id: {} at t_idx: {}", si.sector_id, si.t_idx);
+                            log::trace!(
+                                "read_sector(): Found sector_id: {} at t_idx: {}",
+                                si.sector_id,
+                                si.t_idx
+                            );
                             read_vec.extend(data[si.t_idx..std::cmp::min(si.t_idx + len, data.len())].to_vec());
 
                             if si.crc_error {
@@ -571,6 +666,9 @@ impl DiskImage {
                             }
                         }
                     }
+                }
+                _ => {
+                    return Err(DiskImageError::UnsupportedFormat);
                 }
             }
             sid += 1;
@@ -622,5 +720,28 @@ impl DiskImage {
             .unwrap();
         out.write_fmt(format_args!("Data Encoding: {}\n", self.image_format.data_encoding))
             .unwrap();
+    }
+
+    pub fn dump_sector_hex<W: crate::io::Write>(
+        &mut self,
+        chs: DiskChs,
+        bytes_per_row: usize,
+        mut out: W,
+    ) -> Result<(), DiskImageError> {
+        let si = self.read_sector(chs, 1, 512)?;
+
+        let rows = si.data.len() / bytes_per_row;
+        let last_row_size = si.data.len() % bytes_per_row;
+
+        for r in 0..rows {
+            out.write_fmt(format_args!("{:04X}| ", r * bytes_per_row)).unwrap();
+            for b in 0..bytes_per_row {
+                out.write_fmt(format_args!("{:02X} ", si.data[r * bytes_per_row + b]))
+                    .unwrap();
+            }
+            out.write_fmt(format_args!("\n")).unwrap();
+        }
+
+        Ok(())
     }
 }

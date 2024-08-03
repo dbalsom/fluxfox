@@ -257,7 +257,7 @@ impl ImdFormat {
             disk_image.add_track_bytestream(
                 data_encoding,
                 data_rate,
-                DiskCh::from((track_header.c(), track_header.h())),
+                DiskCh::from((track_header.c() as u16, track_header.h())),
             );
 
             // Read all sectors for this track.
@@ -281,9 +281,9 @@ impl ImdFormat {
 
                         // Add this sector to track.
                         disk_image.master_sector(
-                            DiskChs::from((track_header.c(), track_header.h(), sector_numbers[s])),
+                            DiskChs::from((track_header.c() as u16, track_header.h(), sector_numbers[s])),
                             sector_numbers[s],
-                            Some(cylinder_map[s]),
+                            Some(cylinder_map[s] as u16),
                             Some(head_map[s]),
                             &data.data,
                             None,
@@ -324,7 +324,7 @@ impl ImdFormat {
         let head_ct = heads_seen.len() as u8;
 
         disk_image.image_format = DiskDescriptor {
-            geometry: DiskChs::from((track_ct / head_ct, head_ct, most_common_sector_count)),
+            geometry: DiskChs::from((track_ct as u16 / head_ct as u16, head_ct, most_common_sector_count)),
             data_rate: rate_opt.unwrap(),
             data_encoding: encoding_opt.unwrap(),
             default_sector_size: DEFAULT_SECTOR_SIZE,

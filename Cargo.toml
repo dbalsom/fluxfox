@@ -31,6 +31,7 @@ hex = "0.4"    # or the latest version
 [workspace]
 members = [
     "examples/imginfo",
+    "examples/imgdump",
     "examples/imgviz",
 ]
 

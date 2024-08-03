@@ -193,7 +193,7 @@ impl MfmDecoder {
                     if !previous_bit {
                         accum = (accum << 2) | 0b10;
                     } else {
-                        accum = (accum << 2);
+                        accum = accum << 2;
                     }
                 }
                 previous_bit = bit;
@@ -301,12 +301,13 @@ impl MfmDecoder {
     }
 
     fn ref_bit_at(&self, index: usize) -> &bool {
-        if self.weak_mask[self.initial_phase + (index << 1)] {
+        let p_off: usize = self.clock_map[index] as usize;
+        if self.weak_mask[p_off + (index << 1)] {
             // Weak bits return random data
             // TODO: precalculate random table and return reference to it.
-            &self.bit_vec[self.initial_phase + (index << 1)]
+            &self.bit_vec[p_off + (index << 1)]
         } else {
-            &self.bit_vec[self.initial_phase + (index << 1)]
+            &self.bit_vec[p_off + (index << 1)]
         }
     }
 }
@@ -319,7 +320,8 @@ impl Iterator for MfmDecoder {
             return None;
         }
 
-        // TODO: For now we just skip clock bits. We should probably implement proper MFM decoding
+        // The bit cursor should always be aligned to a clock bit.
+        // So retrieve the next bit which is the data bit, then point to the next clock.
         let decoded_bit = self.bit_vec[self.bit_cursor + 1];
         self.bit_cursor += 2;
         Some(decoded_bit)
@@ -341,6 +343,17 @@ impl Seek for MfmDecoder {
         ))?;
 
         let mut new_cursor = (new_pos as usize) << 1;
+
+        let mut debug_vec = Vec::new();
+        for i in 0..5 {
+            debug_vec.push(self.clock_map[new_cursor - 2 + i]);
+        }
+        log::debug!(
+            "seek() clock_map[{}]: {} {:?}",
+            new_cursor,
+            self.clock_map[new_cursor],
+            debug_vec
+        );
 
         // If we have seeked to a data bit, nudge the bit cursor to the next clock bit.
         if !self.clock_map[new_cursor] {

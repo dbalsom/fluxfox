@@ -29,7 +29,7 @@ use std::fmt::Display;
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub struct DiskChs {
-    c: u8,
+    c: u16,
     h: u8,
     s: u8,
 }
@@ -40,8 +40,8 @@ impl Default for DiskChs {
     }
 }
 
-impl From<(u8, u8, u8)> for DiskChs {
-    fn from((c, h, s): (u8, u8, u8)) -> Self {
+impl From<(u16, u8, u8)> for DiskChs {
+    fn from((c, h, s): (u16, u8, u8)) -> Self {
         Self { c, h, s }
     }
 }
@@ -53,14 +53,14 @@ impl Display for DiskChs {
 }
 
 impl DiskChs {
-    pub fn new(c: u8, h: u8, s: u8) -> Self {
+    pub fn new(c: u16, h: u8, s: u8) -> Self {
         Self { c, h, s }
     }
 
-    pub fn get(&self) -> (u8, u8, u8) {
+    pub fn get(&self) -> (u16, u8, u8) {
         (self.c, self.h, self.s)
     }
-    pub fn c(&self) -> u8 {
+    pub fn c(&self) -> u16 {
         self.c
     }
     pub fn h(&self) -> u8 {
@@ -70,12 +70,12 @@ impl DiskChs {
         self.s
     }
 
-    pub fn set(&mut self, c: u8, h: u8, s: u8) {
+    pub fn set(&mut self, c: u16, h: u8, s: u8) {
         self.c = c;
         self.h = h;
         self.s = s;
     }
-    pub fn set_c(&mut self, c: u8) {
+    pub fn set_c(&mut self, c: u16) {
         self.c = c;
     }
     pub fn set_h(&mut self, h: u8) {
@@ -87,7 +87,7 @@ impl DiskChs {
 
     /// Seek to the specified CHS. This should be called over 'set' as eventually it will calculate appropriate
     /// timings.
-    pub fn seek(&mut self, c: u8, h: u8, s: u8) {
+    pub fn seek(&mut self, c: u16, h: u8, s: u8) {
         self.seek_to(&DiskChs::from((c, h, s)));
     }
 
@@ -140,7 +140,7 @@ impl DiskChs {
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub struct DiskCh {
-    pub(crate) c: u8,
+    pub(crate) c: u16,
     pub(crate) h: u8,
 }
 
@@ -150,8 +150,8 @@ impl Default for DiskCh {
     }
 }
 
-impl From<(u8, u8)> for DiskCh {
-    fn from((c, h): (u8, u8)) -> Self {
+impl From<(u16, u8)> for DiskCh {
+    fn from((c, h): (u16, u8)) -> Self {
         Self { c, h }
     }
 }
@@ -169,7 +169,7 @@ impl Display for DiskCh {
 }
 
 impl DiskCh {
-    pub fn c(&self) -> u8 {
+    pub fn c(&self) -> u16 {
         self.c
     }
     pub fn h(&self) -> u8 {

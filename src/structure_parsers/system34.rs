@@ -37,7 +37,7 @@ use crate::structure_parsers::{
     DiskStructureElement, DiskStructureMarker, DiskStructureMarkerItem, DiskStructureMetadata,
     DiskStructureMetadataItem, DiskStructureParser,
 };
-use crate::{mfm_offset, EncodingPhase};
+use crate::{mfm_offset, DiskChs, EncodingPhase};
 use bit_vec::BitVec;
 use std::fmt::{Display, Formatter};
 
@@ -352,6 +352,12 @@ impl DiskStructureParser for System34Parser {
                             elem_type: DiskStructureElement::System34(System34Element::Data(crc_correct)),
                             start: element_offset,
                             end: data_end,
+                            chs: Some(DiskChs::new(
+                                last_sector_id.c as u16,
+                                last_sector_id.h,
+                                last_sector_id.s,
+                            )),
+                            n: Some(last_sector_id.b),
                             crc: None,
                         };
                         elements.push(data_metadata);
@@ -366,6 +372,12 @@ impl DiskStructureParser for System34Parser {
                         elem_type: DiskStructureElement::System34(System34Element::Marker(last_marker, None)),
                         start: last_marker_offset,
                         end: element_offset,
+                        chs: Some(DiskChs::new(
+                            last_sector_id.c as u16,
+                            last_sector_id.h,
+                            last_sector_id.s,
+                        )),
+                        n: Some(last_sector_id.b),
                         crc: None,
                     };
                     elements.push(last_marker_metadata);
@@ -378,6 +390,8 @@ impl DiskStructureParser for System34Parser {
             }
         }
 
+        // Sort elements by start offset.
+        elements.sort_by(|a, b| a.start.cmp(&b.start));
         elements
     }
     /*
@@ -506,8 +520,11 @@ impl DiskStructureParser for System34Parser {
             if let DiskStructureMarker::System34(_) = marker.elem_type {
                 let bit_index = marker.start;
 
-                log::trace!("marker clock phase: {}", bit_index & 1);
                 if last_marker_index > 0 {
+                    // Write one 'data' bit immediately before marker to allow for syncing to this
+                    // starting clock.
+                    clock_map.set(last_marker_index - 1, false);
+
                     for bi in (last_marker_index..bit_index).step_by(2) {
                         clock_map.set(bi, true);
                         clock_map.set(bi + 1, false);
@@ -519,13 +536,15 @@ impl DiskStructureParser for System34Parser {
         }
 
         // Set phase from last marker to end of track.
+        if last_marker_index > 0 {
+            clock_map.set(last_marker_index - 1, false);
+        }
+
         for bi in (last_marker_index..(clock_map.len() - 1)).step_by(2) {
             clock_map.set(bi, true);
             clock_map.set(bi + 1, false);
             bit_set += 2;
         }
-
-        log::warn!("Clock map set {} bits", bit_set);
     }
 
     /// Read `length` bytes from the sector containing the specified sector_id from a
@@ -537,21 +556,23 @@ impl DiskStructureParser for System34Parser {
     }
 
     fn crc16(track: &mut TrackDataStream, bit_index: usize, end: usize) -> u16 {
-        const POLY: u16 = 0x1021; // Polynomial x^16 + x^12 + x^5 + 1
-        let mut crc: u16 = 0xFFFF;
-
         let bytes_requested = ((end - bit_index) >> 1) / 8;
 
+        log::trace!(
+            "Performing CRC on {} bytes from bit index {}",
+            bytes_requested,
+            bit_index
+        );
         if let TrackDataStream::Mfm(mfm_stream) = track {
             let mut data = vec![0; bytes_requested];
 
             mfm_stream.seek(SeekFrom::Start((bit_index >> 1) as u64)).unwrap();
             mfm_stream.read_exact(&mut data).unwrap();
-            //log::trace!(
-            //    "First 16 bytes of sector: {:02X?} len: {}",
-            //    &data[..std::cmp::min(16, data.len())],
-            //    data.len()
-            //);
+            log::trace!(
+                "First 16 bytes of sector: {:02X?} len: {}",
+                &data[..std::cmp::min(16, data.len())],
+                data.len()
+            );
             crc_ccitt(&data)
         } else {
             0

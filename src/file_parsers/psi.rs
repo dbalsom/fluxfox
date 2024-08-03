@@ -265,8 +265,8 @@ impl PsiFormat {
                     //log::trace!("Sector header chunk.");
                     let sector_header = PsiSectorHeader::read(&mut Cursor::new(&chunk.data))
                         .map_err(|_| DiskImageError::FormatParseError)?;
-                    let chs = DiskChs::from((sector_header.cylinder as u8, sector_header.head, sector_header.sector));
-                    let ch = DiskCh::from((sector_header.cylinder as u8, sector_header.head));
+                    let chs = DiskChs::from((sector_header.cylinder, sector_header.head, sector_header.sector));
+                    let ch = DiskCh::from((sector_header.cylinder, sector_header.head));
 
                     heads_seen.insert(sector_header.head);
 
@@ -367,10 +367,9 @@ impl PsiFormat {
             .unwrap_or(0);
 
         let head_ct = heads_seen.len() as u8;
-
-        let track_ct = track_set.len() as u8;
+        let track_ct = track_set.len() as u16;
         disk_image.image_format = DiskDescriptor {
-            geometry: DiskChs::from((track_ct / head_ct, head_ct, most_common_sector_count)),
+            geometry: DiskChs::from((track_ct / head_ct as u16, head_ct, most_common_sector_count)),
             data_rate: Default::default(),
             data_encoding: DiskDataEncoding::Mfm,
             default_sector_size: DEFAULT_SECTOR_SIZE,
