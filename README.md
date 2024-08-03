@@ -48,8 +48,8 @@ sometimes produce impossible track encodings, and are not ideal for archival pur
       supported by a number of tools and emulators.
     * Multiple versions exist, including different compression algorithms. Version 2 Teledisk images may be compressed
       with LZHUF compression. Version 1.x images may use a custom LZW implementation instead.
-    * fluxfox currently only supports Version 2.x Teledisk images. It uses LZHUF decompression code graciously borrowed
-      from [retrocompressor](https://github.com/dfgordon/retrocompressor) by [dfgordon](https://github.com/dfgordon).
+    * fluxfox currently only supports Version 2.x Teledisk images. It uses LZHUF decompression code from
+      [retrocompressor](https://github.com/dfgordon/retrocompressor) by [dfgordon](https://github.com/dfgordon).
 * **PCE Sector Image** (PSI)
     * One of several image formats developed by Hampa Hug for use with his emulator,  [PCE](http://www.hampa.ch/pce/).
       A flexible format based on RIFF-like data chunks.
@@ -59,9 +59,9 @@ physically impossible track has not been encoded. Certain parameters such as gap
 
 ### Bitstream Disk Images
 
-Bitstream images store the low-level bit encoding of each track on a diskette. These images typically can encode any
-extant protection, given the appropriate metadata (weak and damaged bits), but are more complex than sector images to
-manipulate and write back to.
+Bitstream images store the low-level FM or MFM encoded bit stream of each track on a diskette. These images typically
+can encode most protection types seen on the PC, given the appropriate metadata (weak and damaged bits), but are more
+complex than sector images to manipulate and write back to.
 
 * **PCE Raw Image** (PRI)
     * One of several image formats developed by Hampa Hug for use with his emulator, [PCE](http://www.hampa.ch/pce/).
@@ -69,19 +69,35 @@ manipulate and write back to.
 * **MFM Bitstream Image** (MFM)
     * A bitstream format created for use with the HxC drive emulation software.
     * Only MFM-encoded track data is included. There is no support for weak bits or other metadata.
+* **HFE Bitstream Image** (HFE)
+    * Another format associated with the HxC software, HFE is also a bitstream container, however unlike MFM it supports
+      multiple encoding types. There are several versions of HFE supported by HxC, HFEv3 being the newest, however the
+      format is still considered experimental and not finalized. fluxfox supports HFE v1 files.
 
 ### Flux-Based Disk Images
 
 These images are created with specialized hardware that records the raw flux transitions reported by a disk drive. This
-is
-the lowest level of disk image, and is ideal for archival purposes. A flux image typically cannot be written to - nor
-would you really want to.
+is the lowest possible level of disk image, and is ideal for archival purposes.
 
-Flux images are the most difficult of the three types of format to read and manipulate. Generally a lengthy conversion
-process is required to read and interpret the encoded flux transitions into a usable bitstream representation.
+Flux images can be divided into two basic types, solved and unsolved flux.
 
-fluxfox currently does not support any flux-based image formats, however support for SCP and Kryoflux images is a long
-term goal.
+Unsolved flux images are the most difficult of the three types of format to read and manipulate. Generally a lengthy
+conversion process is required to analyze and combine the 3-5 revolutions of each track that is typically captured with
+a flux capture device. This makes them less than ideal for the purposes of emulation. Unsolved images cannot really be
+written to - nor would you want to.
+
+Solved flux images represent a post-processed flux capture where multiple revolutions have already been analyzed and
+combined. The resulting flux stream should represent a correct, clean read of each track. Metadata may need to be
+provided along with solved flux images as detection of weak bits, etc., is only possible by comparing multiple
+revolutions which are no longer present in a solved image. Solved flux images can technically be written to - but doing
+so is a complicated process.
+
+Some examples of unsolved flux are KryoFlux (RAW) and SuperCopyPro (SCP).
+
+Some examples of solved flux are MAME Floppy Image (MFI) and HxC Stream Image.
+
+fluxfox currently does not support any flux-based image formats, however support for some sort of solved flux format
+is planned.
 
 ### Disk Encodings
 
@@ -101,8 +117,8 @@ you can add `fluxfox=error` to your `RUST_LOG` environment variable to limit out
 
 ## Visualization
 
-fluxfox can produce a graphical visualization of a disk image if the image is of bitstream resolution or higher, and
-includes MFM-encoded data. This currently encompasses PRI and MFM disk image formats.
+fluxfox can produce a graphical visualization of a disk image if the image is of bitstream resolution or higher and
+includes MFM-encoded data. This currently encompasses PRI, MFM and HFE disk image formats.
 
 Visualization requires the `viz` feature to be specified.
 
