@@ -34,11 +34,11 @@ use crate::bitstream::mfm::{MfmDecoder, MFM_BYTE_LEN, MFM_MARKER_LEN};
 use crate::diskimage::TrackDataStream;
 use crate::io::{Read, Seek, SeekFrom};
 use crate::structure_parsers::{
-    DiskStructureElement, DiskStructureMarker, DiskStructureMarkerItem, DiskStructureMetadata,
+    DiskStructureElement, DiskStructureMarker, DiskStructureMarkerItem,
     DiskStructureMetadataItem, DiskStructureParser,
 };
 use crate::util::crc_ccitt;
-use crate::{mfm_offset, DiskChs, EncodingPhase};
+use crate::{mfm_offset, DiskChs};
 use bit_vec::BitVec;
 use std::fmt::{Display, Formatter};
 
@@ -337,7 +337,7 @@ impl DiskStructureParser for System34Parser {
         track: &mut TrackDataStream,
         markers: Vec<DiskStructureMarkerItem>,
     ) -> Vec<DiskStructureMetadataItem> {
-        let mut bit_cursor: usize = 0;
+        let bit_cursor: usize = 0;
         let mut elements = Vec::new();
 
         let mut last_marker_opt: Option<System34Marker> = None;

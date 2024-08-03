@@ -248,10 +248,10 @@ impl PsiFormat {
         let mut current_chs = DiskChs::default();
         let mut current_crc_error = false;
 
-        let mut consistent_track_length = None;
+        let consistent_track_length = None;
         //let mut last_track_length = None;
 
-        let mut consistent_sector_size = None;
+        let consistent_sector_size = None;
         //let mut last_sector_size = None;
 
         let mut track_set: FoxHashSet<DiskCh> = FoxHashSet::new();

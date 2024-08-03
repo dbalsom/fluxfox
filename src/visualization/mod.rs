@@ -32,7 +32,7 @@
 
 use crate::diskimage::{TrackData, TrackDataStream};
 use crate::{DiskImage, DiskImageError};
-use image::{ImageBuffer, Pixel, Rgb, Rgba, RgbaImage};
+use image::{ImageBuffer, Pixel, Rgba};
 
 use crate::structure_parsers::system34::{System34Element, System34Marker};
 use crate::structure_parsers::{DiskStructureElement, DiskStructureMetadata};

@@ -36,7 +36,6 @@ use crate::structure_parsers::{
 };
 use crate::{DiskDataEncoding, DiskDataRate, DiskImageError, DiskRpm, EncodingPhase, DEFAULT_SECTOR_SIZE};
 use bit_vec::BitVec;
-use std::arch::x86_64::_mm_stream_ss;
 use std::fmt::Display;
 
 /// An enumeration describing the type of disk image.
@@ -468,7 +467,7 @@ impl DiskImage {
             data_rate,
         };
 
-        let mut metadata = DiskStructureMetadata::new(System34Parser::scan_track_metadata(&mut data_stream, markers));
+        let metadata = DiskStructureMetadata::new(System34Parser::scan_track_metadata(&mut data_stream, markers));
 
         let sector_offsets = metadata
             .items
@@ -600,7 +599,7 @@ impl DiskImage {
                     }
                 }
             }
-            TrackData::ByteStream { sectors, data, .. } => {}
+            TrackData::ByteStream {   .. } => {}
         }
 
         None

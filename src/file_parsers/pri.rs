@@ -236,19 +236,19 @@ impl PriFormat {
         log::trace!("Read PRI file header. Format version: {}", file_header.version);
 
         let mut comment_string = String::new();
-        let mut current_chs = DiskChs::default();
-        let mut current_crc_error = false;
+        let current_chs = DiskChs::default();
+        let current_crc_error = false;
 
-        let mut consistent_track_length = None;
+        let consistent_track_length = None;
         //let mut last_track_length = None;
 
-        let mut consistent_sector_size = None;
+        let consistent_sector_size = None;
         //let mut last_sector_size = None;
 
-        let mut track_set: FoxHashSet<DiskCh> = FoxHashSet::new();
-        let mut sector_counts: FoxHashMap<u8, u32> = FoxHashMap::new();
+        let track_set: FoxHashSet<DiskCh> = FoxHashSet::new();
+        let sector_counts: FoxHashMap<u8, u32> = FoxHashMap::new();
         let mut heads_seen: FoxHashSet<u8> = FoxHashSet::new();
-        let mut sectors_per_track = 0;
+        let sectors_per_track = 0;
         let mut default_bit_clock = 0;
         let mut current_bit_clock = 0;
         let mut expected_data_size = 0;

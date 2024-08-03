@@ -31,12 +31,10 @@
     HFE format images are an internal bitstream-level format used by the HxC disk emulator.
 
 */
-use crate::file_parsers::pri::{PriChunkHeader, PriFormat};
 use crate::file_parsers::ParserWriteCompatibility;
 use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::{DiskCh, DiskDataEncoding, DiskDataRate, DiskImage, DiskImageError, DiskImageFormat};
 use binrw::{binrw, BinRead};
-use std::io::BufWriter;
 
 const fn reverse_bits(mut byte: u8) -> u8 {
     byte = (byte >> 4) | (byte << 4);

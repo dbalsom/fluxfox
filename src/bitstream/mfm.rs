@@ -31,10 +31,9 @@
 */
 
 use crate::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom};
-use crate::structure_parsers::DiskStructureMarker;
 use crate::EncodingPhase;
 use bit_vec::BitVec;
-use std::ops::{Index, Range};
+use std::ops::{Index};
 
 pub const MFM_BYTE_LEN: usize = 16;
 pub const MFM_MARKER_LEN: usize = 64;
@@ -360,7 +359,7 @@ impl Seek for MfmDecoder {
             SeekFrom::Current(offset) => (self.bit_cursor as isize, offset as isize),
         };
 
-        let mut new_pos = base.checked_add(offset).ok_or(Error::new(
+        let new_pos = base.checked_add(offset).ok_or(Error::new(
             ErrorKind::InvalidInput,
             "invalid seek to a negative or overflowed position",
         ))?;

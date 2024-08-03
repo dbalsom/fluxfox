@@ -41,10 +41,8 @@ pub mod system34;
 
 use crate::diskimage::TrackDataStream;
 use crate::structure_parsers::system34::{System34Element, System34Marker};
-use crate::{DiskChs, EncodingPhase};
+use crate::{DiskChs};
 use bit_vec::BitVec;
-use num_derive::NumCast;
-use std::ops::Index;
 
 pub struct DiskStructureMetadata {
     pub items: Vec<DiskStructureMetadataItem>,

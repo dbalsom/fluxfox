@@ -30,11 +30,10 @@
 
 */
 
-use crate::bitstream::mfm::MfmDecoder;
 use crate::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom};
 use crate::EncodingPhase;
 use bit_vec::BitVec;
-use std::ops::{Index, Range};
+use std::ops::{Index};
 
 pub struct RawDecoder {
     bit_vec: BitVec,
