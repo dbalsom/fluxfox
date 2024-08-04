@@ -8,16 +8,16 @@ pub fn compute_file_hash<P: AsRef<Path>>(path: P) -> String {
     let mut hasher = Sha1::new();
     hasher.update(file_buf);
     let result = hasher.finalize();
-    let hex_string = encode(result);
-    hex_string
+    
+    encode(result)
 }
 
 pub fn compute_slice_hash(slice: &[u8]) -> String {
     let mut hasher = Sha1::new();
     hasher.update(slice);
     let result = hasher.finalize();
-    let hex_string = encode(result);
-    hex_string
+    
+    encode(result)
 }
 
 pub fn get_raw_image_address(chs: DiskChs, geom: DiskChs) -> usize {

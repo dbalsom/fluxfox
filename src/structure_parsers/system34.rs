@@ -31,6 +31,7 @@
 
 */
 use crate::bitstream::mfm::{MfmDecoder, MFM_BYTE_LEN, MFM_MARKER_LEN};
+use crate::chs::DiskChsn;
 use crate::diskimage::TrackDataStream;
 use crate::io::{Read, Seek, SeekFrom};
 use crate::structure_parsers::{
@@ -103,6 +104,13 @@ impl System34Element {
             System34Element::Sync => 8,
             System34Element::Marker(_, _) => 4,
             System34Element::Data(_) => 0,
+        }
+    }
+
+    pub fn is_sector(&self) -> bool {
+        match self {
+            System34Element::Marker(System34Marker::Dam, _) => true,
+            _ => false,
         }
     }
 }
@@ -423,12 +431,12 @@ impl DiskStructureParser for System34Parser {
                             elem_type: DiskStructureElement::System34(System34Element::Data(crc_correct)),
                             start: element_offset,
                             end: data_end,
-                            chs: Some(DiskChs::new(
+                            chsn: Some(DiskChsn::new(
                                 last_sector_id.c as u16,
                                 last_sector_id.h,
                                 last_sector_id.s,
+                                last_sector_id.b,
                             )),
-                            n: Some(last_sector_id.b),
                             crc: None,
                         };
                         elements.push(data_metadata);
@@ -443,12 +451,12 @@ impl DiskStructureParser for System34Parser {
                         elem_type: DiskStructureElement::System34(System34Element::Marker(last_marker, None)),
                         start: last_marker_offset,
                         end: element_offset,
-                        chs: Some(DiskChs::new(
+                        chsn: Some(DiskChsn::new(
                             last_sector_id.c as u16,
                             last_sector_id.h,
                             last_sector_id.s,
+                            last_sector_id.b,
                         )),
-                        n: Some(last_sector_id.b),
                         crc: None,
                     };
                     elements.push(last_marker_metadata);

@@ -38,7 +38,7 @@
 */
 
 use crate::file_parsers::compression::lzhuf::{expand, TD0_READ_OPTIONS};
-use crate::file_parsers::ParserWriteCompatibility;
+use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{Cursor, Read, ReadSeek, ReadWriteSeek, Seek};
 use crate::{DiskImage, DiskImageError, DiskImageFormat};
 use binrw::{binrw, BinRead};
@@ -123,9 +123,7 @@ fn td0_crc(data: &[u8], input_crc: u16) -> u16 {
 fn calc_crc<RWS: ReadSeek>(image: &mut RWS, offset: u64, len: usize) -> Result<u16, DiskImageError> {
     let mut crc_data = vec![0u8; len];
 
-    let saved_pos = image
-        .seek(std::io::SeekFrom::Current(0))
-        .map_err(|_| DiskImageError::IoError)?;
+    let saved_pos = image.stream_position().map_err(|_| DiskImageError::IoError)?;
     image
         .seek(std::io::SeekFrom::Start(offset))
         .map_err(|_| DiskImageError::IoError)?;
@@ -137,8 +135,13 @@ fn calc_crc<RWS: ReadSeek>(image: &mut RWS, offset: u64, len: usize) -> Result<u
 }
 
 impl Td0Format {
+    #[allow(dead_code)]
     fn format() -> DiskImageFormat {
         DiskImageFormat::TeleDisk
+    }
+
+    pub(crate) fn capabilities() -> FormatCaps {
+        FormatCaps::empty()
     }
 
     pub(crate) fn detect<RWS: ReadSeek>(mut image: RWS) -> bool {
@@ -146,7 +149,7 @@ impl Td0Format {
         _ = image.seek(std::io::SeekFrom::Start(0));
 
         if let Ok(file_header) = TelediskHeader::read(&mut image) {
-            if &file_header.id == "TD".as_bytes() || &file_header.id == "td".as_bytes() {
+            if file_header.id == "TD".as_bytes() || file_header.id == "td".as_bytes() {
                 detected = true;
             }
         }
@@ -182,13 +185,13 @@ impl Td0Format {
             .seek(std::io::SeekFrom::Start(0))
             .map_err(|_| DiskImageError::IoError)?;
         let file_header = TelediskHeader::read(&mut image).map_err(|_| DiskImageError::IoError)?;
-        let detected = &file_header.id == "TD".as_bytes() || &file_header.id == "td".as_bytes();
+        let detected = file_header.id == "TD".as_bytes() || file_header.id == "td".as_bytes();
 
         if !detected {
             return Err(DiskImageError::UnknownFormat);
         }
 
-        let compressed = &file_header.id == "td".as_bytes();
+        let compressed = file_header.id == "td".as_bytes();
         let major_version = file_header.version / 10;
         let minor_version = file_header.version % 10;
         let has_comment_block = file_header.stepping & 0x80 != 0;

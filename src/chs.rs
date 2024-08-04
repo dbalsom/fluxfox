@@ -28,19 +28,10 @@
 use crate::MAXIMUM_SECTOR_SIZE;
 use std::fmt::Display;
 
-#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Default)]
 pub struct DiskChsn {
     chs: DiskChs,
     n: u8,
-}
-
-impl Default for DiskChsn {
-    fn default() -> Self {
-        Self {
-            chs: DiskChs::default(),
-            n: 0,
-        }
-    }
 }
 
 impl From<(u16, u8, u8, u8)> for DiskChsn {
@@ -49,6 +40,12 @@ impl From<(u16, u8, u8, u8)> for DiskChsn {
             chs: DiskChs::from((c, h, s)),
             n,
         }
+    }
+}
+
+impl From<(DiskChs, u8)> for DiskChsn {
+    fn from((chs, n): (DiskChs, u8)) -> Self {
+        Self { chs, n }
     }
 }
 
@@ -88,6 +85,17 @@ impl DiskChsn {
     pub fn n_size(&self) -> usize {
         std::cmp::min(MAXIMUM_SECTOR_SIZE, 128usize.overflowing_shl(self.n as u32).0)
     }
+
+    pub fn size_to_n(size: usize) -> u8 {
+        let mut n = 0;
+        let mut size = size;
+        while size > 128 {
+            size >>= 1;
+            n += 1;
+        }
+        n
+    }
+
     pub fn set(&mut self, c: u16, h: u8, s: u8, n: u8) {
         self.set_c(c);
         self.set_h(h);
@@ -143,9 +151,25 @@ impl Default for DiskChs {
     }
 }
 
+impl From<DiskChsn> for DiskChs {
+    fn from(chsn: DiskChsn) -> Self {
+        chsn.chs
+    }
+}
+
 impl From<(u16, u8, u8)> for DiskChs {
     fn from((c, h, s): (u16, u8, u8)) -> Self {
         Self { c, h, s }
+    }
+}
+
+impl From<(DiskCh, u8)> for DiskChs {
+    fn from((ch, s): (DiskCh, u8)) -> Self {
+        Self {
+            c: ch.c(),
+            h: ch.h(),
+            s,
+        }
     }
 }
 
@@ -241,16 +265,10 @@ impl DiskChs {
     }
 }
 
-#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Default)]
 pub struct DiskCh {
     pub(crate) c: u16,
     pub(crate) h: u8,
-}
-
-impl Default for DiskCh {
-    fn default() -> Self {
-        Self { c: 0, h: 0 }
-    }
 }
 
 impl From<(u16, u8)> for DiskCh {
@@ -272,6 +290,10 @@ impl Display for DiskCh {
 }
 
 impl DiskCh {
+    pub fn new(c: u16, h: u8) -> Self {
+        Self { c, h }
+    }
+
     pub fn c(&self) -> u16 {
         self.c
     }
@@ -297,5 +319,59 @@ impl DiskCh {
     pub fn seek_next_track(&mut self, geom: &DiskChs) -> &mut Self {
         *self = self.get_next_track(geom);
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn diskchsn_new_creates_correct_instance() {
+        let chsn = DiskChsn::new(1, 2, 3, 4);
+        assert_eq!(chsn.c(), 1);
+        assert_eq!(chsn.h(), 2);
+        assert_eq!(chsn.s(), 3);
+        assert_eq!(chsn.n(), 4);
+    }
+
+    #[test]
+    fn diskchsn_n_size_calculates_correct_size() {
+        let chsn = DiskChsn::new(0, 0, 0, 3);
+        assert_eq!(chsn.n_size(), 1024);
+    }
+
+    #[test]
+    fn diskchsn_n_size_enforces_maximum_size() {
+        let chsn = DiskChsn::new(0, 0, 0, 7);
+        assert_eq!(chsn.n_size(), 8192);
+    }
+
+    #[test]
+    fn diskchsn_size_to_n_calculates_correct_n() {
+        assert_eq!(DiskChsn::size_to_n(1024), 3);
+    }
+
+    #[test]
+    fn diskchs_to_lba_calculates_correct_lba() {
+        let geom = DiskChs::new(10, 4, 16);
+        let chs = DiskChs::new(2, 1, 5);
+        assert_eq!(chs.to_lba(&geom), 597);
+    }
+
+    #[test]
+    fn diskchs_get_next_sector_wraps_correctly() {
+        let geom = DiskChs::new(2, 2, 2);
+        let chs = DiskChs::new(1, 1, 2);
+        let next_chs = chs.get_next_sector(&geom);
+        assert_eq!(next_chs, DiskChs::new(2, 0, 1));
+    }
+
+    #[test]
+    fn diskch_get_next_track_wraps_correctly() {
+        let geom = DiskChs::new(2, 2, 2);
+        let ch = DiskCh::new(1, 1);
+        let next_ch = ch.get_next_track(&geom);
+        assert_eq!(next_ch, DiskCh::new(0, 0));
     }
 }

@@ -31,9 +31,10 @@
     HFE format images are an internal bitstream-level format used by the HxC disk emulator.
 
 */
-use crate::file_parsers::ParserWriteCompatibility;
+use crate::diskimage::DiskDescriptor;
+use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
-use crate::{DiskCh, DiskDataEncoding, DiskDataRate, DiskImage, DiskImageError, DiskImageFormat};
+use crate::{DiskCh, DiskDataEncoding, DiskDataRate, DiskImage, DiskImageError, DiskImageFormat, DEFAULT_SECTOR_SIZE};
 use binrw::{binrw, BinRead};
 
 const fn reverse_bits(mut byte: u8) -> u8 {
@@ -162,6 +163,10 @@ struct HfeTrackIndexEntry {
 impl HfeFormat {
     fn format() -> DiskImageFormat {
         DiskImageFormat::PceBitstreamImage
+    }
+
+    pub(crate) fn capabilities() -> FormatCaps {
+        FormatCaps::empty()
     }
 
     pub(crate) fn detect<RWS: ReadSeek>(mut image: RWS) -> bool {
@@ -345,6 +350,14 @@ impl HfeFormat {
                 None,
             )?;
         }
+
+        disk_image.image_format = DiskDescriptor {
+            geometry: DiskCh::from((file_header.number_of_tracks as u16, file_header.number_of_sides as u8)),
+            data_rate: DiskDataRate::from(file_header.bit_rate as u32 * 100),
+            data_encoding: DiskDataEncoding::Mfm,
+            default_sector_size: DEFAULT_SECTOR_SIZE,
+            rpm: None,
+        };
 
         Ok(disk_image)
     }

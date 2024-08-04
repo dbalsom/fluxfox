@@ -274,7 +274,7 @@ impl AdaptiveHuffmanCoder {
             self.ptr += 1;
         }
         let bytes = self.bits.to_bytes();
-        writer.write(&bytes.as_slice()).expect("write err");
+        writer.write(bytes.as_slice()).expect("write err");
         if self.bits.len() % 8 > 0 {
             writer.seek(SeekFrom::Current(-1)).expect("seek err");
             self.ptr = 8 * (self.bits.len() / 8);

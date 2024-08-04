@@ -30,9 +30,7 @@
     print out some basic information about it.
 */
 use bpaf::*;
-use fluxfox::diskimage::{TrackData, TrackDataStream};
-use fluxfox::structure_parsers::system34::System34Parser;
-use fluxfox::structure_parsers::DiskStructureParser;
+
 use fluxfox::DiskImage;
 use std::path::PathBuf;
 
@@ -93,7 +91,8 @@ fn main() {
 
     println!("Disk image info:");
     println!("----------------");
-    disk.dump_info(&mut std::io::stdout());
+    let _ = disk.dump_info(&mut std::io::stdout());
+    let _ = disk.dump_sector_map(&mut std::io::stdout());
 
     /*    for track in disk.track_pool.iter_mut() {
         match &mut track.data {

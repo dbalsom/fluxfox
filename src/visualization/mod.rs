@@ -244,8 +244,11 @@ pub fn render_tracks(
 
                             let meta_color: Option<Rgba<u8>> = match rmetadata[track_index].item_at(bit_index << 1) {
                                 Some((item, nest_ct)) => {
-                                    let DiskStructureElement::System34(element) = item.elem_type;
-                                    Some(element.to_rgba_nested(nest_ct))
+                                    if let DiskStructureElement::System34(element) = item.elem_type {
+                                        Some(element.to_rgba_nested(nest_ct))
+                                    } else {
+                                        None
+                                    }
                                 }
                                 None => None,
                             };

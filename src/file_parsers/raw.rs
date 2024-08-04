@@ -25,10 +25,10 @@
     --------------------------------------------------------------------------
 */
 
-use crate::chs::DiskChs;
+use crate::chs::{DiskChs, DiskChsn};
 use crate::detect::chs_from_raw_size;
-use crate::diskimage::{DiskConsistency, DiskDescriptor, DiskImage, FloppyFormat, TrackData};
-use crate::file_parsers::ParserWriteCompatibility;
+use crate::diskimage::{DiskConsistency, DiskDescriptor, DiskImage, FloppyFormat, SectorDescriptor, TrackData};
+use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::util::get_length;
 use crate::{DiskImageError, DiskImageFormat, DEFAULT_SECTOR_SIZE};
@@ -36,17 +36,18 @@ use crate::{DiskImageError, DiskImageFormat, DEFAULT_SECTOR_SIZE};
 pub struct RawFormat;
 
 impl RawFormat {
+    #[allow(dead_code)]
     fn format() -> DiskImageFormat {
         DiskImageFormat::RawSectorImage
     }
 
+    pub(crate) fn capabilities() -> FormatCaps {
+        FormatCaps::empty()
+    }
+
     pub(crate) fn detect<RWS: ReadSeek>(mut image: RWS) -> bool {
         let raw_len = get_length(&mut image).map_or(0, |l| l as usize);
-        if chs_from_raw_size(raw_len).is_some() {
-            true
-        } else {
-            false
-        }
+        chs_from_raw_size(raw_len).is_some()
     }
 
     pub(crate) fn can_write(_image: &DiskImage) -> ParserWriteCompatibility {
@@ -93,17 +94,21 @@ impl RawFormat {
                 raw.read_exact(&mut sector_buffer)
                     .map_err(|_e| DiskImageError::IoError)?;
 
+                // Add this sector to track.
+                let sd = SectorDescriptor {
+                    id: sector_id + 1,
+                    cylinder_id: None,
+                    head_id: None,
+                    n: DiskChsn::size_to_n(512),
+                    data: sector_buffer.clone(),
+                    weak: None,
+                    address_crc_error: false,
+                    data_crc_error: false,
+                    deleted_mark: false,
+                };
+
                 //log::trace!("Importing sector {} of length {}", cursor_chs, DEFAULT_SECTOR_SIZE);
-                disk_image.master_sector(
-                    cursor_chs,
-                    sector_id + 1,
-                    None,
-                    None,
-                    &sector_buffer,
-                    None,
-                    false,
-                    false,
-                )?;
+                disk_image.master_sector(cursor_chs, &sd)?;
                 cursor_chs.seek_forward(1, &disk_chs);
             }
         }
@@ -116,7 +121,7 @@ impl RawFormat {
         };
 
         disk_image.image_format = DiskDescriptor {
-            geometry: disk_chs,
+            geometry: disk_chs.into(),
             data_rate,
             data_encoding,
             default_sector_size: DEFAULT_SECTOR_SIZE,

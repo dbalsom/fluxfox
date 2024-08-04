@@ -10,6 +10,7 @@ repository = "https://github.com/dbalsom/fluxfox"
 
 [dependencies]
 bit-vec = "0.8"
+bitflags = "2.6.0"
 binrw = "0.14"
 thiserror = "1.0"
 num-traits = "0.2.14"

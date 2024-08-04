@@ -36,9 +36,9 @@ const IMAGE_FORMATS: [DiskImageFormat; 7] = [
     DiskImageFormat::TeleDisk,
     DiskImageFormat::PceSectorImage,
     DiskImageFormat::PceBitstreamImage,
+    DiskImageFormat::RawSectorImage,
     DiskImageFormat::MfmBitstreamImage,
     DiskImageFormat::HfeImage,
-    DiskImageFormat::RawSectorImage,
 ];
 
 /// Attempt to detect the format of a disk image. If the format cannot be determined, UnknownFormat is returned.

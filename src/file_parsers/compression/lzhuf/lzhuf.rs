@@ -354,7 +354,7 @@ where
             for _k in 0..strlen {
                 let c8 = lzss.dictionary.get(offset);
                 writer.write(&[c8])?;
-                lzss.dictionary.set(0, c8 as u8);
+                lzss.dictionary.set(0, c8);
                 lzss.dictionary.advance();
             }
         }
@@ -387,12 +387,12 @@ fn compression_works() {
     let test_data = "12345123456789123456789\n".as_bytes();
     let lzhuf_str = "18 00 00 00 DE EF B7 FC 0E 0C 70 13 85 C3 E2 71 64 81 19 60";
     let compressed = compress_slice(test_data, &STD_OPTIONS).expect("compression failed");
-    assert_eq!(compressed, hex::decode(lzhuf_str.replace(" ", "")).unwrap());
+    assert_eq!(compressed, hex::decode(lzhuf_str.replace(' ', "")).unwrap());
 
     let test_data = "I am Sam. Sam I am. I do not like this Sam I am.\n".as_bytes();
     let lzhuf_str = "31 00 00 00 EA EB 3D BF 9C 4E FE 1E 16 EA 34 09 1C 0D C0 8C 02 FC 3F 77 3F 57 20 17 7F 1F 5F BF C6 AB 7F A5 AF FE 4C 39 96";
     let compressed = compress_slice(test_data, &STD_OPTIONS).expect("compression failed");
-    assert_eq!(compressed, hex::decode(lzhuf_str.replace(" ", "")).unwrap());
+    assert_eq!(compressed, hex::decode(lzhuf_str.replace(' ', "")).unwrap());
 }
 
 #[test]

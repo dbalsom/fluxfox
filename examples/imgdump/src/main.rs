@@ -107,13 +107,15 @@ fn main() {
         }
     };
 
+    // Dump the specified sector in hex format to stdout.
     let handle = std::io::stdout();
     let mut buf = BufWriter::new(handle);
 
     let chs = DiskChs::new(opts.cylinder, opts.head, opts.sector);
 
     println!("Dumping sector {} in hex format:", chs);
-    match disk.dump_sector_hex(chs, 8, &mut buf) {
+
+    match disk.dump_sector_hex(chs, None, 8, &mut buf) {
         Ok(_) => println!("Sector dumped successfully"),
         Err(e) => eprintln!("Error dumping sector: {}", e),
     }

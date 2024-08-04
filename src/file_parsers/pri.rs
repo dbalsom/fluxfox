@@ -37,7 +37,7 @@
 
 use crate::chs::{DiskCh, DiskChs};
 use crate::diskimage::{DiskConsistency, DiskDescriptor};
-use crate::file_parsers::ParserWriteCompatibility;
+use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{Cursor, ReadSeek, ReadWriteSeek};
 
 use crate::{
@@ -48,15 +48,6 @@ use binrw::{binrw, BinRead};
 
 pub struct PriFormat;
 pub const MAXIMUM_CHUNK_SIZE: usize = 0x100000; // Reasonable 1MB limit for chunk sizes.
-
-pub const SH_FLAG_COMPRESSED: u8 = 0b0001;
-pub const SH_FLAG_ALTERNATE: u8 = 0b0010;
-pub const SH_FLAG_CRC_ERROR: u8 = 0b0100;
-
-pub const SH_IBM_FLAG_CRC_ERROR_ID: u8 = 0b0001;
-pub const SH_IBM_FLAG_CRC_ERROR_DATA: u8 = 0b0010;
-pub const SH_IBM_DELETED_DATA: u8 = 0b0100;
-pub const SH_IBM_MISSING_DATA: u8 = 0b1000;
 
 #[derive(Debug)]
 #[binrw]
@@ -130,16 +121,21 @@ pub(crate) fn pri_crc(buf: &[u8]) -> u32 {
             if crc & 0x80000000 != 0 {
                 crc = (crc << 1) ^ 0x1edc6f41;
             } else {
-                crc = crc << 1;
+                crc <<= 1;
             }
         }
     }
-    return crc & 0xffffffff;
+    crc & 0xffffffff
 }
 
 impl PriFormat {
+    #[allow(dead_code)]
     fn format() -> DiskImageFormat {
         DiskImageFormat::PceBitstreamImage
+    }
+
+    pub(crate) fn capabilities() -> FormatCaps {
+        FormatCaps::empty()
     }
 
     pub(crate) fn detect<RWS: ReadSeek>(mut image: RWS) -> bool {
@@ -161,9 +157,7 @@ impl PriFormat {
     }
 
     pub(crate) fn read_chunk<RWS: ReadSeek>(mut image: RWS) -> Result<PriChunk, DiskImageError> {
-        let chunk_pos = image
-            .seek(std::io::SeekFrom::Current(0))
-            .map_err(|_| DiskImageError::IoError)?;
+        let chunk_pos = image.stream_position().map_err(|_| DiskImageError::IoError)?;
 
         //log::trace!("Reading chunk header...");
         let chunk_header = PriChunkHeader::read(&mut image).map_err(|_| DiskImageError::IoError)?;
@@ -357,7 +351,7 @@ impl PriFormat {
         let head_ct = heads_seen.len() as u16;
         let track_ct = track_set.len() as u16;
         disk_image.image_format = DiskDescriptor {
-            geometry: DiskChs::from((track_ct / head_ct, head_ct as u8, most_common_sector_count)),
+            geometry: DiskCh::from((track_ct / head_ct, head_ct as u8)),
             data_rate: Default::default(),
             data_encoding: DiskDataEncoding::Mfm,
             default_sector_size: DEFAULT_SECTOR_SIZE,

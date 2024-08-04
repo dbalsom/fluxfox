@@ -24,9 +24,9 @@
 
     --------------------------------------------------------------------------
 */
-use crate::chs::{DiskCh, DiskChs};
-use crate::diskimage::{DiskConsistency, DiskDescriptor};
-use crate::file_parsers::ParserWriteCompatibility;
+use crate::chs::{DiskCh, DiskChs, DiskChsn};
+use crate::diskimage::{DiskConsistency, DiskDescriptor, SectorDescriptor};
+use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::util::{get_length, read_ascii};
 use crate::{
@@ -36,7 +36,7 @@ use crate::{
 use binrw::{binrw, BinRead, BinReaderExt};
 use regex::Regex;
 
-pub const IMD_HEADER_REX: &'static str = r"(?s)IMD (?<v_major>\d)\.(?<v_minor>\d{2}): (?<day>\d{2})/(?<month>\d{2})/(?<year>\d{4}) (?<hh>\d{2}):(?<mm>\d{2}):(?<ss>\d{2})(?<comment>.*)?";
+pub const IMD_HEADER_REX: &str = r"(?s)IMD (?<v_major>\d)\.(?<v_minor>\d{2}): (?<day>\d{2})/(?<month>\d{2})/(?<year>\d{4}) (?<hh>\d{2}):(?<mm>\d{2}):(?<ss>\d{2})(?<comment>.*)?";
 
 pub struct ImdFormat;
 
@@ -65,6 +65,9 @@ impl ImdTrack {
     }
     pub fn has_cylinder_map(&self) -> bool {
         self.h & 0x80 != 0
+    }
+    pub fn has_sector_size_map(&self) -> bool {
+        self.h == 0xFF
     }
     pub fn sector_size(&self) -> usize {
         imd_sector_size_to_usize(self.sector_size).unwrap()
@@ -103,8 +106,13 @@ pub struct ImdSectorData {
 }
 
 impl ImdFormat {
+    #[allow(dead_code)]
     fn format() -> DiskImageFormat {
         DiskImageFormat::ImageDisk
+    }
+
+    pub(crate) fn capabilities() -> FormatCaps {
+        FormatCaps::empty()
     }
 
     pub(crate) fn detect<RWS: ReadSeek>(mut image: RWS) -> bool {
@@ -152,18 +160,11 @@ impl ImdFormat {
             }
         }
 
-        let mut header_offset = image.seek(std::io::SeekFrom::Current(0)).unwrap();
-        let mut sector_counts: FoxHashMap<u8, u32> = FoxHashMap::new();
+        let mut header_offset = image.stream_position().unwrap();
         let mut heads_seen: FoxHashSet<u8> = FoxHashSet::new();
 
         let mut rate_opt = None;
         let mut encoding_opt = None;
-
-        let mut consistent_track_length = None;
-        let mut last_track_length = None;
-
-        let mut consistent_sector_size = None;
-        let mut last_sector_size = None;
 
         let mut track_ct = 0;
 
@@ -181,40 +182,20 @@ impl ImdFormat {
                 &track_header.has_head_map()
             );
 
-            if last_track_length.is_none() {
-                // First track. Set the first track length seen as the consistent track length.
-                last_track_length = Some(track_header.sector_ct as u8);
-                consistent_track_length = Some(track_header.sector_ct as u8);
-            } else {
-                // Not the first track. See if track length has changed.
-                if last_track_length.unwrap() != track_header.sector_ct as u8 {
-                    consistent_track_length = None;
-                }
-            }
-
-            if last_sector_size.is_none() {
-                // First track. Set the first sector size seen as the consistent sector size.
-                last_sector_size = Some(track_header.sector_size as u32);
-                consistent_sector_size = Some(track_header.sector_size as u32);
-            } else {
-                // Not the first track. See if sector size has changed.
-                if last_sector_size.unwrap() != track_header.sector_size as u32 {
-                    consistent_sector_size = None;
-                }
-            }
-
             //let sector_size = imd_sector_size_to_usize(track_header.sector_size).unwrap();
             let mut sector_numbers = vec![0; track_header.sector_ct as usize];
             let mut cylinder_map = vec![track_header.c(); track_header.sector_ct as usize];
             let mut head_map = vec![track_header.h(); track_header.sector_ct as usize];
 
-            // Keep a histogram of sector counts.
-            if track_header.sector_ct > 0 {
-                sector_counts
-                    .entry(track_header.sector_ct)
-                    .and_modify(|e| *e += 1)
-                    .or_insert(1);
+            let default_n = track_header.sector_size;
+            let default_sector_size = imd_sector_size_to_usize(track_header.sector_size);
+            if default_sector_size.is_none() {
+                return Err(DiskImageError::FormatParseError);
             }
+            // Sector size map is in words; so double the bytes.
+            let mut sector_size_map_u8: Vec<u8> = vec![0, track_header.sector_ct as u8 * 2];
+            let mut sector_size_map: Vec<u16> =
+                vec![default_sector_size.unwrap() as u16; track_header.sector_ct as usize];
 
             // Keep a set of heads seen.
             heads_seen.insert(track_header.h());
@@ -231,6 +212,19 @@ impl ImdFormat {
 
             if track_header.has_head_map() {
                 image.read_exact(&mut head_map).map_err(|_e| DiskImageError::IoError)?;
+            }
+
+            // Note: This is listed as a 'proposed extension' in the IMD docs but apparently there
+            // are images like this in the wild. 86box supports this extension.
+            if track_header.has_sector_size_map() {
+                image
+                    .read_exact(&mut sector_size_map_u8)
+                    .map_err(|_e| DiskImageError::IoError)?;
+
+                // Convert raw u8 to u16 values, little-endian.
+                for (i, s) in sector_size_map_u8.chunks_exact(2).enumerate() {
+                    sector_size_map[i] = u16::from_le_bytes([s[0], s[1]]);
+                }
             }
 
             log::trace!(
@@ -264,10 +258,12 @@ impl ImdFormat {
             for s in 0..sector_numbers.len() {
                 // Read data byte marker.
                 let data_marker: u8 = image.read_le().map_err(|_e| DiskImageError::IoError)?;
+                let sector_size = sector_size_map[s] as usize;
+                let sector_n = DiskChsn::size_to_n(sector_size);
 
                 match data_marker {
                     0x00..=0x08 => {
-                        let data = ImdFormat::read_data(data_marker, track_header.sector_size(), &mut image)?;
+                        let data = ImdFormat::read_data(data_marker, sector_size, &mut image)?;
 
                         log::trace!(
                             "from_image: Sector {}: Data Marker: {:02X} Data ({}): {:02X?} Deleted: {} Error: {}",
@@ -280,15 +276,21 @@ impl ImdFormat {
                         );
 
                         // Add this sector to track.
+                        let sd = SectorDescriptor {
+                            id: sector_numbers[s],
+                            cylinder_id: None,
+                            head_id: None,
+                            n: sector_n,
+                            data: data.data,
+                            weak: None,
+                            address_crc_error: false,
+                            data_crc_error: data.error,
+                            deleted_mark: data.deleted,
+                        };
+
                         disk_image.master_sector(
                             DiskChs::from((track_header.c() as u16, track_header.h(), sector_numbers[s])),
-                            sector_numbers[s],
-                            Some(cylinder_map[s] as u16),
-                            Some(head_map[s]),
-                            &data.data,
-                            None,
-                            data.error,
-                            data.deleted,
+                            &sd,
                         )?;
                     }
                     _ => {
@@ -297,7 +299,7 @@ impl ImdFormat {
                 }
             }
 
-            header_offset = image.seek(std::io::SeekFrom::Current(0)).unwrap();
+            header_offset = image.stream_position().unwrap();
 
             if track_header.sector_ct == 0 {
                 continue;
@@ -305,26 +307,10 @@ impl ImdFormat {
             track_ct += 1;
         }
 
-        disk_image.set_data_rate(rate_opt.unwrap());
-        disk_image.set_data_encoding(encoding_opt.unwrap());
-
-        disk_image.consistency = DiskConsistency {
-            weak: false,
-            deleted: false,
-            consistent_sector_size,
-            consistent_track_length,
-        };
-
-        let most_common_sector_count = sector_counts
-            .iter()
-            .max_by_key(|&(_, count)| count)
-            .map(|(&value, _)| value)
-            .unwrap_or(0);
-
         let head_ct = heads_seen.len() as u8;
 
         disk_image.image_format = DiskDescriptor {
-            geometry: DiskChs::from((track_ct as u16 / head_ct as u16, head_ct, most_common_sector_count)),
+            geometry: DiskCh::from((track_ct as u16 / head_ct as u16, head_ct)),
             data_rate: rate_opt.unwrap(),
             data_encoding: encoding_opt.unwrap(),
             default_sector_size: DEFAULT_SECTOR_SIZE,
@@ -409,9 +395,7 @@ impl ImdFormat {
                     error: true,
                 })
             }
-            _ => {
-                return Err(DiskImageError::FormatParseError);
-            }
+            _ => Err(DiskImageError::FormatParseError),
         }
     }
 

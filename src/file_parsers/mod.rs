@@ -26,6 +26,7 @@
 */
 use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::{DiskImage, DiskImageError, DiskImageFormat};
+use bitflags::bitflags;
 
 pub mod compression;
 pub mod hfe;
@@ -36,6 +37,25 @@ pub mod psi;
 pub mod raw;
 pub mod td0;
 
+bitflags! {
+    /// Bit flags representing the capabilities of a specific image format. Used to determine if a
+    /// specific image format can represent a particular DiskImage.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    #[rustfmt::skip]
+    pub struct FormatCaps: u32 {
+        const CAP_VARIABLE_SPT      = 0b0000_0000_0000_0001; // Can support variable sector counts per track
+        const CAP_VARIABLE_SSPT     = 0b0000_0000_0000_0010; // Can support variable sector sizes
+        const CAP_ADDRESS_CRC       = 0b0000_0000_0000_0100; // Encodes sector address mark CRC status
+        const CAP_DATA_CRC          = 0b0000_0000_0000_1000; // Encodes sector data CRC status
+        const CAP_DATA_DELETED      = 0b0000_0000_0001_0000; // Encodes 'Deleted address' marks
+        const CAP_SID_OVERRIDE      = 0b0000_0000_0010_0000; // Can specify the sector ID parameters (chs, size) independent of sector order
+        const CAP_COMMENT           = 0b0000_0000_0100_0000; // Can store a text comment field
+        const CAP_TRACK_ENCODING    = 0b0000_0000_1000_0000; // Can store per-track encoding type
+        const CAP_TRACK_DATA_RATE   = 0b0000_0001_0000_0000; // Can store per-track data rate
+        const CAP_WEAK_BITS         = 0b0000_0010_0000_0000; // Can store weak bit information
+    }
+}
+
 pub enum ParserWriteCompatibility {
     Ok,
     DataLoss,
@@ -45,6 +65,8 @@ pub enum ParserWriteCompatibility {
 
 /// A trait to be implemented by disk image parsers. Called via enum dispatch.
 pub trait ImageParser {
+    /// Return the capability flags for this format.
+    fn capabilities(&self) -> FormatCaps;
     /// Detect and return true if the image is of a format that the parser can read.
     fn detect<RWS: ReadSeek>(&self, image_buf: RWS) -> bool;
     /// Return a list of file extensions associated with the parser.
@@ -58,6 +80,19 @@ pub trait ImageParser {
 }
 
 impl ImageParser for DiskImageFormat {
+    fn capabilities(&self) -> FormatCaps {
+        match self {
+            DiskImageFormat::RawSectorImage => raw::RawFormat::capabilities(),
+            DiskImageFormat::ImageDisk => imd::ImdFormat::capabilities(),
+            DiskImageFormat::TeleDisk => td0::Td0Format::capabilities(),
+            DiskImageFormat::PceSectorImage => psi::PsiFormat::capabilities(),
+            DiskImageFormat::PceBitstreamImage => pri::PriFormat::capabilities(),
+            DiskImageFormat::MfmBitstreamImage => mfm::MfmFormat::capabilities(),
+            DiskImageFormat::HfeImage => hfe::HfeFormat::capabilities(),
+            _ => FormatCaps::empty(),
+        }
+    }
+
     fn detect<RWS: ReadSeek>(&self, image_buf: RWS) -> bool {
         match self {
             DiskImageFormat::RawSectorImage => raw::RawFormat::detect(image_buf),

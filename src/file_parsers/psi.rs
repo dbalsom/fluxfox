@@ -35,9 +35,9 @@
 
 */
 
-use crate::chs::{DiskCh, DiskChs};
-use crate::diskimage::{DiskConsistency, DiskDescriptor};
-use crate::file_parsers::ParserWriteCompatibility;
+use crate::chs::{DiskCh, DiskChs, DiskChsn};
+use crate::diskimage::{DiskConsistency, DiskDescriptor, SectorDescriptor};
+use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{Cursor, ReadSeek, ReadWriteSeek};
 
 use crate::{
@@ -121,11 +121,11 @@ pub(crate) fn psi_crc(buf: &[u8]) -> u32 {
             if crc & 0x80000000 != 0 {
                 crc = (crc << 1) ^ 0x1edc6f41;
             } else {
-                crc = crc << 1;
+                crc <<= 1;
             }
         }
     }
-    return crc & 0xffffffff;
+    crc & 0xffffffff
 }
 
 pub(crate) fn decode_psi_sector_format(sector_format: [u8; 2]) -> Option<(DiskDataEncoding, DiskDensity)> {
@@ -142,8 +142,13 @@ pub(crate) fn decode_psi_sector_format(sector_format: [u8; 2]) -> Option<(DiskDa
 }
 
 impl PsiFormat {
+    #[allow(dead_code)]
     fn format() -> DiskImageFormat {
         DiskImageFormat::PceSectorImage
+    }
+
+    pub(crate) fn capabilities() -> FormatCaps {
+        FormatCaps::empty()
     }
 
     pub(crate) fn detect<RWS: ReadSeek>(mut image: RWS) -> bool {
@@ -151,7 +156,7 @@ impl PsiFormat {
         _ = image.seek(std::io::SeekFrom::Start(0));
 
         if let Ok(file_header) = PsiChunkHeader::read_be(&mut image) {
-            if &file_header.id == "PSI ".as_bytes() {
+            if file_header.id == "PSI ".as_bytes() {
                 detected = true;
             }
         }
@@ -165,9 +170,7 @@ impl PsiFormat {
     }
 
     pub(crate) fn read_chunk<RWS: ReadSeek>(mut image: RWS) -> Result<PsiChunk, DiskImageError> {
-        let chunk_pos = image
-            .seek(std::io::SeekFrom::Current(0))
-            .map_err(|_| DiskImageError::IoError)?;
+        let chunk_pos = image.stream_position().map_err(|_| DiskImageError::IoError)?;
 
         //log::trace!("Reading chunk header...");
         let chunk_header = PsiChunkHeader::read(&mut image).map_err(|_| DiskImageError::IoError)?;
@@ -286,27 +289,28 @@ impl PsiFormat {
                         log::trace!("Alternate sector data.");
                     }
 
-                    current_crc_error = if sector_header.flags & SH_FLAG_CRC_ERROR != 0 {
-                        true
-                    } else {
-                        false
-                    };
+                    current_crc_error = sector_header.flags & SH_FLAG_CRC_ERROR != 0;
 
                     // Write sector data immediately if compressed data is indicated (no sector data chunk follows)
                     if sector_header.flags & SH_FLAG_COMPRESSED != 0 {
                         log::trace!("Compressed sector data: {:02X}", sector_header.compressed_data);
 
                         let chunk_expand = vec![sector_header.compressed_data; sector_header.size as usize];
-                        disk_image.master_sector(
-                            chs,
-                            chs.s(),
-                            None,
-                            None,
-                            &chunk_expand,
-                            None,
-                            current_crc_error,
-                            false,
-                        )?;
+
+                        // Add this sector to track.
+                        let sd = SectorDescriptor {
+                            id: chs.s(),
+                            cylinder_id: None,
+                            head_id: None,
+                            n: DiskChsn::size_to_n(chunk_expand.len()),
+                            data: chunk_expand,
+                            weak: None,
+                            address_crc_error: false,
+                            data_crc_error: current_crc_error,
+                            deleted_mark: false,
+                        };
+
+                        disk_image.master_sector(chs, &sd)?;
                     }
 
                     current_chs = chs;
@@ -320,16 +324,21 @@ impl PsiFormat {
                 PsiChunkType::SectorData => {
                     log::trace!("Sector data chunk: {} crc_error: {}", current_chs, current_crc_error);
 
-                    disk_image.master_sector(
-                        current_chs,
-                        current_chs.s(),
-                        None,
-                        None,
-                        &chunk.data,
-                        None,
-                        current_crc_error,
-                        false,
-                    )?;
+                    // Add this sector to track.
+                    let sd = SectorDescriptor {
+                        id: current_chs.s(),
+                        cylinder_id: None,
+                        head_id: None,
+                        n: DiskChsn::size_to_n(chunk.data.len()),
+                        data: chunk.data,
+                        weak: None,
+                        address_crc_error: false,
+                        data_crc_error: current_crc_error,
+                        deleted_mark: false,
+                    };
+
+                    disk_image.master_sector(current_chs, &sd)?;
+
                     sectors_per_track += 1;
                 }
                 PsiChunkType::Text => {
@@ -369,7 +378,7 @@ impl PsiFormat {
         let head_ct = heads_seen.len() as u8;
         let track_ct = track_set.len() as u16;
         disk_image.image_format = DiskDescriptor {
-            geometry: DiskChs::from((track_ct / head_ct as u16, head_ct, most_common_sector_count)),
+            geometry: DiskCh::from((track_ct / head_ct as u16, head_ct)),
             data_rate: Default::default(),
             data_encoding: DiskDataEncoding::Mfm,
             default_sector_size: DEFAULT_SECTOR_SIZE,

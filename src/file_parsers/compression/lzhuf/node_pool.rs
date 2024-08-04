@@ -174,7 +174,7 @@ impl Tree {
     }
     pub fn is_root(&self) -> Result<bool, Error> {
         let curs = self.chk_cursor()?;
-        Ok(self.pool[curs].up == None)
+        Ok(self.pool[curs].up.is_none())
     }
     #[allow(dead_code)]
     pub fn is_leaf(&self) -> Result<bool, Error> {
@@ -231,11 +231,11 @@ impl Tree {
         let maybe_parent = self.pool[curs].up;
         let maybe_symbol = self.pool[curs].symbol;
         // recursively delete everything below
-        if let Ok(_) = self.down(Side::Left) {
+        if self.down(Side::Left).is_ok() {
             self.drop()?;
             self.set_cursor(curs)?;
         }
-        if let Ok(_) = self.down(Side::Right) {
+        if self.down(Side::Right).is_ok() {
             self.drop()?;
             self.set_cursor(curs)?;
         }
@@ -256,7 +256,7 @@ impl Tree {
     }
     /// Drop everything below the cursor on one side, OK if no branch to drop.
     pub fn drop_branch(&mut self, side: Side) -> Result<(), Error> {
-        if let Ok(_) = self.down(side) {
+        if self.down(side).is_ok() {
             self.drop()?;
         }
         Ok(())
@@ -312,7 +312,7 @@ impl Tree {
         }
         self.pool[new_parent].down[side as usize] = Some(curs);
         self.pool[curs].up = Some(new_parent);
-        return Ok(());
+        Ok(())
     }
     /// Same as `move_node` except target node is a root
     pub fn move_node_to_root(&mut self, symbol: usize, force: bool) -> Result<(), Error> {
@@ -339,7 +339,7 @@ impl Tree {
         self.roots[symbol] = Some(curs);
         self.pool[curs].up = None;
         self.pool[curs].symbol = Some(symbol);
-        return Ok(());
+        Ok(())
     }
     /// Change the value of a node.  This frees one slot in the node pool and uses another.
     /// The cursor stays on the node, but its value has changed.

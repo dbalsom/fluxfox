@@ -366,31 +366,20 @@ impl Seek for MfmDecoder {
         for i in 0..5 {
             debug_vec.push(self.clock_map[new_cursor - 2 + i]);
         }
+        /*
         log::debug!(
             "seek() clock_map[{}]: {} {:?}",
             new_cursor,
             self.clock_map[new_cursor],
             debug_vec
         );
+        */
 
         // If we have seeked to a data bit, nudge the bit cursor to the next clock bit.
         if !self.clock_map[new_cursor] {
-            log::trace!("seek(): nudging to next clock bit");
+            //log::trace!("seek(): nudging to next clock bit");
             new_cursor += 1;
         }
-
-        /*        // Force new_pos even if sync is even, odd if sync is odd
-        match self.initial_phase {
-            0 => {
-                new_pos = (new_pos << 1);
-            }
-            _ => {
-                if new_pos % 2 == 0 && new_pos as usize == self.bit_vec.len() {
-                    return Err(Error::new(ErrorKind::InvalidInput, "invalid seek"));
-                }
-                new_pos = (new_pos << 1) | 1;
-            }
-        }*/
 
         if new_cursor > self.bit_vec.len() {
             return Err(Error::new(

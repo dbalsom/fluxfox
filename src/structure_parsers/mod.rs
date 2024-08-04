@@ -39,19 +39,14 @@
 
 pub mod system34;
 
+use crate::chs::DiskChsn;
 use crate::diskimage::TrackDataStream;
 use crate::structure_parsers::system34::{System34Element, System34Marker};
-use crate::DiskChs;
 use bit_vec::BitVec;
 
+#[derive(Default)]
 pub struct DiskStructureMetadata {
     pub items: Vec<DiskStructureMetadataItem>,
-}
-
-impl Default for DiskStructureMetadata {
-    fn default() -> Self {
-        DiskStructureMetadata { items: Vec::new() }
-    }
 }
 
 impl DiskStructureMetadata {
@@ -85,6 +80,16 @@ impl DiskStructureMetadata {
             Some((ref_stack.pop().unwrap(), match_ct))
         }
     }
+
+    pub fn sector_ct(&self) -> u8 {
+        let mut sector_ct = 0;
+        for item in &self.items {
+            if item.elem_type.is_sector() {
+                sector_ct += 1;
+            }
+        }
+        sector_ct
+    }
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -100,10 +105,9 @@ pub struct DiskStructureMarkerItem {
 pub struct DiskStructureMetadataItem {
     pub(crate) elem_type: DiskStructureElement,
     pub(crate) start: usize,
-    end: usize,
-    pub(crate) chs: Option<DiskChs>,
-    n: Option<u8>,
-    crc: Option<DiskStructureCrc>,
+    pub(crate) end: usize,
+    pub(crate) chsn: Option<DiskChsn>,
+    pub(crate) crc: Option<DiskStructureCrc>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -121,11 +125,22 @@ impl DiskStructureCrc {
 #[derive(Copy, Clone, Debug)]
 pub enum DiskStructureMarker {
     System34(System34Marker),
+    Placeholder,
 }
 
 #[derive(Copy, Clone, Debug)]
 pub enum DiskStructureElement {
     System34(System34Element),
+    Placeholder,
+}
+
+impl DiskStructureElement {
+    pub fn is_sector(&self) -> bool {
+        match self {
+            DiskStructureElement::System34(elem) => elem.is_sector(),
+            _ => false,
+        }
+    }
 }
 
 pub trait DiskStructureParser {

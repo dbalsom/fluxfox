@@ -38,6 +38,7 @@ impl<T: Read + Seek> ReadSeek for T {}
 pub trait ReadWriteSeek: Read + Write + Seek {}
 impl<T: Read + Write + Seek> ReadWriteSeek for T {}
 
+#[allow(dead_code)]
 pub trait ReadBytesExt: Read {
     #[inline]
     fn read_u8(&mut self) -> Result<u8> {
