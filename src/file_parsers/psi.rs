@@ -151,6 +151,10 @@ impl PsiFormat {
         FormatCaps::empty()
     }
 
+    pub(crate) fn extensions() -> Vec<&'static str> {
+        vec!["psi"]
+    }
+
     pub(crate) fn detect<RWS: ReadSeek>(mut image: RWS) -> bool {
         let mut detected = false;
         _ = image.seek(std::io::SeekFrom::Start(0));

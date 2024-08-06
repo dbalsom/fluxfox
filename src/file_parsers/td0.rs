@@ -144,6 +144,10 @@ impl Td0Format {
         FormatCaps::empty()
     }
 
+    pub(crate) fn extensions() -> Vec<&'static str> {
+        vec!["td0"]
+    }
+
     pub(crate) fn detect<RWS: ReadSeek>(mut image: RWS) -> bool {
         let mut detected = false;
         _ = image.seek(std::io::SeekFrom::Start(0));

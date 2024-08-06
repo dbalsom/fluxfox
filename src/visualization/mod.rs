@@ -75,8 +75,8 @@ impl From<System34Element> for Rgba<u8> {
             System34Element::Marker(System34Marker::Idam, _) => Rgba([0, 128, 255, 200]),
             System34Element::Marker(System34Marker::Dam, _) => Rgba([255, 255, 0, 200]),
             System34Element::Marker(System34Marker::Ddam, _) => Rgba([255, 255, 0, 200]),
-            System34Element::Data(true) => Rgba([0, 255, 0, 64]),
-            System34Element::Data(false) => Rgba([255, 128, 0, 64]),
+            System34Element::Data { crc: true, .. } => Rgba([0, 255, 0, 64]),
+            System34Element::Data { crc: false, .. } => Rgba([255, 128, 0, 64]),
         }
     }
 }
@@ -95,10 +95,11 @@ impl System34Element {
             System34Element::Marker(System34Marker::Idam, _) => 200,
             System34Element::Marker(System34Marker::Dam, _) => 200,
             System34Element::Marker(System34Marker::Ddam, _) => 200,
-            System34Element::Data(_) => 64,
+            System34Element::Data { .. } => 64,
         }
     }
 
+    #[rustfmt::skip]
     pub fn to_rgba_nested(&self, nest_lvl: u32) -> Rgba<u8> {
         match (nest_lvl, self) {
             (_, System34Element::Gap1) => Rgba([0, 0, 0, 128]),
@@ -112,10 +113,12 @@ impl System34Element {
             (_, System34Element::Marker(System34Marker::Idam, _)) => Rgba([0, 128, 255, 200]),
             (_, System34Element::Marker(System34Marker::Dam, _)) => Rgba([255, 255, 0, 200]),
             (_, System34Element::Marker(System34Marker::Ddam, _)) => Rgba([255, 255, 0, 200]),
-            (1, System34Element::Data(true)) => Rgba([0, 255, 0, 64]),
-            (_, System34Element::Data(true)) => Rgba([0, 255, 168, 80]),
-            (1, System34Element::Data(false)) => Rgba([255, 128, 0, 128]),
-            (_, System34Element::Data(false)) => Rgba([255, 128, 168, 160]),
+            (1, System34Element::Data { crc: true, deleted: false }) => Rgba([0, 255, 0, 64]),
+            (_, System34Element::Data { crc: true, deleted: false }) => Rgba([0, 255, 168, 80]),
+            (1, System34Element::Data { crc: true, deleted: true }) => Rgba([0, 0, 255, 64]),
+            (_, System34Element::Data { crc: true, deleted: true }) => Rgba([0, 168, 255, 80]),
+            (1, System34Element::Data { crc: false, .. }) => Rgba([255, 128, 0, 128]),
+            (_, System34Element::Data { crc: false, .. }) => Rgba([255, 128, 168, 160]),
         }
     }
 }

@@ -162,11 +162,5 @@ pub trait DiskStructureParser {
 
     fn create_clock_map(markers: &[DiskStructureMarkerItem], clock_map: &mut BitVec);
 
-    /// Read `length` bytes from the sector containing the specified sector_id from a
-    /// TrackBitStream. If Some value of sector_n is provided, the value of n must match as well
-    /// for data to be returned. The `length` parameter allows data to be returned after the end
-    /// of the sector, allowing reading into inter-sector gaps.
-    fn read_sector(track: &TrackDataStream, sector_id: u8, sector_n: Option<u8>, length: usize) -> Option<Vec<u8>>;
-
     fn crc16(track: &mut TrackDataStream, start: usize, end: usize) -> u16;
 }

@@ -61,6 +61,8 @@ pub enum DiskImageError {
     UnknownFormat,
     #[error("Unsupported disk image format for requested operation")]
     UnsupportedFormat,
+    #[error("The disk image is valid but contains incompatible disk information")]
+    IncompatibleImage,
     #[error("The disk image format parser encountered an error")]
     FormatParseError,
     #[error("The disk image format parser determined the image was corrupt")]
@@ -216,5 +218,6 @@ impl Display for DiskRpm {
 }
 
 pub use crate::chs::{DiskCh, DiskChs};
+pub use crate::detect::supported_extensions;
 pub use crate::diskimage::{DiskImage, DiskImageFormat};
 pub use crate::file_parsers::ImageParser;

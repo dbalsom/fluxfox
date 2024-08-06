@@ -24,7 +24,7 @@
 
     --------------------------------------------------------------------------
 */
-use crate::bitstream::mfm::MfmDecoder;
+use crate::bitstream::mfm::{MfmDecoder, MFM_BYTE_LEN};
 use crate::bitstream::raw::RawDecoder;
 use crate::chs::{DiskCh, DiskChs, DiskChsn};
 use crate::detect::detect_image_format;
@@ -186,7 +186,7 @@ impl From<usize> for FloppyFormat {
 }
 
 #[derive(Default)]
-pub struct SectorDescriptor {
+pub(crate) struct SectorDescriptor {
     pub id: u8,
     pub cylinder_id: Option<u16>,
     pub head_id: Option<u8>,
@@ -195,6 +195,14 @@ pub struct SectorDescriptor {
     pub weak: Option<Vec<u8>>,
     pub address_crc_error: bool,
     pub data_crc_error: bool,
+    pub deleted_mark: bool,
+}
+
+#[derive(Copy, Clone, Debug, Default)]
+pub struct SectorMapEntry {
+    pub chsn: DiskChsn,
+    pub address_crc_valid: bool,
+    pub data_crc_valid: bool,
     pub deleted_mark: bool,
 }
 
@@ -252,7 +260,8 @@ pub struct TrackSectorIndex {
     pub t_idx: usize,
     pub n: u8,
     pub len: usize,
-    pub crc_error: bool,
+    pub address_crc_error: bool,
+    pub data_crc_error: bool,
     pub deleted_mark: bool,
 }
 
@@ -307,18 +316,28 @@ impl DiskTrack {
         false
     }
 
-    pub fn get_sector_list(&self) -> Vec<DiskChsn> {
+    pub fn get_sector_list(&self) -> Vec<SectorMapEntry> {
         match &self.data {
             TrackData::ByteStream { sectors, .. } => sectors
                 .iter()
-                .map(|s| DiskChsn::from((s.cylinder_id, s.head_id, s.sector_id, s.n)))
+                .map(|s| SectorMapEntry {
+                    chsn: DiskChsn::from((s.cylinder_id, s.head_id, s.sector_id, s.n)),
+                    address_crc_valid: !s.address_crc_error,
+                    data_crc_valid: !s.data_crc_error,
+                    deleted_mark: s.deleted_mark,
+                })
                 .collect(),
             TrackData::BitStream { .. } => {
                 let mut sector_list = Vec::new();
                 for item in &self.metadata.items {
-                    if let DiskStructureElement::System34(System34Element::Data(_)) = item.elem_type {
+                    if let DiskStructureElement::System34(System34Element::Data { crc, deleted }) = item.elem_type {
                         if let Some(chsn) = item.chsn {
-                            sector_list.push(chsn);
+                            sector_list.push(SectorMapEntry {
+                                chsn,
+                                address_crc_valid: true,
+                                data_crc_valid: crc,
+                                deleted_mark: deleted,
+                            });
                         }
                     }
                 }
@@ -424,7 +443,7 @@ impl DiskImage {
         let format = DiskImage::detect_format(image_io)?;
         let mut image = format.load_image(image_io)?;
 
-        image.post_image_load();
+        image.post_load_process();
 
         Ok(image)
     }
@@ -540,7 +559,7 @@ impl DiskImage {
             .items
             .iter()
             .filter_map(|i| {
-                if let DiskStructureElement::System34(System34Element::Data(_crc)) = i.elem_type {
+                if let DiskStructureElement::System34(System34Element::Data { .. }) = i.elem_type {
                     //log::trace!("Got Data element, returning start address: {}", i.start);
                     Some(i.start)
                 } else {
@@ -549,8 +568,8 @@ impl DiskImage {
             })
             .collect::<Vec<_>>();
 
-        log::warn!(
-            "Retrieved {} sector bitstream offsets from metadata.",
+        log::trace!(
+            "add_track_bitstream(): Retrieved {} sector bitstream offsets from metadata.",
             sector_offsets.len()
         );
 
@@ -571,7 +590,7 @@ impl DiskImage {
 
     /// Master a new sector to a track.
     /// This function is only valid for ByteStream track data.
-    pub fn master_sector(&mut self, chs: DiskChs, sd: &SectorDescriptor) -> Result<(), DiskImageError> {
+    pub(crate) fn master_sector(&mut self, chs: DiskChs, sd: &SectorDescriptor) -> Result<(), DiskImageError> {
         if chs.h() > 1 || self.track_map[chs.h() as usize].len() < chs.c() as usize {
             return Err(DiskImageError::SeekError);
         }
@@ -599,7 +618,8 @@ impl DiskImage {
                     n: sd.n,
                     t_idx: data.len(),
                     len: sd.data.len(),
-                    crc_error: sd.data_crc_error,
+                    address_crc_error: sd.address_crc_error,
+                    data_crc_error: sd.data_crc_error,
                     deleted_mark: sd.deleted_mark,
                 });
                 data.extend(&sd.data);
@@ -613,7 +633,7 @@ impl DiskImage {
         Ok(())
     }
 
-    pub fn get_sector_bit_index(&self, seek_chs: DiskChs) -> Option<(usize, DiskChsn)> {
+    pub fn get_sector_bit_index(&self, seek_chs: DiskChs) -> Option<(usize, DiskChsn, bool)> {
         let ti = self.track_map[seek_chs.h() as usize][seek_chs.c() as usize];
         let track = &self.track_pool[ti];
 
@@ -639,7 +659,7 @@ impl DiskImage {
                             idam_chsn = *chsn;
                         }
                         DiskStructureMetadataItem {
-                            elem_type: DiskStructureElement::System34(System34Element::Data(_)),
+                            elem_type: DiskStructureElement::System34(System34Element::Data { crc, .. }),
                             ..
                         } => {
                             log::trace!(
@@ -649,7 +669,7 @@ impl DiskImage {
                                 last_idam_matched
                             );
                             if last_idam_matched {
-                                return Some((mdi.start, idam_chsn.unwrap()));
+                                return Some((mdi.start, idam_chsn.unwrap(), *crc));
                             }
                         }
                         _ => {}
@@ -698,13 +718,18 @@ impl DiskImage {
 
         //let chsn = DiskChsn::from((chs, n.unwrap_or(2)));
 
-        let (sector_offset, chsn) = match self.get_sector_bit_index(chs) {
+        let mut crc_error = false;
+        let (sector_offset, chsn, crc_good) = match self.get_sector_bit_index(chs) {
             Some(offset) => offset,
             None => {
                 log::error!("Sector marker not found reading sector!");
                 return Err(DiskImageError::SeekError);
             }
         };
+
+        if !crc_good {
+            crc_error = true;
+        }
 
         let ti = self.track_map[chs.h() as usize][chs.c() as usize];
         let track = &mut self.track_pool[ti];
@@ -713,7 +738,7 @@ impl DiskImage {
 
         let sid = chs.s();
         let mut deleted_mark = false;
-        let mut crc_error = false;
+
         let mut wrong_cylinder = false;
         let data_idx;
         let mut data_len;
@@ -725,25 +750,30 @@ impl DiskImage {
             } => {
                 // The caller can request the scope of the read to be the entire data block
                 // including address mark and crc bytes, or just the data. Handle offsets accordingly.
-                let (scope_data_off, scope_crc_off) = match scope {
+                let (scope_read_off, scope_data_off, scope_data_adj) = match scope {
                     // Add 4 bytes for address mark and 2 bytes for CRC.
-                    RwSectorScope::DataBlock => (4, 2),
-                    RwSectorScope::DataOnly => (0, 0),
+                    RwSectorScope::DataBlock => (0, 4, 6),
+                    RwSectorScope::DataOnly => (32, 0, 0),
                 };
 
                 data_len = chsn.n_size();
                 data_idx = scope_data_off;
 
-                read_vec = vec![0u8; data_len + scope_data_off + scope_crc_off];
+                read_vec = vec![0u8; data_len + scope_data_adj];
+
+                log::trace!(
+                    "read_sector(): Found sector_id: {} at offset: {} read length: {}",
+                    sid,
+                    sector_offset,
+                    read_vec.len()
+                );
 
                 mfm_decoder
-                    .seek(SeekFrom::Start((sector_offset >> 1) as u64))
+                    .seek(SeekFrom::Start(((sector_offset >> 1) + scope_read_off) as u64))
                     .map_err(|_| DiskImageError::SeekError)?;
                 mfm_decoder
                     .read_exact(&mut read_vec)
                     .map_err(|_| DiskImageError::IoError)?;
-
-                log::trace!("read_sector(): Found sector_id: {} at offset: {}", sid, sector_offset);
             }
             TrackData::ByteStream { sectors, data, .. } => {
                 // No address mark for ByteStream data, so data starts immediately.
@@ -767,7 +797,7 @@ impl DiskImage {
                         data_len = std::cmp::min(si.t_idx + si.len, data.len()) - si.t_idx;
                         read_vec.extend(data[si.t_idx..si.t_idx + data_len].to_vec());
 
-                        if si.crc_error {
+                        if si.data_crc_error {
                             crc_error = true;
                         }
 
@@ -819,7 +849,62 @@ impl DiskImage {
     }
 
     /// Called after loading a disk image to perform any post-load operations.
-    pub fn post_image_load(&mut self) {}
+    pub(crate) fn post_load_process(&mut self) {
+        // Normalize the disk image
+        self.normalize();
+    }
+
+    /// Normalize a disk image by detecting and correcting typical image issues.
+    /// This includes:
+    /// 40 track images encoded as 80 tracks with empty tracks
+    /// Single-sided images encoded as double-sided images with empty tracks
+    pub(crate) fn normalize(&mut self) {
+        // Detect empty tracks
+        let mut empty_tracks = Vec::new();
+
+        let mut track_ct = 0;
+        for (head_idx, head) in self.track_map.iter().enumerate() {
+            for (track_idx, track) in head.iter().enumerate() {
+                track_ct += 1;
+                if self.track_pool[*track].get_sector_count() == 0 {
+                    empty_tracks.push((head_idx, track_idx));
+                }
+            }
+        }
+
+        log::trace!("Detected {}/{} empty tracks.", empty_tracks.len(), track_ct);
+        if empty_tracks.len() >= track_ct / 2 {
+            log::warn!("Image is wide track image stored as narrow tracks.");
+            self.remove_empty_tracks();
+        }
+    }
+
+    pub(crate) fn remove_empty_tracks(&mut self) {
+        let mut empty_tracks = vec![Vec::new(); 2];
+        for (head_idx, head) in self.track_map.iter().enumerate() {
+            for (track_idx, track) in head.iter().enumerate() {
+                if self.track_pool[*track].get_sector_count() == 0 {
+                    empty_tracks[head_idx].push(track_idx);
+                }
+            }
+        }
+
+        let mut pool_indices = Vec::new();
+        // Sort empty track indices in descending order and then remove them in said order from the
+        // track map.
+        for (head_idx, empty_head) in empty_tracks.iter_mut().enumerate() {
+            empty_head.sort_by(|a, b| b.cmp(a));
+            for track_idx in empty_head {
+                let pool_idx = self.track_map[head_idx][*track_idx];
+                pool_indices.push(pool_idx);
+                self.track_map[head_idx].remove(*track_idx);
+            }
+        }
+
+        // Now we could remove the empty tracks from the track pool, but we'd have to re-index
+        // every other track as the pool indices change. It's not that terrible to have deleted
+        // tracks hanging out in memory. They will be removed when we re-export the image.
+    }
 
     pub fn dump_info<W: crate::io::Write>(&mut self, mut out: W) -> Result<(), crate::io::Error> {
         out.write_fmt(format_args!("Disk Format: {:?}\n", self.disk_format))?;
@@ -835,18 +920,17 @@ impl DiskImage {
         Ok(())
     }
 
-    pub fn get_sector_map(&self) -> Vec<Vec<Vec<DiskChsn>>> {
+    pub fn get_sector_map(&self) -> Vec<Vec<Vec<SectorMapEntry>>> {
         let mut head_map = Vec::new();
 
         let geom = self.geometry();
-        log::trace!("get_sector_map(): Geometry is {}", geom);
+        //log::trace!("get_sector_map(): Geometry is {}", geom);
 
         for head in 0..geom.h() {
             let mut track_map = Vec::new();
 
             for track_idx in &self.track_map[head as usize] {
                 let track = &self.track_pool[*track_idx];
-                log::trace!("Pushing sector!");
                 track_map.push(track.get_sector_list());
             }
 
@@ -864,7 +948,10 @@ impl DiskImage {
             for (track_idx, track) in head.iter().enumerate() {
                 out.write_fmt(format_args!("\tTrack {}\n", track_idx))?;
                 for sector in track {
-                    out.write_fmt(format_args!("\t\t{}\n", sector))?;
+                    out.write_fmt(format_args!(
+                        "\t\t{} crc_valid: {} deleted: {}\n",
+                        sector.chsn, sector.data_crc_valid, sector.deleted_mark
+                    ))?;
                 }
             }
         }

@@ -161,6 +161,7 @@ struct HfeTrackIndexEntry {
 }
 
 impl HfeFormat {
+    #[allow(dead_code)]
     fn format() -> DiskImageFormat {
         DiskImageFormat::PceBitstreamImage
     }
@@ -169,13 +170,17 @@ impl HfeFormat {
         FormatCaps::empty()
     }
 
+    pub(crate) fn extensions() -> Vec<&'static str> {
+        vec!["hfe"]
+    }
+
     pub(crate) fn detect<RWS: ReadSeek>(mut image: RWS) -> bool {
         let mut detected = false;
         _ = image.seek(std::io::SeekFrom::Start(0));
 
         log::trace!("Checking for HFE header");
         if let Ok(file_header) = HfeFileHeader::read(&mut image) {
-            if &file_header.signature == "HXCPICFE".as_bytes() {
+            if file_header.signature == "HXCPICFE".as_bytes() {
                 detected = true;
             }
         }

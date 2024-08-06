@@ -354,15 +354,16 @@ mod tests {
 
     #[test]
     fn diskchs_to_lba_calculates_correct_lba() {
-        let geom = DiskChs::new(10, 4, 16);
+        let geom = DiskChs::new(40, 2, 9);
         let chs = DiskChs::new(2, 1, 5);
-        assert_eq!(chs.to_lba(&geom), 597);
+        assert_eq!(chs.to_lba(&geom), 49);
     }
 
     #[test]
     fn diskchs_get_next_sector_wraps_correctly() {
-        let geom = DiskChs::new(2, 2, 2);
         let chs = DiskChs::new(1, 1, 2);
+        let geom = DiskChs::new(40, 2, 2);
+
         let next_chs = chs.get_next_sector(&geom);
         assert_eq!(next_chs, DiskChs::new(2, 0, 1));
     }

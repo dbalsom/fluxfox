@@ -115,6 +115,10 @@ impl ImdFormat {
         FormatCaps::empty()
     }
 
+    pub(crate) fn extensions() -> Vec<&'static str> {
+        vec!["imd"]
+    }
+
     pub(crate) fn detect<RWS: ReadSeek>(mut image: RWS) -> bool {
         let _raw_len = get_length(&mut image).map_or(0, |l| l as usize);
         let mut detected = false;
@@ -278,8 +282,8 @@ impl ImdFormat {
                         // Add this sector to track.
                         let sd = SectorDescriptor {
                             id: sector_numbers[s],
-                            cylinder_id: None,
-                            head_id: None,
+                            cylinder_id: Some(cylinder_map[s] as u16),
+                            head_id: Some(head_map[s]),
                             n: sector_n,
                             data: data.data,
                             weak: None,

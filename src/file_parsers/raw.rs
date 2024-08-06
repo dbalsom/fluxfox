@@ -41,6 +41,10 @@ impl RawFormat {
         DiskImageFormat::RawSectorImage
     }
 
+    pub(crate) fn extensions() -> Vec<&'static str> {
+        vec!["img", "ima", "dsk", "bin"]
+    }
+
     pub(crate) fn capabilities() -> FormatCaps {
         FormatCaps::empty()
     }

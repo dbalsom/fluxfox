@@ -75,8 +75,11 @@ impl TryInto<System34Marker> for u16 {
         match self {
             0x5554 => Ok(System34Marker::Idam),
             0x5545 => Ok(System34Marker::Dam),
-            0x5548 => Ok(System34Marker::Ddam),
-            _ => Err(()),
+            0x554A => Ok(System34Marker::Ddam),
+            _ => {
+                log::error!("Invalid System34 marker: {:04X}", self);
+                Err(())
+            }
         }
     }
 }
@@ -90,11 +93,11 @@ pub enum System34Element {
     Gap4b,
     Sync,
     Marker(System34Marker, Option<bool>),
-    Data(bool),
+    Data { crc: bool, deleted: bool },
 }
 
 impl System34Element {
-    pub fn len(&self) -> usize {
+    pub fn size(&self) -> usize {
         match self {
             System34Element::Gap1 => 8,
             System34Element::Gap2 => 8,
@@ -103,7 +106,7 @@ impl System34Element {
             System34Element::Gap4b => 8,
             System34Element::Sync => 8,
             System34Element::Marker(_, _) => 4,
-            System34Element::Data(_) => 0,
+            System34Element::Data { .. } => 0,
         }
     }
 
@@ -201,7 +204,7 @@ impl DiskStructureParser for System34Parser {
             let marker_u64 = u64::from(marker);
 
             if let TrackDataStream::Mfm(mfm_stream) = track {
-                log::trace!("find_marker(): Searching for marker at offset: {}", offset);
+                //log::trace!("find_marker(): Searching for marker at offset: {}", offset);
                 return mfm_stream.find_marker(marker_u64, offset);
             }
         }
@@ -273,8 +276,6 @@ impl DiskStructureParser for System34Parser {
     fn scan_track_markers(track: &mut TrackDataStream) -> Vec<DiskStructureMarkerItem> {
         let mut bit_cursor: usize = 0;
         let mut markers = Vec::new();
-        let mut last_marker_opt: Option<System34Marker> = None;
-        let mut last_marker_offset = 0;
 
         // Look for the IAM marker first - but it may not be present (ISO standard encoding does
         // not require it).
@@ -294,45 +295,22 @@ impl DiskStructureParser for System34Parser {
                 elem_type: DiskStructureMarker::System34(System34Marker::Iam),
                 start: marker_offset,
             });
-
-            last_marker_offset = marker_offset;
-            last_marker_opt = Some(System34Marker::Iam);
             bit_cursor = marker_offset + 4 * MFM_BYTE_LEN;
         }
 
-        // Scan for the remaining markers.
-        let mut marker = System34Marker::Idam;
-
-        while let Some(marker_offset) =
-            System34Parser::find_marker(track, DiskStructureMarker::System34(marker), bit_cursor)
-        {
-            log::trace!(
-                "scan_track_markers(): Found marker: {:?} at bit offset: {}",
+        while let Some((marker, marker_offset)) = System34Parser::find_next_marker(track, bit_cursor) {
+            log::warn!(
+                "scan_track_markers(): Found marker of type {:?} at bit offset: {}",
                 marker,
                 marker_offset
             );
 
             markers.push(DiskStructureMarkerItem {
-                elem_type: DiskStructureMarker::System34(marker),
+                elem_type: marker,
                 start: marker_offset,
             });
-
-            // Save the last element seen. We calculate the size of the element when we find the
-            // next one.
-            last_marker_offset = marker_offset;
-            last_marker_opt = Some(marker);
-            // Pick next element to look for.
-            marker = match marker {
-                System34Marker::Iam => System34Marker::Idam,
-                System34Marker::Idam => System34Marker::Dam,
-                System34Marker::Dam => System34Marker::Idam,
-                System34Marker::Ddam => System34Marker::Idam,
-            };
-
-            // Advance offset past element.
             bit_cursor = marker_offset + 4 * MFM_BYTE_LEN;
         }
-
         markers
     }
 
@@ -355,10 +333,6 @@ impl DiskStructureParser for System34Parser {
         for marker in &markers {
             let element_offset = marker.start;
 
-            // TODO: A better way to do this than to alternate IDAM, DAM and DDAM marker types would
-            //       be to simply look for the three initial marker bytes, then examine the fourth
-            //       for the actual marker type. This would reduce the number of times we scan the
-            //       whole track when an expected marker type is not found.
             if let DiskStructureMarker::System34(sys34_marker) = marker.elem_type {
                 match (last_marker_opt, sys34_marker) {
                     (_, System34Marker::Idam) => {
@@ -397,11 +371,19 @@ impl DiskStructureParser for System34Parser {
                         );
                         last_sector_id = sector_id;
                     }
-                    (Some(System34Marker::Idam), System34Marker::Dam) => {
+                    (Some(System34Marker::Idam), System34Marker::Dam | System34Marker::Ddam) => {
                         let data_len = last_sector_id.sector_size_in_bytes() * MFM_BYTE_LEN;
                         let data_end = element_offset + MFM_MARKER_LEN + data_len;
+
+                        let log_prefix = match sys34_marker {
+                            System34Marker::Dam => "",
+                            System34Marker::Ddam => "Deleted ",
+                            _ => "UNKNOWN",
+                        };
+
                         log::trace!(
-                            "Data marker at offset: {}, data size: {} crc_start:{} crc_end:{}",
+                            "{}Data marker at offset: {}, data size: {} crc_start:{} crc_end:{}",
+                            log_prefix,
                             element_offset,
                             data_len,
                             element_offset,
@@ -414,7 +396,7 @@ impl DiskStructureParser for System34Parser {
                         dam_header[2] = track.read_encoded_byte(marker.start + mfm_offset!(2)).unwrap();
                         dam_header[3] = track.read_encoded_byte(marker.start + mfm_offset!(3)).unwrap();
 
-                        log::trace!("dam header verify: {:02X?}", dam_header);
+                        //log::trace!("dam header verify: {:02X?}", dam_header);
 
                         let crc_byte0 = track.read_encoded_byte(data_end).unwrap_or(0xAA);
                         let crc_byte1 = track.read_encoded_byte(data_end + mfm_offset!(1)).unwrap_or(0xAA);
@@ -427,8 +409,20 @@ impl DiskStructureParser for System34Parser {
                             log::warn!("Data CRC error detected at offset: {}", element_offset);
                         }
 
+                        let element = match sys34_marker {
+                            System34Marker::Dam => System34Element::Data {
+                                crc: crc_correct,
+                                deleted: false,
+                            },
+                            System34Marker::Ddam => System34Element::Data {
+                                crc: crc_correct,
+                                deleted: true,
+                            },
+                            _ => unreachable!(),
+                        };
+
                         let data_metadata = DiskStructureMetadataItem {
-                            elem_type: DiskStructureElement::System34(System34Element::Data(crc_correct)),
+                            elem_type: DiskStructureElement::System34(element),
                             start: element_offset,
                             end: data_end,
                             chsn: Some(DiskChsn::new(
@@ -513,14 +507,6 @@ impl DiskStructureParser for System34Parser {
             clock_map.set(bi + 1, false);
             bit_set += 2;
         }
-    }
-
-    /// Read `length` bytes from the sector containing the specified sector_id from a
-    /// TrackBitStream. If Some value of sector_n is provided, the value of n must match as well
-    /// for data to be returned. The `length` parameter allows data to be returned after the end
-    /// of the sector, allowing reading into inter-sector gaps.
-    fn read_sector(track: &TrackDataStream, sector_id: u8, sector_n: Option<u8>, length: usize) -> Option<Vec<u8>> {
-        None
     }
 
     fn crc16(track: &mut TrackDataStream, bit_index: usize, end: usize) -> u16 {

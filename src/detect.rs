@@ -41,6 +41,13 @@ const IMAGE_FORMATS: [DiskImageFormat; 7] = [
     DiskImageFormat::HfeImage,
 ];
 
+/// Returns a list of advertised file extensions supported by available image format parsers.
+/// This is a convenience function for use in file dialogs - internal image detection is not based
+/// on file extension, but by image file content and size.
+pub fn supported_extensions() -> Vec<&'static str> {
+    IMAGE_FORMATS.iter().flat_map(|f| f.extensions()).collect()
+}
+
 /// Attempt to detect the format of a disk image. If the format cannot be determined, UnknownFormat is returned.
 pub fn detect_image_format<T: ReadSeek>(image_io: &mut T) -> Result<DiskImageFormat, DiskImageError> {
     for format in IMAGE_FORMATS.iter() {
