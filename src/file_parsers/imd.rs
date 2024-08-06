@@ -30,8 +30,7 @@ use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::util::{get_length, read_ascii};
 use crate::{
-    DiskDataEncoding, DiskDataRate, DiskImage, DiskImageError, DiskImageFormat, FoxHashSet,
-    DEFAULT_SECTOR_SIZE,
+    DiskDataEncoding, DiskDataRate, DiskImage, DiskImageError, DiskImageFormat, FoxHashSet, DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, BinRead, BinReaderExt};
 use regex::Regex;
@@ -69,8 +68,8 @@ impl ImdTrack {
     pub fn has_sector_size_map(&self) -> bool {
         self.h == 0xFF
     }
-    pub fn sector_size(&self) -> usize {
-        imd_sector_size_to_usize(self.sector_size).unwrap()
+    pub fn sector_size(&self) -> Option<usize> {
+        imd_sector_size_to_usize(self.sector_size)
     }
 }
 
@@ -191,13 +190,13 @@ impl ImdFormat {
             let mut cylinder_map = vec![track_header.c(); track_header.sector_ct as usize];
             let mut head_map = vec![track_header.h(); track_header.sector_ct as usize];
 
-            let default_n = track_header.sector_size;
-            let default_sector_size = imd_sector_size_to_usize(track_header.sector_size);
+            //let default_n = track_header.sector_size;
+            let default_sector_size = track_header.sector_size();
             if default_sector_size.is_none() {
                 return Err(DiskImageError::FormatParseError);
             }
             // Sector size map is in words; so double the bytes.
-            let mut sector_size_map_u8: Vec<u8> = vec![0, track_header.sector_ct as u8 * 2];
+            let mut sector_size_map_u8: Vec<u8> = vec![0, track_header.sector_ct * 2];
             let mut sector_size_map: Vec<u16> =
                 vec![default_sector_size.unwrap() as u16; track_header.sector_ct as usize];
 

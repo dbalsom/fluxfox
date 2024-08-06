@@ -36,13 +36,12 @@
 */
 
 use crate::chs::{DiskCh, DiskChs};
-use crate::diskimage::{DiskConsistency, DiskDescriptor};
+use crate::diskimage::DiskDescriptor;
 use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{Cursor, ReadSeek, ReadWriteSeek};
 
 use crate::{
-    DiskDataEncoding, DiskDataRate, DiskImage, DiskImageError, DiskImageFormat, FoxHashMap, FoxHashSet,
-    DEFAULT_SECTOR_SIZE,
+    DiskDataEncoding, DiskDataRate, DiskImage, DiskImageError, DiskImageFormat, FoxHashSet, DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, BinRead};
 
@@ -237,14 +236,7 @@ impl PriFormat {
         let current_chs = DiskChs::default();
         let current_crc_error = false;
 
-        let consistent_track_length = None;
-        //let mut last_track_length = None;
-
-        let consistent_sector_size = None;
-        //let mut last_sector_size = None;
-
         let track_set: FoxHashSet<DiskCh> = FoxHashSet::new();
-        let sector_counts: FoxHashMap<u8, u32> = FoxHashMap::new();
         let mut heads_seen: FoxHashSet<u8> = FoxHashSet::new();
 
         let mut default_bit_clock = 0;
@@ -334,21 +326,6 @@ impl PriFormat {
 
             chunk = PriFormat::read_chunk(&mut image)?;
         }
-
-        disk_image.consistency = DiskConsistency {
-            weak: false,
-            deleted: false,
-            consistent_sector_size,
-            consistent_track_length,
-        };
-
-        log::trace!("Sector counts: {:?}", sector_counts);
-
-        let most_common_sector_count = sector_counts
-            .iter()
-            .max_by_key(|&(_, count)| count)
-            .map(|(&value, _)| value)
-            .unwrap_or(0);
 
         log::trace!("Comment: {}", comment_string);
 

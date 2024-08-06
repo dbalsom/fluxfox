@@ -24,16 +24,14 @@
 
     --------------------------------------------------------------------------
 */
-use crate::bitstream::mfm::{MfmDecoder};
+use crate::bitstream::mfm::MfmDecoder;
 use crate::bitstream::raw::RawDecoder;
 use crate::chs::{DiskCh, DiskChs, DiskChsn};
 use crate::detect::detect_image_format;
 use crate::file_parsers::ImageParser;
-use crate::io::{Read, ReadSeek};
+use crate::io::ReadSeek;
 use crate::structure_parsers::system34::{System34Element, System34Parser};
-use crate::structure_parsers::{
-    DiskStructureElement, DiskStructureMetadata, DiskStructureParser,
-};
+use crate::structure_parsers::{DiskStructureElement, DiskStructureMetadata, DiskStructureParser};
 use crate::trackdata::TrackData;
 use crate::{DiskDataEncoding, DiskDataRate, DiskImageError, DiskRpm, EncodingPhase, DEFAULT_SECTOR_SIZE};
 use bit_vec::BitVec;
@@ -584,7 +582,7 @@ impl DiskImage {
     pub fn read_sector(
         &mut self,
         chs: DiskChs,
-        n: Option<u8>,
+        _n: Option<u8>,
         scope: RwSectorScope,
     ) -> Result<ReadSectorResult, DiskImageError> {
         // Check that the head and cylinder are within the bounds of the track map.

@@ -107,7 +107,7 @@ pub struct DiskStructureMetadataItem {
     pub(crate) start: usize,
     pub(crate) end: usize,
     pub(crate) chsn: Option<DiskChsn>,
-    pub(crate) crc: Option<DiskStructureCrc>,
+    pub(crate) _crc: Option<DiskStructureCrc>,
 }
 
 #[derive(Copy, Clone, Debug)]

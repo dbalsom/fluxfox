@@ -34,11 +34,11 @@ use crate::bitstream::mfm::{MfmDecoder, MFM_BYTE_LEN, MFM_MARKER_LEN};
 use crate::chs::DiskChsn;
 use crate::diskimage::TrackDataStream;
 use crate::io::{Read, Seek, SeekFrom};
+use crate::mfm_offset;
 use crate::structure_parsers::{
     DiskStructureElement, DiskStructureMarker, DiskStructureMarkerItem, DiskStructureMetadataItem, DiskStructureParser,
 };
 use crate::util::crc_ccitt;
-use crate::{mfm_offset};
 use bit_vec::BitVec;
 use std::fmt::{Display, Formatter};
 
@@ -322,12 +322,8 @@ impl DiskStructureParser for System34Parser {
         track: &mut TrackDataStream,
         markers: Vec<DiskStructureMarkerItem>,
     ) -> Vec<DiskStructureMetadataItem> {
-        let bit_cursor: usize = 0;
         let mut elements = Vec::new();
-
         let mut last_marker_opt: Option<System34Marker> = None;
-        let mut last_marker_offset = 0;
-
         let mut last_sector_id = SectorId::default();
 
         for marker in &markers {
@@ -431,7 +427,7 @@ impl DiskStructureParser for System34Parser {
                                 last_sector_id.s,
                                 last_sector_id.b,
                             )),
-                            crc: None,
+                            _crc: None,
                         };
                         elements.push(data_metadata);
                     }
@@ -440,7 +436,6 @@ impl DiskStructureParser for System34Parser {
 
                 if let Some(last_marker) = last_marker_opt {
                     let last_marker_offset = element_offset - 4 * MFM_BYTE_LEN;
-
                     let last_marker_metadata = DiskStructureMetadataItem {
                         elem_type: DiskStructureElement::System34(System34Element::Marker(last_marker, None)),
                         start: last_marker_offset,
@@ -451,14 +446,12 @@ impl DiskStructureParser for System34Parser {
                             last_sector_id.s,
                             last_sector_id.b,
                         )),
-                        crc: None,
+                        _crc: None,
                     };
                     elements.push(last_marker_metadata);
                 }
 
-                // Save the last element seen. We calculate the size of the element when we find the
-                // next one.
-                last_marker_offset = element_offset;
+                // Save the last element seen.
                 last_marker_opt = Some(sys34_marker);
             }
         }

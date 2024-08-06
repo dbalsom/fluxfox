@@ -36,7 +36,7 @@
 */
 
 use crate::chs::{DiskCh, DiskChs, DiskChsn};
-use crate::diskimage::{DiskConsistency, DiskDescriptor, SectorDescriptor};
+use crate::diskimage::{DiskDescriptor, SectorDescriptor};
 use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{Cursor, ReadSeek, ReadWriteSeek};
 
@@ -255,12 +255,6 @@ impl PsiFormat {
         let mut current_chs = DiskChs::default();
         let mut current_crc_error = false;
 
-        let consistent_track_length = None;
-        //let mut last_track_length = None;
-
-        let consistent_sector_size = None;
-        //let mut last_sector_size = None;
-
         let mut track_set: FoxHashSet<DiskCh> = FoxHashSet::new();
         let mut sector_counts: FoxHashMap<u8, u32> = FoxHashMap::new();
         let mut heads_seen: FoxHashSet<u8> = FoxHashSet::new();
@@ -363,21 +357,6 @@ impl PsiFormat {
 
             chunk = PsiFormat::read_chunk(&mut image)?;
         }
-
-        disk_image.consistency = DiskConsistency {
-            weak: false,
-            deleted: false,
-            consistent_sector_size,
-            consistent_track_length,
-        };
-
-        log::trace!("Sector counts: {:?}", sector_counts);
-
-        let most_common_sector_count = sector_counts
-            .iter()
-            .max_by_key(|&(_, count)| count)
-            .map(|(&value, _)| value)
-            .unwrap_or(0);
 
         let head_ct = heads_seen.len() as u8;
         let track_ct = track_set.len() as u16;

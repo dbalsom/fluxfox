@@ -109,12 +109,12 @@ impl ImageParser for DiskImageFormat {
     fn extensions(&self) -> Vec<&'static str> {
         match self {
             DiskImageFormat::RawSectorImage => raw::RawFormat::extensions(),
-            DiskImageFormat::ImageDisk => vec!["imd"],
-            DiskImageFormat::TeleDisk => vec!["td0"],
-            DiskImageFormat::PceSectorImage => vec!["psi"],
-            DiskImageFormat::PceBitstreamImage => vec!["pri"],
-            DiskImageFormat::MfmBitstreamImage => vec!["mfm"],
-            DiskImageFormat::HfeImage => vec!["hfe"],
+            DiskImageFormat::ImageDisk => imd::ImdFormat::extensions(),
+            DiskImageFormat::TeleDisk => td0::Td0Format::extensions(),
+            DiskImageFormat::PceSectorImage => psi::PsiFormat::extensions(),
+            DiskImageFormat::PceBitstreamImage => pri::PriFormat::extensions(),
+            DiskImageFormat::MfmBitstreamImage => mfm::MfmFormat::extensions(),
+            DiskImageFormat::HfeImage => hfe::HfeFormat::extensions(),
             _ => vec![],
         }
     }
