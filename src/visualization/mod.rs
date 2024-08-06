@@ -30,7 +30,8 @@
     to images. Requires the 'vis' feature to be enabled.
 */
 
-use crate::diskimage::{TrackData, TrackDataStream};
+use crate::diskimage::TrackDataStream;
+use crate::trackdata::TrackData;
 use crate::{DiskImage, DiskImageError};
 use image::{ImageBuffer, Pixel, Rgba};
 
@@ -149,7 +150,7 @@ fn collect_streams(head: u8, disk_image: &DiskImage) -> Vec<&TrackDataStream> {
 fn collect_metadata(head: u8, disk_image: &DiskImage) -> Vec<&DiskStructureMetadata> {
     disk_image.track_map[head as usize]
         .iter()
-        .map(|track_i| &disk_image.track_pool[*track_i].metadata)
+        .filter_map(|track_i| disk_image.track_pool[*track_i].metadata())
         .collect()
 }
 

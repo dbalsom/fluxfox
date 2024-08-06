@@ -33,6 +33,7 @@ mod file_parsers;
 mod io;
 mod sector;
 pub mod structure_parsers;
+mod trackdata;
 pub mod util;
 
 #[cfg(feature = "viz")]

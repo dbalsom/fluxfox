@@ -27,9 +27,10 @@
 
 use crate::chs::{DiskChs, DiskChsn};
 use crate::detect::chs_from_raw_size;
-use crate::diskimage::{DiskConsistency, DiskDescriptor, DiskImage, FloppyFormat, SectorDescriptor, TrackData};
+use crate::diskimage::{DiskConsistency, DiskDescriptor, DiskImage, FloppyFormat, SectorDescriptor};
 use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
+use crate::trackdata::TrackData;
 use crate::util::get_length;
 use crate::{DiskImageError, DiskImageFormat, DEFAULT_SECTOR_SIZE};
 

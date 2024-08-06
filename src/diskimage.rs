@@ -34,6 +34,7 @@ use crate::structure_parsers::system34::{System34Element, System34Marker, System
 use crate::structure_parsers::{
     DiskStructureElement, DiskStructureMetadata, DiskStructureMetadataItem, DiskStructureParser,
 };
+use crate::trackdata::TrackData;
 use crate::{DiskDataEncoding, DiskDataRate, DiskImageError, DiskRpm, EncodingPhase, DEFAULT_SECTOR_SIZE};
 use bit_vec::BitVec;
 use std::fmt::Display;
@@ -234,25 +235,6 @@ pub enum TrackDataStream {
     Gcr(BitVec),
 }
 
-/// TrackData stores the raw data for a track.
-/// A weak bit mask is stored along with the data.
-///
-pub enum TrackData {
-    BitStream {
-        cylinder: u16,
-        head: u8,
-        data_clock: u32,
-        data: TrackDataStream,
-    },
-    ByteStream {
-        cylinder: u16,
-        head: u8,
-        sectors: Vec<TrackSectorIndex>,
-        data: Vec<u8>,
-        weak_mask: Vec<u8>,
-    },
-}
-
 pub struct TrackSectorIndex {
     pub sector_id: u8,
     pub cylinder_id: u16,
@@ -271,79 +253,23 @@ pub struct DiskTrack {
     /// A track comprises a vector of indices into the DiskImage sector pool.
     pub format: TrackFormat,
     pub data: TrackData,
-    pub metadata: DiskStructureMetadata,
 }
 
 impl DiskTrack {
     pub fn get_sector_count(&self) -> usize {
-        match &self.data {
-            TrackData::ByteStream { sectors, .. } => sectors.len(),
-            TrackData::BitStream { .. } => {
-                let mut sector_ct = 0;
-                for item in &self.metadata.items {
-                    if item.elem_type.is_sector() {
-                        sector_ct += 1;
-                    }
-                }
-                sector_ct
-            }
-        }
+        self.data.get_sector_ct()
     }
 
     pub fn has_sector_id(&self, id: u8) -> bool {
-        match &self.data {
-            TrackData::ByteStream { sectors, .. } => {
-                for sector in sectors {
-                    if sector.sector_id == id {
-                        return true;
-                    }
-                }
-            }
-            TrackData::BitStream { .. } => {
-                for item in &self.metadata.items {
-                    if let DiskStructureElement::System34(System34Element::Marker(System34Marker::Idam, _)) =
-                        item.elem_type
-                    {
-                        if let Some(chsn) = item.chsn {
-                            if chsn.s() == id {
-                                return true;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        false
+        self.data.has_sector_id(id)
     }
 
     pub fn get_sector_list(&self) -> Vec<SectorMapEntry> {
-        match &self.data {
-            TrackData::ByteStream { sectors, .. } => sectors
-                .iter()
-                .map(|s| SectorMapEntry {
-                    chsn: DiskChsn::from((s.cylinder_id, s.head_id, s.sector_id, s.n)),
-                    address_crc_valid: !s.address_crc_error,
-                    data_crc_valid: !s.data_crc_error,
-                    deleted_mark: s.deleted_mark,
-                })
-                .collect(),
-            TrackData::BitStream { .. } => {
-                let mut sector_list = Vec::new();
-                for item in &self.metadata.items {
-                    if let DiskStructureElement::System34(System34Element::Data { crc, deleted }) = item.elem_type {
-                        if let Some(chsn) = item.chsn {
-                            sector_list.push(SectorMapEntry {
-                                chsn,
-                                address_crc_valid: true,
-                                data_crc_valid: crc,
-                                deleted_mark: deleted,
-                            });
-                        }
-                    }
-                }
-                sector_list
-            }
-        }
+        self.data.get_sector_list()
+    }
+
+    pub fn metadata(&self) -> Option<&DiskStructureMetadata> {
+        self.data.metadata()
     }
 }
 
@@ -499,7 +425,6 @@ impl DiskImage {
         //self.tracks[ch.h() as usize].push(DiskTrack {
         self.track_pool.push(DiskTrack {
             format,
-            metadata: DiskStructureMetadata::default(),
             data: TrackData::ByteStream {
                 cylinder: ch.c(),
                 head: ch.h(),
@@ -575,12 +500,12 @@ impl DiskImage {
 
         self.track_pool.push(DiskTrack {
             format,
-            metadata,
             data: TrackData::BitStream {
                 cylinder: ch.c(),
                 head: ch.h(),
                 data_clock,
                 data: data_stream,
+                metadata,
             },
         });
         self.track_map[ch.h() as usize].push(self.track_pool.len() - 1);
@@ -633,62 +558,13 @@ impl DiskImage {
         Ok(())
     }
 
-    pub fn get_sector_bit_index(&self, seek_chs: DiskChs) -> Option<(usize, DiskChsn, bool)> {
-        let ti = self.track_map[seek_chs.h() as usize][seek_chs.c() as usize];
-        let track = &self.track_pool[ti];
-
-        //log::trace!("metadata items: {:?}", track.metadata.items);
-
-        match &track.data {
-            TrackData::BitStream { .. } => {
-                let mut last_idam_matched = false;
-                let mut idam_chsn: Option<DiskChsn> = None;
-                for mdi in &track.metadata.items {
-                    match mdi {
-                        DiskStructureMetadataItem {
-                            elem_type: DiskStructureElement::System34(System34Element::Marker(System34Marker::Idam, _)),
-                            chsn,
-                            ..
-                        } => {
-                            if let Some(idam_chs) = chsn {
-                                if DiskChs::from(*idam_chs) == seek_chs {
-                                    log::warn!("Found matching IDAM at CHS: {:?}", idam_chs);
-                                    last_idam_matched = true;
-                                }
-                            }
-                            idam_chsn = *chsn;
-                        }
-                        DiskStructureMetadataItem {
-                            elem_type: DiskStructureElement::System34(System34Element::Data { crc, .. }),
-                            ..
-                        } => {
-                            log::trace!(
-                                "Found DAM at CHS: {:?}, index: {} last idam matched? {}",
-                                idam_chsn,
-                                mdi.start,
-                                last_idam_matched
-                            );
-                            if last_idam_matched {
-                                return Some((mdi.start, idam_chsn.unwrap(), *crc));
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            TrackData::ByteStream { .. } => {}
-        }
-
-        None
-    }
-
     pub fn next_sector_on_track(&self, chs: DiskChs) -> Option<DiskChs> {
         let ti = self.track_map[chs.h() as usize][chs.c() as usize];
         let track = &self.track_pool[ti];
-        let s = track.metadata.sector_ct();
+        let s = track.get_sector_count();
 
         // Get the track geometry
-        let geom_chs = DiskChs::from((self.geometry(), s));
+        let geom_chs = DiskChs::from((self.geometry(), s as u8));
         let next_sector = geom_chs.get_next_sector(&geom_chs);
 
         // Return the next sector as long as it is on the same track.
@@ -716,116 +592,10 @@ impl DiskImage {
             return Err(DiskImageError::SeekError);
         }
 
-        //let chsn = DiskChsn::from((chs, n.unwrap_or(2)));
-
-        let mut crc_error = false;
-        let (sector_offset, chsn, crc_good) = match self.get_sector_bit_index(chs) {
-            Some(offset) => offset,
-            None => {
-                log::error!("Sector marker not found reading sector!");
-                return Err(DiskImageError::SeekError);
-            }
-        };
-
-        if !crc_good {
-            crc_error = true;
-        }
-
         let ti = self.track_map[chs.h() as usize][chs.c() as usize];
         let track = &mut self.track_pool[ti];
 
-        let mut read_vec = Vec::new();
-
-        let sid = chs.s();
-        let mut deleted_mark = false;
-
-        let mut wrong_cylinder = false;
-        let data_idx;
-        let mut data_len;
-
-        match &mut track.data {
-            TrackData::BitStream {
-                data: TrackDataStream::Mfm(mfm_decoder),
-                ..
-            } => {
-                // The caller can request the scope of the read to be the entire data block
-                // including address mark and crc bytes, or just the data. Handle offsets accordingly.
-                let (scope_read_off, scope_data_off, scope_data_adj) = match scope {
-                    // Add 4 bytes for address mark and 2 bytes for CRC.
-                    RwSectorScope::DataBlock => (0, 4, 6),
-                    RwSectorScope::DataOnly => (32, 0, 0),
-                };
-
-                data_len = chsn.n_size();
-                data_idx = scope_data_off;
-
-                read_vec = vec![0u8; data_len + scope_data_adj];
-
-                log::trace!(
-                    "read_sector(): Found sector_id: {} at offset: {} read length: {}",
-                    sid,
-                    sector_offset,
-                    read_vec.len()
-                );
-
-                mfm_decoder
-                    .seek(SeekFrom::Start(((sector_offset >> 1) + scope_read_off) as u64))
-                    .map_err(|_| DiskImageError::SeekError)?;
-                mfm_decoder
-                    .read_exact(&mut read_vec)
-                    .map_err(|_| DiskImageError::IoError)?;
-            }
-            TrackData::ByteStream { sectors, data, .. } => {
-                // No address mark for ByteStream data, so data starts immediately.
-                data_idx = 0;
-                data_len = 0;
-
-                match scope {
-                    // Add 4 bytes for address mark and 2 bytes for CRC.
-                    RwSectorScope::DataBlock => unimplemented!("DataBlock scope not supported for ByteStream"),
-                    RwSectorScope::DataOnly => {}
-                };
-
-                for si in sectors {
-                    if si.sector_id == sid {
-                        log::trace!(
-                            "read_sector(): Found sector_id: {} at t_idx: {}",
-                            si.sector_id,
-                            si.t_idx
-                        );
-
-                        data_len = std::cmp::min(si.t_idx + si.len, data.len()) - si.t_idx;
-                        read_vec.extend(data[si.t_idx..si.t_idx + data_len].to_vec());
-
-                        if si.data_crc_error {
-                            crc_error = true;
-                        }
-
-                        if si.cylinder_id != chs.c() {
-                            wrong_cylinder = true;
-                        }
-
-                        if si.deleted_mark {
-                            deleted_mark = true;
-                        }
-                    }
-                }
-            }
-            _ => {
-                return Err(DiskImageError::UnsupportedFormat);
-            }
-        }
-
-        Ok(ReadSectorResult {
-            data_idx,
-            data_len,
-            read_buf: read_vec,
-            deleted_mark,
-            address_crc_error: false,
-            data_crc_error: crc_error,
-            wrong_cylinder,
-            wrong_head: false,
-        })
+        track.data.read_sector(chs, scope)
     }
 
     pub fn is_id_valid(&self, chs: DiskChs) -> bool {
