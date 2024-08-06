@@ -152,7 +152,7 @@ impl TrackData {
                         } => {
                             if let Some(idam_chs) = chsn {
                                 if DiskChs::from(*idam_chs) == seek_chs {
-                                    log::warn!("Found matching IDAM at CHS: {:?}", idam_chs);
+                                    log::trace!("get_sector_bit_index(): Found matching IDAM at CHS: {:?}", idam_chs);
                                     last_idam_matched = true;
                                 }
                             }
@@ -163,7 +163,7 @@ impl TrackData {
                             ..
                         } => {
                             log::trace!(
-                                "Found DAM at CHS: {:?}, index: {} last idam matched? {}",
+                                "get_sector_bit_index(): Found DAM at CHS: {:?}, index: {} last idam matched? {}",
                                 idam_chsn,
                                 mdi.start,
                                 last_idam_matched
@@ -182,6 +182,12 @@ impl TrackData {
         None
     }
 
+    /// Read the sector data from the sector identified by 'chs'. The data is returned within a
+    /// ReadSectorResult struct which also sets some convenience metadata flags where are needed
+    /// when handling ByteStream images.
+    /// When reading a BitStream image, the sector data includes the address mark and crc.
+    /// Offsets are provided within ReadSectorResult so these can be skipped when processing the
+    /// read operation.
     pub(crate) fn read_sector(
         &mut self,
         chs: DiskChs,
