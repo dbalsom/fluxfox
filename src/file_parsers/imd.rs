@@ -25,12 +25,12 @@
     --------------------------------------------------------------------------
 */
 use crate::chs::{DiskCh, DiskChs, DiskChsn};
-use crate::diskimage::{DiskConsistency, DiskDescriptor, SectorDescriptor};
+use crate::diskimage::{DiskDescriptor, SectorDescriptor};
 use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::util::{get_length, read_ascii};
 use crate::{
-    DiskDataEncoding, DiskDataRate, DiskImage, DiskImageError, DiskImageFormat, FoxHashMap, FoxHashSet,
+    DiskDataEncoding, DiskDataRate, DiskImage, DiskImageError, DiskImageFormat, FoxHashSet,
     DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, BinRead, BinReaderExt};

@@ -38,7 +38,7 @@ use crate::structure_parsers::{
     DiskStructureElement, DiskStructureMarker, DiskStructureMarkerItem, DiskStructureMetadataItem, DiskStructureParser,
 };
 use crate::util::crc_ccitt;
-use crate::{mfm_offset, DiskChs};
+use crate::{mfm_offset};
 use bit_vec::BitVec;
 use std::fmt::{Display, Formatter};
 

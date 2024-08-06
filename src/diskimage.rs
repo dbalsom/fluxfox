@@ -24,15 +24,15 @@
 
     --------------------------------------------------------------------------
 */
-use crate::bitstream::mfm::{MfmDecoder, MFM_BYTE_LEN};
+use crate::bitstream::mfm::{MfmDecoder};
 use crate::bitstream::raw::RawDecoder;
 use crate::chs::{DiskCh, DiskChs, DiskChsn};
 use crate::detect::detect_image_format;
 use crate::file_parsers::ImageParser;
-use crate::io::{Read, ReadSeek, Seek, SeekFrom};
-use crate::structure_parsers::system34::{System34Element, System34Marker, System34Parser};
+use crate::io::{Read, ReadSeek};
+use crate::structure_parsers::system34::{System34Element, System34Parser};
 use crate::structure_parsers::{
-    DiskStructureElement, DiskStructureMetadata, DiskStructureMetadataItem, DiskStructureParser,
+    DiskStructureElement, DiskStructureMetadata, DiskStructureParser,
 };
 use crate::trackdata::TrackData;
 use crate::{DiskDataEncoding, DiskDataRate, DiskImageError, DiskRpm, EncodingPhase, DEFAULT_SECTOR_SIZE};
