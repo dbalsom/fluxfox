@@ -86,7 +86,11 @@ impl DiskChsn {
         std::cmp::min(MAXIMUM_SECTOR_SIZE, 128usize.overflowing_shl(self.n as u32).0)
     }
 
-    pub fn size_to_n(size: usize) -> u8 {
+    pub fn n_to_bytes(n: u8) -> usize {
+        std::cmp::min(MAXIMUM_SECTOR_SIZE, 128usize.overflowing_shl(n as u32).0)
+    }
+
+    pub fn bytes_to_n(size: usize) -> u8 {
         let mut n = 0;
         let mut size = size;
         while size > 128 {
@@ -160,6 +164,12 @@ impl From<DiskChsn> for DiskChs {
 impl From<(u16, u8, u8)> for DiskChs {
     fn from((c, h, s): (u16, u8, u8)) -> Self {
         Self { c, h, s }
+    }
+}
+
+impl From<DiskChs> for (u16, u8, u8) {
+    fn from(chs: DiskChs) -> Self {
+        (chs.c, chs.h, chs.s)
     }
 }
 

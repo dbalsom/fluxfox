@@ -31,7 +31,9 @@
 
 */
 use crate::chs::DiskChsn;
-use crate::diskimage::{ReadSectorResult, RwSectorScope, SectorMapEntry, TrackDataStream, TrackSectorIndex};
+use crate::diskimage::{
+    ReadSectorResult, RwSectorScope, SectorMapEntry, TrackDataStream, TrackSectorIndex, WriteSectorResult,
+};
 use crate::structure_parsers::system34::{System34Element, System34Marker};
 use crate::structure_parsers::{DiskStructureElement, DiskStructureMetadata, DiskStructureMetadataItem};
 use crate::{DiskChs, DiskImageError};
@@ -122,12 +124,17 @@ impl TrackData {
             TrackData::BitStream { metadata, .. } => {
                 let mut sector_list = Vec::new();
                 for item in &metadata.items {
-                    if let DiskStructureElement::System34(System34Element::Data { crc, deleted }) = item.elem_type {
+                    if let DiskStructureElement::System34(System34Element::Data {
+                        address_crc,
+                        data_crc,
+                        deleted,
+                    }) = item.elem_type
+                    {
                         if let Some(chsn) = item.chsn {
                             sector_list.push(SectorMapEntry {
                                 chsn,
-                                address_crc_valid: true,
-                                data_crc_valid: crc,
+                                address_crc_valid: address_crc,
+                                data_crc_valid: data_crc,
                                 deleted_mark: deleted,
                             });
                         }
@@ -138,7 +145,7 @@ impl TrackData {
         }
     }
 
-    pub(crate) fn get_sector_bit_index(&self, seek_chs: DiskChs) -> Option<(usize, DiskChsn, bool)> {
+    pub(crate) fn get_sector_bit_index(&self, seek_chs: DiskChs) -> Option<(usize, DiskChsn, bool, bool, bool)> {
         match self {
             TrackData::BitStream { metadata, .. } => {
                 let mut last_idam_matched = false;
@@ -152,24 +159,29 @@ impl TrackData {
                         } => {
                             if let Some(idam_chs) = chsn {
                                 if DiskChs::from(*idam_chs) == seek_chs {
-                                    log::trace!("get_sector_bit_index(): Found matching IDAM at CHS: {:?}", idam_chs);
+                                    //log::trace!("get_sector_bit_index(): Found matching IDAM at CHS: {:?}", idam_chs);
                                     last_idam_matched = true;
                                 }
                             }
                             idam_chsn = *chsn;
                         }
                         DiskStructureMetadataItem {
-                            elem_type: DiskStructureElement::System34(System34Element::Data { crc, .. }),
+                            elem_type:
+                                DiskStructureElement::System34(System34Element::Data {
+                                    address_crc,
+                                    data_crc,
+                                    deleted,
+                                }),
                             ..
                         } => {
-                            log::trace!(
-                                "get_sector_bit_index(): Found DAM at CHS: {:?}, index: {} last idam matched? {}",
-                                idam_chsn,
-                                mdi.start,
-                                last_idam_matched
-                            );
+                            // log::trace!(
+                            //     "get_sector_bit_index(): Found DAM at CHS: {:?}, index: {} last idam matched? {}",
+                            //     idam_chsn,
+                            //     mdi.start,
+                            //     last_idam_matched
+                            // );
                             if last_idam_matched {
-                                return Some((mdi.start, idam_chsn.unwrap(), *crc));
+                                return Some((mdi.start, idam_chsn.unwrap(), *address_crc, *data_crc, *deleted));
                             }
                         }
                         _ => {}
@@ -192,13 +204,15 @@ impl TrackData {
         &mut self,
         chs: DiskChs,
         scope: RwSectorScope,
+        debug: bool,
     ) -> Result<ReadSectorResult, DiskImageError> {
         let data_idx;
         let mut data_len;
 
         let mut read_vec = Vec::new();
 
-        let mut crc_error = false;
+        let mut data_crc_error = false;
+        let mut address_crc_error = false;
         let mut deleted_mark = false;
         let mut wrong_cylinder = false;
 
@@ -213,17 +227,31 @@ impl TrackData {
                 data: TrackDataStream::Mfm(mfm_decoder),
                 ..
             } => {
-                let (sector_offset, chsn, crc_good) = match bit_index {
+                let (sector_offset, chsn, address_crc_valid, data_crc_valid, deleted) = match bit_index {
                     Some(idx) => idx,
                     None => {
                         log::error!("Sector marker not found reading sector!");
                         return Err(DiskImageError::SeekError);
                     }
                 };
-
-                if !crc_good {
-                    crc_error = true;
+                address_crc_error = !address_crc_valid;
+                // If there's a bad address mark, we not proceed to read the data, unless we're requesting
+                // it anyway for debugging purposes.
+                if address_crc_error && !debug {
+                    return Ok(ReadSectorResult {
+                        data_idx: 0,
+                        data_len: 0,
+                        read_buf: Vec::new(),
+                        deleted_mark: false,
+                        address_crc_error: true,
+                        data_crc_error: false,
+                        wrong_cylinder,
+                        wrong_head: false,
+                    });
                 }
+
+                deleted_mark = deleted;
+                data_crc_error = !data_crc_valid;
 
                 // The caller can request the scope of the read to be the entire data block
                 // including address mark and crc bytes, or just the data. Handle offsets accordingly.
@@ -275,7 +303,7 @@ impl TrackData {
                         read_vec.extend(data[si.t_idx..si.t_idx + data_len].to_vec());
 
                         if si.data_crc_error {
-                            crc_error = true;
+                            data_crc_error = true;
                         }
 
                         if si.cylinder_id != chs.c() {
@@ -298,10 +326,71 @@ impl TrackData {
             data_len,
             read_buf: read_vec,
             deleted_mark,
-            address_crc_error: false,
-            data_crc_error: crc_error,
+            address_crc_error,
+            data_crc_error,
             wrong_cylinder,
             wrong_head: false,
+        })
+    }
+
+    pub(crate) fn write_sector(
+        &mut self,
+        chs: DiskChs,
+        n: Option<u8>,
+        write_data: &[u8],
+        _scope: RwSectorScope,
+        _debug: bool,
+    ) -> Result<WriteSectorResult, DiskImageError> {
+        let mut wrong_cylinder = false;
+        let mut wrong_head = false;
+        match self {
+            TrackData::BitStream { .. } => {
+                log::error!("write_sector(): BitStream write not supported");
+                return Err(DiskImageError::UnsupportedFormat);
+            }
+            TrackData::ByteStream { sectors, data, .. } => {
+                for si in sectors {
+                    let mut sector_match;
+
+                    sector_match = si.sector_id == chs.s();
+
+                    // Validate n too if provided.
+                    if let Some(n) = n {
+                        sector_match = sector_match && si.n == n;
+                    }
+
+                    if sector_match {
+                        // Validate provided data size.
+                        let write_data_len = write_data.len();
+                        if DiskChsn::n_to_bytes(si.n) != write_data_len {
+                            // Caller didn't provide correct buffer size.
+                            log::error!(
+                                "write_sector(): Data buffer size mismatch, expected: {} got: {}",
+                                DiskChsn::n_to_bytes(si.n),
+                                write_data_len
+                            );
+                            return Err(DiskImageError::ParameterError);
+                        }
+
+                        if si.cylinder_id != chs.c() {
+                            wrong_cylinder = true;
+                        }
+
+                        if si.head_id != chs.h() {
+                            wrong_head = true;
+                        }
+
+                        data[si.t_idx..si.t_idx + write_data_len].copy_from_slice(write_data);
+                        break;
+                    }
+                }
+            }
+        }
+
+        Ok(WriteSectorResult {
+            address_crc_error: false,
+            wrong_cylinder,
+            wrong_head,
         })
     }
 }

@@ -36,6 +36,8 @@ pub mod structure_parsers;
 mod trackdata;
 pub mod util;
 
+mod boot_sector;
+mod containers;
 #[cfg(feature = "viz")]
 pub mod visualization;
 
@@ -218,7 +220,7 @@ impl Display for DiskRpm {
     }
 }
 
-pub use crate::chs::{DiskCh, DiskChs};
+pub use crate::chs::{DiskCh, DiskChs, DiskChsn};
 pub use crate::detect::supported_extensions;
 pub use crate::diskimage::{DiskImage, DiskImageFormat};
 pub use crate::file_parsers::ImageParser;

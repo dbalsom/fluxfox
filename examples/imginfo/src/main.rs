@@ -38,6 +38,7 @@ use std::path::PathBuf;
 #[derive(Debug, Clone)]
 struct Out {
     debug: bool,
+    sector_list: bool,
     filename: PathBuf,
 }
 
@@ -45,14 +46,23 @@ struct Out {
 fn opts() -> OptionParser<Out> {
     let debug = short('d').long("debug").help("Print debug messages").switch();
 
+    let sector_list = short('s')
+        .long("sector-list")
+        .help("List all sectors in the image")
+        .switch();
+
     let filename = short('t')
         .long("filename")
         .help("Filename of image to read")
         .argument::<PathBuf>("FILE");
 
-    construct!(Out { debug, filename })
-        .to_options()
-        .descr("imginfo: display info about disk image")
+    construct!(Out {
+        debug,
+        sector_list,
+        filename
+    })
+    .to_options()
+    .descr("imginfo: display info about disk image")
 }
 
 fn main() {
@@ -79,7 +89,7 @@ fn main() {
         }
     };
 
-    println!("Detected disk image type: {:?}", disk_image_type);
+    println!("Detected disk image type: {}", disk_image_type);
 
     let mut disk = match DiskImage::load(&mut reader) {
         Ok(disk) => disk,
@@ -92,7 +102,10 @@ fn main() {
     println!("Disk image info:");
     println!("----------------");
     let _ = disk.dump_info(&mut std::io::stdout());
-    let _ = disk.dump_sector_map(&mut std::io::stdout());
+
+    if opts.sector_list {
+        let _ = disk.dump_sector_map(&mut std::io::stdout());
+    }
 
     /*    for track in disk.track_pool.iter_mut() {
         match &mut track.data {

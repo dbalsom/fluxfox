@@ -93,7 +93,11 @@ pub enum System34Element {
     Gap4b,
     Sync,
     Marker(System34Marker, Option<bool>),
-    Data { crc: bool, deleted: bool },
+    Data {
+        address_crc: bool,
+        data_crc: bool,
+        deleted: bool,
+    },
 }
 
 impl System34Element {
@@ -125,6 +129,7 @@ pub struct SectorId {
     pub s: u8,
     pub b: u8,
     pub crc: u16,
+    pub crc_valid: bool,
 }
 
 impl SectorId {
@@ -299,11 +304,12 @@ impl DiskStructureParser for System34Parser {
         }
 
         while let Some((marker, marker_offset)) = System34Parser::find_next_marker(track, bit_cursor) {
-            log::warn!(
+            /*
+            log::trace!(
                 "scan_track_markers(): Found marker of type {:?} at bit offset: {}",
                 marker,
                 marker_offset
-            );
+            );*/
 
             markers.push(DiskStructureMarkerItem {
                 elem_type: marker,
@@ -358,11 +364,13 @@ impl DiskStructureParser for System34Parser {
                             s: sector_header[6],
                             b: sector_header[7],
                             crc,
+                            crc_valid: crc == calculated_crc,
                         };
                         log::trace!(
-                            "Sector ID: {} Size: {} calculated CRC: {:04X}",
+                            "Sector ID: {} Size: {} crc: {:04X} calculated CRC: {:04X}",
                             sector_id,
                             sector_id.sector_size_in_bytes(),
+                            crc,
                             calculated_crc
                         );
                         last_sector_id = sector_id;
@@ -407,11 +415,13 @@ impl DiskStructureParser for System34Parser {
 
                         let element = match sys34_marker {
                             System34Marker::Dam => System34Element::Data {
-                                crc: crc_correct,
+                                address_crc: last_sector_id.crc_valid,
+                                data_crc: crc_correct,
                                 deleted: false,
                             },
                             System34Marker::Ddam => System34Element::Data {
-                                crc: crc_correct,
+                                address_crc: last_sector_id.crc_valid,
+                                data_crc: crc_correct,
                                 deleted: true,
                             },
                             _ => unreachable!(),

@@ -205,7 +205,7 @@ impl HfeFormat {
             .map_err(|_| DiskImageError::IoError)?;
 
         let file_header = if let Ok(file_header) = HfeFileHeader::read(&mut image) {
-            if &file_header.signature == "HXCPICFE".as_bytes() {
+            if file_header.signature == "HXCPICFE".as_bytes() {
                 file_header
             } else {
                 return Err(DiskImageError::UnknownFormat);
@@ -357,7 +357,7 @@ impl HfeFormat {
         }
 
         disk_image.image_format = DiskDescriptor {
-            geometry: DiskCh::from((file_header.number_of_tracks as u16, file_header.number_of_sides as u8)),
+            geometry: DiskCh::from((file_header.number_of_tracks as u16, file_header.number_of_sides)),
             data_rate: DiskDataRate::from(file_header.bit_rate as u32 * 100),
             data_encoding: DiskDataEncoding::Mfm,
             default_sector_size: DEFAULT_SECTOR_SIZE,

@@ -53,6 +53,9 @@ bitflags! {
         const CAP_TRACK_ENCODING    = 0b0000_0000_1000_0000; // Can store per-track encoding type
         const CAP_TRACK_DATA_RATE   = 0b0000_0001_0000_0000; // Can store per-track data rate
         const CAP_WEAK_BITS         = 0b0000_0010_0000_0000; // Can store weak bit information
+        const CAP_ENCODING_FM       = 0b0000_0100_0000_0000; // Can store FM encoding
+        const CAP_ENCODING_MFM      = 0b0000_1000_0000_0000; // Can store MFM encoding
+        const CAP_ENCODING_GCR      = 0b0001_0000_0000_0000; // Can store GCR encoding
     }
 }
 

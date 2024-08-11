@@ -23,6 +23,7 @@ rand = "0.8.5"
 
 # Dependencies for optional features
 image = { version = "0.25", features = ["png"], optional = true }
+tiny-skia = { version = "0.11", optional = true }
 zip = { version = "2.1.3", optional = true }
 
 [dev-dependencies]
@@ -38,7 +39,7 @@ members = [
 
 [features]
 default = ["viz", "zip"]
-viz = ["dep:image"]
+viz = ["dep:tiny-skia", "dep:image"]
 zip = ["dep:zip"]
 
 [lints.clippy]

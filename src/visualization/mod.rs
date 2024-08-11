@@ -63,6 +63,7 @@ pub enum ResolutionType {
 }
 
 impl From<System34Element> for Rgba<u8> {
+    #[rustfmt::skip]
     fn from(element: System34Element) -> Self {
         match element {
             System34Element::Gap1 => Rgba([0, 0, 0, 128]),
@@ -76,8 +77,10 @@ impl From<System34Element> for Rgba<u8> {
             System34Element::Marker(System34Marker::Idam, _) => Rgba([0, 128, 255, 200]),
             System34Element::Marker(System34Marker::Dam, _) => Rgba([255, 255, 0, 200]),
             System34Element::Marker(System34Marker::Ddam, _) => Rgba([255, 255, 0, 200]),
-            System34Element::Data { crc: true, .. } => Rgba([0, 255, 0, 64]),
-            System34Element::Data { crc: false, .. } => Rgba([255, 128, 0, 64]),
+            System34Element::Data { address_crc: true, data_crc: true, .. } => Rgba([0, 255, 0, 64]),
+            System34Element::Data { address_crc: true, data_crc: false, .. } => Rgba([255, 128, 0, 64]),
+            System34Element::Data { address_crc: false, data_crc: true, .. } => Rgba([0, 255, 0, 64]),
+            System34Element::Data { address_crc: false, data_crc: false, .. } => Rgba([255, 128, 0, 64]),            
         }
     }
 }
@@ -114,12 +117,12 @@ impl System34Element {
             (_, System34Element::Marker(System34Marker::Idam, _)) => Rgba([0, 128, 255, 200]),
             (_, System34Element::Marker(System34Marker::Dam, _)) => Rgba([255, 255, 0, 200]),
             (_, System34Element::Marker(System34Marker::Ddam, _)) => Rgba([255, 255, 0, 200]),
-            (1, System34Element::Data { crc: true, deleted: false }) => Rgba([0, 255, 0, 64]),
-            (_, System34Element::Data { crc: true, deleted: false }) => Rgba([0, 255, 168, 80]),
-            (1, System34Element::Data { crc: true, deleted: true }) => Rgba([0, 0, 255, 64]),
-            (_, System34Element::Data { crc: true, deleted: true }) => Rgba([0, 168, 255, 80]),
-            (1, System34Element::Data { crc: false, .. }) => Rgba([255, 128, 0, 128]),
-            (_, System34Element::Data { crc: false, .. }) => Rgba([255, 128, 168, 160]),
+            (1, System34Element::Data { data_crc: true, deleted: false, .. }) => Rgba([0, 255, 0, 64]),
+            (_, System34Element::Data { data_crc: true, deleted: false, .. }) => Rgba([0, 255, 168, 80]),
+            (1, System34Element::Data { data_crc: true, deleted: true, .. }) => Rgba([0, 0, 255, 64]),
+            (_, System34Element::Data { data_crc: true, deleted: true, .. }) => Rgba([0, 168, 255, 80]),
+            (1, System34Element::Data { data_crc: false, .. }) => Rgba([255, 128, 0, 128]),
+            (_, System34Element::Data { data_crc: false, .. }) => Rgba([255, 128, 168, 160]),
         }
     }
 }
@@ -156,6 +159,150 @@ fn collect_metadata(head: u8, disk_image: &DiskImage) -> Vec<&DiskStructureMetad
 
 /// Render a disk image to an image buffer.
 pub fn render_tracks(
+    disk_image: &DiskImage,
+    imgbuf: &mut ImageBuffer<Rgba<u8>, Vec<u8>>,
+    head: u8,
+    image_size: (u32, u32),
+    image_pos: (u32, u32),
+    min_radius_fraction: f32, // Minimum radius as a fraction (0.0 to 1.0)
+    track_gap_weight: f32,
+    direction: RotationDirection, // Added parameter for rotation direction
+    resolution: ResolutionType,   // Added parameter for resolution type
+    colorize: bool,
+) -> Result<(), DiskImageError> {
+    let (width, height) = image_size;
+    let (x_offset, y_offset) = image_pos;
+
+    let center_x = width as f32 / 2.0;
+    let center_y = height as f32 / 2.0;
+    let total_radius = width.min(height) as f32 / 2.0;
+    let min_radius = min_radius_fraction * total_radius; // Scale min_radius to pixel value
+
+    let rtracks = collect_streams(head, disk_image);
+    let rmetadata = collect_metadata(head, disk_image);
+    let num_tracks = rtracks.len();
+
+    log::trace!("collected {} track references.", num_tracks);
+    for (ti, track) in rtracks.iter().enumerate() {
+        log::trace!("track {} length: {}", ti, track.len());
+    }
+
+    let track_width = (total_radius - min_radius) / num_tracks as f32;
+
+    // Draw the tracks
+    for y in 0..height {
+        for x in 0..width {
+            let dx = x as f32 - center_x;
+            let dy = y as f32 - center_y;
+            let distance = (dx * dx + dy * dy).sqrt();
+            let angle = (dy.atan2(dx) + PI) % TAU;
+
+            if distance >= min_radius && distance <= total_radius {
+                let track_index =
+                    (num_tracks - 1).saturating_sub(((distance - min_radius) / track_width).floor() as usize) as usize;
+
+                if track_index < num_tracks {
+                    // Adjust angle for clockwise or counter-clockwise
+                    let normalized_angle = if matches!(direction, RotationDirection::Clockwise) {
+                        angle
+                    } else {
+                        TAU - angle
+                    };
+
+                    let normalized_angle = (normalized_angle + PI) % TAU;
+                    let bit_index = ((normalized_angle / TAU) * rtracks[track_index].len() as f32) as usize;
+
+                    // Ensure bit_index is within bounds
+                    let bit_index = min(bit_index, rtracks[track_index].len() - 1);
+
+                    let color = match resolution {
+                        ResolutionType::Bit => {
+                            if rtracks[track_index][bit_index] {
+                                Rgba([255, 255, 255, 255])
+                            } else {
+                                Rgba([0, 0, 0, 0])
+                            }
+                        }
+                        ResolutionType::Byte => {
+                            // Calculate the byte value
+                            let byte_index = bit_index / 8;
+                            let _bit_offset = bit_index % 8;
+                            let byte_value = if byte_index < rtracks[track_index].len() / 8 - 1 {
+                                let mut build_byte: u8 = 0;
+                                for bi in 0..8 {
+                                    build_byte |= if rtracks[track_index][bit_index + bi] { 1 } else { 0 };
+                                    build_byte <<= 1;
+                                }
+                                build_byte
+                            } else {
+                                0
+                            };
+
+                            let gray_value = POPCOUNT_TABLE[byte_value as usize];
+
+                            let mut data_color = if track_index > 39 {
+                                Rgba([255, 0, 0, 255])
+                            } else if track_index == 0 {
+                                //Rgba([gray_value, gray_value, 255, 255])
+                                Rgba([gray_value, gray_value, gray_value, 255])
+                            } else {
+                                Rgba([gray_value, gray_value, gray_value, 255])
+                            };
+
+                            let meta_color: Option<Rgba<u8>> = match rmetadata[track_index].item_at(bit_index << 1) {
+                                Some((item, nest_ct)) => {
+                                    if let DiskStructureElement::System34(element) = item.elem_type {
+                                        Some(element.to_rgba_nested(nest_ct))
+                                    } else {
+                                        None
+                                    }
+                                }
+                                None => None,
+                            };
+
+                            if let Some(meta_color) = meta_color {
+                                if colorize {
+                                    data_color.blend(&meta_color);
+                                }
+                                data_color
+                            } else {
+                                data_color
+                            }
+                        }
+                    };
+
+                    imgbuf.put_pixel(x + x_offset, y + y_offset, color);
+                }
+            } else {
+                imgbuf.put_pixel(x + x_offset, y + y_offset, Rgba([0, 0, 0, 0]));
+            }
+        }
+    }
+
+    // Draw inter-track gaps
+    for i in 0..=num_tracks {
+        let radius = min_radius + i as f32 * track_width;
+
+        for y in 0..height {
+            for x in 0..width {
+                let dx = x as f32 - center_x;
+                let dy = y as f32 - center_y;
+                let distance = (dx * dx + dy * dy).sqrt();
+
+                if distance >= radius - track_gap_weight / 2.0 && distance <= radius + track_gap_weight / 2.0 {
+                    let color = Rgba([0, 0, 0, 255]);
+                    imgbuf.put_pixel(x + x_offset, y + y_offset, color);
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+
+/// Render a disk image to an image buffer.
+pub fn render_track_data(
     disk_image: &DiskImage,
     imgbuf: &mut ImageBuffer<Rgba<u8>, Vec<u8>>,
     head: u8,

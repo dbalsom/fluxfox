@@ -97,7 +97,7 @@ fn main() {
         }
     };
 
-    println!("Detected disk image type: {:?}", disk_image_type);
+    println!("Detected disk image type: {}", disk_image_type);
 
     let mut disk = match DiskImage::load(&mut reader) {
         Ok(disk) => disk,

@@ -27,7 +27,7 @@
 
 use crate::chs::{DiskChs, DiskChsn};
 use crate::detect::chs_from_raw_size;
-use crate::diskimage::{DiskConsistency, DiskDescriptor, DiskImage, FloppyFormat, SectorDescriptor};
+use crate::diskimage::{DiskConsistency, DiskDescriptor, DiskImage, SectorDescriptor, StandardFormat};
 use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::trackdata::TrackData;
@@ -65,8 +65,8 @@ impl RawFormat {
         // Assign the disk geometry or return error.
         let raw_len = get_length(&mut raw).map_err(|_e| DiskImageError::UnknownFormat)? as usize;
 
-        let floppy_format = FloppyFormat::from(raw_len);
-        if floppy_format == FloppyFormat::Unknown {
+        let floppy_format = StandardFormat::from(raw_len);
+        if floppy_format == StandardFormat::Invalid {
             return Err(DiskImageError::UnknownFormat);
         }
 
@@ -104,7 +104,7 @@ impl RawFormat {
                     id: sector_id + 1,
                     cylinder_id: None,
                     head_id: None,
-                    n: DiskChsn::size_to_n(512),
+                    n: DiskChsn::bytes_to_n(512),
                     data: sector_buffer.clone(),
                     weak: None,
                     address_crc_error: false,

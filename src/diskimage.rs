@@ -26,7 +26,10 @@
 */
 use crate::bitstream::mfm::MfmDecoder;
 use crate::bitstream::raw::RawDecoder;
+use crate::boot_sector::bpb::BootSector;
 use crate::chs::{DiskCh, DiskChs, DiskChsn};
+use crate::containers::zip::extract_first_file;
+use crate::containers::DiskImageContainer;
 use crate::detect::detect_image_format;
 use crate::file_parsers::ImageParser;
 use crate::io::ReadSeek;
@@ -36,6 +39,7 @@ use crate::trackdata::TrackData;
 use crate::{DiskDataEncoding, DiskDataRate, DiskImageError, DiskRpm, EncodingPhase, DEFAULT_SECTOR_SIZE};
 use bit_vec::BitVec;
 use std::fmt::Display;
+use std::io::Cursor;
 
 /// An enumeration describing the type of disk image.
 #[derive(Copy, Clone, Debug)]
@@ -66,11 +70,17 @@ impl Display for DiskImageFormat {
     }
 }
 
+#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
+pub enum DiskFormat {
+    Unknown,
+    Nonstandard(DiskChs),
+    Standard(StandardFormat),
+}
+
 /// An enumeration describing the type of disk image.
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
-pub enum FloppyFormat {
-    Unknown,
-    FloppyCustom(DiskChs),
+pub enum StandardFormat {
+    Invalid,
     PcFloppy160,
     PcFloppy180,
     PcFloppy320,
@@ -81,20 +91,19 @@ pub enum FloppyFormat {
     PcFloppy2880,
 }
 
-impl FloppyFormat {
+impl StandardFormat {
     /// Returns the CHS geometry corresponding to the DiskImageType.
     pub fn get_chs(&self) -> DiskChs {
         match self {
-            FloppyFormat::Unknown => DiskChs::default(),
-            FloppyFormat::FloppyCustom(chs) => *chs,
-            FloppyFormat::PcFloppy160 => DiskChs::new(40, 1, 8),
-            FloppyFormat::PcFloppy180 => DiskChs::new(40, 1, 9),
-            FloppyFormat::PcFloppy320 => DiskChs::new(40, 2, 8),
-            FloppyFormat::PcFloppy360 => DiskChs::new(40, 2, 9),
-            FloppyFormat::PcFloppy720 => DiskChs::new(80, 2, 9),
-            FloppyFormat::PcFloppy1200 => DiskChs::new(80, 2, 15),
-            FloppyFormat::PcFloppy1440 => DiskChs::new(80, 2, 18),
-            FloppyFormat::PcFloppy2880 => DiskChs::new(80, 2, 36),
+            StandardFormat::Invalid => DiskChs::new(1, 1, 1),
+            StandardFormat::PcFloppy160 => DiskChs::new(40, 1, 8),
+            StandardFormat::PcFloppy180 => DiskChs::new(40, 1, 9),
+            StandardFormat::PcFloppy320 => DiskChs::new(40, 2, 8),
+            StandardFormat::PcFloppy360 => DiskChs::new(40, 2, 9),
+            StandardFormat::PcFloppy720 => DiskChs::new(80, 2, 9),
+            StandardFormat::PcFloppy1200 => DiskChs::new(80, 2, 15),
+            StandardFormat::PcFloppy1440 => DiskChs::new(80, 2, 18),
+            StandardFormat::PcFloppy2880 => DiskChs::new(80, 2, 36),
         }
     }
 
@@ -108,31 +117,29 @@ impl FloppyFormat {
 
     pub fn get_data_rate(&self) -> DiskDataRate {
         match self {
-            FloppyFormat::Unknown => DiskDataRate::Rate500Kbps,
-            FloppyFormat::FloppyCustom(_) => DiskDataRate::Rate500Kbps,
-            FloppyFormat::PcFloppy160 => DiskDataRate::Rate500Kbps,
-            FloppyFormat::PcFloppy180 => DiskDataRate::Rate500Kbps,
-            FloppyFormat::PcFloppy320 => DiskDataRate::Rate500Kbps,
-            FloppyFormat::PcFloppy360 => DiskDataRate::Rate500Kbps,
-            FloppyFormat::PcFloppy720 => DiskDataRate::Rate500Kbps,
-            FloppyFormat::PcFloppy1200 => DiskDataRate::Rate500Kbps,
-            FloppyFormat::PcFloppy1440 => DiskDataRate::Rate500Kbps,
-            FloppyFormat::PcFloppy2880 => DiskDataRate::Rate500Kbps,
+            StandardFormat::PcFloppy160 => DiskDataRate::Rate500Kbps,
+            StandardFormat::PcFloppy180 => DiskDataRate::Rate500Kbps,
+            StandardFormat::PcFloppy320 => DiskDataRate::Rate500Kbps,
+            StandardFormat::PcFloppy360 => DiskDataRate::Rate500Kbps,
+            StandardFormat::PcFloppy720 => DiskDataRate::Rate500Kbps,
+            StandardFormat::PcFloppy1200 => DiskDataRate::Rate500Kbps,
+            StandardFormat::PcFloppy1440 => DiskDataRate::Rate500Kbps,
+            StandardFormat::PcFloppy2880 => DiskDataRate::Rate500Kbps,
+            _ => DiskDataRate::Rate500Kbps,
         }
     }
 
     pub fn get_rpm(&self) -> DiskRpm {
         match self {
-            FloppyFormat::Unknown => DiskRpm::Rpm360,
-            FloppyFormat::FloppyCustom(_) => DiskRpm::Rpm360,
-            FloppyFormat::PcFloppy160 => DiskRpm::Rpm300,
-            FloppyFormat::PcFloppy180 => DiskRpm::Rpm300,
-            FloppyFormat::PcFloppy320 => DiskRpm::Rpm300,
-            FloppyFormat::PcFloppy360 => DiskRpm::Rpm300,
-            FloppyFormat::PcFloppy720 => DiskRpm::Rpm300,
-            FloppyFormat::PcFloppy1200 => DiskRpm::Rpm360,
-            FloppyFormat::PcFloppy1440 => DiskRpm::Rpm300,
-            FloppyFormat::PcFloppy2880 => DiskRpm::Rpm300,
+            StandardFormat::PcFloppy160 => DiskRpm::Rpm300,
+            StandardFormat::PcFloppy180 => DiskRpm::Rpm300,
+            StandardFormat::PcFloppy320 => DiskRpm::Rpm300,
+            StandardFormat::PcFloppy360 => DiskRpm::Rpm300,
+            StandardFormat::PcFloppy720 => DiskRpm::Rpm300,
+            StandardFormat::PcFloppy1200 => DiskRpm::Rpm360,
+            StandardFormat::PcFloppy1440 => DiskRpm::Rpm300,
+            StandardFormat::PcFloppy2880 => DiskRpm::Rpm300,
+            _ => DiskRpm::Rpm300,
         }
     }
 
@@ -148,38 +155,37 @@ impl FloppyFormat {
 
     pub fn size(&self) -> usize {
         match self {
-            FloppyFormat::Unknown => 0,
-            FloppyFormat::FloppyCustom(chs) => chs.c() as usize * chs.h() as usize * chs.s() as usize * 512,
-            FloppyFormat::PcFloppy160 => 163_840,
-            FloppyFormat::PcFloppy180 => 184_320,
-            FloppyFormat::PcFloppy320 => 327_680,
-            FloppyFormat::PcFloppy360 => 368_640,
-            FloppyFormat::PcFloppy720 => 737_280,
-            FloppyFormat::PcFloppy1200 => 1_228_800,
-            FloppyFormat::PcFloppy1440 => 1_474_560,
-            FloppyFormat::PcFloppy2880 => 2_949_120,
+            StandardFormat::PcFloppy160 => 163_840,
+            StandardFormat::PcFloppy180 => 184_320,
+            StandardFormat::PcFloppy320 => 327_680,
+            StandardFormat::PcFloppy360 => 368_640,
+            StandardFormat::PcFloppy720 => 737_280,
+            StandardFormat::PcFloppy1200 => 1_228_800,
+            StandardFormat::PcFloppy1440 => 1_474_560,
+            StandardFormat::PcFloppy2880 => 2_949_120,
+            _ => 0,
         }
     }
 }
 
-impl From<FloppyFormat> for usize {
-    fn from(format: FloppyFormat) -> Self {
+impl From<StandardFormat> for usize {
+    fn from(format: StandardFormat) -> Self {
         format.size()
     }
 }
 
-impl From<usize> for FloppyFormat {
+impl From<usize> for StandardFormat {
     fn from(size: usize) -> Self {
         match size {
-            163_840 => FloppyFormat::PcFloppy160,
-            184_320 => FloppyFormat::PcFloppy180,
-            327_680 => FloppyFormat::PcFloppy320,
-            368_640 => FloppyFormat::PcFloppy360,
-            737_280 => FloppyFormat::PcFloppy720,
-            1_228_800 => FloppyFormat::PcFloppy1200,
-            1_474_560 => FloppyFormat::PcFloppy1440,
-            2_949_120 => FloppyFormat::PcFloppy2880,
-            _ => FloppyFormat::Unknown,
+            163_840 => StandardFormat::PcFloppy160,
+            184_320 => StandardFormat::PcFloppy180,
+            327_680 => StandardFormat::PcFloppy320,
+            368_640 => StandardFormat::PcFloppy360,
+            737_280 => StandardFormat::PcFloppy720,
+            1_228_800 => StandardFormat::PcFloppy1200,
+            1_474_560 => StandardFormat::PcFloppy1440,
+            2_949_120 => StandardFormat::PcFloppy2880,
+            _ => StandardFormat::Invalid,
         }
     }
 }
@@ -303,14 +309,26 @@ pub struct ReadSectorResult {
     pub wrong_head: bool,
 }
 
+#[derive(Clone)]
+pub struct WriteSectorResult {
+    pub address_crc_error: bool,
+    pub wrong_cylinder: bool,
+    pub wrong_head: bool,
+}
+
 /// A DiskImage represents an image of a floppy disk in memory. It comprises a pool of sectors, and an ordered
 /// list of tracks that reference sectors in the pool.
 /// Sectors may be variable length due to various copy protection schemes.
 pub struct DiskImage {
-    pub disk_format: FloppyFormat,
+    // The standard format of the disk image, if it adheres to one. (Nonstandard images will be None)
+    pub standard_format: Option<StandardFormat>,
+    // A DiskDescriptor describing this image with more thorough parameters.
     pub image_format: DiskDescriptor,
+    // A field to hold image format capability flags that this image requires in order to be represented.
+    pub image_caps: u64,
     pub consistency: DiskConsistency,
-    pub sector_size: usize,
+    // The boot sector of the disk image, if successfully parsed.
+    pub boot_sector: Option<BootSector>,
     // The volume name of the disk image, if any.
     pub volume_name: Option<String>,
     // An ASCII comment embedded in the disk image, if any.
@@ -326,10 +344,11 @@ pub struct DiskImage {
 impl Default for DiskImage {
     fn default() -> Self {
         Self {
-            disk_format: FloppyFormat::PcFloppy360,
+            standard_format: None,
             image_format: DiskDescriptor::default(),
+            image_caps: 0,
             consistency: Default::default(),
-            sector_size: DEFAULT_SECTOR_SIZE,
+            boot_sector: None,
             volume_name: None,
             comment: None,
             track_pool: Vec::new(),
@@ -340,21 +359,23 @@ impl Default for DiskImage {
 }
 
 impl DiskImage {
-    pub fn detect_format<RS: ReadSeek>(mut image: &mut RS) -> Result<DiskImageFormat, DiskImageError> {
+    pub fn detect_format<RS: ReadSeek>(mut image: &mut RS) -> Result<DiskImageContainer, DiskImageError> {
         detect_image_format(&mut image)
     }
 
-    pub fn new(disk_format: FloppyFormat) -> Self {
+    pub fn new(disk_format: StandardFormat) -> Self {
         Self {
-            disk_format,
+            standard_format: Some(disk_format),
             image_format: disk_format.get_image_format(),
-            sector_size: DEFAULT_SECTOR_SIZE,
+            image_caps: 0,
             consistency: DiskConsistency {
                 weak: false,
                 deleted: false,
                 consistent_sector_size: Some(DEFAULT_SECTOR_SIZE as u32),
                 consistent_track_length: Some(disk_format.get_chs().s()),
             },
+
+            boot_sector: None,
             volume_name: None,
             comment: None,
             track_pool: Vec::new(),
@@ -364,12 +385,29 @@ impl DiskImage {
     }
 
     pub fn load<RS: ReadSeek>(image_io: &mut RS) -> Result<Self, DiskImageError> {
-        let format = DiskImage::detect_format(image_io)?;
-        let mut image = format.load_image(image_io)?;
+        let container = DiskImage::detect_format(image_io)?;
 
-        image.post_load_process();
-
-        Ok(image)
+        match container {
+            DiskImageContainer::Raw(format) => {
+                let mut image = format.load_image(image_io)?;
+                image.post_load_process();
+                Ok(image)
+            }
+            DiskImageContainer::Zip(format) => {
+                #[cfg(feature = "zip")]
+                {
+                    let file_vec = extract_first_file(image_io)?;
+                    let file_cursor = std::io::Cursor::new(file_vec);
+                    let mut image = format.load_image(file_cursor)?;
+                    image.post_load_process();
+                    Ok(image)
+                }
+                #[cfg(not(feature = "zip"))]
+                {
+                    Err(DiskImageError::UnknownFormat);
+                }
+            }
+        }
     }
 
     pub fn set_volume_name(&mut self, name: String) {
@@ -584,6 +622,7 @@ impl DiskImage {
         chs: DiskChs,
         _n: Option<u8>,
         scope: RwSectorScope,
+        debug: bool,
     ) -> Result<ReadSectorResult, DiskImageError> {
         // Check that the head and cylinder are within the bounds of the track map.
         if chs.h() > 1 || chs.c() as usize >= self.track_map[chs.h() as usize].len() {
@@ -593,7 +632,26 @@ impl DiskImage {
         let ti = self.track_map[chs.h() as usize][chs.c() as usize];
         let track = &mut self.track_pool[ti];
 
-        track.data.read_sector(chs, scope)
+        track.data.read_sector(chs, scope, debug)
+    }
+
+    pub fn write_sector(
+        &mut self,
+        chs: DiskChs,
+        n: Option<u8>,
+        data: &[u8],
+        scope: RwSectorScope,
+        debug: bool,
+    ) -> Result<WriteSectorResult, DiskImageError> {
+        if chs.h() > 1 || chs.c() as usize >= self.track_map[chs.h() as usize].len() {
+            return Err(DiskImageError::SeekError);
+        }
+
+        let ti = self.track_map[chs.h() as usize][chs.c() as usize];
+        let track = &mut self.track_pool[ti];
+
+        log::trace!("TrackData::write_sector(): data len is now: {}", data.len());
+        track.data.write_sector(chs, n, data, scope, debug)
     }
 
     pub fn is_id_valid(&self, chs: DiskChs) -> bool {
@@ -616,16 +674,54 @@ impl DiskImage {
         false
     }
 
+    pub(crate) fn examine_boot_sector(&mut self) {
+        let ti = self.track_map[0][0];
+        let track = &mut self.track_pool[ti];
+
+        match track
+            .data
+            .read_sector(DiskChs::new(0, 0, 1), RwSectorScope::DataOnly, true)
+        {
+            Ok(result) => {
+                let mut buffer = Cursor::new(&result.read_buf);
+                let bpb = BootSector::new(&mut buffer);
+                if let Ok(bpb) = bpb {
+                    self.boot_sector = Some(bpb);
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to read boot sector: {:?}", e);
+            }
+        }
+    }
+
     /// Called after loading a disk image to perform any post-load operations.
     pub(crate) fn post_load_process(&mut self) {
         // Normalize the disk image
         self.normalize();
+
+        // Examine the boot sector if present. Use this to determine if this image is a standard
+        // format disk image (but do not rely on this as the sole method of determining the disk
+        // format)
+        self.examine_boot_sector();
+        if let Some(boot_sector) = &self.boot_sector {
+            if let Ok(format) = boot_sector.get_standard_format() {
+                log::trace!("Boot sector of standard format detected: {:?}", format);
+
+                if self.standard_format.is_none() {
+                    self.standard_format = Some(format);
+                } else if self.standard_format != Some(format) {
+                    log::warn!("Boot sector format does not match image format.");
+                }
+            }
+        }
     }
 
     /// Normalize a disk image by detecting and correcting typical image issues.
     /// This includes:
     /// 40 track images encoded as 80 tracks with empty tracks
     /// Single-sided images encoded as double-sided images with empty tracks
+    /// TODO: 40 track images encoded as 80 tracks with duplicate tracks
     pub(crate) fn normalize(&mut self) {
         // Detect empty tracks
         let mut empty_tracks = Vec::new();
@@ -647,6 +743,9 @@ impl DiskImage {
         }
     }
 
+    /// Remove empty tracks from the disk image. In some cases, 40 cylinder images are stored or
+    /// encoded as 80 cylinders. These may either encode as empty or duplicate tracks. The former
+    /// can be handled here by re-indexing the track map to remove the empty tracks.
     pub(crate) fn remove_empty_tracks(&mut self) {
         let mut empty_tracks = vec![Vec::new(); 2];
         for (head_idx, head) in self.track_map.iter().enumerate() {
@@ -675,7 +774,7 @@ impl DiskImage {
     }
 
     pub fn dump_info<W: crate::io::Write>(&mut self, mut out: W) -> Result<(), crate::io::Error> {
-        out.write_fmt(format_args!("Disk Format: {:?}\n", self.disk_format))?;
+        out.write_fmt(format_args!("Disk Format: {:?}\n", self.standard_format))?;
         out.write_fmt(format_args!("Geometry: {}\n", self.image_format.geometry))?;
         out.write_fmt(format_args!("Volume Name: {:?}\n", self.volume_name))?;
 
@@ -717,8 +816,8 @@ impl DiskImage {
                 out.write_fmt(format_args!("\tTrack {}\n", track_idx))?;
                 for sector in track {
                     out.write_fmt(format_args!(
-                        "\t\t{} crc_valid: {} deleted: {}\n",
-                        sector.chsn, sector.data_crc_valid, sector.deleted_mark
+                        "\t\t{} address_crc_valid: {} data_crc_valid: {} deleted: {}\n",
+                        sector.chsn, sector.address_crc_valid, sector.data_crc_valid, sector.deleted_mark
                     ))?;
                 }
             }
@@ -734,7 +833,7 @@ impl DiskImage {
         bytes_per_row: usize,
         mut out: W,
     ) -> Result<(), DiskImageError> {
-        let rsr = self.read_sector(chs, None, RwSectorScope::DataBlock)?;
+        let rsr = self.read_sector(chs, None, RwSectorScope::DataBlock, true)?;
 
         let data_slice = &rsr.read_buf[rsr.data_idx..rsr.data_idx + rsr.data_len];
         let rows = rsr.data_len / bytes_per_row;

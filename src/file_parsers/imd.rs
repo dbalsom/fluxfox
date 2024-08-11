@@ -262,7 +262,7 @@ impl ImdFormat {
                 // Read data byte marker.
                 let data_marker: u8 = image.read_le().map_err(|_e| DiskImageError::IoError)?;
                 let sector_size = sector_size_map[s] as usize;
-                let sector_n = DiskChsn::size_to_n(sector_size);
+                let sector_n = DiskChsn::bytes_to_n(sector_size);
 
                 match data_marker {
                     0x00..=0x08 => {
