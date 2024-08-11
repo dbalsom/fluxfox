@@ -321,24 +321,24 @@ pub struct WriteSectorResult {
 /// Sectors may be variable length due to various copy protection schemes.
 pub struct DiskImage {
     // The standard format of the disk image, if it adheres to one. (Nonstandard images will be None)
-    pub standard_format: Option<StandardFormat>,
+    pub(crate) standard_format: Option<StandardFormat>,
     // A DiskDescriptor describing this image with more thorough parameters.
-    pub image_format: DiskDescriptor,
+    pub(crate) image_format: DiskDescriptor,
     // A field to hold image format capability flags that this image requires in order to be represented.
-    pub image_caps: u64,
-    pub consistency: DiskConsistency,
+    pub(crate) image_caps: u64,
+    pub(crate) consistency: DiskConsistency,
     // The boot sector of the disk image, if successfully parsed.
-    pub boot_sector: Option<BootSector>,
+    pub(crate) boot_sector: Option<BootSector>,
     // The volume name of the disk image, if any.
-    pub volume_name: Option<String>,
+    pub(crate) volume_name: Option<String>,
     // An ASCII comment embedded in the disk image, if any.
-    pub comment: Option<String>,
+    pub(crate) comment: Option<String>,
     /// A pool of track data structures, potentially in any order.
-    pub track_pool: Vec<DiskTrack>,
+    pub(crate) track_pool: Vec<DiskTrack>,
     /// An array of vectors containing indices into the track pool. The first index is the head
     /// number, the second is the cylinder number.
-    pub track_map: [Vec<usize>; 2],
-    pub sector_map: [Vec<Vec<usize>>; 2],
+    pub(crate) track_map: [Vec<usize>; 2],
+    pub(crate) sector_map: [Vec<Vec<usize>>; 2],
 }
 
 impl Default for DiskImage {
@@ -715,6 +715,11 @@ impl DiskImage {
                 }
             }
         }
+    }
+
+    /// Retrieve the DOS boot sector of the disk image, if present.
+    pub fn boot_sector(&self) -> Option<&BootSector> {
+        self.boot_sector.as_ref()
     }
 
     /// Normalize a disk image by detecting and correcting typical image issues.

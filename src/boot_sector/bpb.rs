@@ -328,7 +328,7 @@ impl BootSector {
     }
 
     /// Dump the BPB values to a Write implementor for debugging purposes.
-    pub(crate) fn dump_bpb<T: Write>(&self, buffer: &mut T) -> Result<(), crate::io::Error> {
+    pub fn dump_bpb<T: Write>(&self, buffer: &mut T) -> Result<(), crate::io::Error> {
         writeln!(buffer, "BIOS Parameter Block v2.0:")?;
         writeln!(buffer, "\tBytes per sector: {}", self.bpb2.bytes_per_sector)?;
         writeln!(buffer, "\tSectors per cluster: {}", self.bpb2.sectors_per_cluster)?;
@@ -338,11 +338,27 @@ impl BootSector {
         writeln!(buffer, "\tTotal sectors: {}", self.bpb2.total_sectors)?;
         writeln!(buffer, "\tMedia descriptor: 0x{:02X}", self.bpb2.media_descriptor)?;
         writeln!(buffer, "\tSectors per FAT: {}", self.bpb2.sectors_per_fat)?;
-
-        writeln!(buffer, "BIOS Parameter Block v3.0: {:?}", self.bpb3)?;
+        writeln!(buffer)?;
+        writeln!(buffer, "BIOS Parameter Block v3.0:")?;
         writeln!(buffer, "\tSectors per track: {}", self.bpb3.sectors_per_track)?;
         writeln!(buffer, "\tNumber of heads: {}", self.bpb3.number_of_heads)?;
         writeln!(buffer, "\tHidden sectors: {}", self.bpb3.hidden_sectors)?;
+        writeln!(buffer)?;
+        writeln!(
+            buffer,
+            "Boot sector marker: 0x{:02X}{:02X}",
+            self.marker[0], self.marker[1]
+        )?;
+        let fmt = self.get_standard_format();
+        if fmt.is_err() {
+            writeln!(buffer, "Standard disk format not detected.")?;
+        } else {
+            writeln!(
+                buffer,
+                "Best standard disk format guess: {:?}",
+                self.get_standard_format().unwrap()
+            )?;
+        }
 
         buffer.flush()?;
         Ok(())

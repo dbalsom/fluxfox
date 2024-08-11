@@ -100,8 +100,16 @@ fn main() {
     };
 
     println!("Disk image info:");
-    println!("----------------");
+    println!("--------------------------------------------------------------------------------");
     let _ = disk.dump_info(&mut std::io::stdout());
+    println!();
+
+    if let Some(bootsector) = disk.boot_sector() {
+        println!("Boot sector detected:");
+        println!("--------------------------------------------------------------------------------");
+        let _ = bootsector.dump_bpb(&mut std::io::stdout());
+    }
+    println!();
 
     if opts.sector_list {
         let _ = disk.dump_sector_map(&mut std::io::stdout());
