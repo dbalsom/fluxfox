@@ -222,5 +222,5 @@ impl Display for DiskRpm {
 
 pub use crate::chs::{DiskCh, DiskChs, DiskChsn};
 pub use crate::detect::supported_extensions;
-pub use crate::diskimage::{DiskImage, DiskImageFormat};
+pub use crate::diskimage::{DiskImage, DiskImageFormat, StandardFormat};
 pub use crate::file_parsers::ImageParser;

@@ -300,7 +300,7 @@ impl BootSector {
     /// Write a new BPB to the provided sector buffer based on the specified StandardFormat.
     /// StandardFormat must not be Invalid!
     pub(crate) fn write_new_bpb<T: ReadWriteSeek>(
-        &self,
+        &mut self,
         buffer: &mut T,
         format: StandardFormat,
     ) -> Result<(), DiskImageError> {
@@ -312,11 +312,11 @@ impl BootSector {
             .seek(SeekFrom::Start(BPB_OFFSET))
             .map_err(|_e| DiskImageError::IoError)?;
 
-        let bpb2 = BiosParameterBlock2::from(format);
-        let bpb3 = BiosParameterBlock3::from(format);
+        self.bpb2 = BiosParameterBlock2::from(format);
+        self.bpb3 = BiosParameterBlock3::from(format);
 
-        bpb2.write(buffer).map_err(|_e| DiskImageError::IoError)?;
-        bpb3.write(buffer).map_err(|_e| DiskImageError::IoError)?;
+        self.bpb2.write(buffer).map_err(|_e| DiskImageError::IoError)?;
+        self.bpb3.write(buffer).map_err(|_e| DiskImageError::IoError)?;
 
         Ok(())
     }
