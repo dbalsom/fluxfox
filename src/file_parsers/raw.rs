@@ -137,7 +137,15 @@ impl RawFormat {
     }
 
     pub fn save_image<RWS: ReadWriteSeek>(image: &DiskImage, output: &mut RWS) -> Result<(), DiskImageError> {
-        for track_n in 0..image.track_map[0].len() {
+        let track_ct = match image.track_map[0].len() {
+            39..=45 => 40,
+            79..=85 => 80,
+            _ => {
+                return Err(DiskImageError::UnsupportedFormat);
+            }
+        };
+
+        for track_n in 0..track_ct {
             for head in 0..2 {
                 let ti = image.track_map[head][track_n];
                 let track = &image.track_pool[ti];
