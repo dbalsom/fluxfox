@@ -39,10 +39,10 @@
 use crate::diskimage::{DiskDescriptor, SectorDescriptor};
 use crate::file_parsers::compression::lzhuf::{expand, TD0_READ_OPTIONS};
 use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
-use crate::io::{Cursor, Read, ReadBytesExt, ReadSeek, ReadWriteSeek, Seek, Write};
-use crate::{util, DiskCh, DiskChs, DiskDataEncoding, DiskDataRate, FoxHashSet};
+use crate::io::{Cursor, Read, ReadBytesExt, ReadSeek, ReadWriteSeek, Seek};
+use crate::{DiskCh, DiskChs, DiskDataEncoding, DiskDataRate, FoxHashSet};
 use crate::{DiskChsn, DiskImage, DiskImageError, DiskImageFormat};
-use binrw::{binrw, BinRead};
+use binrw::{binrw, BinRead, BinWrite};
 use std::mem::size_of;
 
 pub const SECTOR_DUPLICATED: u8 = 0b0000_0001;
@@ -155,7 +155,7 @@ fn td0_crc(data: &[u8], input_crc: u16) -> u16 {
 /// Calculate the CRC of a block of data in a disk image, starting at the specified offset and
 /// extending for the specified length. The stream position is restored to its original position
 /// after CRC calculation.
-fn calc_crc<RWS: ReadSeek>(image: &mut RWS, offset: u64, len: usize) -> Result<u16, DiskImageError> {
+fn calc_crc<RWS: ReadSeek>(image: &mut RWS, offset: u64, len: usize, input_crc: u16) -> Result<u16, DiskImageError> {
     let mut crc_data = vec![0u8; len];
 
     let saved_pos = image.stream_position().map_err(|_| DiskImageError::IoError)?;
@@ -166,7 +166,7 @@ fn calc_crc<RWS: ReadSeek>(image: &mut RWS, offset: u64, len: usize) -> Result<u
     image
         .seek(std::io::SeekFrom::Start(saved_pos))
         .map_err(|_| DiskImageError::IoError)?;
-    Ok(td0_crc(&crc_data, 0))
+    Ok(td0_crc(&crc_data, input_crc))
 }
 
 impl Td0Format {
@@ -278,6 +278,7 @@ impl Td0Format {
                 &mut image_data_ref,
                 2,
                 COMMENT_HEADER_SIZE - 2 + comment_header.length as usize,
+                0,
             )?;
 
             if comment_header.crc != calculated_crc {
@@ -315,7 +316,7 @@ impl Td0Format {
 
         let mut track_header_offset = image_data_ref.stream_position().map_err(|_| DiskImageError::IoError)?;
         while let Ok(track_header) = TrackHeader::read(&mut image_data_ref) {
-            let calculated_track_header_crc = calc_crc(&mut image_data_ref, track_header_offset, 3)?;
+            let calculated_track_header_crc = calc_crc(&mut image_data_ref, track_header_offset, 3, 0)?;
             log::trace!(
                 "Read track header. c:{} h:{} Sectors: {} crc: {:02X} calculated: {:02X}",
                 track_header.cylinder,
@@ -344,10 +345,10 @@ impl Td0Format {
             cylinder_set.insert(track_header.cylinder as u16);
 
             for _s in 0..track_header.sectors {
-                let sector_header_offset = image_data_ref.stream_position().map_err(|_| DiskImageError::IoError)?;
+                //let sector_header_offset = image_data_ref.stream_position().map_err(|_| DiskImageError::IoError)?;
                 let sector_header = SectorHeader::read(&mut image_data_ref).map_err(|_| DiskImageError::IoError)?;
                 log::trace!(
-                    "Read sector header. c:{} h:{} id:{} size:{} flags:{} crc:{:02X}",
+                    "Read sector header: c:{} h:{} sid:{} size:{} flags:{:02X} crc:{:02X}",
                     sector_header.cylinder,
                     sector_header.head,
                     sector_header.sector_id,
@@ -356,24 +357,19 @@ impl Td0Format {
                     sector_header.crc
                 );
 
-                // TODO: We should probably calculate the CRC of the sector data, but it's annoying as it skips
-                //       the crc field in the header but continues over the sector data header (if present) and
-                //       sector data (which may be variable length depending on encoding).
+                // The description of the sector header CRC in Dave Dunfield's TD0 notes is incorrect.
+                // The CRC is calculated for the expanded data block, and does not include the
+                // sector header or sector data header.
 
                 // A Sector Data Header follows as long as neither of these two flags are not set.
                 let have_sector_data = sector_header.flags & (SECTOR_NO_DATA | SECTOR_SKIPPED) == 0;
                 let sector_size_bytes = DiskChsn::n_to_bytes(sector_header.sector_size);
 
                 if have_sector_data {
-                    let sector_data_header_offset =
-                        image_data_ref.stream_position().map_err(|_| DiskImageError::IoError)?;
+                    // let sector_data_header_offset =
+                    //     image_data_ref.stream_position().map_err(|_| DiskImageError::IoError)?;
                     let sector_data_header =
                         SectorDataHeader::read(&mut image_data_ref).map_err(|_| DiskImageError::IoError)?;
-
-                    let crc_len = size_of::<SectorDataHeader>() + sector_data_header.len as usize;
-                    let calculated_crc = calc_crc(&mut image_data_ref, sector_header_offset, crc_len)?;
-
-                    log::trace!("Calculated CRC: {:02X}", calculated_crc as u8);
 
                     log::trace!(
                         "Read sector data header. len:{} encoding:{}",
@@ -403,6 +399,18 @@ impl Td0Format {
                             log::error!("Unknown sector data encoding: {}", sector_data_header.encoding);
                             return Err(DiskImageError::FormatParseError);
                         }
+                    }
+
+                    // Calculate sector CRC from expanded data.
+                    let data_crc = td0_crc(&sector_data_vec, 0);
+                    log::trace!(
+                        "Sector header crc: {:02X} Calculated data block crc: {:02X}",
+                        sector_header.crc,
+                        data_crc as u8
+                    );
+
+                    if sector_header.crc != data_crc as u8 {
+                        return Err(DiskImageError::ImageCorruptError);
                     }
 
                     // Add this sector to track.
