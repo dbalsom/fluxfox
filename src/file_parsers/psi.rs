@@ -262,6 +262,7 @@ impl PsiFormat {
 
         while chunk.chunk_type != PsiChunkType::End {
             match chunk.chunk_type {
+                PsiChunkType::FileHeader => {}
                 PsiChunkType::SectorHeader => {
                     //log::trace!("Sector header chunk.");
                     let sector_header = PsiSectorHeader::read(&mut Cursor::new(&chunk.data))
@@ -351,7 +352,7 @@ impl PsiFormat {
                     break;
                 }
                 _ => {
-                    println!("Chunk type: {:?}", chunk.chunk_type);
+                    log::warn!("Unhandled chunk type: {:?}", chunk.chunk_type);
                 }
             }
 
