@@ -25,7 +25,7 @@
     --------------------------------------------------------------------------
 */
 use crate::io::{Read, Seek, SeekFrom};
-use crate::ASCII_EOF;
+use crate::{DiskImageError, ASCII_EOF};
 
 pub(crate) fn get_length<T: Seek>(source: &mut T) -> Result<u64, crate::io::Error> {
     // Seek to the end of the source
@@ -82,4 +82,56 @@ pub fn crc_ccitt(data: &[u8]) -> u16 {
         }
     }
     crc
+}
+
+pub fn dump_slice<W: crate::io::Write>(
+    data_slice: &[u8],
+    start_address: usize,
+    bytes_per_row: usize,
+    mut out: W,
+) -> Result<(), DiskImageError> {
+    let rows = data_slice.len() / bytes_per_row;
+    let last_row_size = data_slice.len() % bytes_per_row;
+
+    // Print all full rows.
+    for r in 0..rows {
+        out.write_fmt(format_args!("{:06X} | ", r * bytes_per_row + start_address))
+            .unwrap();
+        for b in 0..bytes_per_row {
+            out.write_fmt(format_args!("{:02X} ", data_slice[r * bytes_per_row + b]))
+                .unwrap();
+        }
+        out.write_fmt(format_args!("| ")).unwrap();
+        for b in 0..bytes_per_row {
+            let byte = data_slice[r * bytes_per_row + b];
+            out.write_fmt(format_args!(
+                "{}",
+                if (40..=126).contains(&byte) { byte as char } else { '.' }
+            ))
+            .unwrap();
+        }
+
+        out.write_fmt(format_args!("\n")).unwrap();
+    }
+
+    // Print last incomplete row, if any bytes left over.
+    if last_row_size > 0 {
+        out.write_fmt(format_args!("{:04X} | ", rows * bytes_per_row)).unwrap();
+        for b in 0..last_row_size {
+            out.write_fmt(format_args!("{:02X} ", data_slice[rows * bytes_per_row + b]))
+                .unwrap();
+        }
+        out.write_fmt(format_args!("| ")).unwrap();
+        for b in 0..bytes_per_row {
+            let byte = data_slice[rows * bytes_per_row + b];
+            out.write_fmt(format_args!(
+                "{}",
+                if (40..=126).contains(&byte) { byte as char } else { '.' }
+            ))
+            .unwrap();
+        }
+        out.write_fmt(format_args!("\n")).unwrap();
+    }
+
+    Ok(())
 }

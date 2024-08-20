@@ -359,7 +359,7 @@ mod tests {
 
     #[test]
     fn diskchsn_size_to_n_calculates_correct_n() {
-        assert_eq!(DiskChsn::size_to_n(1024), 3);
+        assert_eq!(DiskChsn::bytes_to_n(1024), 3);
     }
 
     #[test]

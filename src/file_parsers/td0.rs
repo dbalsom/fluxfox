@@ -36,12 +36,14 @@
     LZHUF compression.
 
 */
-
+use crate::diskimage::{DiskDescriptor, SectorDescriptor};
 use crate::file_parsers::compression::lzhuf::{expand, TD0_READ_OPTIONS};
 use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
-use crate::io::{Cursor, Read, ReadSeek, ReadWriteSeek, Seek};
-use crate::{DiskImage, DiskImageError, DiskImageFormat};
+use crate::io::{Cursor, Read, ReadBytesExt, ReadSeek, ReadWriteSeek, Seek, Write};
+use crate::{util, DiskCh, DiskChs, DiskDataEncoding, DiskDataRate, FoxHashSet};
+use crate::{DiskChsn, DiskImage, DiskImageError, DiskImageFormat};
 use binrw::{binrw, BinRead};
+use std::mem::size_of;
 
 pub const SECTOR_DUPLICATED: u8 = 0b0000_0001;
 pub const SECTOR_CRC_ERROR: u8 = 0b0000_0010;
@@ -106,8 +108,38 @@ pub struct SectorHeader {
     pub crc: u8,
 }
 
+#[derive(Debug)]
+#[binrw]
+#[brw(little)]
+pub struct SectorDataHeader {
+    pub len: u16,
+    pub encoding: u8,
+}
+
+#[derive(Debug)]
+#[binrw]
+#[brw(little)]
+pub struct RepeatedDataEntry {
+    pub count: u16,
+    pub data: [u8; 2],
+}
+
 pub struct Td0Format {}
 
+fn td0_data_rate(rate: u8) -> DiskDataRate {
+    match rate & 0x03 {
+        0 => DiskDataRate::Rate250Kbps,
+        1 => DiskDataRate::Rate300Kbps,
+        2 => DiskDataRate::Rate500Kbps,
+        _ => {
+            log::warn!("TD0 Data Rate out of range: {} Assuming 300Kbps", rate);
+            DiskDataRate::Rate300Kbps
+        }
+    }
+}
+
+/// Implement a 16-bit CRC for the TD0 format. The TD0 CRC is a simple polynomial CRC with a
+/// polynomial of 0xA097.
 fn td0_crc(data: &[u8], input_crc: u16) -> u16 {
     let mut crc = input_crc;
 
@@ -120,6 +152,9 @@ fn td0_crc(data: &[u8], input_crc: u16) -> u16 {
     crc
 }
 
+/// Calculate the CRC of a block of data in a disk image, starting at the specified offset and
+/// extending for the specified length. The stream position is restored to its original position
+/// after CRC calculation.
 fn calc_crc<RWS: ReadSeek>(image: &mut RWS, offset: u64, len: usize) -> Result<u16, DiskImageError> {
     let mut crc_data = vec![0u8; len];
 
@@ -167,7 +202,7 @@ impl Td0Format {
     }
 
     pub(crate) fn load_image<RWS: ReadSeek>(mut image: RWS) -> Result<DiskImage, DiskImageError> {
-        let disk_image = DiskImage::default();
+        let mut disk_image = DiskImage::default();
         let mut image_data = Vec::new();
 
         image
@@ -200,6 +235,8 @@ impl Td0Format {
         let minor_version = file_header.version % 10;
         let has_comment_block = file_header.stepping & 0x80 != 0;
 
+        let disk_data_rate = td0_data_rate(file_header.data_rate);
+
         log::trace!(
             "Detected Teledisk Image, version {}.{}, compressed: {} comment_block: {}",
             major_version,
@@ -226,7 +263,6 @@ impl Td0Format {
                 image_data.len(),
                 decompression_length
             );
-            //log::trace!("Decompressed data: {:02X?}", &decompression_buffer.into_inner()[0..64]);
             image_data_ref = &mut decompression_buffer;
         }
 
@@ -274,7 +310,223 @@ impl Td0Format {
             log::trace!("Comment block data: {}", comment);
         }
 
+        // Read tracks in
+        let mut cylinder_set: FoxHashSet<u16> = FoxHashSet::new();
+
+        let mut track_header_offset = image_data_ref.stream_position().map_err(|_| DiskImageError::IoError)?;
+        while let Ok(track_header) = TrackHeader::read(&mut image_data_ref) {
+            let calculated_track_header_crc = calc_crc(&mut image_data_ref, track_header_offset, 3)?;
+            log::trace!(
+                "Read track header. c:{} h:{} Sectors: {} crc: {:02X} calculated: {:02X}",
+                track_header.cylinder,
+                track_header.head,
+                track_header.sectors,
+                track_header.crc,
+                calculated_track_header_crc as u8
+            );
+
+            if track_header.sectors == 0xFF {
+                // End of track headers.
+                log::trace!("End of TeleDisk track headers.");
+                break;
+            }
+
+            if track_header.crc != calculated_track_header_crc as u8 {
+                return Err(DiskImageError::ImageCorruptError);
+            }
+
+            log::trace!("Adding track: c:{} h:{}...", track_header.cylinder, track_header.head);
+            disk_image.add_track_bytestream(
+                DiskDataEncoding::Mfm,
+                disk_data_rate,
+                DiskCh::from((track_header.cylinder as u16, track_header.head)),
+            );
+            cylinder_set.insert(track_header.cylinder as u16);
+
+            for _s in 0..track_header.sectors {
+                let sector_header_offset = image_data_ref.stream_position().map_err(|_| DiskImageError::IoError)?;
+                let sector_header = SectorHeader::read(&mut image_data_ref).map_err(|_| DiskImageError::IoError)?;
+                log::trace!(
+                    "Read sector header. c:{} h:{} id:{} size:{} flags:{} crc:{:02X}",
+                    sector_header.cylinder,
+                    sector_header.head,
+                    sector_header.sector_id,
+                    sector_header.sector_size,
+                    sector_header.flags,
+                    sector_header.crc
+                );
+
+                // TODO: We should probably calculate the CRC of the sector data, but it's annoying as it skips
+                //       the crc field in the header but continues over the sector data header (if present) and
+                //       sector data (which may be variable length depending on encoding).
+
+                // A Sector Data Header follows as long as neither of these two flags are not set.
+                let have_sector_data = sector_header.flags & (SECTOR_NO_DATA | SECTOR_SKIPPED) == 0;
+                let sector_size_bytes = DiskChsn::n_to_bytes(sector_header.sector_size);
+
+                if have_sector_data {
+                    let sector_data_header_offset =
+                        image_data_ref.stream_position().map_err(|_| DiskImageError::IoError)?;
+                    let sector_data_header =
+                        SectorDataHeader::read(&mut image_data_ref).map_err(|_| DiskImageError::IoError)?;
+
+                    let crc_len = size_of::<SectorDataHeader>() + sector_data_header.len as usize;
+                    let calculated_crc = calc_crc(&mut image_data_ref, sector_header_offset, crc_len)?;
+
+                    log::trace!("Calculated CRC: {:02X}", calculated_crc as u8);
+
+                    log::trace!(
+                        "Read sector data header. len:{} encoding:{}",
+                        sector_data_header.len - 1,
+                        sector_data_header.encoding
+                    );
+
+                    // 'len' field of sector data header includes the encoding byte.
+                    let mut sector_data_vec = vec![0; sector_size_bytes];
+
+                    match sector_data_header.encoding {
+                        0 => {
+                            // Raw data. 'len' bytes follow.
+                            image_data_ref
+                                .read_exact(&mut sector_data_vec)
+                                .map_err(|_| DiskImageError::IoError)?;
+                        }
+                        1 => {
+                            // Repeated two-byte pattern.
+                            Td0Format::td0_decompress_repeated_data(&mut image_data_ref, &mut sector_data_vec)?;
+                        }
+                        2 => {
+                            // Run-length encoded data.
+                            Td0Format::td0_decompress_rle_data(&mut image_data_ref, &mut sector_data_vec)?;
+                        }
+                        _ => {
+                            log::error!("Unknown sector data encoding: {}", sector_data_header.encoding);
+                            return Err(DiskImageError::FormatParseError);
+                        }
+                    }
+
+                    // Add this sector to track.
+                    let sd = SectorDescriptor {
+                        id: sector_header.sector_id,
+                        cylinder_id: Some(sector_header.cylinder as u16),
+                        head_id: Some(sector_header.head),
+                        n: DiskChsn::bytes_to_n(sector_data_vec.len()),
+                        data: sector_data_vec,
+                        weak: None,
+                        address_crc_error: false,
+                        data_crc_error: sector_header.flags & SECTOR_CRC_ERROR != 0,
+                        deleted_mark: sector_header.flags & SECTOR_DELETED != 0,
+                    };
+
+                    disk_image.master_sector(
+                        DiskChs::from((
+                            sector_header.cylinder as u16,
+                            sector_header.head,
+                            sector_header.sector_id,
+                        )),
+                        &sd,
+                    )?;
+                }
+            }
+
+            // Update the track header offset for next track header crc calculation.
+            track_header_offset = image_data_ref.stream_position().map_err(|_| DiskImageError::IoError)?;
+        }
+
+        disk_image.image_format = DiskDescriptor {
+            geometry: DiskCh::from((cylinder_set.len() as u16, file_header.heads)),
+            data_rate: disk_data_rate,
+            data_encoding: DiskDataEncoding::Mfm,
+            default_sector_size: 512,
+            rpm: None,
+        };
+
         Ok(disk_image)
+    }
+
+    pub fn td0_decompress_repeated_data<RWS: ReadSeek>(
+        image: &mut RWS,
+        output: &mut [u8],
+    ) -> Result<(), DiskImageError> {
+        let data_len = output.len();
+        let mut decoded_len = 0;
+        while decoded_len < data_len {
+            let entry = RepeatedDataEntry::read(image).map_err(|_| DiskImageError::IoError)?;
+
+            let count = entry.count as usize;
+
+            for _ in 0..count {
+                if decoded_len < (data_len - 1) {
+                    output[decoded_len + 1] = entry.data[0];
+                    output[decoded_len] = entry.data[1];
+                    decoded_len += 2;
+                } else {
+                    return Err(DiskImageError::FormatParseError);
+                }
+            }
+        }
+
+        log::trace!("td0_decompress_repeated_data(): Decoded {} bytes", decoded_len);
+        Ok(())
+    }
+
+    pub fn td0_decompress_rle_data<RWS: ReadSeek>(image: &mut RWS, output: &mut [u8]) -> Result<(), DiskImageError> {
+        let start_pos = image.stream_position().map_err(|_| DiskImageError::IoError)?;
+        //log::trace!("RLE data start pos: {:X}", start_pos);
+        let data_len = output.len();
+        let mut decoded_len = 0;
+        let mut encoded_len = 0;
+
+        while decoded_len < data_len {
+            let entry_code = image.read_u8().map_err(|_| DiskImageError::IoError)?;
+            encoded_len += 1;
+
+            if entry_code == 0 {
+                // Literal data block. The next byte encodes a length, and `length` bytes are copied
+                // to the output slice.
+                let block_len = image.read_u8().map_err(|_| DiskImageError::IoError)? as usize;
+                image
+                    .read_exact(&mut output[decoded_len..decoded_len + block_len])
+                    .map_err(|_| DiskImageError::IoError)?;
+                decoded_len += block_len;
+                encoded_len += block_len;
+            } else {
+                // Run-length encoded block. The entry code byte encodes the length of the data pattern,
+
+                let pattern_length = entry_code as usize * 2;
+                let repeat_ct = image.read_u8().map_err(|_| DiskImageError::IoError)?;
+                let mut pattern_block = vec![0; pattern_length];
+                image
+                    .read_exact(&mut pattern_block)
+                    .map_err(|_| DiskImageError::IoError)?;
+                encoded_len += pattern_length + 1;
+
+                for _ in 0..repeat_ct {
+                    if decoded_len < data_len {
+                        output[decoded_len..decoded_len + pattern_length].copy_from_slice(&pattern_block);
+                        decoded_len += pattern_length;
+                    } else {
+                        let data_pos = image.stream_position().map_err(|_| DiskImageError::IoError)?;
+                        log::trace!(
+                            "td0_decompress_rle_data(): Output buffer overrun; input_offset: {} decoded_len: {}",
+                            data_pos - start_pos,
+                            decoded_len
+                        );
+                        return Err(DiskImageError::FormatParseError);
+                    }
+                }
+            }
+        }
+
+        log::trace!(
+            "td0_decompress_rle_data(): Decoded {}->{} bytes",
+            encoded_len,
+            decoded_len
+        );
+
+        //util::dump_slice(output, 16, 0, std::io::stdout())?;
+
+        Ok(())
     }
 
     pub fn save_image<RWS: ReadWriteSeek>(_image: &DiskImage, _output: &mut RWS) -> Result<(), DiskImageError> {

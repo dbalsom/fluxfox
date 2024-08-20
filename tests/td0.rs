@@ -4,15 +4,15 @@ use common::*;
 use fluxfox::{DiskImage, DiskImageFormat, ImageParser};
 
 #[test]
-fn test_imd() {
+fn test_td0() {
     use std::io::Cursor;
 
-    let disk_image_buf = std::fs::read(".\\tests\\images\\Transylvania.imd").unwrap();
+    let disk_image_buf = std::fs::read(".\\tests\\images\\Transylvania.td0").unwrap();
     let mut in_buffer = Cursor::new(disk_image_buf);
 
     let img_image = DiskImage::load(&mut in_buffer).unwrap();
 
-    println!("Loaded IMD image of geometry {}...", img_image.image_format().geometry);
+    println!("Loaded TD0 image of geometry {}...", img_image.image_format().geometry);
 
     let mut out_buffer = Cursor::new(Vec::new());
 
@@ -33,6 +33,11 @@ fn test_imd() {
     //std::fs::write("test_out.img", out_inner.clone()).unwrap();
     let out_hash = compute_slice_hash(&out_inner);
     println!("Output file SHA1: {:}", out_hash);
+
+    if in_hash != out_hash {
+        println!("Hashes do not match!");
+        //std::fs::write("test_out.img", out_inner.clone()).unwrap();
+    }
 
     assert_eq!(in_hash, out_hash);
     println!("Hashes match!");
