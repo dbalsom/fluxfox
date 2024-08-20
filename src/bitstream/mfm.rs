@@ -45,6 +45,7 @@ macro_rules! mfm_offset {
     };
 }
 
+#[derive(Debug)]
 pub struct MfmDecoder {
     bit_vec: BitVec,
     clock_map: BitVec,
@@ -297,7 +298,7 @@ impl MfmDecoder {
         Some(byte_val)
     }
 
-    pub fn read_encoded_byte(&self, index: usize) -> Option<u8> {
+    pub fn read_decoded_byte(&self, index: usize) -> Option<u8> {
         if index >= self.bit_vec.len() || index >= self.clock_map.len() {
             log::error!(
                 "read_encoded_byte(): index out of bounds: {} vec: {} clock_map:{}",

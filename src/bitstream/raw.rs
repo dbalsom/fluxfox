@@ -33,8 +33,9 @@
 use crate::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom};
 use crate::EncodingPhase;
 use bit_vec::BitVec;
-use std::ops::{Index};
+use std::ops::Index;
 
+#[derive(Debug)]
 pub struct RawDecoder {
     bit_vec: BitVec,
     weak_mask: BitVec,

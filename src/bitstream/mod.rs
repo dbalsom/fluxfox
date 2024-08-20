@@ -28,13 +28,22 @@
 pub mod mfm;
 pub mod raw;
 
-use crate::diskimage::TrackDataStream;
+use crate::bitstream::mfm::MfmDecoder;
+use crate::bitstream::raw::RawDecoder;
 use crate::io::{Read, Seek};
 use crate::EncodingPhase;
 use bit_vec::BitVec;
 use std::ops::Index;
 
 pub trait TrackDataStreamT: Iterator + Seek + Index<usize> {}
+
+#[derive(Debug)]
+pub enum TrackDataStream {
+    Raw(RawDecoder),
+    Mfm(MfmDecoder),
+    Fm(BitVec),
+    Gcr(BitVec),
+}
 
 impl Iterator for TrackDataStream {
     type Item = bool;
@@ -98,10 +107,10 @@ impl TrackDataStream {
         }
     }
 
-    pub fn read_encoded_byte(&self, index: usize) -> Option<u8> {
+    pub fn read_decoded_byte(&self, index: usize) -> Option<u8> {
         match self {
             TrackDataStream::Raw(data) => data.read_byte(index),
-            TrackDataStream::Mfm(data) => data.read_encoded_byte(index),
+            TrackDataStream::Mfm(data) => data.read_decoded_byte(index),
             _ => None,
         }
     }

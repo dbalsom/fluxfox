@@ -26,6 +26,7 @@
 */
 use crate::bitstream::mfm::MfmDecoder;
 use crate::bitstream::raw::RawDecoder;
+use crate::bitstream::TrackDataStream;
 use crate::boot_sector::bpb::BootSector;
 use crate::chs::{DiskCh, DiskChs, DiskChsn};
 use crate::containers::zip::extract_first_file;
@@ -230,13 +231,6 @@ pub struct TrackFormat {
     pub data_encoding: DiskDataEncoding,
     pub data_sync: Option<EncodingPhase>,
     pub data_rate: DiskDataRate,
-}
-
-pub enum TrackDataStream {
-    Raw(RawDecoder),
-    Mfm(MfmDecoder),
-    Fm(BitVec),
-    Gcr(BitVec),
 }
 
 pub struct TrackSectorIndex {
@@ -448,6 +442,10 @@ impl DiskImage {
 
     pub fn heads(&self) -> u8 {
         self.image_format.geometry.h()
+    }
+
+    pub fn tracks(&self) -> u16 {
+        self.image_format.geometry.c()
     }
 
     pub fn add_track_bytestream(&mut self, data_encoding: DiskDataEncoding, data_rate: DiskDataRate, ch: DiskCh) {
