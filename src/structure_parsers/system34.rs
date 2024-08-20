@@ -31,12 +31,13 @@
 
 */
 use crate::bitstream::mfm::{MfmDecoder, MFM_BYTE_LEN, MFM_MARKER_LEN};
+use crate::bitstream::TrackDataStream;
 use crate::chs::DiskChsn;
-use crate::diskimage::TrackDataStream;
 use crate::io::{Read, Seek, SeekFrom};
 use crate::mfm_offset;
 use crate::structure_parsers::{
-    DiskStructureElement, DiskStructureMarker, DiskStructureMarkerItem, DiskStructureMetadataItem, DiskStructureParser,
+    DiskStructureElement, DiskStructureGenericElement, DiskStructureMarker, DiskStructureMarkerItem,
+    DiskStructureMetadataItem, DiskStructureParser,
 };
 use crate::util::crc_ccitt;
 use bit_vec::BitVec;
@@ -93,11 +94,37 @@ pub enum System34Element {
     Gap4b,
     Sync,
     Marker(System34Marker, Option<bool>),
+    SectorHeader,
     Data {
         address_crc: bool,
         data_crc: bool,
         deleted: bool,
     },
+}
+
+impl From<System34Element> for DiskStructureGenericElement {
+    fn from(elem: System34Element) -> Self {
+        match elem {
+            System34Element::Gap1 => DiskStructureGenericElement::NoElement,
+            System34Element::Gap2 => DiskStructureGenericElement::NoElement,
+            System34Element::Gap3 => DiskStructureGenericElement::NoElement,
+            System34Element::Gap4a => DiskStructureGenericElement::NoElement,
+            System34Element::Gap4b => DiskStructureGenericElement::NoElement,
+            System34Element::Sync => DiskStructureGenericElement::NoElement,
+            System34Element::Marker(_, _) => DiskStructureGenericElement::Marker,
+            System34Element::SectorHeader => DiskStructureGenericElement::SectorHeader,
+            System34Element::Data {
+                address_crc,
+                data_crc,
+                deleted,
+            } => match (address_crc && data_crc, deleted) {
+                (true, false) => DiskStructureGenericElement::SectorData,
+                (false, false) => DiskStructureGenericElement::SectorBadData,
+                (true, true) => DiskStructureGenericElement::SectorDeletedData,
+                (false, true) => DiskStructureGenericElement::SectorBadDeletedData,
+            },
+        }
+    }
 }
 
 impl System34Element {
@@ -111,6 +138,7 @@ impl System34Element {
             System34Element::Sync => 8,
             System34Element::Marker(_, _) => 4,
             System34Element::Data { .. } => 0,
+            System34Element::SectorHeader => 0,
         }
     }
 
@@ -332,6 +360,8 @@ impl DiskStructureParser for System34Parser {
         let mut last_marker_opt: Option<System34Marker> = None;
         let mut last_sector_id = SectorId::default();
 
+        let mut last_element_offset = 0;
+
         for marker in &markers {
             let element_offset = marker.start;
 
@@ -341,19 +371,19 @@ impl DiskStructureParser for System34Parser {
                         let mut sector_header = [0; 8];
 
                         // TODO: Don't unwrap in a library unless provably safe.
-                        //       Consider removing option return type from read_encoded_byte.
-                        sector_header[0] = track.read_encoded_byte(marker.start + mfm_offset!(0)).unwrap();
-                        sector_header[1] = track.read_encoded_byte(marker.start + mfm_offset!(1)).unwrap();
-                        sector_header[2] = track.read_encoded_byte(marker.start + mfm_offset!(2)).unwrap();
-                        sector_header[3] = track.read_encoded_byte(marker.start + mfm_offset!(3)).unwrap();
+                        //       Consider removing option return type from read_decoded_byte.
+                        sector_header[0] = track.read_decoded_byte(marker.start + mfm_offset!(0)).unwrap();
+                        sector_header[1] = track.read_decoded_byte(marker.start + mfm_offset!(1)).unwrap();
+                        sector_header[2] = track.read_decoded_byte(marker.start + mfm_offset!(2)).unwrap();
+                        sector_header[3] = track.read_decoded_byte(marker.start + mfm_offset!(3)).unwrap();
 
                         log::trace!("Idam marker read: {:02X?}", &sector_header[0..4]);
-                        sector_header[4] = track.read_encoded_byte(marker.start + mfm_offset!(4)).unwrap(); // Cylinder
-                        sector_header[5] = track.read_encoded_byte(marker.start + mfm_offset!(5)).unwrap(); // Head
-                        sector_header[6] = track.read_encoded_byte(marker.start + mfm_offset!(6)).unwrap(); // Sector
-                        sector_header[7] = track.read_encoded_byte(marker.start + mfm_offset!(7)).unwrap(); // Sector size (b)
-                        let crc_byte0 = track.read_encoded_byte(marker.start + mfm_offset!(8)).unwrap_or(0xAA);
-                        let crc_byte1 = track.read_encoded_byte(marker.start + mfm_offset!(9)).unwrap_or(0xAA);
+                        sector_header[4] = track.read_decoded_byte(marker.start + mfm_offset!(4)).unwrap(); // Cylinder
+                        sector_header[5] = track.read_decoded_byte(marker.start + mfm_offset!(5)).unwrap(); // Head
+                        sector_header[6] = track.read_decoded_byte(marker.start + mfm_offset!(6)).unwrap(); // Sector
+                        sector_header[7] = track.read_decoded_byte(marker.start + mfm_offset!(7)).unwrap(); // Sector size (b)
+                        let crc_byte0 = track.read_decoded_byte(marker.start + mfm_offset!(8)).unwrap_or(0xAA);
+                        let crc_byte1 = track.read_decoded_byte(marker.start + mfm_offset!(9)).unwrap_or(0xAA);
 
                         let crc = u16::from_be_bytes([crc_byte0, crc_byte1]);
                         let calculated_crc = crc_ccitt(&sector_header[0..8]);
@@ -395,15 +425,15 @@ impl DiskStructureParser for System34Parser {
                         );
 
                         let mut dam_header = [0; 4];
-                        dam_header[0] = track.read_encoded_byte(marker.start + mfm_offset!(0)).unwrap();
-                        dam_header[1] = track.read_encoded_byte(marker.start + mfm_offset!(1)).unwrap();
-                        dam_header[2] = track.read_encoded_byte(marker.start + mfm_offset!(2)).unwrap();
-                        dam_header[3] = track.read_encoded_byte(marker.start + mfm_offset!(3)).unwrap();
+                        dam_header[0] = track.read_decoded_byte(marker.start + mfm_offset!(0)).unwrap();
+                        dam_header[1] = track.read_decoded_byte(marker.start + mfm_offset!(1)).unwrap();
+                        dam_header[2] = track.read_decoded_byte(marker.start + mfm_offset!(2)).unwrap();
+                        dam_header[3] = track.read_decoded_byte(marker.start + mfm_offset!(3)).unwrap();
 
                         //log::trace!("dam header verify: {:02X?}", dam_header);
 
-                        let crc_byte0 = track.read_encoded_byte(data_end).unwrap_or(0xAA);
-                        let crc_byte1 = track.read_encoded_byte(data_end + mfm_offset!(1)).unwrap_or(0xAA);
+                        let crc_byte0 = track.read_decoded_byte(data_end).unwrap_or(0xAA);
+                        let crc_byte1 = track.read_decoded_byte(data_end + mfm_offset!(1)).unwrap_or(0xAA);
                         let crc = u16::from_be_bytes([crc_byte0, crc_byte1]);
                         let calculated_crc = System34Parser::crc16(track, element_offset, data_end);
                         log::trace!("Data CRC16: {:04X} Calculated: {:04X}", crc, calculated_crc);
@@ -412,6 +442,16 @@ impl DiskStructureParser for System34Parser {
                         if !crc_correct {
                             log::warn!("Data CRC error detected at offset: {}", element_offset);
                         }
+
+                        // Push a Sector Header metadata item spanning from IDAM to DAM.
+                        let data_metadata = DiskStructureMetadataItem {
+                            elem_type: DiskStructureElement::System34(System34Element::SectorHeader),
+                            start: last_element_offset,
+                            end: element_offset,
+                            chsn: None,
+                            _crc: None,
+                        };
+                        elements.push(data_metadata);
 
                         let element = match sys34_marker {
                             System34Marker::Dam => System34Element::Data {
@@ -462,6 +502,7 @@ impl DiskStructureParser for System34Parser {
                 }
 
                 // Save the last element seen.
+                last_element_offset = element_offset;
                 last_marker_opt = Some(sys34_marker);
             }
         }

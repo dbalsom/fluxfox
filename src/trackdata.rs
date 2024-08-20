@@ -30,10 +30,9 @@
     and associated methods.
 
 */
+use crate::bitstream::TrackDataStream;
 use crate::chs::DiskChsn;
-use crate::diskimage::{
-    ReadSectorResult, RwSectorScope, SectorMapEntry, TrackDataStream, TrackSectorIndex, WriteSectorResult,
-};
+use crate::diskimage::{ReadSectorResult, RwSectorScope, SectorMapEntry, TrackSectorIndex, WriteSectorResult};
 use crate::structure_parsers::system34::{System34Element, System34Marker};
 use crate::structure_parsers::{DiskStructureElement, DiskStructureMetadata, DiskStructureMetadataItem};
 use crate::{DiskChs, DiskImageError};

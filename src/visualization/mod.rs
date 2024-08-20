@@ -30,15 +30,16 @@
     to images. Requires the 'vis' feature to be enabled.
 */
 
-use crate::diskimage::TrackDataStream;
+use crate::bitstream::TrackDataStream;
+use crate::structure_parsers::{DiskStructureGenericElement, DiskStructureMetadata};
 use crate::trackdata::TrackData;
-use crate::{DiskImage, DiskImageError};
-use image::{ImageBuffer, Pixel, Rgba};
-
-use crate::structure_parsers::system34::{System34Element, System34Marker};
-use crate::structure_parsers::{DiskStructureElement, DiskStructureMetadata};
+use crate::{DiskImage, DiskImageError, FoxHashMap};
 use std::cmp::min;
 use std::f32::consts::{PI, TAU};
+use tiny_skia::{
+    BlendMode, Color, FillRule, LineCap, LineJoin, Paint, PathBuilder, Pixmap, Point, PremultipliedColorU8, Stroke,
+    Transform,
+};
 
 #[derive(Copy, Clone, Debug)]
 pub enum RotationDirection {
@@ -62,6 +63,7 @@ pub enum ResolutionType {
     Byte,
 }
 
+/*
 impl From<System34Element> for Rgba<u8> {
     #[rustfmt::skip]
     fn from(element: System34Element) -> Self {
@@ -80,7 +82,7 @@ impl From<System34Element> for Rgba<u8> {
             System34Element::Data { address_crc: true, data_crc: true, .. } => Rgba([0, 255, 0, 64]),
             System34Element::Data { address_crc: true, data_crc: false, .. } => Rgba([255, 128, 0, 64]),
             System34Element::Data { address_crc: false, data_crc: true, .. } => Rgba([0, 255, 0, 64]),
-            System34Element::Data { address_crc: false, data_crc: false, .. } => Rgba([255, 128, 0, 64]),            
+            System34Element::Data { address_crc: false, data_crc: false, .. } => Rgba([255, 128, 0, 64]),
         }
     }
 }
@@ -125,7 +127,7 @@ impl System34Element {
             (_, System34Element::Data { data_crc: false, .. }) => Rgba([255, 128, 168, 160]),
         }
     }
-}
+}*/
 
 /// Create a lookup table to map a u8 value to a grayscale gradient value based on the number of
 /// bits set in the u8 value (popcount)
@@ -157,6 +159,7 @@ fn collect_metadata(head: u8, disk_image: &DiskImage) -> Vec<&DiskStructureMetad
         .collect()
 }
 
+/*
 /// Render a disk image to an image buffer.
 pub fn render_tracks(
     disk_image: &DiskImage,
@@ -299,39 +302,54 @@ pub fn render_tracks(
 
     Ok(())
 }
-
-
-/// Render a disk image to an image buffer.
+*/
+/// Render a representation of a disk's data to a Pixmap.
+/// Used as a base for other visualization functions.
 pub fn render_track_data(
     disk_image: &DiskImage,
-    imgbuf: &mut ImageBuffer<Rgba<u8>, Vec<u8>>,
+    pixmap: &mut Pixmap,
     head: u8,
     image_size: (u32, u32),
     image_pos: (u32, u32),
     min_radius_fraction: f32, // Minimum radius as a fraction (0.0 to 1.0)
+    index_angle: f32,         // Index angle (0 starts data at 90 degrees cw)
+    track_limit: usize,
     track_gap_weight: f32,
     direction: RotationDirection, // Added parameter for rotation direction
+    decode: bool,                 // Decode data (true) or render as raw MFM (false)
     resolution: ResolutionType,   // Added parameter for resolution type
-    colorize: bool,
 ) -> Result<(), DiskImageError> {
     let (width, height) = image_size;
+    let span = pixmap.width();
+
     let (x_offset, y_offset) = image_pos;
 
     let center_x = width as f32 / 2.0;
     let center_y = height as f32 / 2.0;
     let total_radius = width.min(height) as f32 / 2.0;
     let min_radius = min_radius_fraction * total_radius; // Scale min_radius to pixel value
+    let min_radius_sq = min_radius * min_radius;
 
     let rtracks = collect_streams(head, disk_image);
-    let rmetadata = collect_metadata(head, disk_image);
-    let num_tracks = rtracks.len();
+    //let rmetadata = collect_metadata(head, disk_image);
+    let num_tracks = min(rtracks.len(), track_limit);
 
     log::trace!("collected {} track references.", num_tracks);
     for (ti, track) in rtracks.iter().enumerate() {
         log::trace!("track {} length: {}", ti, track.len());
     }
 
+    //println!("track data type is : {:?}", rtracks[0]);
+
     let track_width = (total_radius - min_radius) / num_tracks as f32;
+    let track_width_sq = track_width * track_width;
+    let render_track_width = track_width * (1.0 - track_gap_weight);
+
+    let pix_buf = pixmap.pixels_mut();
+
+    let color_black = PremultipliedColorU8::from_rgba(0, 0, 0, 255).unwrap();
+    let color_white = PremultipliedColorU8::from_rgba(255, 255, 255, 255).unwrap();
+    let color_trans: PremultipliedColorU8 = PremultipliedColorU8::from_rgba(0, 0, 0, 0).unwrap();
 
     // Draw the tracks
     for y in 0..height {
@@ -339,92 +357,84 @@ pub fn render_track_data(
             let dx = x as f32 - center_x;
             let dy = y as f32 - center_y;
             let distance = (dx * dx + dy * dy).sqrt();
+            let distance_sq = dx * dx + dy * dy;
             let angle = (dy.atan2(dx) + PI) % TAU;
 
             if distance >= min_radius && distance <= total_radius {
-                let track_index =
-                    (num_tracks - 1).saturating_sub(((distance - min_radius) / track_width).floor() as usize) as usize;
+                let track_offset = (distance - min_radius) / track_width;
+                if track_offset.fract() < track_gap_weight {
+                    continue;
+                }
+
+                let track_index = (num_tracks - 1).saturating_sub(track_offset.floor() as usize);
 
                 if track_index < num_tracks {
                     // Adjust angle for clockwise or counter-clockwise
-                    let normalized_angle = if matches!(direction, RotationDirection::Clockwise) {
-                        angle
-                    } else {
-                        TAU - angle
+                    let normalized_angle = match direction {
+                        RotationDirection::Clockwise => angle - index_angle,
+                        RotationDirection::CounterClockwise => TAU - (angle - index_angle),
                     };
 
                     let normalized_angle = (normalized_angle + PI) % TAU;
                     let bit_index = ((normalized_angle / TAU) * rtracks[track_index].len() as f32) as usize;
 
                     // Ensure bit_index is within bounds
-                    let bit_index = min(bit_index, rtracks[track_index].len() - 1);
+                    let bit_index = min(bit_index, rtracks[track_index].len() - 9);
 
                     let color = match resolution {
                         ResolutionType::Bit => {
                             if rtracks[track_index][bit_index] {
-                                Rgba([255, 255, 255, 255])
+                                color_white
                             } else {
-                                Rgba([0, 0, 0, 0])
+                                color_black
                             }
                         }
                         ResolutionType::Byte => {
                             // Calculate the byte value
-                            let byte_index = bit_index / 8;
-                            let _bit_offset = bit_index % 8;
-                            let byte_value = if byte_index < rtracks[track_index].len() / 8 - 1 {
-                                let mut build_byte: u8 = 0;
-                                for bi in 0..8 {
-                                    build_byte |= if rtracks[track_index][bit_index + bi] { 1 } else { 0 };
-                                    build_byte <<= 1;
+                            let byte_value = match decode {
+                                false => rtracks[track_index].read_byte(bit_index).unwrap_or_default(),
+                                true => {
+                                    // Only render bits in 16-bit steps.
+                                    let decoded_bit_idx = (bit_index << 1) & !0xF;
+                                    rtracks[track_index]
+                                        .read_decoded_byte(decoded_bit_idx)
+                                        .unwrap_or_default()
                                 }
-                                build_byte
-                            } else {
-                                0
                             };
+
+                            // let byte_value = if byte_index < rtracks[track_index].len() / 8 - 1 {
+                            //     let mut build_byte: u8 = 0;
+                            //     for bi in 0..8 {
+                            //         build_byte |= if rtracks[track_index][bit_index + bi] { 1 } else { 0 };
+                            //         build_byte <<= 1;
+                            //     }
+                            //     build_byte
+                            // } else {
+                            //     0
+                            // };
 
                             let gray_value = POPCOUNT_TABLE[byte_value as usize];
 
-                            let mut data_color = if track_index > 39 {
-                                Rgba([255, 0, 0, 255])
-                            } else if track_index == 0 {
-                                //Rgba([gray_value, gray_value, 255, 255])
-                                Rgba([gray_value, gray_value, gray_value, 255])
+                            if track_index > 39 {
+                                // Why would this ever fail? I think safe to unwrap.
+                                PremultipliedColorU8::from_rgba(255, 0, 0, 255).unwrap()
                             } else {
-                                Rgba([gray_value, gray_value, gray_value, 255])
-                            };
-
-                            let meta_color: Option<Rgba<u8>> = match rmetadata[track_index].item_at(bit_index << 1) {
-                                Some((item, nest_ct)) => {
-                                    if let DiskStructureElement::System34(element) = item.elem_type {
-                                        Some(element.to_rgba_nested(nest_ct))
-                                    } else {
-                                        None
-                                    }
-                                }
-                                None => None,
-                            };
-
-                            if let Some(meta_color) = meta_color {
-                                if colorize {
-                                    data_color.blend(&meta_color);
-                                }
-                                data_color
-                            } else {
-                                data_color
+                                PremultipliedColorU8::from_rgba(gray_value, gray_value, gray_value, 255).unwrap()
                             }
                         }
                     };
 
-                    imgbuf.put_pixel(x + x_offset, y + y_offset, color);
+                    pix_buf[((y + y_offset) * span + (x + x_offset)) as usize] = color;
                 }
             } else {
-                imgbuf.put_pixel(x + x_offset, y + y_offset, Rgba([0, 0, 0, 0]));
+                pix_buf[((y + y_offset) * span + (x + x_offset)) as usize] = color_trans;
+                //imgbuf.put_pixel(x + x_offset, y + y_offset, Rgba([0, 0, 0, 0]));
             }
         }
     }
 
     // Draw inter-track gaps
-    for i in 0..=num_tracks {
+    /*    for i in 0..=num_tracks {
         let radius = min_radius + i as f32 * track_width;
 
         for y in 0..height {
@@ -439,7 +449,218 @@ pub fn render_track_data(
                 }
             }
         }
-    }
+    }*/
 
     Ok(())
+}
+
+fn calculate_track_width(total_tracks: usize, image_radius: f64, min_radius_ratio: f64, track_spacing: f64) -> f64 {
+    let min_radius = image_radius * min_radius_ratio;
+    (image_radius - min_radius - track_spacing * total_tracks as f64) / total_tracks as f64
+}
+
+/// Render a representation of a disk's data to a Pixmap.
+/// Used as a base for other visualization functions.
+pub fn render_track_metadata_quadrant(
+    disk_image: &DiskImage,
+    pixmap: &mut Pixmap,
+    quadrant: u8,
+    head: u8,
+    min_radius_ratio: f32, // Minimum radius as a fraction (0.0 to 1.0)
+    index_angle: f32,
+    track_limit: usize,
+    track_spacing: f32,
+    direction: RotationDirection, // Added parameter for rotation direction
+    palette: FoxHashMap<DiskStructureGenericElement, Color>,
+) -> Result<(), DiskImageError> {
+    let rtracks = collect_streams(head, disk_image);
+    let rmetadata = collect_metadata(head, disk_image);
+    let total_tracks = min(rtracks.len(), track_limit);
+
+    let image_size = pixmap.width() as f64 * 2.0;
+    let image_radius = image_size / 2.0;
+    let track_width = calculate_track_width(
+        total_tracks,
+        image_radius,
+        min_radius_ratio as f64,
+        track_spacing as f64,
+    );
+
+    let center = match quadrant {
+        0 => Point::from_xy(image_radius as f32, image_radius as f32),
+        1 => Point::from_xy(0.0, image_radius as f32),
+        2 => Point::from_xy(image_radius as f32, 0.0),
+        3 => Point::from_xy(0.0, 0.0),
+        _ => panic!("Invalid quadrant"),
+    };
+
+    let mut path_builder = PathBuilder::new();
+    // let quadrant_angles_cw = match quadrant {
+    //     0 => (PI, PI / 2.0),
+    //     1 => (PI / 2.0, 0.0),
+    //     2 => (0.0, 3.0 * PI / 2.0),
+    //     3 => (3.0 * PI / 2.0, PI),
+    //     _ => panic!("Invalid quadrant"),
+    // };
+    let quadrant_angles_cc = match quadrant {
+        0 => (PI, 3.0 * PI / 2.0),
+        1 => (3.0 * PI / 2.0, 2.0 * PI),
+        2 => (PI / 2.0, PI),
+        3 => (0.0, PI / 2.0),
+        _ => panic!("Invalid quadrant"),
+    };
+
+    //println!("Rendering side {:?}", direction);
+
+    for (ti, track_meta) in rmetadata.iter().enumerate() {
+        for meta_item in &track_meta.items {
+            let outer_radius = image_radius as f32 - (ti as f32 * (track_width as f32 + track_spacing as f32));
+            let track_radius = outer_radius - track_width as f32;
+
+            let mut start_angle = (((meta_item.start as f32 / 100_000.0) * TAU) + index_angle) % TAU;
+            let mut end_angle = (((meta_item.end as f32 / 100_000.0) * TAU) + index_angle) % TAU;
+
+            let (clip_start, clip_end) = match direction {
+                RotationDirection::CounterClockwise => (quadrant_angles_cc.0, quadrant_angles_cc.1),
+                RotationDirection::Clockwise => (quadrant_angles_cc.0, quadrant_angles_cc.1),
+            };
+
+            (start_angle, end_angle) = match direction {
+                RotationDirection::CounterClockwise => (start_angle, end_angle),
+                RotationDirection::Clockwise => (TAU - start_angle, TAU - end_angle),
+            };
+
+            if start_angle > end_angle {
+                std::mem::swap(&mut start_angle, &mut end_angle);
+            }
+
+            // Skip sectors that are outside the current quadrant
+            if end_angle <= clip_start || start_angle >= clip_end {
+                continue;
+            }
+
+            // Clamp start and end angle to quadrant boundaries
+            if start_angle < clip_start {
+                start_angle = clip_start;
+            }
+
+            if end_angle > clip_end {
+                end_angle = clip_end;
+            }
+
+            // Draw the outer curve
+            add_arc(
+                &mut path_builder,
+                center,
+                track_radius,
+                start_angle.max(clip_start),
+                end_angle.min(clip_end),
+            );
+            // Draw line segment to end angle of inner curve
+            path_builder.line_to(
+                center.x + outer_radius * end_angle.cos(),
+                center.y + outer_radius * end_angle.sin(),
+            );
+            // Draw inner curve back to start angle
+            add_arc(
+                &mut path_builder,
+                center,
+                outer_radius,
+                end_angle.min(clip_end),
+                start_angle.max(clip_start),
+            );
+            // Draw line segment back to start angle of outer curve
+            path_builder.line_to(
+                center.x + track_radius * start_angle.cos(),
+                center.y + track_radius * start_angle.sin(),
+            );
+            path_builder.close();
+
+            // Use a predefined color for each sector
+            let generic_elem = DiskStructureGenericElement::from(meta_item.elem_type);
+            let null_color = Color::from_rgba(0.0, 0.0, 0.0, 0.0).unwrap();
+            let color = palette.get(&generic_elem).unwrap_or(&null_color);
+
+            let mut paint = Paint {
+                blend_mode: BlendMode::SourceOver,
+                ..Default::default()
+            };
+            paint.set_color(*color);
+
+            let path = path_builder.finish().unwrap();
+            pixmap.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
+
+            path_builder = PathBuilder::new(); // Reset the path builder for the next sector
+        }
+    }
+    Ok(())
+}
+
+fn add_arc(
+    path: &mut PathBuilder,
+    center: Point,
+    radius: f32,
+    start_angle: f32,
+    end_angle: f32,
+    //direction: RotationDirection,
+) {
+    let (x1, y1) = (
+        center.x + radius * start_angle.cos(),
+        center.y + radius * start_angle.sin(),
+    );
+    let (x4, y4) = (center.x + radius * end_angle.cos(), center.y + radius * end_angle.sin());
+
+    let ax = x1 - center.x;
+    let ay = y1 - center.y;
+    let bx = x4 - center.x;
+    let by = y4 - center.y;
+
+    let q1 = ax * ax + ay * ay;
+    let q2 = q1 + ax * bx + ay * by;
+    let k2 = (4.0 / 3.0) * ((2.0 * q1 * q2).sqrt() - q2) / (ax * by - ay * bx);
+
+    let (x2, y2) = (center.x + ax - k2 * ay, center.y + ay + k2 * ax);
+    let (x3, y3) = (center.x + bx + k2 * by, center.y + by - k2 * bx);
+
+    path.move_to(x1, y1);
+    path.cubic_to(x2, y2, x3, y3, x4, y4);
+}
+
+pub fn draw_index_hole(
+    pixmap: &mut Pixmap,
+    offset_radius: f32,
+    angle: f32,
+    circle_radius: f32,
+    stroke_width: f32,
+    color: Color,
+    direction: RotationDirection,
+) {
+    let center_x = pixmap.width() as f32 / 2.0;
+    let center_y = pixmap.height() as f32 / 2.0;
+    let max_radius = center_x.min(center_y);
+    let scaled_radius = offset_radius * max_radius;
+
+    let normalized_angle = match direction {
+        RotationDirection::CounterClockwise => angle,
+        RotationDirection::Clockwise => TAU - angle,
+    };
+
+    let offset_x = center_x + scaled_radius * normalized_angle.cos();
+    let offset_y = center_y + scaled_radius * normalized_angle.sin();
+
+    let mut pb = PathBuilder::new();
+    pb.push_circle(offset_x, offset_y, circle_radius);
+    let path = pb.finish().unwrap();
+
+    let mut paint = Paint::default();
+    paint.set_color(color);
+
+    let stroke = Stroke {
+        width: stroke_width,
+        line_cap: LineCap::Round,
+        line_join: LineJoin::Round,
+        ..Default::default()
+    };
+
+    pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
 }

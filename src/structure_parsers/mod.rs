@@ -39,8 +39,8 @@
 
 pub mod system34;
 
+use crate::bitstream::TrackDataStream;
 use crate::chs::DiskChsn;
-use crate::diskimage::TrackDataStream;
 use crate::structure_parsers::system34::{System34Element, System34Marker};
 use bit_vec::BitVec;
 
@@ -128,10 +128,31 @@ pub enum DiskStructureMarker {
     Placeholder,
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub enum DiskStructureGenericElement {
+    NoElement,
+    Marker,
+    SectorHeader,
+    SectorBadHeader,
+    SectorData,
+    SectorDeletedData,
+    SectorBadData,
+    SectorBadDeletedData,
+}
+
 #[derive(Copy, Clone, Debug)]
 pub enum DiskStructureElement {
     System34(System34Element),
     Placeholder,
+}
+
+impl From<DiskStructureElement> for DiskStructureGenericElement {
+    fn from(elem: DiskStructureElement) -> Self {
+        match elem {
+            DiskStructureElement::System34(sys34elem) => sys34elem.into(),
+            _ => DiskStructureGenericElement::NoElement,
+        }
+    }
 }
 
 impl DiskStructureElement {

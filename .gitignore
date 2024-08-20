@@ -23,6 +23,8 @@ tests/images/*
 
 # Allow doc images
 !/doc/img/*
+/doc/img/visualization*
+!/doc/img/visualization_example.png
 
 # Added by cargo
 /target
