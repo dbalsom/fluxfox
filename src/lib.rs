@@ -32,6 +32,7 @@ pub mod diskimage;
 mod file_parsers;
 mod io;
 mod sector;
+pub mod standard_format;
 pub mod structure_parsers;
 mod trackdata;
 pub mod util;
@@ -80,7 +81,7 @@ pub enum DiskImageError {
 
 #[repr(usize)]
 #[derive(Default, PartialEq, Eq, Hash)]
-pub enum TrackDataType {
+pub enum DiskDataResolution {
     #[default]
     ByteStream = 0,
     BitStream = 1,
@@ -167,6 +168,19 @@ pub enum DiskDataRate {
     Rate1000Kbps,
 }
 
+impl From<DiskDataRate> for u32 {
+    fn from(rate: DiskDataRate) -> Self {
+        match rate {
+            DiskDataRate::Rate125Kbps => 125000,
+            DiskDataRate::Rate250Kbps => 250000,
+            DiskDataRate::Rate300Kbps => 300000,
+            DiskDataRate::Rate500Kbps => 500000,
+            DiskDataRate::Rate1000Kbps => 1000000,
+            DiskDataRate::RateNonstandard(rate) => rate,
+        }
+    }
+}
+
 impl From<u32> for DiskDataRate {
     fn from(rate: u32) -> Self {
         match rate {
@@ -222,5 +236,6 @@ impl Display for DiskRpm {
 
 pub use crate::chs::{DiskCh, DiskChs, DiskChsn};
 pub use crate::detect::supported_extensions;
-pub use crate::diskimage::{DiskImage, DiskImageFormat, StandardFormat};
+pub use crate::diskimage::{DiskImage, DiskImageFormat};
 pub use crate::file_parsers::ImageParser;
+pub use crate::standard_format::StandardFormat;

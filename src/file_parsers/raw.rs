@@ -27,12 +27,12 @@
 
 use crate::chs::{DiskChs, DiskChsn};
 use crate::detect::chs_from_raw_size;
-use crate::diskimage::{DiskConsistency, DiskDescriptor, DiskImage, SectorDescriptor, StandardFormat};
+use crate::diskimage::{DiskConsistency, DiskDescriptor, DiskImage, SectorDescriptor};
 use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::trackdata::TrackData;
 use crate::util::get_length;
-use crate::{DiskImageError, DiskImageFormat, DEFAULT_SECTOR_SIZE};
+use crate::{DiskImageError, DiskImageFormat, StandardFormat, DEFAULT_SECTOR_SIZE};
 
 pub struct RawFormat;
 
@@ -93,7 +93,7 @@ impl RawFormat {
 
         // Insert sectors in order encountered.
         for _t in 0..track_ct {
-            disk_image.add_track_bytestream(data_encoding, data_rate, cursor_chs.into());
+            disk_image.add_track_bytestream(data_encoding, data_rate, cursor_chs.into())?;
 
             for sector_id in 0..disk_chs.s() {
                 raw.read_exact(&mut sector_buffer)
@@ -119,27 +119,34 @@ impl RawFormat {
         }
 
         disk_image.consistency = DiskConsistency {
+            image_caps: 0,
             weak: false,
             deleted: false,
+            bad_address_crc: false,
+            bad_data_crc: false,
+            overlapped: false,
             consistent_sector_size: Some(DEFAULT_SECTOR_SIZE as u32),
             consistent_track_length: Some(disk_chs.s()),
         };
 
-        disk_image.image_format = DiskDescriptor {
+        disk_image.descriptor = DiskDescriptor {
             geometry: disk_chs.into(),
             data_rate,
             data_encoding,
             default_sector_size: DEFAULT_SECTOR_SIZE,
             rpm: Some(rpm),
+            write_protect: None,
         };
 
         Ok(disk_image)
     }
 
     pub fn save_image<RWS: ReadWriteSeek>(image: &DiskImage, output: &mut RWS) -> Result<(), DiskImageError> {
+        // Clamp track count to 40 or 80 for a standard disk image. We may read in more tracks
+        // depending on image format. For example, 86f format exports 86 tracks
         let track_ct = match image.track_map[0].len() {
-            39..=45 => 40,
-            79..=85 => 80,
+            39..=50 => 40,
+            79..=90 => 80,
             _ => {
                 return Err(DiskImageError::UnsupportedFormat);
             }

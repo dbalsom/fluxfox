@@ -35,9 +35,8 @@
     be able to patch the BPB values as appropriate for the specified floppy
     image format, or the disk will not be bootable.
 */
-use crate::diskimage::StandardFormat;
 use crate::io::{ReadSeek, ReadWriteSeek, SeekFrom, Write};
-use crate::DiskImageError;
+use crate::{DiskImageError, StandardFormat};
 use binrw::{binrw, BinRead, BinWrite};
 
 // Offset of the bios parameter block in the boot sector.

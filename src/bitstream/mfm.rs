@@ -29,7 +29,6 @@
     Implements a wrapper around a BitVec to provide MFM encoding and decoding.
 
 */
-
 use crate::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom};
 use crate::EncodingPhase;
 use bit_vec::BitVec;
@@ -152,7 +151,11 @@ impl MfmDecoder {
     }
 
     pub fn len(&self) -> usize {
-        self.bit_vec.len() / 2
+        self.bit_vec.len()
+    }
+
+    pub fn data(&self) -> Vec<u8> {
+        self.bit_vec.to_bytes()
     }
 
     pub fn get_sync(&self) -> Option<EncodingPhase> {

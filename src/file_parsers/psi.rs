@@ -274,7 +274,7 @@ impl PsiFormat {
 
                     if !track_set.contains(&ch) {
                         log::trace!("Adding track...");
-                        disk_image.add_track_bytestream(default_encoding, DiskDataRate::from(disk_density), ch);
+                        disk_image.add_track_bytestream(default_encoding, DiskDataRate::from(disk_density), ch)?;
                         track_set.insert(ch);
                         log::trace!("Observing sector count: {}", sectors_per_track);
                         sector_counts
@@ -361,12 +361,13 @@ impl PsiFormat {
 
         let head_ct = heads_seen.len() as u8;
         let track_ct = track_set.len() as u16;
-        disk_image.image_format = DiskDescriptor {
+        disk_image.descriptor = DiskDescriptor {
             geometry: DiskCh::from((track_ct / head_ct as u16, head_ct)),
             data_rate: Default::default(),
             data_encoding: DiskDataEncoding::Mfm,
             default_sector_size: DEFAULT_SECTOR_SIZE,
             rpm: None,
+            write_protect: None,
         };
 
         Ok(disk_image)

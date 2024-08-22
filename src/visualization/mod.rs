@@ -328,7 +328,7 @@ pub fn render_track_data(
     let center_y = height as f32 / 2.0;
     let total_radius = width.min(height) as f32 / 2.0;
     let min_radius = min_radius_fraction * total_radius; // Scale min_radius to pixel value
-    let min_radius_sq = min_radius * min_radius;
+    let _min_radius_sq = min_radius * min_radius;
 
     let rtracks = collect_streams(head, disk_image);
     //let rmetadata = collect_metadata(head, disk_image);
@@ -342,8 +342,8 @@ pub fn render_track_data(
     //println!("track data type is : {:?}", rtracks[0]);
 
     let track_width = (total_radius - min_radius) / num_tracks as f32;
-    let track_width_sq = track_width * track_width;
-    let render_track_width = track_width * (1.0 - track_gap_weight);
+    let _track_width_sq = track_width * track_width;
+    let _render_track_width = track_width * (1.0 - track_gap_weight);
 
     let pix_buf = pixmap.pixels_mut();
 
@@ -357,7 +357,7 @@ pub fn render_track_data(
             let dx = x as f32 - center_x;
             let dy = y as f32 - center_y;
             let distance = (dx * dx + dy * dy).sqrt();
-            let distance_sq = dx * dx + dy * dy;
+            let _distance_sq = dx * dx + dy * dy;
             let angle = (dy.atan2(dx) + PI) % TAU;
 
             if distance >= min_radius && distance <= total_radius {
@@ -395,7 +395,7 @@ pub fn render_track_data(
                                 false => rtracks[track_index].read_byte(bit_index).unwrap_or_default(),
                                 true => {
                                     // Only render bits in 16-bit steps.
-                                    let decoded_bit_idx = (bit_index << 1) & !0xF;
+                                    let decoded_bit_idx = (bit_index) & !0xF;
                                     rtracks[track_index]
                                         .read_decoded_byte(decoded_bit_idx)
                                         .unwrap_or_default()
@@ -415,12 +415,7 @@ pub fn render_track_data(
 
                             let gray_value = POPCOUNT_TABLE[byte_value as usize];
 
-                            if track_index > 39 {
-                                // Why would this ever fail? I think safe to unwrap.
-                                PremultipliedColorU8::from_rgba(255, 0, 0, 255).unwrap()
-                            } else {
-                                PremultipliedColorU8::from_rgba(gray_value, gray_value, gray_value, 255).unwrap()
-                            }
+                            PremultipliedColorU8::from_rgba(gray_value, gray_value, gray_value, 255).unwrap()
                         }
                     };
 
@@ -513,12 +508,16 @@ pub fn render_track_metadata_quadrant(
     //println!("Rendering side {:?}", direction);
 
     for (ti, track_meta) in rmetadata.iter().enumerate() {
-        for meta_item in &track_meta.items {
-            let outer_radius = image_radius as f32 - (ti as f32 * (track_width as f32 + track_spacing as f32));
+        for (mi, meta_item) in track_meta.items.iter().enumerate() {
+            let outer_radius = image_radius as f32 - (ti as f32 * (track_width as f32 + track_spacing));
             let track_radius = outer_radius - track_width as f32;
 
-            let mut start_angle = (((meta_item.start as f32 / 100_000.0) * TAU) + index_angle) % TAU;
-            let mut end_angle = (((meta_item.end as f32 / 100_000.0) * TAU) + index_angle) % TAU;
+            let mut start_angle = ((meta_item.start as f32 / rtracks[ti].len() as f32) * TAU) + index_angle;
+            let mut end_angle = ((meta_item.end as f32 / rtracks[ti].len() as f32) * TAU) + index_angle;
+
+            if start_angle > end_angle {
+                std::mem::swap(&mut start_angle, &mut end_angle);
+            }
 
             let (clip_start, clip_end) = match direction {
                 RotationDirection::CounterClockwise => (quadrant_angles_cc.0, quadrant_angles_cc.1),

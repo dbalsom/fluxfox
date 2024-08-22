@@ -29,6 +29,7 @@ use crate::{DiskImage, DiskImageError, DiskImageFormat};
 use bitflags::bitflags;
 
 pub mod compression;
+pub mod f86;
 pub mod hfe;
 pub mod imd;
 pub mod mfm;
@@ -92,6 +93,7 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::PceBitstreamImage => pri::PriFormat::capabilities(),
             DiskImageFormat::MfmBitstreamImage => mfm::MfmFormat::capabilities(),
             DiskImageFormat::HfeImage => hfe::HfeFormat::capabilities(),
+            DiskImageFormat::F86Image => f86::F86Format::capabilities(),
             _ => FormatCaps::empty(),
         }
     }
@@ -105,6 +107,7 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::PceBitstreamImage => pri::PriFormat::detect(image_buf),
             DiskImageFormat::MfmBitstreamImage => mfm::MfmFormat::detect(image_buf),
             DiskImageFormat::HfeImage => hfe::HfeFormat::detect(image_buf),
+            DiskImageFormat::F86Image => f86::F86Format::detect(image_buf),
             _ => false,
         }
     }
@@ -118,6 +121,7 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::PceBitstreamImage => pri::PriFormat::extensions(),
             DiskImageFormat::MfmBitstreamImage => mfm::MfmFormat::extensions(),
             DiskImageFormat::HfeImage => hfe::HfeFormat::extensions(),
+            DiskImageFormat::F86Image => f86::F86Format::extensions(),
             _ => vec![],
         }
     }
@@ -131,6 +135,7 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::PceBitstreamImage => pri::PriFormat::load_image(image_buf),
             DiskImageFormat::MfmBitstreamImage => mfm::MfmFormat::load_image(image_buf),
             DiskImageFormat::HfeImage => hfe::HfeFormat::load_image(image_buf),
+            DiskImageFormat::F86Image => f86::F86Format::load_image(image_buf),
             _ => Err(DiskImageError::UnknownFormat),
         }
     }
@@ -144,6 +149,7 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::PceBitstreamImage => pri::PriFormat::can_write(image),
             DiskImageFormat::MfmBitstreamImage => mfm::MfmFormat::can_write(image),
             DiskImageFormat::HfeImage => hfe::HfeFormat::can_write(image),
+            DiskImageFormat::F86Image => f86::F86Format::can_write(image),
             _ => ParserWriteCompatibility::UnsupportedFormat,
         }
     }
@@ -157,6 +163,7 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::PceBitstreamImage => pri::PriFormat::save_image(image, image_buf),
             DiskImageFormat::MfmBitstreamImage => mfm::MfmFormat::save_image(image, image_buf),
             DiskImageFormat::HfeImage => hfe::HfeFormat::save_image(image, image_buf),
+            DiskImageFormat::F86Image => f86::F86Format::save_image(image, image_buf),
             _ => Err(DiskImageError::UnknownFormat),
         }
     }

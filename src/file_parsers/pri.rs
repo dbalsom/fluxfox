@@ -331,12 +331,13 @@ impl PriFormat {
 
         let head_ct = heads_seen.len() as u16;
         let track_ct = track_set.len() as u16;
-        disk_image.image_format = DiskDescriptor {
+        disk_image.descriptor = DiskDescriptor {
             geometry: DiskCh::from((track_ct / head_ct, head_ct as u8)),
             data_rate: Default::default(),
             data_encoding: DiskDataEncoding::Mfm,
             default_sector_size: DEFAULT_SECTOR_SIZE,
             rpm: None,
+            write_protect: None,
         };
 
         Ok(disk_image)

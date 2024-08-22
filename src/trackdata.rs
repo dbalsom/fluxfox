@@ -36,6 +36,7 @@ use crate::diskimage::{ReadSectorResult, RwSectorScope, SectorMapEntry, TrackSec
 use crate::structure_parsers::system34::{System34Element, System34Marker};
 use crate::structure_parsers::{DiskStructureElement, DiskStructureMetadata, DiskStructureMetadataItem};
 use crate::{DiskChs, DiskImageError};
+use sha1_smol::Digest;
 use std::io::{Read, Seek, SeekFrom};
 
 /// A TrackData enum is one of two variants indicating the representational level of the disk image.
@@ -391,5 +392,19 @@ impl TrackData {
             wrong_cylinder,
             wrong_head,
         })
+    }
+
+    pub(crate) fn get_hash(&self) -> Digest {
+        let mut hasher = sha1_smol::Sha1::new();
+        match self {
+            TrackData::BitStream { data, .. } => {
+                hasher.update(&data.data());
+                hasher.digest()
+            }
+            TrackData::ByteStream { data, .. } => {
+                hasher.update(data);
+                hasher.digest()
+            }
+        }
     }
 }

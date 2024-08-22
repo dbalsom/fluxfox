@@ -34,11 +34,16 @@ use crate::containers::DiskImageContainer;
 use crate::detect::detect_image_format;
 use crate::file_parsers::ImageParser;
 use crate::io::ReadSeek;
+use crate::standard_format::StandardFormat;
 use crate::structure_parsers::system34::{System34Element, System34Parser};
 use crate::structure_parsers::{DiskStructureElement, DiskStructureMetadata, DiskStructureParser};
 use crate::trackdata::TrackData;
-use crate::{DiskDataEncoding, DiskDataRate, DiskImageError, DiskRpm, EncodingPhase, DEFAULT_SECTOR_SIZE};
+use crate::{
+    util, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskImageError, DiskRpm, EncodingPhase, FoxHashMap,
+    DEFAULT_SECTOR_SIZE,
+};
 use bit_vec::BitVec;
+use sha1_smol::Digest;
 use std::fmt::Display;
 use std::io::Cursor;
 
@@ -53,6 +58,23 @@ pub enum DiskImageFormat {
     TeleDisk,
     KryofluxStream,
     HfeImage,
+    F86Image, // 86F
+}
+
+impl DiskImageFormat {
+    pub fn resolution(self) -> DiskDataResolution {
+        match self {
+            DiskImageFormat::RawSectorImage => DiskDataResolution::ByteStream,
+            DiskImageFormat::ImageDisk => DiskDataResolution::ByteStream,
+            DiskImageFormat::PceSectorImage => DiskDataResolution::ByteStream,
+            DiskImageFormat::PceBitstreamImage => DiskDataResolution::BitStream,
+            DiskImageFormat::MfmBitstreamImage => DiskDataResolution::BitStream,
+            DiskImageFormat::TeleDisk => DiskDataResolution::ByteStream,
+            DiskImageFormat::KryofluxStream => DiskDataResolution::FluxStream,
+            DiskImageFormat::HfeImage => DiskDataResolution::BitStream,
+            DiskImageFormat::F86Image => DiskDataResolution::BitStream,
+        }
+    }
 }
 
 impl Display for DiskImageFormat {
@@ -66,6 +88,7 @@ impl Display for DiskImageFormat {
             DiskImageFormat::KryofluxStream => "Kryoflux Stream".to_string(),
             DiskImageFormat::MfmBitstreamImage => "HxC MFM Bitstream Image".to_string(),
             DiskImageFormat::HfeImage => "HFEv1 Bitstream Image".to_string(),
+            DiskImageFormat::F86Image => "86F Bitstream Image".to_string(),
         };
         write!(f, "{}", str)
     }
@@ -76,119 +99,6 @@ pub enum DiskFormat {
     Unknown,
     Nonstandard(DiskChs),
     Standard(StandardFormat),
-}
-
-/// An enumeration describing the type of disk image.
-#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
-pub enum StandardFormat {
-    Invalid,
-    PcFloppy160,
-    PcFloppy180,
-    PcFloppy320,
-    PcFloppy360,
-    PcFloppy720,
-    PcFloppy1200,
-    PcFloppy1440,
-    PcFloppy2880,
-}
-
-impl StandardFormat {
-    /// Returns the CHS geometry corresponding to the DiskImageType.
-    pub fn get_chs(&self) -> DiskChs {
-        match self {
-            StandardFormat::Invalid => DiskChs::new(1, 1, 1),
-            StandardFormat::PcFloppy160 => DiskChs::new(40, 1, 8),
-            StandardFormat::PcFloppy180 => DiskChs::new(40, 1, 9),
-            StandardFormat::PcFloppy320 => DiskChs::new(40, 2, 8),
-            StandardFormat::PcFloppy360 => DiskChs::new(40, 2, 9),
-            StandardFormat::PcFloppy720 => DiskChs::new(80, 2, 9),
-            StandardFormat::PcFloppy1200 => DiskChs::new(80, 2, 15),
-            StandardFormat::PcFloppy1440 => DiskChs::new(80, 2, 18),
-            StandardFormat::PcFloppy2880 => DiskChs::new(80, 2, 36),
-        }
-    }
-
-    pub fn get_ch(&self) -> DiskCh {
-        self.get_chs().into()
-    }
-
-    pub fn get_encoding(&self) -> DiskDataEncoding {
-        DiskDataEncoding::Mfm
-    }
-
-    pub fn get_data_rate(&self) -> DiskDataRate {
-        match self {
-            StandardFormat::PcFloppy160 => DiskDataRate::Rate500Kbps,
-            StandardFormat::PcFloppy180 => DiskDataRate::Rate500Kbps,
-            StandardFormat::PcFloppy320 => DiskDataRate::Rate500Kbps,
-            StandardFormat::PcFloppy360 => DiskDataRate::Rate500Kbps,
-            StandardFormat::PcFloppy720 => DiskDataRate::Rate500Kbps,
-            StandardFormat::PcFloppy1200 => DiskDataRate::Rate500Kbps,
-            StandardFormat::PcFloppy1440 => DiskDataRate::Rate500Kbps,
-            StandardFormat::PcFloppy2880 => DiskDataRate::Rate500Kbps,
-            _ => DiskDataRate::Rate500Kbps,
-        }
-    }
-
-    pub fn get_rpm(&self) -> DiskRpm {
-        match self {
-            StandardFormat::PcFloppy160 => DiskRpm::Rpm300,
-            StandardFormat::PcFloppy180 => DiskRpm::Rpm300,
-            StandardFormat::PcFloppy320 => DiskRpm::Rpm300,
-            StandardFormat::PcFloppy360 => DiskRpm::Rpm300,
-            StandardFormat::PcFloppy720 => DiskRpm::Rpm300,
-            StandardFormat::PcFloppy1200 => DiskRpm::Rpm360,
-            StandardFormat::PcFloppy1440 => DiskRpm::Rpm300,
-            StandardFormat::PcFloppy2880 => DiskRpm::Rpm300,
-            _ => DiskRpm::Rpm300,
-        }
-    }
-
-    pub fn get_image_format(&self) -> DiskDescriptor {
-        DiskDescriptor {
-            geometry: self.get_ch(),
-            default_sector_size: DEFAULT_SECTOR_SIZE,
-            data_encoding: DiskDataEncoding::Mfm,
-            data_rate: DiskDataRate::Rate500Kbps,
-            rpm: Some(DiskRpm::Rpm300),
-        }
-    }
-
-    pub fn size(&self) -> usize {
-        match self {
-            StandardFormat::PcFloppy160 => 163_840,
-            StandardFormat::PcFloppy180 => 184_320,
-            StandardFormat::PcFloppy320 => 327_680,
-            StandardFormat::PcFloppy360 => 368_640,
-            StandardFormat::PcFloppy720 => 737_280,
-            StandardFormat::PcFloppy1200 => 1_228_800,
-            StandardFormat::PcFloppy1440 => 1_474_560,
-            StandardFormat::PcFloppy2880 => 2_949_120,
-            _ => 0,
-        }
-    }
-}
-
-impl From<StandardFormat> for usize {
-    fn from(format: StandardFormat) -> Self {
-        format.size()
-    }
-}
-
-impl From<usize> for StandardFormat {
-    fn from(size: usize) -> Self {
-        match size {
-            163_840 => StandardFormat::PcFloppy160,
-            184_320 => StandardFormat::PcFloppy180,
-            327_680 => StandardFormat::PcFloppy320,
-            368_640 => StandardFormat::PcFloppy360,
-            737_280 => StandardFormat::PcFloppy720,
-            1_228_800 => StandardFormat::PcFloppy1200,
-            1_474_560 => StandardFormat::PcFloppy1440,
-            2_949_120 => StandardFormat::PcFloppy2880,
-            _ => StandardFormat::Invalid,
-        }
-    }
 }
 
 #[derive(Default)]
@@ -215,10 +125,18 @@ pub struct SectorMapEntry {
 /// A DiskConsistency structure maintains information about the consistency of a disk image.
 #[derive(Default)]
 pub struct DiskConsistency {
+    // A field to hold image format capability flags that this image requires in order to be represented.
+    pub image_caps: u64,
     /// Whether the disk image contains weak bits.
     pub weak: bool,
     /// Whether the disk image contains deleted sectors.
     pub deleted: bool,
+    /// Whether the disk image contains sectors with bad address mark CRCs
+    pub bad_address_crc: bool,
+    /// Whether the disk image contains sectors with bad data CRCs
+    pub bad_data_crc: bool,
+    /// Whether the disk image contains overlapped sectors
+    pub overlapped: bool,
     /// The sector size if the disk image has consistent sector sizes, otherwise None.
     pub consistent_sector_size: Option<u32>,
     /// The track length in sectors if the disk image has consistent track lengths, otherwise None.
@@ -269,6 +187,10 @@ impl DiskTrack {
     pub fn metadata(&self) -> Option<&DiskStructureMetadata> {
         self.data.metadata()
     }
+
+    pub fn get_hash(&self) -> Digest {
+        self.data.get_hash()
+    }
 }
 
 #[derive(Copy, Clone, Default)]
@@ -283,6 +205,8 @@ pub struct DiskDescriptor {
     pub data_rate: DiskDataRate,
     /// The rotation rate of the disk. If not provided, this can be determined from other parameters.
     pub rpm: Option<DiskRpm>,
+    /// Whether the disk image should be considered read-only (None if image did not define this flag)
+    pub write_protect: Option<bool>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -313,13 +237,17 @@ pub struct WriteSectorResult {
 /// A DiskImage represents an image of a floppy disk in memory. It comprises a pool of sectors, and an ordered
 /// list of tracks that reference sectors in the pool.
 /// Sectors may be variable length due to various copy protection schemes.
+#[derive(Default)]
 pub struct DiskImage {
     // The standard format of the disk image, if it adheres to one. (Nonstandard images will be None)
     pub(crate) standard_format: Option<StandardFormat>,
+    // The image format the disk image was sourced from, if any
+    pub(crate) source_format: Option<DiskImageFormat>,
+    // The data-level resolution of the disk image. Set on first write operation to an empty disk image.
+    pub(crate) resolution: Option<DiskDataResolution>,
     // A DiskDescriptor describing this image with more thorough parameters.
-    pub(crate) image_format: DiskDescriptor,
-    // A field to hold image format capability flags that this image requires in order to be represented.
-    pub(crate) image_caps: u64,
+    pub(crate) descriptor: DiskDescriptor,
+    // A structure containing information about the disks internal consistency. Used to construct image_caps.
     pub(crate) consistency: DiskConsistency,
     // The boot sector of the disk image, if successfully parsed.
     pub(crate) boot_sector: Option<BootSector>,
@@ -332,25 +260,25 @@ pub struct DiskImage {
     /// An array of vectors containing indices into the track pool. The first index is the head
     /// number, the second is the cylinder number.
     pub(crate) track_map: [Vec<usize>; 2],
-    pub(crate) sector_map: [Vec<Vec<usize>>; 2],
 }
 
-impl Default for DiskImage {
-    fn default() -> Self {
-        Self {
-            standard_format: None,
-            image_format: DiskDescriptor::default(),
-            image_caps: 0,
-            consistency: Default::default(),
-            boot_sector: None,
-            volume_name: None,
-            comment: None,
-            track_pool: Vec::new(),
-            track_map: [Vec::new(), Vec::new()],
-            sector_map: [Vec::new(), Vec::new()],
-        }
-    }
-}
+// impl Default for DiskImage {
+//     fn default() -> Self {
+//         Self {
+//             standard_format: None,
+//             descriptor: DiskDescriptor::default(),
+//             source_format: None,
+//             resolution: Default::default(),
+//             consistency: Default::default(),
+//             boot_sector: None,
+//             volume_name: None,
+//             comment: None,
+//             track_pool: Vec::new(),
+//             track_map: [Vec::new(), Vec::new()],
+//             sector_map: [Vec::new(), Vec::new()],
+//         }
+//     }
+// }
 
 impl DiskImage {
     pub fn detect_format<RS: ReadSeek>(mut image: &mut RS) -> Result<DiskImageContainer, DiskImageError> {
@@ -360,11 +288,16 @@ impl DiskImage {
     pub fn new(disk_format: StandardFormat) -> Self {
         Self {
             standard_format: Some(disk_format),
-            image_format: disk_format.get_image_format(),
-            image_caps: 0,
+            descriptor: disk_format.get_image_format(),
+            source_format: None,
+            resolution: None,
             consistency: DiskConsistency {
+                image_caps: 0,
                 weak: false,
                 deleted: false,
+                bad_address_crc: false,
+                bad_data_crc: false,
+                overlapped: false,
                 consistent_sector_size: Some(DEFAULT_SECTOR_SIZE as u32),
                 consistent_track_length: Some(disk_format.get_chs().s()),
             },
@@ -374,7 +307,6 @@ impl DiskImage {
             comment: None,
             track_pool: Vec::new(),
             track_map: [Vec::new(), Vec::new()],
-            sector_map: [Vec::new(), Vec::new()],
         }
     }
 
@@ -413,43 +345,80 @@ impl DiskImage {
     }
 
     pub fn set_data_rate(&mut self, rate: DiskDataRate) {
-        self.image_format.data_rate = rate;
+        self.descriptor.data_rate = rate;
     }
 
     pub fn data_rate(&self) -> DiskDataRate {
-        self.image_format.data_rate
+        self.descriptor.data_rate
     }
 
     pub fn set_data_encoding(&mut self, encoding: DiskDataEncoding) {
-        self.image_format.data_encoding = encoding;
+        self.descriptor.data_encoding = encoding;
     }
 
     pub fn data_encoding(&self) -> DiskDataEncoding {
-        self.image_format.data_encoding
+        self.descriptor.data_encoding
     }
 
     pub fn set_image_format(&mut self, format: DiskDescriptor) {
-        self.image_format = format;
+        self.descriptor = format;
     }
 
     pub fn image_format(&self) -> DiskDescriptor {
-        self.image_format
+        self.descriptor
     }
 
     pub fn geometry(&self) -> DiskCh {
-        self.image_format.geometry
+        self.descriptor.geometry
     }
 
     pub fn heads(&self) -> u8 {
-        self.image_format.geometry.h()
+        self.descriptor.geometry.h()
     }
 
     pub fn tracks(&self) -> u16 {
-        self.image_format.geometry.c()
+        self.descriptor.geometry.c()
     }
 
-    pub fn add_track_bytestream(&mut self, data_encoding: DiskDataEncoding, data_rate: DiskDataRate, ch: DiskCh) {
-        assert!(ch.h() < 2);
+    pub fn source_format(&self) -> Option<DiskImageFormat> {
+        self.source_format
+    }
+
+    pub fn set_source_format(&mut self, format: DiskImageFormat) {
+        self.source_format = Some(format);
+    }
+
+    /// Adds a new track to the disk image, of ByteStream resolution.
+    /// Data of this resolution is typically sourced from sector-based image formats.
+    ///
+    /// This function locks the disk image to `ByteStream` resolution and adds a new track with the
+    /// specified data encoding, data rate, and geometry.
+    ///
+    /// # Parameters
+    /// - `data_encoding`: The encoding used for the track data.
+    /// - `data_rate`: The data rate of the track.
+    /// - `ch`: The geometry of the track (cylinder and head).
+    ///
+    /// # Returns
+    /// - `Ok(())` if the track was successfully added.
+    /// - `Err(DiskImageError::SeekError)` if the head value in `ch` is greater than or equal to 2.
+    /// - `Err(DiskImageError::IncompatibleImage)` if the disk image is not compatible with `ByteStream` resolution.
+    pub fn add_track_bytestream(
+        &mut self,
+        data_encoding: DiskDataEncoding,
+        data_rate: DiskDataRate,
+        ch: DiskCh,
+    ) -> Result<(), DiskImageError> {
+        if ch.h() >= 2 {
+            return Err(DiskImageError::SeekError);
+        }
+
+        // Lock the disk image to ByteStream resolution.
+        match self.resolution {
+            None => self.resolution = Some(DiskDataResolution::ByteStream),
+            Some(DiskDataResolution::ByteStream) => {}
+            _ => return Err(DiskImageError::IncompatibleImage),
+        }
 
         let format = TrackFormat {
             data_encoding,
@@ -468,8 +437,29 @@ impl DiskImage {
             },
         });
         self.track_map[ch.h() as usize].push(self.track_pool.len() - 1);
+
+        Ok(())
     }
 
+    /// Adds a new track to the disk image, of BitStream resolution.
+    /// Data of this resolution is sourced from BitStream images such as MFM, HFE or 86F.
+    ///
+    /// This function locks the disk image to `BitStream` resolution and adds a new track with the specified
+    /// data encoding, data rate, geometry, and data clock.
+    ///
+    /// # Parameters
+    /// - `data_encoding`: The encoding used for the track data.
+    /// - `data_rate`: The data rate of the track.
+    /// - `ch`: The geometry of the track (cylinder and head).
+    /// - `data_clock`: The clock rate of the bit stream data.
+    /// - `data`: A slice containing the bit stream data.
+    /// - `weak`: An optional slice containing the weak bit mask.
+    ///
+    /// # Returns
+    /// - `Ok(())` if the track was successfully added.
+    /// - `Err(DiskImageError::SeekError)` if the head value in `ch` is greater than or equal to 2.
+    /// - `Err(DiskImageError::ParameterError)` if the length of `data` and `weak` do not match.
+    /// - `Err(DiskImageError::IncompatibleImage)` if the disk image is not compatible with `BitStream` resolution.
     pub fn add_track_bitstream(
         &mut self,
         data_encoding: DiskDataEncoding,
@@ -485,6 +475,13 @@ impl DiskImage {
 
         if weak.is_some() && (data.len() != weak.unwrap().len()) {
             return Err(DiskImageError::ParameterError);
+        }
+
+        // Lock the disk image to BitStream resolution.
+        match self.resolution {
+            None => self.resolution = Some(DiskDataResolution::BitStream),
+            Some(DiskDataResolution::BitStream) => {}
+            _ => return Err(DiskImageError::IncompatibleImage),
         }
 
         let data = BitVec::from_bytes(data);
@@ -547,11 +544,24 @@ impl DiskImage {
         Ok(())
     }
 
-    /// Master a new sector to a track.
-    /// This function is only valid for ByteStream track data.
+    /// Masters a new sector to a track in the disk image, essentially 'formatting' a new sector,
+    /// This function is only valid for tracks with `ByteStream` resolution.
+    ///
+    /// # Parameters
+    /// - `chs`: The geometry of the sector (cylinder, head, and sector).
+    /// - `sd`: A reference to a `SectorDescriptor` containing the sector data and metadata.
+    ///
+    /// # Returns
+    /// - `Ok(())` if the sector was successfully mastered.
+    /// - `Err(DiskImageError::SeekError)` if the head value in `chs` is greater than 1 or the track map does not contain the specified cylinder.
+    /// - `Err(DiskImageError::UnsupportedFormat)` if the track data is not of `ByteStream` resolution.
     pub(crate) fn master_sector(&mut self, chs: DiskChs, sd: &SectorDescriptor) -> Result<(), DiskImageError> {
         if chs.h() > 1 || self.track_map[chs.h() as usize].len() < chs.c() as usize {
             return Err(DiskImageError::SeekError);
+        }
+
+        if !matches!(self.resolution, Some(DiskDataResolution::ByteStream)) {
+            return Err(DiskImageError::UnsupportedFormat);
         }
 
         // Create an empty weak bit mask if none is provided.
@@ -673,6 +683,9 @@ impl DiskImage {
     }
 
     pub(crate) fn examine_boot_sector(&mut self) {
+        if self.track_map.is_empty() || self.track_map[0].is_empty() {
+            return;
+        }
         let ti = self.track_map[0][0];
         let track = &mut self.track_pool[ti];
 
@@ -724,9 +737,9 @@ impl DiskImage {
     /// This includes:
     /// 40 track images encoded as 80 tracks with empty tracks
     /// Single-sided images encoded as double-sided images with empty tracks
-    /// TODO: 40 track images encoded as 80 tracks with duplicate tracks
+    /// 40 track images encoded as 80 tracks with duplicate tracks
     pub(crate) fn normalize(&mut self) {
-        // Detect empty tracks
+        // Detect empty tracks (can be created by HxC when exporting to IMD, etc.)
         let mut empty_tracks = Vec::new();
 
         let mut track_ct = 0;
@@ -739,11 +752,111 @@ impl DiskImage {
             }
         }
 
-        log::trace!("Detected {}/{} empty tracks.", empty_tracks.len(), track_ct);
-        if empty_tracks.len() >= track_ct / 2 {
-            log::warn!("Image is wide track image stored as narrow tracks.");
+        // Remove empty tracks
+        log::trace!(
+            "normalize(): Detected {}/{} empty tracks.",
+            empty_tracks.len(),
+            track_ct
+        );
+        if track_ct > 50 && empty_tracks.len() >= track_ct / 2 {
+            log::warn!("normalize(): Image is wide track image stored as narrow tracks, odd tracks empty. Removing odd tracks.");
             self.remove_empty_tracks();
         }
+
+        // Remove duplicate tracks (created by 86f, etc.)
+        let duplicate_track_ct = self.detect_duplicate_tracks(0);
+        log::trace!(
+            "normalize(): Head {}: Detected {}/{} duplicate tracks.",
+            0,
+            duplicate_track_ct,
+            self.track_map[0].len()
+        );
+        if self.track_map[0].len() > 50 && duplicate_track_ct >= self.track_map[0].len() / 2 {
+            log::warn!(
+                "normalize(): Image is wide track image stored as narrow tracks, odd tracks duplicated. Removing odd tracks."
+            );
+            self.remove_odd_tracks();
+        }
+    }
+
+    pub(crate) fn detect_duplicate_tracks(&mut self, head: usize) -> usize {
+        let mut track_hashes: FoxHashMap<Digest, u32> = FoxHashMap::new();
+        let mut duplicate_tracks = Vec::new();
+
+        for (track_idx, track) in self.track_map[head].iter().enumerate() {
+            let track_entry_opt = track_hashes.get(&self.track_pool[*track].get_hash());
+            if track_entry_opt.is_some() {
+                duplicate_tracks.push(track_idx);
+            } else {
+                track_hashes.insert(self.track_pool[*track].get_hash(), 1);
+            }
+        }
+
+        duplicate_tracks.len()
+    }
+
+    /// Remove all odd tracks from image. This is useful for handling images that store 40 track
+    /// images as 80 tracks, with each track duplicated (86f)
+    pub(crate) fn remove_odd_tracks(&mut self) {
+        let mut odd_tracks = vec![Vec::new(); 2];
+
+        for (head_idx, track_map) in self.track_map.iter().enumerate() {
+            for (track_no, _track_idx) in track_map.iter().enumerate() {
+                if track_no % 2 != 0 {
+                    //log::warn!("odd track: c:{}, h:{}", track_no, head_idx);
+                    odd_tracks[head_idx].push(track_no);
+                }
+            }
+        }
+
+        for (head_idx, tracks) in odd_tracks.iter_mut().enumerate() {
+            tracks.sort_by(|a, b| b.cmp(a));
+            for track_no in tracks {
+                //log::warn!("removing track {}", track_no);
+                self.track_map[head_idx].remove(*track_no);
+            }
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn remove_duplicate_tracks(&mut self) {
+        let mut track_hashes: FoxHashMap<Digest, u32> = FoxHashMap::new();
+        let mut duplicate_tracks = vec![Vec::new(); 2];
+
+        for (head_idx, head) in self.track_map.iter().enumerate() {
+            for (track_idx, track) in head.iter().enumerate() {
+                let track_entry_opt = track_hashes.get(&self.track_pool[*track].get_hash());
+                if track_entry_opt.is_some() {
+                    duplicate_tracks[head_idx].push(track_idx);
+                } else {
+                    track_hashes.insert(self.track_pool[*track].get_hash(), 1);
+                }
+            }
+        }
+
+        log::trace!(
+            "Head 0: Detected {}/{} duplicate tracks.",
+            duplicate_tracks[0].len(),
+            self.track_map[0].len()
+        );
+
+        log::trace!(
+            "Head 1: Detected {}/{} duplicate tracks.",
+            duplicate_tracks[1].len(),
+            self.track_map[1].len()
+        );
+
+        for (head_idx, empty_head) in duplicate_tracks.iter_mut().enumerate() {
+            empty_head.sort_by(|a, b| b.cmp(a));
+            for track_idx in empty_head {
+                //let pool_idx = self.track_map[head_idx][*track_idx];
+                self.track_map[head_idx].remove(*track_idx);
+            }
+        }
+
+        // Now we could remove the duplicate tracks from the track pool, but we'd have to re-index
+        // every other track as the pool indices change. It's not that terrible to have deleted
+        // tracks hanging out in memory. They will be removed when we re-export the image.
     }
 
     /// Remove empty tracks from the disk image. In some cases, 40 cylinder images are stored or
@@ -778,15 +891,15 @@ impl DiskImage {
 
     pub fn dump_info<W: crate::io::Write>(&mut self, mut out: W) -> Result<(), crate::io::Error> {
         out.write_fmt(format_args!("Disk Format: {:?}\n", self.standard_format))?;
-        out.write_fmt(format_args!("Geometry: {}\n", self.image_format.geometry))?;
+        out.write_fmt(format_args!("Geometry: {}\n", self.descriptor.geometry))?;
         out.write_fmt(format_args!("Volume Name: {:?}\n", self.volume_name))?;
 
         if let Some(comment) = &self.comment {
             out.write_fmt(format_args!("Comment: {:?}\n", comment))?;
         }
 
-        out.write_fmt(format_args!("Data Rate: {}\n", self.image_format.data_rate))?;
-        out.write_fmt(format_args!("Data Encoding: {}\n", self.image_format.data_encoding))?;
+        out.write_fmt(format_args!("Data Rate: {}\n", self.descriptor.data_rate))?;
+        out.write_fmt(format_args!("Data Encoding: {}\n", self.descriptor.data_encoding))?;
         Ok(())
     }
 
@@ -839,48 +952,7 @@ impl DiskImage {
         let rsr = self.read_sector(chs, None, RwSectorScope::DataBlock, true)?;
 
         let data_slice = &rsr.read_buf[rsr.data_idx..rsr.data_idx + rsr.data_len];
-        let rows = rsr.data_len / bytes_per_row;
-        let last_row_size = rsr.data_len % bytes_per_row;
 
-        // Print all full rows.
-        for r in 0..rows {
-            out.write_fmt(format_args!("{:04X} | ", r * bytes_per_row)).unwrap();
-            for b in 0..bytes_per_row {
-                out.write_fmt(format_args!("{:02X} ", data_slice[r * bytes_per_row + b]))
-                    .unwrap();
-            }
-            out.write_fmt(format_args!("| ")).unwrap();
-            for b in 0..bytes_per_row {
-                let byte = data_slice[r * bytes_per_row + b];
-                out.write_fmt(format_args!(
-                    "{} ",
-                    if (40..=126).contains(&byte) { byte as char } else { '.' }
-                ))
-                .unwrap();
-            }
-
-            out.write_fmt(format_args!("\n")).unwrap();
-        }
-
-        // Print last incomplete row, if any bytes left over.
-        if last_row_size > 0 {
-            out.write_fmt(format_args!("{:04X} | ", rows * bytes_per_row)).unwrap();
-            for b in 0..last_row_size {
-                out.write_fmt(format_args!("{:02X} ", data_slice[rows * bytes_per_row + b]))
-                    .unwrap();
-            }
-            out.write_fmt(format_args!("| ")).unwrap();
-            for b in 0..bytes_per_row {
-                let byte = data_slice[rows * bytes_per_row + b];
-                out.write_fmt(format_args!(
-                    "{} ",
-                    if (40..=126).contains(&byte) { byte as char } else { '.' }
-                ))
-                .unwrap();
-            }
-            out.write_fmt(format_args!("\n")).unwrap();
-        }
-
-        Ok(())
+        util::dump_slice(data_slice, 0, bytes_per_row, &mut out)
     }
 }

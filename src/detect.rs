@@ -28,12 +28,13 @@ use crate::chs::DiskChs;
 
 use crate::containers::zip::{detect_zip, extract_first_file};
 use crate::containers::DiskImageContainer;
-use crate::diskimage::{DiskImageFormat, StandardFormat};
+use crate::diskimage::DiskImageFormat;
 use crate::file_parsers::ImageParser;
 use crate::io::ReadSeek;
+use crate::standard_format::StandardFormat;
 use crate::DiskImageError;
 
-const IMAGE_FORMATS: [DiskImageFormat; 7] = [
+const IMAGE_FORMATS: [DiskImageFormat; 8] = [
     DiskImageFormat::ImageDisk,
     DiskImageFormat::TeleDisk,
     DiskImageFormat::PceSectorImage,
@@ -41,6 +42,7 @@ const IMAGE_FORMATS: [DiskImageFormat; 7] = [
     DiskImageFormat::RawSectorImage,
     DiskImageFormat::MfmBitstreamImage,
     DiskImageFormat::HfeImage,
+    DiskImageFormat::F86Image,
 ];
 
 /// Returns a list of advertised file extensions supported by available image format parsers.

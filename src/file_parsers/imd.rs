@@ -255,7 +255,7 @@ impl ImdFormat {
                 data_encoding,
                 data_rate,
                 DiskCh::from((track_header.c() as u16, track_header.h())),
-            );
+            )?;
 
             // Read all sectors for this track.
             for s in 0..sector_numbers.len() {
@@ -312,12 +312,13 @@ impl ImdFormat {
 
         let head_ct = heads_seen.len() as u8;
 
-        disk_image.image_format = DiskDescriptor {
+        disk_image.descriptor = DiskDescriptor {
             geometry: DiskCh::from((track_ct as u16 / head_ct as u16, head_ct)),
             data_rate: rate_opt.unwrap(),
             data_encoding: encoding_opt.unwrap(),
             default_sector_size: DEFAULT_SECTOR_SIZE,
             rpm: None,
+            write_protect: None,
         };
 
         Ok(disk_image)

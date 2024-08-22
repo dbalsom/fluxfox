@@ -78,6 +78,17 @@ impl TrackDataStream {
         }
     }
 
+    pub fn data(&self) -> Vec<u8> {
+        match self {
+            TrackDataStream::Raw(_data) => panic!("Unsupported operation"),
+            TrackDataStream::Mfm(data) => {
+                //let data_len = data.len() / 8;
+                data.data()
+            }
+            _ => panic!("Unsupported operation"),
+        }
+    }
+
     pub fn set_clock_map(&mut self, clock_map: BitVec) {
         match self {
             TrackDataStream::Mfm(data) => data.set_clock_map(clock_map),

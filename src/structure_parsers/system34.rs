@@ -94,7 +94,7 @@ pub enum System34Element {
     Gap4b,
     Sync,
     Marker(System34Marker, Option<bool>),
-    SectorHeader,
+    SectorHeader(bool),
     Data {
         address_crc: bool,
         data_crc: bool,
@@ -112,7 +112,8 @@ impl From<System34Element> for DiskStructureGenericElement {
             System34Element::Gap4b => DiskStructureGenericElement::NoElement,
             System34Element::Sync => DiskStructureGenericElement::NoElement,
             System34Element::Marker(_, _) => DiskStructureGenericElement::Marker,
-            System34Element::SectorHeader => DiskStructureGenericElement::SectorHeader,
+            System34Element::SectorHeader(true) => DiskStructureGenericElement::SectorHeader,
+            System34Element::SectorHeader(false) => DiskStructureGenericElement::SectorBadHeader,
             System34Element::Data {
                 address_crc,
                 data_crc,
@@ -138,7 +139,7 @@ impl System34Element {
             System34Element::Sync => 8,
             System34Element::Marker(_, _) => 4,
             System34Element::Data { .. } => 0,
-            System34Element::SectorHeader => 0,
+            System34Element::SectorHeader(_) => 0,
         }
     }
 
@@ -445,7 +446,9 @@ impl DiskStructureParser for System34Parser {
 
                         // Push a Sector Header metadata item spanning from IDAM to DAM.
                         let data_metadata = DiskStructureMetadataItem {
-                            elem_type: DiskStructureElement::System34(System34Element::SectorHeader),
+                            elem_type: DiskStructureElement::System34(System34Element::SectorHeader(
+                                last_sector_id.crc_valid,
+                            )),
                             start: last_element_offset,
                             end: element_offset,
                             chsn: None,

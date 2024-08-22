@@ -29,6 +29,7 @@
     This is a simple example of how to use FluxFox to produce a graphical
     visualization of a disk image.
 */
+
 use anyhow::bail;
 use bpaf::*;
 use crossbeam::channel;
@@ -205,15 +206,37 @@ fn main() {
 
     let null_color = Color::from_rgba8(0, 0, 0, 0);
 
+    let viz_red: Color = Color::from_rgba8(255, 0, 0, 255);
+    let viz_green: Color = Color::from_rgba8(0, 255, 0, 255);
+    let viz_blue: Color = Color::from_rgba8(0, 0, 255, 255);
+
+    let viz_light_blue: Color = Color::from_rgba8(0, 0, 180, 255);
+    let viz_light_green: Color = Color::from_rgba8(0, 180, 0, 255);
+    let viz_light_red: Color = Color::from_rgba8(180, 0, 0, 255);
+
+    let viz_orange: Color = Color::from_rgba8(255, 100, 0, 255);
+    let vis_purple: Color = Color::from_rgba8(180, 0, 180, 255);
+    let viz_cyan: Color = Color::from_rgba8(70, 200, 200, 255);
+    let vis_light_purple: Color = Color::from_rgba8(185, 0, 255, 255);
+
+    let pal_medium_green = Color::from_rgba8(0x38, 0xb7, 0x64, 0xff);
+    let pal_dark_green = Color::from_rgba8(0x25, 0x71, 0x79, 0xff);
+    let pal_dark_blue = Color::from_rgba8(0x29, 0x36, 0x6f, 0xff);
+    let pal_medium_blue = Color::from_rgba8(0x3b, 0x5d, 0xc9, 0xff);
+    let pal_light_blue = Color::from_rgba8(0x41, 0xa6, 0xf6, 0xff);
+    let pal_dark_purple = Color::from_rgba8(0x5d, 0x27, 0x5d, 0xff);
+    let pal_orange = Color::from_rgba8(0xef, 0x7d, 0x57, 0xff);
+    let pal_dark_read = Color::from_rgba8(0xb1, 0x3e, 0x53, 0xff);
+
     #[rustfmt::skip]
     let palette = HashMap::from([
-        (DiskStructureGenericElement::SectorData, Color::from_rgba8(0, 180, 0, 255)),
-        (DiskStructureGenericElement::SectorBadData, Color::from_rgba8(255, 100, 0, 255)),
-        (DiskStructureGenericElement::SectorDeletedData, Color::from_rgba8(0, 0, 180, 255)),
-        (DiskStructureGenericElement::SectorBadDeletedData, Color::from_rgba8(180, 0, 180, 255)),
-        (DiskStructureGenericElement::SectorHeader, Color::from_rgba8(70, 200, 200, 255)),
-        (DiskStructureGenericElement::SectorBadHeader, Color::from_rgba8(0, 0, 255, 255)),
-        (DiskStructureGenericElement::Marker, Color::from_rgba8(185, 0, 255, 255)),
+        (DiskStructureGenericElement::SectorData, pal_medium_green),
+        (DiskStructureGenericElement::SectorBadData, pal_orange),
+        (DiskStructureGenericElement::SectorDeletedData, pal_dark_green),
+        (DiskStructureGenericElement::SectorBadDeletedData, viz_light_red),
+        (DiskStructureGenericElement::SectorHeader, pal_light_blue),
+        (DiskStructureGenericElement::SectorBadHeader, pal_medium_blue),
+        (DiskStructureGenericElement::Marker, vis_purple),
     ]);
 
     let total_render_start_time = Instant::now();
@@ -221,6 +244,8 @@ fn main() {
     let mut rendered_pixmaps = Vec::new();
 
     let image_size = opts.resolution;
+    let track_ct = disk.tracks() as usize;
+    log::trace!("Image has {} tracks.", track_ct);
     let a_disk = Arc::new(Mutex::new(disk));
 
     for side in 0..heads {
@@ -235,7 +260,7 @@ fn main() {
                 side,
                 min_radius_fraction,
                 opts.angle,
-                40,
+                track_ct,
                 render_track_gap,
                 opts.decode,
                 resolution,
@@ -274,7 +299,7 @@ fn main() {
                         side as u8,
                         min_radius_fraction,
                         opts.angle,
-                        40,
+                        track_ct,
                         track_gap_weight,
                         direction,
                         palette,
@@ -317,8 +342,8 @@ fn main() {
 
                 let paint = match opts.data {
                     true => PixmapPaint {
-                        opacity: 0.75,
-                        blend_mode: BlendMode::Overlay,
+                        opacity: 1.0,
+                        blend_mode: BlendMode::HardLight,
                         quality: FilterQuality::Nearest,
                     },
                     false => PixmapPaint::default(),

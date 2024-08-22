@@ -178,7 +178,6 @@ impl HfeFormat {
         let mut detected = false;
         _ = image.seek(std::io::SeekFrom::Start(0));
 
-        log::trace!("Checking for HFE header");
         if let Ok(file_header) = HfeFileHeader::read(&mut image) {
             if file_header.signature == "HXCPICFE".as_bytes() {
                 detected = true;
@@ -356,12 +355,13 @@ impl HfeFormat {
             )?;
         }
 
-        disk_image.image_format = DiskDescriptor {
+        disk_image.descriptor = DiskDescriptor {
             geometry: DiskCh::from((file_header.number_of_tracks as u16, file_header.number_of_sides)),
             data_rate: DiskDataRate::from(file_header.bit_rate as u32 * 100),
             data_encoding: DiskDataEncoding::Mfm,
             default_sector_size: DEFAULT_SECTOR_SIZE,
             rpm: None,
+            write_protect: Some(file_header.write_allowed == 0),
         };
 
         Ok(disk_image)

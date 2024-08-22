@@ -42,8 +42,7 @@ use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{Cursor, Read, ReadBytesExt, ReadSeek, ReadWriteSeek, Seek};
 use crate::{DiskCh, DiskChs, DiskDataEncoding, DiskDataRate, FoxHashSet};
 use crate::{DiskChsn, DiskImage, DiskImageError, DiskImageFormat};
-use binrw::{binrw, BinRead, BinWrite};
-use std::mem::size_of;
+use binrw::{binrw, BinRead};
 
 pub const SECTOR_DUPLICATED: u8 = 0b0000_0001;
 pub const SECTOR_CRC_ERROR: u8 = 0b0000_0010;
@@ -341,7 +340,7 @@ impl Td0Format {
                 DiskDataEncoding::Mfm,
                 disk_data_rate,
                 DiskCh::from((track_header.cylinder as u16, track_header.head)),
-            );
+            )?;
             cylinder_set.insert(track_header.cylinder as u16);
 
             for _s in 0..track_header.sectors {
@@ -441,12 +440,13 @@ impl Td0Format {
             track_header_offset = image_data_ref.stream_position().map_err(|_| DiskImageError::IoError)?;
         }
 
-        disk_image.image_format = DiskDescriptor {
+        disk_image.descriptor = DiskDescriptor {
             geometry: DiskCh::from((cylinder_set.len() as u16, file_header.heads)),
             data_rate: disk_data_rate,
             data_encoding: DiskDataEncoding::Mfm,
             default_sector_size: 512,
             rpm: None,
+            write_protect: None,
         };
 
         Ok(disk_image)
