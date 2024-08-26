@@ -73,6 +73,8 @@ pub enum DiskImageError {
     ImageCorruptError,
     #[error("The requested sector could not be found")]
     SeekError,
+    #[error("No sectors were found on the current track")]
+    DataError,
     #[error("A CRC error was detected in the disk image")]
     CrcError,
     #[error("Invalid parameters were specified to a library function")]

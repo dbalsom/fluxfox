@@ -221,6 +221,7 @@ pub struct ReadSectorResult {
     pub data_len: usize,
     pub read_buf: Vec<u8>,
     pub deleted_mark: bool,
+    pub not_found: bool,
     pub address_crc_error: bool,
     pub data_crc_error: bool,
     pub wrong_cylinder: bool,
@@ -228,7 +229,18 @@ pub struct ReadSectorResult {
 }
 
 #[derive(Clone)]
+pub struct ReadTrackResult {
+    pub not_found: bool,
+    pub sectors_read: u16,
+    pub read_buf: Vec<u8>,
+    pub deleted_mark: bool,
+    pub address_crc_error: bool,
+    pub data_crc_error: bool,
+}
+
+#[derive(Clone)]
 pub struct WriteSectorResult {
+    pub not_found: bool,
     pub address_crc_error: bool,
     pub wrong_cylinder: bool,
     pub wrong_head: bool,
@@ -620,7 +632,7 @@ impl DiskImage {
     }
 
     /// Read the sector data from the sector identified by 'chs'. The data is returned within a
-    /// ReadSectorResult struct which also sets some convenience metadata flags where are needed
+    /// ReadSectorResult struct which also sets some convenience metadata flags which are needed
     /// when handling ByteStream images.
     /// When reading a BitStream image, the sector data includes the address mark and crc.
     /// Offsets are provided within ReadSectorResult so these can be skipped when processing the
@@ -628,7 +640,7 @@ impl DiskImage {
     pub fn read_sector(
         &mut self,
         chs: DiskChs,
-        _n: Option<u8>,
+        n: Option<u8>,
         scope: RwSectorScope,
         debug: bool,
     ) -> Result<ReadSectorResult, DiskImageError> {
@@ -640,7 +652,7 @@ impl DiskImage {
         let ti = self.track_map[chs.h() as usize][chs.c() as usize];
         let track = &mut self.track_pool[ti];
 
-        track.data.read_sector(chs, scope, debug)
+        track.data.read_sector(chs, n, scope, debug)
     }
 
     pub fn write_sector(
@@ -660,6 +672,24 @@ impl DiskImage {
 
         log::trace!("TrackData::write_sector(): data len is now: {}", data.len());
         track.data.write_sector(chs, n, data, scope, debug)
+    }
+
+    /// Read all sectors from the track identified by 'ch'. The data is returned within a
+    /// ReadSectorResult struct which also sets some convenience metadata flags which are needed
+    /// when handling ByteStream images.
+    /// Unlike read_sectors, the data returned is only the actual sector data. The address marks and
+    /// CRCs are not included in the data.
+    /// This function is intended for use in implementing the Read Track FDC command.
+    pub fn read_all_sectors(&mut self, ch: DiskCh, n: u8, eot: u8) -> Result<ReadTrackResult, DiskImageError> {
+        // Check that the head and cylinder are within the bounds of the track map.
+        if ch.h() > 1 || ch.c() as usize >= self.track_map[ch.h() as usize].len() {
+            return Err(DiskImageError::SeekError);
+        }
+
+        let ti = self.track_map[ch.h() as usize][ch.c() as usize];
+        let track = &mut self.track_pool[ti];
+
+        track.data.read_all_sectors(ch, n, eot)
     }
 
     pub fn is_id_valid(&self, chs: DiskChs) -> bool {
@@ -691,7 +721,7 @@ impl DiskImage {
 
         match track
             .data
-            .read_sector(DiskChs::new(0, 0, 1), RwSectorScope::DataOnly, true)
+            .read_sector(DiskChs::new(0, 0, 1), None, RwSectorScope::DataOnly, true)
         {
             Ok(result) => {
                 let mut buffer = Cursor::new(&result.read_buf);
@@ -945,13 +975,17 @@ impl DiskImage {
     pub fn dump_sector_hex<W: crate::io::Write>(
         &mut self,
         chs: DiskChs,
-        _n: Option<u8>,
+        n: Option<u8>,
+        scope: RwSectorScope,
         bytes_per_row: usize,
         mut out: W,
     ) -> Result<(), DiskImageError> {
-        let rsr = self.read_sector(chs, None, RwSectorScope::DataBlock, true)?;
+        let rsr = self.read_sector(chs, n, scope, true)?;
 
-        let data_slice = &rsr.read_buf[rsr.data_idx..rsr.data_idx + rsr.data_len];
+        let data_slice = match scope {
+            RwSectorScope::DataOnly => &rsr.read_buf[rsr.data_idx..rsr.data_idx + rsr.data_len],
+            RwSectorScope::DataBlock => &rsr.read_buf,
+        };
 
         util::dump_slice(data_slice, 0, bytes_per_row, &mut out)
     }
