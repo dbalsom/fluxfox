@@ -31,8 +31,9 @@
     format.
 */
 use bpaf::*;
+use fluxfox::diskimage::RwSectorScope;
 use fluxfox::{DiskChs, DiskImage};
-use std::io::BufWriter;
+use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 
 #[allow(dead_code)]
@@ -43,6 +44,9 @@ struct Out {
     cylinder: u16,
     head: u8,
     sector: u8,
+    n: Option<u8>,
+    row_size: usize,
+    structure: bool,
 }
 
 /// Set up bpaf argument parsing.
@@ -63,12 +67,31 @@ fn opts() -> OptionParser<Out> {
 
     let sector = short('s').long("sector").help("Target sector").argument::<u8>("SECTOR");
 
+    let n = short('n')
+        .long("sector_size")
+        .help("Sector size (override)")
+        .argument::<u8>("SIZE")
+        .optional();
+
+    let row_size = short('r')
+        .long("row_size")
+        .help("Number of bytes per row")
+        .argument::<usize>("ROWSIZE")
+        .fallback(16);
+
+    let structure = long("structure")
+        .help("Dump IDAM header and data CRC in addition to data.")
+        .switch();
+
     construct!(Out {
         debug,
         filename,
         cylinder,
         head,
-        sector
+        sector,
+        n,
+        row_size,
+        structure
     })
     .to_options()
     .descr("imginfo: display info about disk image")
@@ -113,10 +136,33 @@ fn main() {
 
     let chs = DiskChs::new(opts.cylinder, opts.head, opts.sector);
 
-    println!("Dumping sector {} in hex format:", chs);
+    let (scope, calc_crc) = match opts.structure {
+        true => (RwSectorScope::DataBlock, true),
+        false => (RwSectorScope::DataOnly, false),
+    };
 
-    match disk.dump_sector_hex(chs, None, 8, &mut buf) {
-        Ok(_) => println!("Sector dumped successfully"),
-        Err(e) => eprintln!("Error dumping sector: {}", e),
+    println!("Dumping sector {} in hex format, with scope {:?}:", chs, scope);
+
+    let rsr = match disk.read_sector(chs, opts.n, scope, true) {
+        Ok(rsr) => rsr,
+        Err(e) => {
+            eprintln!("Error reading sector: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    _ = writeln!(&mut buf, "Data length: {}", rsr.data_len);
+
+    let data_slice = match scope {
+        RwSectorScope::DataOnly => &rsr.read_buf[rsr.data_idx..rsr.data_idx + rsr.data_len],
+        RwSectorScope::DataBlock => &rsr.read_buf,
+    };
+
+    _ = fluxfox::util::dump_slice(data_slice, 0, opts.row_size, &mut buf);
+
+    // If we requested DataBlock scope, we can independently calculate the CRC, so do that now.
+    if calc_crc {
+        let calculated_crc = fluxfox::util::crc_ccitt(&data_slice[0..0x104]);
+        _ = writeln!(&mut buf, "Calculated CRC: {:04X}", calculated_crc);
     }
 }
