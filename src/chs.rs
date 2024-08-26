@@ -293,6 +293,15 @@ impl From<DiskChs> for DiskCh {
     }
 }
 
+impl From<DiskChsn> for DiskCh {
+    fn from(chsn: DiskChsn) -> Self {
+        Self {
+            c: chsn.c(),
+            h: chsn.h(),
+        }
+    }
+}
+
 impl Display for DiskCh {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "[c:{} h:{}]", self.c, self.h)
