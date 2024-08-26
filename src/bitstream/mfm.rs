@@ -119,7 +119,7 @@ pub fn find_sync(track: &BitVec, start_idx: usize) -> Option<usize> {
     for (i, bit) in track.into_iter().skip(start_idx).enumerate() {
         shift_reg = shift_reg << 1 | (bit as u32);
 
-        if shift_reg == 0xAA_AA_AA_AA {
+        if i >= 32 && shift_reg == 0xAA_AA_AA_AA {
             return Some(i - 32);
         }
     }
