@@ -566,14 +566,8 @@ impl DiskStructureParser for System34Parser {
         );
         if let TrackDataStream::Mfm(mfm_stream) = track {
             let mut data = vec![0; bytes_requested];
-
             mfm_stream.seek(SeekFrom::Start((bit_index >> 1) as u64)).unwrap();
             mfm_stream.read_exact(&mut data).unwrap();
-            log::trace!(
-                "First 16 bytes of sector: {:02X?} len: {}",
-                &data[..std::cmp::min(16, data.len())],
-                data.len()
-            );
             crc_ccitt(&data)
         } else {
             0
