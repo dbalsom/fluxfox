@@ -116,19 +116,27 @@ pub fn dump_slice<W: crate::io::Write>(
 
     // Print last incomplete row, if any bytes left over.
     if last_row_size > 0 {
-        out.write_fmt(format_args!("{:04X} | ", rows * bytes_per_row)).unwrap();
-        for b in 0..last_row_size {
-            out.write_fmt(format_args!("{:02X} ", data_slice[rows * bytes_per_row + b]))
-                .unwrap();
+        out.write_fmt(format_args!("{:06X} | ", rows * bytes_per_row)).unwrap();
+        for b in 0..bytes_per_row {
+            if b < last_row_size {
+                out.write_fmt(format_args!("{:02X} ", data_slice[rows * bytes_per_row + b]))
+                    .unwrap();
+            } else {
+                out.write_fmt(format_args!("   ")).unwrap();
+            }
         }
         out.write_fmt(format_args!("| ")).unwrap();
         for b in 0..bytes_per_row {
-            let byte = data_slice[rows * bytes_per_row + b];
-            out.write_fmt(format_args!(
-                "{}",
-                if (40..=126).contains(&byte) { byte as char } else { '.' }
-            ))
-            .unwrap();
+            if b < last_row_size {
+                let byte = data_slice[rows * bytes_per_row + b];
+                out.write_fmt(format_args!(
+                    "{}",
+                    if (40..=126).contains(&byte) { byte as char } else { '.' }
+                ))
+                .unwrap();
+            } else {
+                out.write_fmt(format_args!(" ")).unwrap();
+            }
         }
         out.write_fmt(format_args!("\n")).unwrap();
     }
