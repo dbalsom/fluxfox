@@ -34,7 +34,7 @@ use crate::io::ReadSeek;
 use crate::standard_format::StandardFormat;
 use crate::DiskImageError;
 
-const IMAGE_FORMATS: [DiskImageFormat; 8] = [
+const IMAGE_FORMATS: [DiskImageFormat; 9] = [
     DiskImageFormat::ImageDisk,
     DiskImageFormat::TeleDisk,
     DiskImageFormat::PceSectorImage,
@@ -43,6 +43,7 @@ const IMAGE_FORMATS: [DiskImageFormat; 8] = [
     DiskImageFormat::MfmBitstreamImage,
     DiskImageFormat::HfeImage,
     DiskImageFormat::F86Image,
+    DiskImageFormat::TransCopyImage,
 ];
 
 /// Returns a list of advertised file extensions supported by available image format parsers.

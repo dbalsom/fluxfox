@@ -1,0 +1,344 @@
+/*
+    FluxFox
+    https://github.com/dbalsom/fluxfox
+
+    Copyright 2024 Daniel Balsom
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the “Software”),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+    DEALINGS IN THE SOFTWARE.
+
+    --------------------------------------------------------------------------
+
+    src/parsers/tc.rs
+
+    A parser for the TransCopy (.TC) disk image format.
+
+    TransCopy images are bitstream-level images produced by the TransCopy
+    utility bundled with Central Point Software's Copy II PC Option Board.
+
+    Documentation of this format helpfully provided by NewRisingSun.
+    https://www.robcraig.com/wiki/transcopy-version-5-x-format/
+*/
+
+use crate::file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility};
+use crate::io::{ReadSeek, ReadWriteSeek};
+
+use crate::diskimage::DiskDescriptor;
+use crate::util::read_ascii;
+use crate::{DiskCh, DiskDataEncoding, DiskDataRate, DiskImage, DiskImageError, DEFAULT_SECTOR_SIZE};
+use binrw::{binrw, BinRead};
+
+// All formats are listed here, but fluxfox will initially only support PC-specific formats
+pub const TC_DISK_TYPE_UNKNOWN: u8 = 0xFF;
+pub const TC_DISK_TYPE_MFM_HD: u8 = 0x02;
+pub const TC_DISK_TYPE_MFM_DD_360: u8 = 0x03;
+//pub const TC_DISK_TYPE_GCR_APPLEII: u8 = 0x04;
+//pub const TC_DISK_TYPE_FM_SD: u8 = 0x05;
+//pub const TC_DISK_TYPE_GCR_COMMODORE: u8 = 0x06;
+pub const TC_DISK_TYPE_MFM_DD: u8 = 0x07;
+//pub const TC_DISK_TYPE_AMIGA: u8 = 0x08;
+//pub const TC_DISK_TYPE_FM_ATARI: u8 = 0x0C;
+
+pub const TC_FLAG_KEEP_TRACK_LENGTH: u16 = 0b0000_0000_0000_0001;
+pub const TC_FLAG_COPY_ACROSS_INDEX: u16 = 0b0000_0000_0000_0010;
+pub const TC_FLAG_COPY_WEAK_BITS: u16 = 0b0000_0000_0000_0100;
+//pub const TC_FLAG_VERIFY_WRITE: u16 = 0b0000_0000_0000_1000;
+pub const TC_FLAG_TOLERANCE_ADJUST: u16 = 0b0000_0000_0100_0000;
+pub const TC_FLAG_NO_ADDRESS_MARKS: u16 = 0b0000_0000_1000_0000;
+pub const TC_FLAG_UNKNOWN: u16 = 0b1000_0000_0000_0000;
+
+pub const TC_EMPTY_TRACK_SKEW: u16 = 0x1111;
+pub const TC_EMPTY_TRACK_DATA: u16 = 0x3333;
+pub const TC_EMPTY_TRACK_FLAGS: u16 = 0x4444;
+
+#[derive(Debug)]
+#[binrw]
+#[brw(big)]
+struct TCFileHeader {
+    id: [u8; 2],        // Magic number: 0x5A 0xA5
+    comment0: [u8; 32], // First comment line, zero-terminated
+    comment1: [u8; 32], // Second comment line, zero-terminated
+    padding: [u8; 190], // Unused, filled with random memory data
+}
+
+#[derive(Debug)]
+#[binrw]
+#[brw(big)]
+struct TCDiskInfo {
+    disk_type: u8,
+    starting_c: u8,
+    ending_c: u8,
+    num_sides: u8,
+    cylinder_increment: u8,
+    #[br(little)]
+    track_skews: [u16; 256],
+    #[br(big)]
+    track_offsets: [u16; 256],
+    #[br(little)]
+    track_sizes: [u16; 256],
+    #[br(little)]
+    track_flags: [u16; 256],
+}
+
+/// Convert one of the TC header comment fields into a String.
+fn tc_read_comment(raw_comment: &[u8]) -> String {
+    let comment_end_pos = raw_comment.iter().position(|&c| c == 0).unwrap_or(raw_comment.len());
+
+    String::from(std::str::from_utf8(&raw_comment[..comment_end_pos]).unwrap_or_default())
+}
+
+fn tc_parse_disk_type(disk_type: u8) -> Result<(DiskDataEncoding, DiskDataRate), DiskImageError> {
+    let (encoding, data_rate) = match disk_type {
+        TC_DISK_TYPE_MFM_HD => (DiskDataEncoding::Mfm, DiskDataRate::Rate500Kbps),
+        TC_DISK_TYPE_MFM_DD_360 => (DiskDataEncoding::Mfm, DiskDataRate::Rate500Kbps),
+        TC_DISK_TYPE_MFM_DD => (DiskDataEncoding::Mfm, DiskDataRate::Rate250Kbps),
+        _ => return Err(DiskImageError::UnsupportedFormat),
+    };
+
+    Ok((encoding, data_rate))
+}
+
+pub struct TCFormat {}
+
+impl TCFormat {
+    pub fn extensions() -> Vec<&'static str> {
+        vec!["86f"]
+    }
+
+    pub fn capabilities() -> FormatCaps {
+        bitstream_flags() | FormatCaps::CAP_TRACK_ENCODING | FormatCaps::CAP_ENCODING_FM | FormatCaps::CAP_ENCODING_MFM
+    }
+
+    pub fn detect<RWS: ReadSeek>(mut image: RWS) -> bool {
+        if image.seek(std::io::SeekFrom::Start(0)).is_err() {
+            return false;
+        }
+        let header = if let Ok(header) = TCFileHeader::read(&mut image) {
+            header
+        } else {
+            return false;
+        };
+
+        header.id[0] == 0x5A && header.id[1] == 0xA5
+    }
+
+    pub fn can_write(_image: &DiskImage) -> ParserWriteCompatibility {
+        ParserWriteCompatibility::UnsupportedFormat
+    }
+
+    pub(crate) fn load_image<RWS: ReadSeek>(mut image: RWS) -> Result<DiskImage, DiskImageError> {
+        let mut disk_image = DiskImage::default();
+
+        let disk_image_size = image.seek(std::io::SeekFrom::End(0)).unwrap();
+
+        if image.seek(std::io::SeekFrom::Start(0)).is_err() {
+            return Err(DiskImageError::IoError);
+        }
+
+        let header = if let Ok(header) = TCFileHeader::read(&mut image) {
+            header
+        } else {
+            return Err(DiskImageError::UnsupportedFormat);
+        };
+
+        if header.id[0] != 0x5A || header.id[1] != 0xA5 {
+            log::error!("Invalid TransCopy header id: {:?}", header.id);
+            return Err(DiskImageError::UnsupportedFormat);
+        }
+
+        log::trace!("load_image(): Got TransCopy image.");
+
+        // Read comment arrays, and turn into a string with newlines.
+        let comment0_string = tc_read_comment(&header.comment0);
+        let comment1_string = tc_read_comment(&header.comment1);
+
+        let comment_string = format!("{}\n{}", comment0_string, comment1_string);
+        log::trace!("Read comment: {}", comment_string);
+
+        let disk_info = if let Ok(di) = TCDiskInfo::read(&mut image) {
+            di
+        } else {
+            return Err(DiskImageError::FormatParseError);
+        };
+
+        if ![TC_DISK_TYPE_MFM_HD, TC_DISK_TYPE_MFM_DD_360, TC_DISK_TYPE_MFM_DD].contains(&disk_info.disk_type) {
+            log::error!("Unsupported disk type: {:02X}", disk_info.disk_type);
+            return Err(DiskImageError::IncompatibleImage);
+        }
+
+        let (disk_encoding, disk_data_rate) = tc_parse_disk_type(disk_info.disk_type)?;
+
+        log::trace!("Disk encoding: {:?}", disk_encoding);
+        log::trace!("Starting cylinder: {}", disk_info.starting_c);
+        log::trace!("Ending cylinder: {}", disk_info.ending_c);
+        log::trace!("Number of sides: {}", disk_info.num_sides);
+        log::trace!("Cylinder increment: {}", disk_info.cylinder_increment);
+
+        if disk_info.starting_c != 0 {
+            // I don't know if we'll ever encounter images like this, but for now let's require starting at 0.
+            log::error!("Unsupported starting cylinder: {}", disk_info.starting_c);
+            return Err(DiskImageError::IncompatibleImage);
+        }
+
+        if disk_info.cylinder_increment != 1 {
+            // Similarly, I am not sure why the track increment would ever be anything other than 1.
+            log::error!("Unsupported cylinder increment: {}", disk_info.cylinder_increment);
+            return Err(DiskImageError::IncompatibleImage);
+        }
+
+        let raw_track_skew_ct = disk_info
+            .track_skews
+            .iter()
+            .take_while(|&v| *v != TC_EMPTY_TRACK_SKEW)
+            .count();
+        let raw_track_start_ct = disk_info.track_offsets.iter().take_while(|&v| *v != 0).count();
+        let raw_track_data_ct = disk_info
+            .track_sizes
+            .iter()
+            .take_while(|&v| *v != TC_EMPTY_TRACK_DATA)
+            .count();
+        let raw_track_flag_ct = disk_info
+            .track_flags
+            .iter()
+            .take_while(|&v| *v != TC_EMPTY_TRACK_FLAGS)
+            .count();
+
+        log::trace!(
+            "Raw track data counts: Skews {} Starts: {} Sizes: {} Flags: {}",
+            raw_track_skew_ct,
+            raw_track_start_ct,
+            raw_track_data_ct,
+            raw_track_flag_ct,
+        );
+
+        if raw_track_skew_ct != raw_track_data_ct
+            || raw_track_start_ct != raw_track_data_ct
+            || raw_track_flag_ct != raw_track_data_ct
+        {
+            log::error!("Mismatched track data counts");
+            return Err(DiskImageError::IncompatibleImage);
+        }
+
+        let mut last_track_data_offset = 0;
+        for i in 0..raw_track_data_ct {
+            let track_offset = (disk_info.track_offsets[i] as u64) << 8;
+            let track_size = disk_info.track_sizes[i] as u64;
+
+            let adj_track_size = if track_size % 256 == 0 {
+                track_size
+            } else {
+                ((track_size >> 8) + 1) << 8
+            };
+
+            if track_offset == 0 || track_size == 0 {
+                log::error!("Invalid track offset or size: {} {}", track_offset, track_size);
+                return Err(DiskImageError::IncompatibleImage);
+            }
+
+            if track_offset + track_size > disk_image_size {
+                log::error!("Track data extends beyond end of image");
+                return Err(DiskImageError::IncompatibleImage);
+            }
+
+            last_track_data_offset = track_offset + adj_track_size;
+
+            log::trace!(
+                "Track {}: RawOffset:{} Byte Offset: {} Size: {} File size: {} Calculated next offset: {}",
+                i,
+                disk_info.track_offsets[i],
+                track_offset,
+                track_size,
+                adj_track_size,
+                last_track_data_offset
+            );
+        }
+
+        let remaining_image = disk_image_size.saturating_sub(last_track_data_offset);
+
+        log::trace!("Remaining data in image: {}", remaining_image);
+        log::trace!(
+            "Remaining data per track: {}",
+            remaining_image / raw_track_data_ct as u64
+        );
+        log::trace!(
+            "Last track offset: {}",
+            disk_info.track_offsets[raw_track_data_ct - 1] << 8
+        );
+        log::trace!("Lack track size: {}", disk_info.track_sizes[raw_track_data_ct - 1]);
+        log::trace!(
+            "End of track data: {}",
+            (disk_info.track_offsets[raw_track_data_ct - 1] << 8) + disk_info.track_sizes[raw_track_data_ct - 1]
+        );
+
+        // Read the tracks
+        let mut head_n = 0;
+        let track_shift = match disk_info.num_sides {
+            1 => 0,
+            2 => 1,
+            _ => {
+                log::error!("Unsupported number of sides: {}", disk_info.num_sides);
+                return Err(DiskImageError::IncompatibleImage);
+            }
+        };
+        for i in 0..raw_track_data_ct {
+            let cylinder_n = (i >> track_shift) as u16;
+            let track_offset = (disk_info.track_offsets[i] as u64) << 8;
+            let track_size = disk_info.track_sizes[i] as u64;
+
+            let mut track_data_vec = vec![0; track_size as usize];
+            image.seek(std::io::SeekFrom::Start(track_offset)).unwrap();
+            image.read_exact(&mut track_data_vec).unwrap();
+
+            log::trace!(
+                "Adding {:?} encoded track: {}",
+                disk_encoding,
+                DiskCh::from((cylinder_n, head_n))
+            );
+
+            disk_image.add_track_bitstream(
+                disk_encoding,
+                disk_data_rate,
+                DiskCh::from((cylinder_n, head_n)),
+                disk_data_rate.into(),
+                None,
+                &track_data_vec,
+                None,
+            )?;
+
+            head_n += 1;
+            if head_n == disk_info.num_sides {
+                head_n = 0;
+            }
+        }
+
+        disk_image.descriptor = DiskDescriptor {
+            geometry: DiskCh::from((disk_info.ending_c as u16, disk_info.num_sides)),
+            data_rate: Default::default(),
+            data_encoding: disk_encoding,
+            default_sector_size: DEFAULT_SECTOR_SIZE,
+            rpm: None,
+            write_protect: None,
+        };
+
+        Ok(disk_image)
+    }
+
+    pub fn save_image<RWS: ReadWriteSeek>(_image: &DiskImage, _output: &mut RWS) -> Result<(), DiskImageError> {
+        Err(DiskImageError::UnsupportedFormat)
+    }
+}

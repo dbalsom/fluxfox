@@ -36,6 +36,7 @@ pub mod mfm;
 pub mod pri;
 pub mod psi;
 pub mod raw;
+pub mod tc;
 pub mod td0;
 
 bitflags! {
@@ -58,6 +59,16 @@ bitflags! {
         const CAP_ENCODING_MFM      = 0b0000_1000_0000_0000; // Can store MFM encoding
         const CAP_ENCODING_GCR      = 0b0001_0000_0000_0000; // Can store GCR encoding
     }
+}
+
+/// Return a set of FormatCaps flags implicitly supported by the nature of any bitstream format.
+pub fn bitstream_flags() -> FormatCaps {
+    FormatCaps::CAP_VARIABLE_SPT
+        | FormatCaps::CAP_VARIABLE_SSPT
+        | FormatCaps::CAP_ADDRESS_CRC
+        | FormatCaps::CAP_DATA_CRC
+        | FormatCaps::CAP_DATA_DELETED
+        | FormatCaps::CAP_SID_OVERRIDE
 }
 
 pub enum ParserWriteCompatibility {
@@ -94,6 +105,7 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::MfmBitstreamImage => mfm::MfmFormat::capabilities(),
             DiskImageFormat::HfeImage => hfe::HfeFormat::capabilities(),
             DiskImageFormat::F86Image => f86::F86Format::capabilities(),
+            DiskImageFormat::TransCopyImage => tc::TCFormat::capabilities(),
             _ => FormatCaps::empty(),
         }
     }
@@ -108,6 +120,7 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::MfmBitstreamImage => mfm::MfmFormat::detect(image_buf),
             DiskImageFormat::HfeImage => hfe::HfeFormat::detect(image_buf),
             DiskImageFormat::F86Image => f86::F86Format::detect(image_buf),
+            DiskImageFormat::TransCopyImage => tc::TCFormat::detect(image_buf),
             _ => false,
         }
     }
@@ -122,6 +135,7 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::MfmBitstreamImage => mfm::MfmFormat::extensions(),
             DiskImageFormat::HfeImage => hfe::HfeFormat::extensions(),
             DiskImageFormat::F86Image => f86::F86Format::extensions(),
+            DiskImageFormat::TransCopyImage => tc::TCFormat::extensions(),
             _ => vec![],
         }
     }
@@ -136,6 +150,7 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::MfmBitstreamImage => mfm::MfmFormat::load_image(image_buf),
             DiskImageFormat::HfeImage => hfe::HfeFormat::load_image(image_buf),
             DiskImageFormat::F86Image => f86::F86Format::load_image(image_buf),
+            DiskImageFormat::TransCopyImage => tc::TCFormat::load_image(image_buf),
             _ => Err(DiskImageError::UnknownFormat),
         }
     }
@@ -150,6 +165,7 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::MfmBitstreamImage => mfm::MfmFormat::can_write(image),
             DiskImageFormat::HfeImage => hfe::HfeFormat::can_write(image),
             DiskImageFormat::F86Image => f86::F86Format::can_write(image),
+            DiskImageFormat::TransCopyImage => tc::TCFormat::can_write(image),
             _ => ParserWriteCompatibility::UnsupportedFormat,
         }
     }
@@ -164,6 +180,7 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::MfmBitstreamImage => mfm::MfmFormat::save_image(image, image_buf),
             DiskImageFormat::HfeImage => hfe::HfeFormat::save_image(image, image_buf),
             DiskImageFormat::F86Image => f86::F86Format::save_image(image, image_buf),
+            DiskImageFormat::TransCopyImage => tc::TCFormat::save_image(image, image_buf),
             _ => Err(DiskImageError::UnknownFormat),
         }
     }

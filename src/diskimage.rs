@@ -59,6 +59,7 @@ pub enum DiskImageFormat {
     KryofluxStream,
     HfeImage,
     F86Image, // 86F
+    TransCopyImage,
 }
 
 impl DiskImageFormat {
@@ -73,6 +74,7 @@ impl DiskImageFormat {
             DiskImageFormat::KryofluxStream => DiskDataResolution::FluxStream,
             DiskImageFormat::HfeImage => DiskDataResolution::BitStream,
             DiskImageFormat::F86Image => DiskDataResolution::BitStream,
+            DiskImageFormat::TransCopyImage => DiskDataResolution::BitStream,
         }
     }
 }
@@ -89,6 +91,7 @@ impl Display for DiskImageFormat {
             DiskImageFormat::MfmBitstreamImage => "HxC MFM Bitstream Image".to_string(),
             DiskImageFormat::HfeImage => "HFEv1 Bitstream Image".to_string(),
             DiskImageFormat::F86Image => "86F Bitstream Image".to_string(),
+            DiskImageFormat::TransCopyImage => "TransCopy Bitstream Image".to_string(),
         };
         write!(f, "{}", str)
     }

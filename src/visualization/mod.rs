@@ -590,8 +590,9 @@ pub fn render_track_metadata_quadrant(
                 };
                 paint.set_color(*color);
 
-                let path = path_builder.finish().unwrap();
-                pixmap.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
+                if let Some(path) = path_builder.finish() {
+                    pixmap.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
+                }
 
                 path_builder = PathBuilder::new(); // Reset the path builder for the next sector
             }
