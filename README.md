@@ -33,7 +33,7 @@ Sector-based images encode byte data for each sector, typically with metadata ab
 data CRC status. These images can support many copy-protected titles, but may fail to encode more advanced protections,
 sometimes produce impossible track encodings, and are not ideal for archival purposes or research.
 
-* **Raw Sector Image** (IMG, IMA, DSK, etc)
+* **Raw Sector Image** (IMG, IMA, DSK, etc.)
     * Raw sector images are ubiquitous, easily the most common type of disk image used with PC emulators. These files
       simply contain raw sectors in order, which are all assumed to be exactly 512 bytes. No header is present, but the
       layout of the disk can generally be determined by the file size.
@@ -73,6 +73,9 @@ complex than sector images to manipulate and write back to.
     * Another format associated with the HxC software, HFE is also a bitstream container, however unlike MFM it supports
       multiple encoding types. There are several versions of HFE supported by HxC, HFEv3 being the newest, however the
       format is still considered experimental and not finalized. fluxfox supports HFE v1 files.
+* **86Box Floppy Image** (86F)
+    * A format designed around the internal representation of disks in the 86Box emulator. Bitstream based and flexible
+      in terms of per-track parameters, it also allows exact encoding of bitcell length to support track wrapping.
 
 ### Flux-Based Disk Images
 

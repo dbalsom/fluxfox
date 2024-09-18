@@ -234,11 +234,13 @@ impl MfmFormat {
                 }
             }
 
+            // TODO: Handle advanced track headers
             disk_image.add_track_bitstream(
                 DiskDataEncoding::Mfm,
                 disk_data_rate,
                 DiskCh::from((cylinder as u16, head)),
                 data_rate,
+                None,
                 &track_data,
                 None,
             )?;

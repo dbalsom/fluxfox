@@ -31,7 +31,7 @@ pub mod raw;
 use crate::bitstream::mfm::MfmDecoder;
 use crate::bitstream::raw::RawDecoder;
 use crate::io::{Read, Seek};
-use crate::EncodingPhase;
+use crate::{DiskImageError, EncodingPhase};
 use bit_vec::BitVec;
 use std::ops::Index;
 
@@ -107,6 +107,13 @@ impl TrackDataStream {
         match self {
             TrackDataStream::Mfm(data) => data.get_sync(),
             _ => None,
+        }
+    }
+
+    pub fn set_track_padding(&mut self) {
+        match self {
+            TrackDataStream::Mfm(data) => data.set_track_padding(),
+            _ => {}
         }
     }
 

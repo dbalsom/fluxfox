@@ -51,6 +51,7 @@ pub struct MfmDecoder {
     weak_mask: BitVec,
     initial_phase: usize,
     bit_cursor: usize,
+    track_padding: usize,
 }
 
 pub enum MfmEncodingType {
@@ -127,7 +128,12 @@ pub fn find_sync(track: &BitVec, start_idx: usize) -> Option<usize> {
 }
 
 impl MfmDecoder {
-    pub fn new(bit_vec: BitVec, weak_mask: Option<BitVec>) -> Self {
+    pub fn new(mut bit_vec: BitVec, bit_ct: Option<usize>, weak_mask: Option<BitVec>) -> Self {
+        // If a bit count was provided, we can trim the bit vector to that length.
+        if let Some(bit_ct) = bit_ct {
+            bit_vec.truncate(bit_ct);
+        }
+
         let encoding_sync = get_mfm_sync_offset(&bit_vec).unwrap_or(EncodingPhase::Even);
         let sync = encoding_sync.into();
 
@@ -147,11 +153,16 @@ impl MfmDecoder {
             weak_mask,
             initial_phase: sync,
             bit_cursor: sync,
+            track_padding: 0,
         }
     }
 
     pub fn len(&self) -> usize {
         self.bit_vec.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.bit_vec.is_empty()
     }
 
     pub fn data(&self) -> Vec<u8> {
@@ -171,6 +182,49 @@ impl MfmDecoder {
 
     pub fn clock_map_mut(&mut self) -> &mut BitVec {
         &mut self.clock_map
+    }
+
+    pub fn set_track_padding(&mut self) {
+        let mut wrap_buffer: [u8; 4] = [0; 4];
+
+        if self.bit_vec.len() % 8 == 0 {
+            // Track length was an even multiple of 8, so it is possible track data was padded to
+            // byte margins.
+
+            let mut found_pad = false;
+            // Read buffer across the end of the track and see if all bytes are the same.
+            for pad in (1..16) {
+                log::trace!(
+                    "bitcells: {} data bits: {} window_start: {}",
+                    self.bit_vec.len(),
+                    self.bit_vec.len() / 2,
+                    self.bit_vec.len() - (8 * 2)
+                );
+                let wrap_addr = (self.bit_vec.len() / 2) - (8 * 2);
+
+                self.track_padding = pad;
+
+                self.seek(SeekFrom::Start(wrap_addr as u64)).unwrap();
+                self.read_exact(&mut wrap_buffer).unwrap();
+
+                log::trace!(
+                    "set_track_padding(): wrap_buffer at {}, pad {}: {:02X?}",
+                    wrap_addr,
+                    pad,
+                    wrap_buffer
+                );
+            }
+
+            if !found_pad {
+                // No padding found
+                log::warn!("set_track_padding(): Unable to determine track padding.");
+                self.track_padding = 0;
+            }
+        } else {
+            // Track length is not an even multiple of 8 - the only explanation is that there is no
+            // track padding.
+            self.track_padding = 0;
+        }
     }
 
     /// Encode an MFM address mark.
@@ -227,10 +281,17 @@ impl MfmDecoder {
         None
     }
 
-    pub fn find_marker(&self, marker: u64, start: usize) -> Option<usize> {
+    pub fn find_marker(&self, marker: u64, start: usize, limit: Option<usize>) -> Option<usize> {
         let mut shift_reg: u64 = 0;
         let mut shift_ct: u32 = 0;
-        for bi in start..self.bit_vec.len() {
+
+        let search_limit = if let Some(provided_limit) = limit {
+            provided_limit
+        } else {
+            self.bit_vec.len()
+        };
+
+        for bi in start..search_limit {
             shift_reg = (shift_reg << 1) | self.bit_vec[bi] as u64;
             shift_ct += 1;
 
@@ -344,8 +405,21 @@ impl Iterator for MfmDecoder {
 
         // The bit cursor should always be aligned to a clock bit.
         // So retrieve the next bit which is the data bit, then point to the next clock.
-        let decoded_bit = self.bit_vec[self.bit_cursor + 1];
-        self.bit_cursor += 2;
+        let mut data_idx = self.bit_cursor + 1;
+        if data_idx > (self.bit_vec.len() - self.track_padding) {
+            // Wrap around to the beginning of the track
+            data_idx = 0;
+        }
+        let decoded_bit = self.bit_vec[data_idx];
+
+        let new_cursor = data_idx + 1;
+        if new_cursor >= (self.bit_vec.len() - self.track_padding) {
+            // Wrap around to the beginning of the track
+            self.bit_cursor = 0;
+        } else {
+            self.bit_cursor = new_cursor;
+        }
+
         Some(decoded_bit)
     }
 }
@@ -365,12 +439,12 @@ impl Seek for MfmDecoder {
         ))?;
 
         let mut new_cursor = (new_pos as usize) << 1;
-
+        /*
         let mut debug_vec = Vec::new();
         for i in 0..5 {
             debug_vec.push(self.clock_map[new_cursor - 2 + i]);
         }
-        /*
+
         log::debug!(
             "seek() clock_map[{}]: {} {:?}",
             new_cursor,
@@ -393,7 +467,7 @@ impl Seek for MfmDecoder {
         }
 
         self.bit_cursor = new_cursor;
-        log::trace!("seek(): new_pos: {}", self.bit_cursor);
+        //log::trace!("seek(): new_pos: {}", self.bit_cursor);
 
         Ok(self.bit_cursor as u64)
     }

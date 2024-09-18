@@ -172,7 +172,12 @@ pub trait DiskStructureParser {
     fn find_data_pattern(track: &TrackDataStream, pattern: &[u8], offset: usize) -> Option<usize>;
     fn find_next_marker(track: &TrackDataStream, offset: usize) -> Option<(DiskStructureMarker, usize)>;
 
-    fn find_marker(track: &TrackDataStream, marker: DiskStructureMarker, offset: usize) -> Option<usize>;
+    fn find_marker(
+        track: &TrackDataStream,
+        marker: DiskStructureMarker,
+        offset: usize,
+        limit: Option<usize>,
+    ) -> Option<usize>;
     fn find_element(track: &TrackDataStream, element: DiskStructureElement, offset: usize) -> Option<usize>;
 
     fn scan_track_markers(track: &mut TrackDataStream) -> Vec<DiskStructureMarkerItem>;

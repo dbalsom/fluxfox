@@ -233,13 +233,18 @@ impl DiskStructureParser for System34Parser {
         None
     }
 
-    fn find_marker(track: &TrackDataStream, marker: DiskStructureMarker, offset: usize) -> Option<usize> {
+    fn find_marker(
+        track: &TrackDataStream,
+        marker: DiskStructureMarker,
+        offset: usize,
+        limit: Option<usize>,
+    ) -> Option<usize> {
         if let DiskStructureMarker::System34(marker) = marker {
             let marker_u64 = u64::from(marker);
 
             if let TrackDataStream::Mfm(mfm_stream) = track {
                 //log::trace!("find_marker(): Searching for marker at offset: {}", offset);
-                return mfm_stream.find_marker(marker_u64, offset);
+                return mfm_stream.find_marker(marker_u64, offset, limit);
             }
         }
         None
@@ -266,7 +271,7 @@ impl DiskStructureParser for System34Parser {
             if let TrackDataStream::Mfm(mfm_stream) = track {
                 log::trace!("find_element(): Searching for element at offset: {}", offset);
                 //let mfm_offset = System34Parser::find_data_pattern(track, pattern, offset >> 1);
-                let raw_offset = mfm_stream.find_marker(marker, offset);
+                let raw_offset = mfm_stream.find_marker(marker, offset, None);
                 /*                if let Some(mfm_offset) = mfm_offset {
                     log::trace!(
                         "find_element(): Found element in decoded stream: {:?} at offset: {}",
@@ -314,13 +319,12 @@ impl DiskStructureParser for System34Parser {
         // Look for the IAM marker first - but it may not be present (ISO standard encoding does
         // not require it).
 
-        // TODO: Potential optimization:
-        //       It may be unnecessary to scan the entire track for the IAM. If it is not present
-        //       within the first 10% of the track it is probably not there.
-
-        if let Some(marker_offset) =
-            System34Parser::find_marker(track, DiskStructureMarker::System34(System34Marker::Iam), bit_cursor)
-        {
+        if let Some(marker_offset) = System34Parser::find_marker(
+            track,
+            DiskStructureMarker::System34(System34Marker::Iam),
+            bit_cursor,
+            Some(5_000),
+        ) {
             log::trace!(
                 "scan_track_markers(): Found IAM marker at bit offset: {}",
                 marker_offset
@@ -487,8 +491,23 @@ impl DiskStructureParser for System34Parser {
                     _ => {}
                 }
 
-                if let Some(last_marker) = last_marker_opt {
-                    let last_marker_offset = element_offset - 4 * MFM_BYTE_LEN;
+                // Push marker as Metadata item.
+                let marker_metadata = DiskStructureMetadataItem {
+                    elem_type: DiskStructureElement::System34(System34Element::Marker(sys34_marker, None)),
+                    start: marker.start,
+                    end: marker.start + 4 * MFM_BYTE_LEN,
+                    chsn: Some(DiskChsn::new(
+                        last_sector_id.c as u16,
+                        last_sector_id.h,
+                        last_sector_id.s,
+                        last_sector_id.b,
+                    )),
+                    _crc: None,
+                };
+                elements.push(marker_metadata);
+
+                /*                if let Some(last_marker) = last_marker_opt {
+                    let last_marker_offset = last_marker.selement_offset - 4 * MFM_BYTE_LEN;
                     let last_marker_metadata = DiskStructureMetadataItem {
                         elem_type: DiskStructureElement::System34(System34Element::Marker(last_marker, None)),
                         start: last_marker_offset,
@@ -502,7 +521,7 @@ impl DiskStructureParser for System34Parser {
                         _crc: None,
                     };
                     elements.push(last_marker_metadata);
-                }
+                }*/
 
                 // Save the last element seen.
                 last_element_offset = element_offset;

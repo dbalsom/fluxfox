@@ -71,6 +71,7 @@ pub struct PriChunkCrc {
     pub crc: u32,
 }
 
+#[derive(Default, Debug)]
 #[binrw]
 #[brw(big)]
 pub struct PriTrackHeader {
@@ -242,11 +243,12 @@ impl PriFormat {
         let mut default_bit_clock = 0;
         let mut current_bit_clock = 0;
         let mut expected_data_size = 0;
+        let mut track_header = PriTrackHeader::default();
 
         while chunk.chunk_type != PriChunkType::End {
             match chunk.chunk_type {
                 PriChunkType::TrackHeader => {
-                    let track_header = PriTrackHeader::read(&mut Cursor::new(&chunk.data))
+                    track_header = PriTrackHeader::read(&mut Cursor::new(&chunk.data))
                         .map_err(|_| DiskImageError::FormatParseError)?;
 
                     let ch = DiskCh::from((track_header.cylinder as u16, track_header.head as u8));
@@ -295,6 +297,7 @@ impl PriFormat {
                         DiskDataRate::from(current_bit_clock),
                         current_chs.into(),
                         current_bit_clock,
+                        Some(track_header.bit_length as usize),
                         &chunk.data,
                         None,
                     )?;

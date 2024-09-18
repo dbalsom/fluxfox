@@ -27,7 +27,7 @@
 use crate::bitstream::mfm::MfmDecoder;
 use crate::bitstream::raw::RawDecoder;
 use crate::bitstream::TrackDataStream;
-use crate::boot_sector::bpb::BootSector;
+use crate::boot_sector::BootSector;
 use crate::chs::{DiskCh, DiskChs, DiskChsn};
 use crate::containers::zip::extract_first_file;
 use crate::containers::DiskImageContainer;
@@ -478,6 +478,7 @@ impl DiskImage {
         data_rate: DiskDataRate,
         ch: DiskCh,
         data_clock: u32,
+        bitcell_ct: Option<usize>,
         data: &[u8],
         weak: Option<&[u8]>,
     ) -> Result<(), DiskImageError> {
@@ -502,10 +503,13 @@ impl DiskImage {
         log::trace!("add_track_bitstream(): Encoding is {:?}", data_encoding);
         let (mut data_stream, markers) = match data_encoding {
             DiskDataEncoding::Mfm => {
-                let mut data_stream = TrackDataStream::Mfm(MfmDecoder::new(data, Some(weak_mask)));
+                let mut data_stream = TrackDataStream::Mfm(MfmDecoder::new(data, bitcell_ct, Some(weak_mask)));
                 let markers = System34Parser::scan_track_markers(&mut data_stream);
 
                 System34Parser::create_clock_map(&markers, data_stream.clock_map_mut().unwrap());
+
+                data_stream.set_track_padding();
+
                 (data_stream, markers)
             }
             DiskDataEncoding::Fm => {
@@ -692,6 +696,18 @@ impl DiskImage {
         track.data.read_all_sectors(ch, n, eot)
     }
 
+    pub fn read_track(&mut self, ch: DiskCh) -> Result<ReadTrackResult, DiskImageError> {
+        // Check that the head and cylinder are within the bounds of the track map.
+        if ch.h() > 1 || ch.c() as usize >= self.track_map[ch.h() as usize].len() {
+            return Err(DiskImageError::SeekError);
+        }
+
+        let ti = self.track_map[ch.h() as usize][ch.c() as usize];
+        let track = &mut self.track_pool[ti];
+
+        track.data.read_track(ch)
+    }
+
     pub fn is_id_valid(&self, chs: DiskChs) -> bool {
         if chs.h() > 1 || chs.c() as usize >= self.track_map[chs.h() as usize].len() {
             return false;
@@ -712,9 +728,9 @@ impl DiskImage {
         false
     }
 
-    pub(crate) fn examine_boot_sector(&mut self) {
+    pub(crate) fn read_boot_sector(&mut self) -> Result<Vec<u8>, DiskImageError> {
         if self.track_map.is_empty() || self.track_map[0].is_empty() {
-            return;
+            return Err(DiskImageError::IncompatibleImage);
         }
         let ti = self.track_map[0][0];
         let track = &mut self.track_pool[ti];
@@ -723,17 +739,38 @@ impl DiskImage {
             .data
             .read_sector(DiskChs::new(0, 0, 1), None, RwSectorScope::DataOnly, true)
         {
-            Ok(result) => {
-                let mut buffer = Cursor::new(&result.read_buf);
-                let bpb = BootSector::new(&mut buffer);
-                if let Ok(bpb) = bpb {
-                    self.boot_sector = Some(bpb);
+            Ok(result) => Ok(result.read_buf),
+            Err(e) => Err(e),
+        }
+    }
+
+    pub(crate) fn write_boot_sector(&mut self, buf: &[u8]) -> Result<(), DiskImageError> {
+        self.write_sector(DiskChs::new(0, 0, 1), Some(2), buf, RwSectorScope::DataOnly, false)?;
+        Ok(())
+    }
+
+    pub(crate) fn parse_boot_sector(&mut self, buf: &[u8]) -> Result<(), DiskImageError> {
+        let mut cursor = Cursor::new(buf);
+        let bpb = BootSector::new(&mut cursor)?;
+        self.boot_sector = Some(bpb);
+        Ok(())
+    }
+
+    pub fn update_standard_boot_sector(&mut self, format: StandardFormat) -> Result<(), DiskImageError> {
+        if let Ok(buf) = &mut self.read_boot_sector() {
+            if self.parse_boot_sector(buf).is_ok() {
+                if let Some(bpb) = &mut self.boot_sector {
+                    bpb.update_bpb_from_format(format)?;
+                    let mut cursor = Cursor::new(buf);
+                    bpb.write_bpb_to_buffer(&mut cursor)?;
+                    self.write_boot_sector(cursor.into_inner())?;
                 }
-            }
-            Err(e) => {
-                log::error!("Failed to read boot sector: {:?}", e);
+            } else {
+                log::warn!("update_standard_boot_sector(): Failed to examine boot sector.");
             }
         }
+
+        Ok(())
     }
 
     /// Called after loading a disk image to perform any post-load operations.
@@ -744,15 +781,24 @@ impl DiskImage {
         // Examine the boot sector if present. Use this to determine if this image is a standard
         // format disk image (but do not rely on this as the sole method of determining the disk
         // format)
-        self.examine_boot_sector();
+        match self.read_boot_sector() {
+            Ok(buf) => _ = self.parse_boot_sector(&buf),
+            Err(e) => {
+                log::error!("post_load_process(): Failed to read boot sector: {:?}", e);
+            }
+        }
+
         if let Some(boot_sector) = &self.boot_sector {
             if let Ok(format) = boot_sector.get_standard_format() {
-                log::trace!("Boot sector of standard format detected: {:?}", format);
+                log::trace!(
+                    "post_load_process(): Boot sector of standard format detected: {:?}",
+                    format
+                );
 
                 if self.standard_format.is_none() {
                     self.standard_format = Some(format);
                 } else if self.standard_format != Some(format) {
-                    log::warn!("Boot sector format does not match image format.");
+                    log::warn!("post_load_process(): Boot sector format does not match image format.");
                 }
             }
         }
@@ -810,19 +856,19 @@ impl DiskImage {
     }
 
     pub(crate) fn detect_duplicate_tracks(&mut self, head: usize) -> usize {
-        let mut track_hashes: FoxHashMap<Digest, u32> = FoxHashMap::new();
-        let mut duplicate_tracks = Vec::new();
+        let mut duplicate_ct = 0;
 
-        for (track_idx, track) in self.track_map[head].iter().enumerate() {
-            let track_entry_opt = track_hashes.get(&self.track_pool[*track].get_hash());
-            if track_entry_opt.is_some() {
-                duplicate_tracks.push(track_idx);
-            } else {
-                track_hashes.insert(self.track_pool[*track].get_hash(), 1);
+        // Iterate through each pair of tracks and see if the 2nd track is a duplicate of the first.
+        for track_pair in self.track_map[head].chunks_exact(2) {
+            let track0_hash = self.track_pool[track_pair[0]].get_hash();
+            let track1_hash = self.track_pool[track_pair[1]].get_hash();
+
+            if track0_hash == track1_hash {
+                duplicate_ct += 1;
             }
         }
 
-        duplicate_tracks.len()
+        duplicate_ct
     }
 
     /// Remove all odd tracks from image. This is useful for handling images that store 40 track

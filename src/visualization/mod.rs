@@ -31,7 +31,8 @@
 */
 
 use crate::bitstream::TrackDataStream;
-use crate::structure_parsers::{DiskStructureGenericElement, DiskStructureMetadata};
+use crate::structure_parsers::system34::System34Element;
+use crate::structure_parsers::{DiskStructureElement, DiskStructureGenericElement, DiskStructureMetadata};
 use crate::trackdata::TrackData;
 use crate::{DiskImage, DiskImageError, FoxHashMap};
 use std::cmp::min;
@@ -449,9 +450,8 @@ pub fn render_track_data(
     Ok(())
 }
 
-fn calculate_track_width(total_tracks: usize, image_radius: f64, min_radius_ratio: f64, track_spacing: f64) -> f64 {
-    let min_radius = image_radius * min_radius_ratio;
-    (image_radius - min_radius - track_spacing * total_tracks as f64) / total_tracks as f64
+fn calculate_track_width(total_tracks: usize, image_radius: f64, min_radius_ratio: f64) -> f64 {
+    (image_radius - (image_radius * min_radius_ratio)) / total_tracks as f64
 }
 
 /// Render a representation of a disk's data to a Pixmap.
@@ -464,7 +464,7 @@ pub fn render_track_metadata_quadrant(
     min_radius_ratio: f32, // Minimum radius as a fraction (0.0 to 1.0)
     index_angle: f32,
     track_limit: usize,
-    track_spacing: f32,
+    track_gap: f32,
     direction: RotationDirection, // Added parameter for rotation direction
     palette: FoxHashMap<DiskStructureGenericElement, Color>,
 ) -> Result<(), DiskImageError> {
@@ -474,12 +474,7 @@ pub fn render_track_metadata_quadrant(
 
     let image_size = pixmap.width() as f64 * 2.0;
     let image_radius = image_size / 2.0;
-    let track_width = calculate_track_width(
-        total_tracks,
-        image_radius,
-        min_radius_ratio as f64,
-        track_spacing as f64,
-    );
+    let track_width = calculate_track_width(total_tracks, image_radius, min_radius_ratio as f64);
 
     let center = match quadrant {
         0 => Point::from_xy(image_radius as f32, image_radius as f32),
@@ -507,91 +502,102 @@ pub fn render_track_metadata_quadrant(
 
     //println!("Rendering side {:?}", direction);
 
-    for (ti, track_meta) in rmetadata.iter().enumerate() {
-        for (mi, meta_item) in track_meta.items.iter().enumerate() {
-            let outer_radius = image_radius as f32 - (ti as f32 * (track_width as f32 + track_spacing));
-            let track_radius = outer_radius - track_width as f32;
+    for draw_markers in [false, true].iter() {
+        for (ti, track_meta) in rmetadata.iter().enumerate() {
+            for (_mi, meta_item) in track_meta.items.iter().enumerate() {
+                if let DiskStructureElement::System34(System34Element::Marker(..)) = meta_item.elem_type {
+                    if !*draw_markers {
+                        continue;
+                    }
+                } else if *draw_markers {
+                    continue;
+                }
 
-            let mut start_angle = ((meta_item.start as f32 / rtracks[ti].len() as f32) * TAU) + index_angle;
-            let mut end_angle = ((meta_item.end as f32 / rtracks[ti].len() as f32) * TAU) + index_angle;
+                let outer_radius = image_radius as f32 - (ti as f32 * track_width as f32);
+                let inner_radius = outer_radius - (track_width as f32 * (1.0 - track_gap));
 
-            if start_angle > end_angle {
-                std::mem::swap(&mut start_angle, &mut end_angle);
+                let mut start_angle = ((meta_item.start as f32 / rtracks[ti].len() as f32) * TAU) + index_angle;
+                let mut end_angle = ((meta_item.end as f32 / rtracks[ti].len() as f32) * TAU) + index_angle;
+
+                if start_angle > end_angle {
+                    std::mem::swap(&mut start_angle, &mut end_angle);
+                }
+
+                let (clip_start, clip_end) = match direction {
+                    RotationDirection::CounterClockwise => (quadrant_angles_cc.0, quadrant_angles_cc.1),
+                    RotationDirection::Clockwise => (quadrant_angles_cc.0, quadrant_angles_cc.1),
+                };
+
+                (start_angle, end_angle) = match direction {
+                    RotationDirection::CounterClockwise => (start_angle, end_angle),
+                    RotationDirection::Clockwise => (TAU - start_angle, TAU - end_angle),
+                };
+
+                if start_angle > end_angle {
+                    std::mem::swap(&mut start_angle, &mut end_angle);
+                }
+
+                // Skip sectors that are outside the current quadrant
+                if end_angle <= clip_start || start_angle >= clip_end {
+                    continue;
+                }
+
+                // Clamp start and end angle to quadrant boundaries
+                if start_angle < clip_start {
+                    start_angle = clip_start;
+                }
+
+                if end_angle > clip_end {
+                    end_angle = clip_end;
+                }
+
+                // Draw the outer curve
+                add_arc(
+                    &mut path_builder,
+                    center,
+                    inner_radius,
+                    start_angle.max(clip_start),
+                    end_angle.min(clip_end),
+                );
+                // Draw line segment to end angle of inner curve
+                path_builder.line_to(
+                    center.x + outer_radius * end_angle.cos(),
+                    center.y + outer_radius * end_angle.sin(),
+                );
+                // Draw inner curve back to start angle
+                add_arc(
+                    &mut path_builder,
+                    center,
+                    outer_radius,
+                    end_angle.min(clip_end),
+                    start_angle.max(clip_start),
+                );
+                // Draw line segment back to start angle of outer curve
+                path_builder.line_to(
+                    center.x + inner_radius * start_angle.cos(),
+                    center.y + inner_radius * start_angle.sin(),
+                );
+                path_builder.close();
+
+                // Use a predefined color for each sector
+                let generic_elem = DiskStructureGenericElement::from(meta_item.elem_type);
+                let null_color = Color::from_rgba(0.0, 0.0, 0.0, 0.0).unwrap();
+                let color = palette.get(&generic_elem).unwrap_or(&null_color);
+
+                let mut paint = Paint {
+                    blend_mode: BlendMode::SourceOver,
+                    ..Default::default()
+                };
+                paint.set_color(*color);
+
+                let path = path_builder.finish().unwrap();
+                pixmap.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
+
+                path_builder = PathBuilder::new(); // Reset the path builder for the next sector
             }
-
-            let (clip_start, clip_end) = match direction {
-                RotationDirection::CounterClockwise => (quadrant_angles_cc.0, quadrant_angles_cc.1),
-                RotationDirection::Clockwise => (quadrant_angles_cc.0, quadrant_angles_cc.1),
-            };
-
-            (start_angle, end_angle) = match direction {
-                RotationDirection::CounterClockwise => (start_angle, end_angle),
-                RotationDirection::Clockwise => (TAU - start_angle, TAU - end_angle),
-            };
-
-            if start_angle > end_angle {
-                std::mem::swap(&mut start_angle, &mut end_angle);
-            }
-
-            // Skip sectors that are outside the current quadrant
-            if end_angle <= clip_start || start_angle >= clip_end {
-                continue;
-            }
-
-            // Clamp start and end angle to quadrant boundaries
-            if start_angle < clip_start {
-                start_angle = clip_start;
-            }
-
-            if end_angle > clip_end {
-                end_angle = clip_end;
-            }
-
-            // Draw the outer curve
-            add_arc(
-                &mut path_builder,
-                center,
-                track_radius,
-                start_angle.max(clip_start),
-                end_angle.min(clip_end),
-            );
-            // Draw line segment to end angle of inner curve
-            path_builder.line_to(
-                center.x + outer_radius * end_angle.cos(),
-                center.y + outer_radius * end_angle.sin(),
-            );
-            // Draw inner curve back to start angle
-            add_arc(
-                &mut path_builder,
-                center,
-                outer_radius,
-                end_angle.min(clip_end),
-                start_angle.max(clip_start),
-            );
-            // Draw line segment back to start angle of outer curve
-            path_builder.line_to(
-                center.x + track_radius * start_angle.cos(),
-                center.y + track_radius * start_angle.sin(),
-            );
-            path_builder.close();
-
-            // Use a predefined color for each sector
-            let generic_elem = DiskStructureGenericElement::from(meta_item.elem_type);
-            let null_color = Color::from_rgba(0.0, 0.0, 0.0, 0.0).unwrap();
-            let color = palette.get(&generic_elem).unwrap_or(&null_color);
-
-            let mut paint = Paint {
-                blend_mode: BlendMode::SourceOver,
-                ..Default::default()
-            };
-            paint.set_color(*color);
-
-            let path = path_builder.finish().unwrap();
-            pixmap.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
-
-            path_builder = PathBuilder::new(); // Reset the path builder for the next sector
         }
     }
+
     Ok(())
 }
 

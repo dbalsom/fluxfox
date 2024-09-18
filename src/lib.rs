@@ -210,7 +210,7 @@ impl From<DiskDensity> for DiskDataRate {
 impl Display for DiskDataRate {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            DiskDataRate::RateNonstandard(rate) => write!(f, "{}Kbps", rate / 1000),
+            DiskDataRate::RateNonstandard(rate) => write!(f, "*{}Kbps", rate / 1000),
             DiskDataRate::Rate125Kbps => write!(f, "125Kbps"),
             DiskDataRate::Rate250Kbps => write!(f, "250Kbps"),
             DiskDataRate::Rate300Kbps => write!(f, "300Kbps"),

@@ -35,4 +35,7 @@
 
 */
 
+pub mod bootsector;
 pub mod bpb;
+
+pub use bootsector::BootSector;

@@ -187,8 +187,7 @@ fn main() {
     let resolution = ResolutionType::Byte; // Change to Bit if needed
     let min_radius_fraction = opts.hole_ratio; // Minimum radius as a fraction of the image size
 
-    let render_track_gap = 0.20; // Fraction of the track width to leave as a gap
-    let track_gap_weight = 2.0; // Thickness of the boundary circles
+    let render_track_gap = 0.10; // Fraction of the track width to leave transparent as a gap between tracks (0.0-1.0)
 
     let heads = if disk.heads() > 1 { 2 } else { 1 };
     let high_res_size = (render_size, render_size); // High-resolution image size
@@ -300,7 +299,7 @@ fn main() {
                         min_radius_fraction,
                         opts.angle,
                         track_ct,
-                        track_gap_weight,
+                        render_track_gap,
                         direction,
                         palette,
                     );

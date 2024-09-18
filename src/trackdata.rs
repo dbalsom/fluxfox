@@ -711,4 +711,44 @@ impl TrackData {
             data_crc_error,
         })
     }
+
+    pub(crate) fn read_track(&mut self, ch: DiskCh) -> Result<ReadTrackResult, DiskImageError> {
+        match self {
+            TrackData::BitStream { .. } => self.read_track_bitstream(ch),
+            TrackData::ByteStream { .. } => self.read_track_bytestream(ch),
+        }
+    }
+
+    fn read_track_bitstream(&mut self, _ch: DiskCh) -> Result<ReadTrackResult, DiskImageError> {
+        if let TrackData::BitStream {
+            data: TrackDataStream::Mfm(mfm_decoder),
+            ..
+        } = self
+        {
+            let data_size = mfm_decoder.len() / 16 + if mfm_decoder.len() % 16 > 0 { 1 } else { 0 };
+            let mut track_read_vec = vec![0u8; data_size];
+
+            mfm_decoder
+                .seek(SeekFrom::Start(0))
+                .map_err(|_| DiskImageError::SeekError)?;
+            mfm_decoder
+                .read_exact(&mut track_read_vec)
+                .map_err(|_| DiskImageError::IoError)?;
+
+            Ok(ReadTrackResult {
+                not_found: false,
+                sectors_read: 0,
+                read_buf: track_read_vec,
+                deleted_mark: false,
+                address_crc_error: false,
+                data_crc_error: false,
+            })
+        } else {
+            Err(DiskImageError::UnsupportedFormat)
+        }
+    }
+
+    fn read_track_bytestream(&mut self, _ch: DiskCh) -> Result<ReadTrackResult, DiskImageError> {
+        Err(DiskImageError::UnsupportedFormat)
+    }
 }

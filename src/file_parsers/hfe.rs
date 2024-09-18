@@ -334,6 +334,7 @@ impl HfeFormat {
                 DiskDataRate::from(file_header.bit_rate as u32 * 100),
                 DiskCh::from((ti as u16, 0)),
                 file_header.bit_rate as u32 * 100,
+                None,
                 &track_data[0],
                 None,
             )?;
@@ -350,6 +351,7 @@ impl HfeFormat {
                 DiskDataRate::from(file_header.bit_rate as u32 * 100),
                 DiskCh::from((ti as u16, 1)),
                 file_header.bit_rate as u32 * 100,
+                None,
                 &track_data[1],
                 None,
             )?;

@@ -195,9 +195,15 @@ impl F86Format {
         let absolute_bitcell_count = if matches!(time_shift, F86TimeShift::ZeroPercent) && extra_bitcell_mode {
             log::trace!("Extra bitcell count is an absolute count.");
             true
-        } else {
-            log::error!("Unsupported time shift: {:?}", time_shift);
+        } else if extra_bitcell_mode {
+            log::error!(
+                "Unsupported time shift: {:?} extra_bitcell_mode: {}",
+                time_shift,
+                extra_bitcell_mode
+            );
             return Err(DiskImageError::UnsupportedFormat);
+        } else {
+            false
         };
 
         // A table of track offsets immediately follows the header. We can calculate the number of
@@ -297,17 +303,20 @@ impl F86Format {
 
             log::trace!("Track data length: {}", track_data_length);
 
+            let mut bitcell_ct = None;
             if absolute_bitcell_count {
                 if let Some(absolute_count) = extra_bitcells {
+                    let absolute_data_len =
+                        ((absolute_count / 8) + if (absolute_count % 8) != 0 { 1 } else { 0 }) as usize;
+
                     log::trace!(
-                        "Absolute bitcell count specifies: {} bytes. Data length is: {}",
-                        absolute_count / 8,
+                        "Absolute bitcell count ({}) specifies: {} bytes. Data length is: {}",
+                        absolute_count,
+                        absolute_data_len,
                         track_data_length
                     );
-                    if (absolute_count / 8) as usize != track_data_length {
-                        log::error!("Absolute bitcell count does not match data length.");
-                        return Err(DiskImageError::UnsupportedFormat);
-                    }
+
+                    bitcell_ct = Some(absolute_count as usize);
                 }
             }
 
@@ -327,6 +336,7 @@ impl F86Format {
                 track_data_rate,
                 DiskCh::from((cylinder_n, head_n)),
                 track_data_rate.into(),
+                bitcell_ct,
                 &track_data_vec,
                 None,
             )?;

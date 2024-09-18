@@ -32,7 +32,7 @@
 */
 use bpaf::*;
 use fluxfox::diskimage::RwSectorScope;
-use fluxfox::{DiskChs, DiskImage};
+use fluxfox::{DiskCh, DiskChs, DiskImage};
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 
@@ -43,7 +43,7 @@ struct Out {
     filename: PathBuf,
     cylinder: u16,
     head: u8,
-    sector: u8,
+    sector: Option<u8>,
     n: Option<u8>,
     row_size: usize,
     structure: bool,
@@ -65,7 +65,11 @@ fn opts() -> OptionParser<Out> {
 
     let head = short('h').long("head").help("Target head").argument::<u8>("HEAD");
 
-    let sector = short('s').long("sector").help("Target sector").argument::<u8>("SECTOR");
+    let sector = short('s')
+        .long("sector")
+        .help("Target sector")
+        .argument::<u8>("SECTOR")
+        .optional();
 
     let n = short('n')
         .long("sector_size")
@@ -130,39 +134,58 @@ fn main() {
         }
     };
 
-    // Dump the specified sector in hex format to stdout.
     let handle = std::io::stdout();
     let mut buf = BufWriter::new(handle);
 
-    let chs = DiskChs::new(opts.cylinder, opts.head, opts.sector);
+    // If sector was provided, dump the sector.
+    if let Some(sector) = opts.sector {
+        // Dump the specified sector in hex format to stdout.
+        let chs = DiskChs::new(opts.cylinder, opts.head, sector);
 
-    let (scope, calc_crc) = match opts.structure {
-        true => (RwSectorScope::DataBlock, true),
-        false => (RwSectorScope::DataOnly, false),
-    };
+        let (scope, calc_crc) = match opts.structure {
+            true => (RwSectorScope::DataBlock, true),
+            false => (RwSectorScope::DataOnly, false),
+        };
 
-    println!("Dumping sector {} in hex format, with scope {:?}:", chs, scope);
+        println!("Dumping sector {} in hex format, with scope {:?}:", chs, scope);
 
-    let rsr = match disk.read_sector(chs, opts.n, scope, true) {
-        Ok(rsr) => rsr,
-        Err(e) => {
-            eprintln!("Error reading sector: {}", e);
-            std::process::exit(1);
+        let rsr = match disk.read_sector(chs, opts.n, scope, true) {
+            Ok(rsr) => rsr,
+            Err(e) => {
+                eprintln!("Error reading sector: {}", e);
+                std::process::exit(1);
+            }
+        };
+
+        _ = writeln!(&mut buf, "Data length: {}", rsr.data_len);
+
+        let data_slice = match scope {
+            RwSectorScope::DataOnly => &rsr.read_buf[rsr.data_idx..rsr.data_idx + rsr.data_len],
+            RwSectorScope::DataBlock => &rsr.read_buf,
+        };
+
+        _ = fluxfox::util::dump_slice(data_slice, 0, opts.row_size, &mut buf);
+
+        // If we requested DataBlock scope, we can independently calculate the CRC, so do that now.
+        if calc_crc {
+            let calculated_crc = fluxfox::util::crc_ccitt(&data_slice[0..0x104]);
+            _ = writeln!(&mut buf, "Calculated CRC: {:04X}", calculated_crc);
         }
-    };
+    } else {
+        // No sector was provided, dump the whole track.
 
-    _ = writeln!(&mut buf, "Data length: {}", rsr.data_len);
+        let ch = DiskCh::new(opts.cylinder, opts.head);
 
-    let data_slice = match scope {
-        RwSectorScope::DataOnly => &rsr.read_buf[rsr.data_idx..rsr.data_idx + rsr.data_len],
-        RwSectorScope::DataBlock => &rsr.read_buf,
-    };
+        println!("Dumping track {} in hex format:", ch);
 
-    _ = fluxfox::util::dump_slice(data_slice, 0, opts.row_size, &mut buf);
+        let rtr = match disk.read_track(ch) {
+            Ok(rtr) => rtr,
+            Err(e) => {
+                eprintln!("Error reading track: {}", e);
+                std::process::exit(1);
+            }
+        };
 
-    // If we requested DataBlock scope, we can independently calculate the CRC, so do that now.
-    if calc_crc {
-        let calculated_crc = fluxfox::util::crc_ccitt(&data_slice[0..0x104]);
-        _ = writeln!(&mut buf, "Calculated CRC: {:04X}", calculated_crc);
+        _ = fluxfox::util::dump_slice(&rtr.read_buf, 0, opts.row_size, &mut buf);
     }
 }
