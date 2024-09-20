@@ -30,6 +30,7 @@
     and associated methods.
 
 */
+use crate::bitstream::mfm::MFM_BYTE_LEN;
 use crate::bitstream::TrackDataStream;
 use crate::chs::DiskChsn;
 use crate::diskimage::{
@@ -62,6 +63,7 @@ pub enum TrackData {
         data_clock: u32,
         data: TrackDataStream,
         metadata: DiskStructureMetadata,
+        sector_ids: Vec<DiskChsn>,
     },
     ByteStream {
         cylinder: u16,
@@ -478,14 +480,111 @@ impl TrackData {
         n: Option<u8>,
         write_data: &[u8],
         _scope: RwSectorScope,
-        _debug: bool,
+        debug: bool,
     ) -> Result<WriteSectorResult, DiskImageError> {
+        let mut data_len;
+
+        let mut data_crc_error = false;
+        let mut address_crc_error = false;
+        let mut deleted_mark = false;
+
         let mut wrong_cylinder = false;
         let mut wrong_head = false;
+
+        // Read index first to avoid borrowing issues in next match.
+        let bit_index = match self {
+            TrackData::BitStream { .. } => self.get_sector_bit_index(chs, n),
+            TrackData::ByteStream { .. } => None,
+        };
+
         match self {
-            TrackData::BitStream { .. } => {
-                log::error!("write_sector(): BitStream write not supported");
-                return Err(DiskImageError::UnsupportedFormat);
+            TrackData::BitStream {
+                data: TrackDataStream::Mfm(mfm_codec),
+                ..
+            } => {
+                let (sector_offset, chsn, address_crc_valid, data_crc_valid, deleted) = match bit_index {
+                    Some(idx) => idx,
+                    None => {
+                        log::warn!("Sector marker not found reading sector!");
+                        return Err(DiskImageError::DataError);
+                    }
+                };
+                wrong_cylinder = chsn.c() != chs.c();
+                wrong_head = chsn.h() != chs.h();
+                address_crc_error = !address_crc_valid;
+                // If there's a bad address mark, we not proceed to read the data, unless we're requesting
+                // it anyway for debugging purposes.
+                if address_crc_error && !debug {
+                    return Ok(WriteSectorResult {
+                        not_found: false,
+                        address_crc_error,
+                        wrong_cylinder,
+                        wrong_head,
+                    });
+                }
+
+                // Normally we read the contents of the sector determined by N in the sector header.
+                // The read operation however can override the value of N if 'debug' is true.
+                // If the 'n' parameter is Some, then we use the provided value instead of the sector
+                // header value.
+                // If 'debug' is false, 'n' must be matched or the read operation will fail as
+                // sector id not found.
+                if let Some(n_value) = n {
+                    if debug {
+                        // Try to use provided n, but limit to the size of the write buffer.
+                        data_len = std::cmp::min(write_data.len(), DiskChsn::n_to_bytes(n_value));
+                    } else {
+                        if chsn.n() != n_value {
+                            log::error!(
+                                "read_sector(): Sector size mismatch, expected: {} got: {}",
+                                chsn.n(),
+                                n_value
+                            );
+                            return Err(DiskImageError::DataError);
+                        }
+                        data_len = chsn.n_size();
+
+                        if data_len > write_data.len() {
+                            log::error!(
+                                "write_sector(): Data buffer underflow, expected: {} got: {}",
+                                data_len,
+                                write_data.len()
+                            );
+                            return Err(DiskImageError::ParameterError);
+                        }
+                    }
+                } else {
+                    if DiskChsn::n_to_bytes(chsn.n()) != write_data.len() {
+                        log::error!(
+                            "write_sector(): Data buffer size mismatch, expected: {} got: {}",
+                            chsn.n(),
+                            write_data.len()
+                        );
+                        return Err(DiskImageError::ParameterError);
+                    }
+                    data_len = chsn.n_size();
+                }
+
+                mfm_codec
+                    .seek(SeekFrom::Start(((sector_offset >> 1) + 32) as u64))
+                    .map_err(|_| DiskImageError::SeekError)?;
+
+                log::trace!(
+                    "write_sector(): Writing {} bytes to sector_id: {} at offset: {}",
+                    data_len,
+                    chs.s(),
+                    sector_offset + 4 * MFM_BYTE_LEN
+                );
+                mfm_codec
+                    .write_buf(&write_data[0..data_len], sector_offset + 4 * MFM_BYTE_LEN)
+                    .map_err(|_| DiskImageError::IoError)?;
+
+                return Ok(WriteSectorResult {
+                    not_found: false,
+                    address_crc_error: false,
+                    wrong_cylinder,
+                    wrong_head,
+                });
             }
             TrackData::ByteStream { sectors, data, .. } => {
                 for si in sectors {
@@ -523,6 +622,9 @@ impl TrackData {
                         break;
                     }
                 }
+            }
+            _ => {
+                return Err(DiskImageError::UnsupportedFormat);
             }
         }
 
@@ -719,6 +821,55 @@ impl TrackData {
         }
     }
 
+    pub(crate) fn get_next_id(&self, chs: DiskChs) -> Option<DiskChsn> {
+        match self {
+            TrackData::BitStream { sector_ids, .. } => {
+                if sector_ids.is_empty() {
+                    log::warn!("get_next_id(): No sector_id vector for track!");
+                }
+                let first_sector = *sector_ids.first()?;
+                let mut sector_matched = false;
+                for sid in sector_ids {
+                    if sector_matched {
+                        return Some(*sid);
+                    }
+                    if sid.s() == chs.s() {
+                        // Have matching sector id
+                        sector_matched = true;
+                    }
+                }
+                // If we reached here, we matched the last sector in the list, so return the first
+                // sector as we wrap around the track.
+                if sector_matched {
+                    Some(first_sector)
+                } else {
+                    log::warn!("get_next_id(): Sector not found: {:?}", chs);
+                    None
+                }
+            }
+            TrackData::ByteStream { sectors, .. } => {
+                let first_sector = sectors.first()?;
+                let mut sector_matched = false;
+                for si in sectors.iter() {
+                    if sector_matched {
+                        return Some(DiskChsn::new(chs.c(), chs.h(), si.sector_id, si.n));
+                    }
+                    if si.sector_id == chs.s() {
+                        // Have matching sector id
+                        sector_matched = true;
+                    }
+                }
+                // If we reached here, we matched the last sector in the list, so return the first
+                // sector as we wrap around the track.
+                if sector_matched {
+                    Some(DiskChsn::new(chs.c(), chs.h(), first_sector.sector_id, first_sector.n))
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
     fn read_track_bitstream(&mut self, _ch: DiskCh) -> Result<ReadTrackResult, DiskImageError> {
         if let TrackData::BitStream {
             data: TrackDataStream::Mfm(mfm_decoder),
@@ -750,5 +901,18 @@ impl TrackData {
 
     fn read_track_bytestream(&mut self, _ch: DiskCh) -> Result<ReadTrackResult, DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
+    }
+
+    pub(crate) fn has_weak_bits(&self) -> bool {
+        match self {
+            TrackData::BitStream { data, .. } => {
+                if let TrackDataStream::Mfm(mfm_decoder) = data {
+                    mfm_decoder.has_weak_bits()
+                } else {
+                    false
+                }
+            }
+            TrackData::ByteStream { weak_mask, .. } => !weak_mask.is_empty() && weak_mask.iter().any(|&x| x != 0),
+        }
     }
 }

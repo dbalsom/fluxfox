@@ -32,12 +32,21 @@
     86f format images are an internal bitstream-level format used by the 86Box emulator.
 
 */
+use crate::bitstream::TrackDataStream;
 use crate::diskimage::DiskDescriptor;
-use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
+use crate::file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
-use crate::{DiskCh, DiskDataEncoding, DiskDataRate, DiskImage, DiskImageError, DiskRpm, DEFAULT_SECTOR_SIZE};
-use binrw::{binrw, BinRead};
+use crate::trackdata::TrackData;
+use crate::util::crc_ccitt;
+use crate::{
+    DiskCh, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskImage, DiskImageError, DiskRpm,
+    DEFAULT_SECTOR_SIZE,
+};
+use binrw::{binrw, BinRead, BinWrite};
 use std::mem::size_of;
+
+pub const F86_TRACK_TABLE_LEN_PER_HEAD: usize = 256;
+pub const F86_TRACK_SIZE_BYTES: usize = 25000;
 
 pub const F86_DISK_HAS_SURFACE_DESC: u16 = 0b0000_0001;
 pub const F86_DISK_HOLE_MASK: u16 = 0b0000_0110;
@@ -59,6 +68,17 @@ struct FileHeader {
     flags: u16,
 }
 
+impl Default for FileHeader {
+    fn default() -> Self {
+        Self {
+            id: *b"86BF",
+            minor_version: 0x0C,
+            major_version: 0x02,
+            flags: 0,
+        }
+    }
+}
+
 #[derive(Debug)]
 #[binrw]
 #[brw(little)]
@@ -76,6 +96,7 @@ struct TrackHeaderBitCells {
     index_hole: u32,
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug)]
 enum F86TimeShift {
     ZeroPercent,
@@ -85,6 +106,12 @@ enum F86TimeShift {
     FastOnePercent,
     FastOneAndAHalfPercent,
     FastTwoPercent,
+}
+
+#[derive(Debug)]
+enum F86Endian {
+    Little,
+    Big,
 }
 
 fn f86_disk_time_shift(flags: u16) -> F86TimeShift {
@@ -135,7 +162,7 @@ impl F86Format {
     }
 
     pub fn capabilities() -> FormatCaps {
-        FormatCaps::empty()
+        bitstream_flags()
     }
 
     pub fn detect<RWS: ReadSeek>(mut image: RWS) -> bool {
@@ -152,7 +179,8 @@ impl F86Format {
     }
 
     pub fn can_write(_image: &DiskImage) -> ParserWriteCompatibility {
-        ParserWriteCompatibility::UnsupportedFormat
+        // 86f images can encode about everything we can store for a bitstream format
+        ParserWriteCompatibility::Ok
     }
 
     pub(crate) fn load_image<RWS: ReadSeek>(mut image: RWS) -> Result<DiskImage, DiskImageError> {
@@ -165,24 +193,34 @@ impl F86Format {
         let header = FileHeader::read(&mut image).map_err(|_| DiskImageError::IoError)?;
 
         let has_surface_desc = header.flags & F86_DISK_HAS_SURFACE_DESC != 0;
+        if has_surface_desc {
+            log::trace!("Image has surface description.");
+        }
         let hole = (header.flags & F86_DISK_HOLE_MASK) >> 1;
         let heads = if header.flags & F86_DISK_SIDES != 0 { 2 } else { 1 };
-        let _image_data_rate = match hole {
-            0 => DiskDataRate::Rate250Kbps,
-            1 => DiskDataRate::Rate500Kbps,
-            2 => DiskDataRate::Rate1000Kbps,
+        let (image_data_rate, image_density) = match hole {
+            0 => (DiskDataRate::Rate250Kbps, DiskDensity::Double),
+            1 => (DiskDataRate::Rate500Kbps, DiskDensity::High),
+            2 => (DiskDataRate::Rate1000Kbps, DiskDensity::Extended),
             3 => {
                 log::warn!("Unsupported hole size: {}", hole);
                 return Err(DiskImageError::UnsupportedFormat);
             }
             _ => unreachable!(),
         };
+        log::trace!("Image data rate: {:?} density: {:?}", image_data_rate, image_density);
 
         let extra_bitcell_mode = header.flags & F86_DISK_BITCELL_MODE != 0;
         let disk_sides = if header.flags & F86_DISK_SIDES != 0 { 2 } else { 1 };
+        let disk_data_endian = if header.flags & F86_DISK_REVERSE_ENDIAN != 0 {
+            F86Endian::Big
+        } else {
+            F86Endian::Little
+        };
 
-        if has_surface_desc {
-            log::trace!("Image has surface description.");
+        if matches!(disk_data_endian, F86Endian::Big) {
+            log::warn!("Big-endian 86f images are not supported.");
+            return Err(DiskImageError::UnsupportedFormat);
         }
 
         /*        if extra_bitcell_mode {
@@ -192,7 +230,10 @@ impl F86Format {
 
         let time_shift = f86_disk_time_shift(header.flags);
         log::trace!("Time shift: {:?}", time_shift);
-        let absolute_bitcell_count = if matches!(time_shift, F86TimeShift::ZeroPercent) && extra_bitcell_mode {
+        let absolute_bitcell_count = if matches!(time_shift, F86TimeShift::ZeroPercent)
+            && (header.flags & F86_DISK_SPEEDUP_FLAG) != 0
+            && extra_bitcell_mode
+        {
             log::trace!("Extra bitcell count is an absolute count.");
             true
         } else if extra_bitcell_mode {
@@ -234,7 +275,7 @@ impl F86Format {
 
             // Adjust size of previous track offset
             if let Some((prev_offset, prev_size)) = track_offsets.last_mut() {
-                log::trace!("Track offset: {} - {}", offset, *prev_offset);
+                log::trace!("Track offset: {} - {}", *prev_offset, offset);
                 *prev_size = (offset - *prev_offset) as usize;
             }
 
@@ -254,6 +295,8 @@ impl F86Format {
         let mut head_n = 0;
         let mut cylinder_n = 0;
 
+        let mut disk_rpm: Option<DiskRpm> = None;
+
         for (track_offset, track_entry_len) in track_offsets {
             image
                 .seek(std::io::SeekFrom::Start(track_offset as u64))
@@ -271,6 +314,20 @@ impl F86Format {
                     (track_header.flags, None)
                 }
             };
+
+            let track_rpm = match f86_track_rpm(track_flags) {
+                Some(rpm) => rpm,
+                None => {
+                    log::error!("Unsupported RPM: {:04X}", track_flags);
+                    return Err(DiskImageError::UnsupportedFormat);
+                }
+            };
+            if disk_rpm.is_none() {
+                disk_rpm = Some(track_rpm);
+            } else if disk_rpm != Some(track_rpm) {
+                log::error!("Inconsistent RPMs in disk image.");
+                return Err(DiskImageError::UnsupportedFormat);
+            }
 
             let track_encoding = match f86_track_encoding(track_flags) {
                 Some(enc) => enc,
@@ -295,11 +352,16 @@ impl F86Format {
                     false => 6, //size_of::<TrackHeader>(),
                 };
 
-            let track_data_length = if has_surface_desc {
+            let mut track_data_length = if has_surface_desc {
                 track_data_size / 2
             } else {
                 track_data_size
             };
+
+            // If not using absolute bitcell count, track data is double what would be expected
+            if !absolute_bitcell_count {
+                track_data_length /= 2;
+            }
 
             log::trace!("Track data length: {}", track_data_length);
 
@@ -352,15 +414,248 @@ impl F86Format {
             geometry: DiskCh::from((cylinder_n, heads as u8)),
             data_rate: Default::default(),
             data_encoding: DiskDataEncoding::Mfm,
+            density: image_density,
             default_sector_size: DEFAULT_SECTOR_SIZE,
-            rpm: None,
+            rpm: disk_rpm,
             write_protect: Some(header.flags & F86_DISK_WRITE_PROTECT != 0),
         };
 
         Ok(disk_image)
     }
 
-    pub fn save_image<RWS: ReadWriteSeek>(_image: &DiskImage, _output: &mut RWS) -> Result<(), DiskImageError> {
-        Err(DiskImageError::UnsupportedFormat)
+    pub fn save_image<RWS: ReadWriteSeek>(image: &DiskImage, output: &mut RWS) -> Result<(), DiskImageError> {
+        if matches!(image.resolution(), DiskDataResolution::BitStream) {
+            log::trace!("Saving 86f image...");
+        } else {
+            log::error!("Unsupported image resolution.");
+            return Err(DiskImageError::UnsupportedFormat);
+        }
+
+        let mut disk_flags = 0;
+
+        let mut has_surface_description = false;
+        let has_weak_bits = image.has_weak_bits();
+        if has_weak_bits {
+            // We'll need to include a surface descriptor.
+            log::trace!("Image has weak/hole bits.");
+            has_surface_description = true;
+            disk_flags |= F86_DISK_HAS_SURFACE_DESC;
+        } else {
+            log::trace!("Image has no weak/hole bits.");
+        }
+
+        disk_flags |= match image.descriptor.density {
+            DiskDensity::Double => 0,
+            DiskDensity::High => 0b01 << 1,
+            DiskDensity::Extended => 0b10 << 1,
+            _ => {
+                log::error!("Unsupported disk density: {:?}", image.descriptor.density);
+                return Err(DiskImageError::UnsupportedFormat);
+            }
+        };
+
+        disk_flags |= match image.descriptor.geometry.h() {
+            1 => 0,
+            2 => F86_DISK_SIDES,
+            _ => {
+                log::error!("Unsupported number of heads: {}", image.descriptor.geometry.h());
+                return Err(DiskImageError::UnsupportedFormat);
+            }
+        };
+
+        // We don't support the RPM slowdown feature.
+
+        // We always want to specify an absolute bitcell count, so set bits 7 and 12.
+        let use_absolute_bit_count = true;
+        disk_flags |= F86_DISK_BITCELL_MODE;
+        disk_flags |= F86_DISK_SPEEDUP_FLAG;
+
+        if image.descriptor.write_protect.unwrap_or(false) {
+            disk_flags |= F86_DISK_WRITE_PROTECT;
+        }
+
+        let f86_header = FileHeader {
+            flags: disk_flags,
+            ..Default::default()
+        };
+
+        // Write header to output.
+        output
+            .seek(std::io::SeekFrom::Start(0))
+            .map_err(|_| DiskImageError::IoError)?;
+        f86_header.write(output).map_err(|_| DiskImageError::IoError)?;
+
+        let double_tracks = if image.descriptor.geometry.c() < 80 {
+            log::trace!("Writing double tracks due to 40 track image.");
+            true
+        } else {
+            false
+        };
+
+        let heads = image.descriptor.geometry.h() as usize;
+
+        let track_entries = if double_tracks {
+            image.descriptor.geometry.c() as usize * 2 * heads
+        } else {
+            image.descriptor.geometry.c() as usize * heads
+        };
+
+        log::trace!("Writing {} track entries.", track_entries);
+
+        let mut track_offsets = vec![0u32; F86_TRACK_TABLE_LEN_PER_HEAD * heads];
+
+        let offset_table_pos = output.stream_position().map_err(|_| DiskImageError::IoError)?;
+
+        // Write track offsets to output.
+        for offset in &track_offsets {
+            output
+                .write_all(&offset.to_le_bytes())
+                .map_err(|_| DiskImageError::IoError)?;
+        }
+
+        let mut track_offset_idx = 0;
+
+        // We shouldn't need to change track flags per track.
+        let mut track_flags = 0;
+        log::trace!("Setting data rate: {:?}", image.descriptor.data_rate);
+        track_flags |= match image.descriptor.data_rate {
+            DiskDataRate::Rate500Kbps => 0b000,
+            DiskDataRate::Rate300Kbps => 0b001,
+            DiskDataRate::Rate250Kbps => 0b010,
+            DiskDataRate::Rate1000Kbps => 0b011,
+            _ => {
+                log::error!("Unsupported data rate: {:?}", image.descriptor.data_rate);
+                return Err(DiskImageError::UnsupportedFormat);
+            }
+        };
+
+        log::trace!("Setting data encoding: {:?}", image.descriptor.data_encoding);
+        track_flags |= match image.descriptor.data_encoding {
+            DiskDataEncoding::Fm => 0b00 << 3,
+            DiskDataEncoding::Mfm => 0b01 << 3,
+            DiskDataEncoding::Gcr => 0b11 << 3,
+        };
+
+        log::trace!("Setting RPM: {:?}", image.descriptor.rpm);
+        track_flags |= image.descriptor.rpm.map_or(0, |rpm| match rpm {
+            DiskRpm::Rpm300 => 0b000 << 5,
+            DiskRpm::Rpm360 => 0b001 << 5,
+        });
+
+        let mut c = 0;
+        let mut h = 0;
+        let mut track_copy = 0;
+        let mut last_crc = 0;
+        for i in 0..track_entries {
+            track_offsets[i] = output.stream_position().map_err(|_| DiskImageError::IoError)? as u32;
+            log::trace!(
+                "Writing track entry {}, c: {} h: {}, offset: {}",
+                i,
+                c,
+                h,
+                track_offsets[i]
+            );
+
+            let ti = image.track_map[h][c as usize];
+
+            if let TrackData::BitStream {
+                data: TrackDataStream::Mfm(mfm_codec),
+                ..
+            } = &image.track_pool[ti].data
+            {
+                let absolute_bit_count = mfm_codec.len();
+                log::trace!("Track has {} bitcells.", absolute_bit_count);
+                let mut bit_data = mfm_codec.data();
+                let mut weak_data = mfm_codec.weak_data();
+
+                // let crc = crc_ccitt(&bit_data);
+                // if track_copy == 1 {
+                //     if crc != last_crc {
+                //         log::error!("CRC mismatch on double track.");
+                //         return Err(DiskImageError::UnsupportedFormat);
+                //     } else {
+                //         log::trace!("Double-track check: CRC: {:04X} last_crc: {:04X}", crc, last_crc);
+                //     }
+                // }
+                // last_crc = crc;
+
+                if !use_absolute_bit_count {
+                    if bit_data.len() < F86_TRACK_SIZE_BYTES {
+                        bit_data.resize(F86_TRACK_SIZE_BYTES, 0);
+                    }
+                    if weak_data.len() < F86_TRACK_SIZE_BYTES {
+                        weak_data.resize(F86_TRACK_SIZE_BYTES, 0);
+                    }
+                }
+
+                if has_surface_description && (bit_data.len() != weak_data.len()) {
+                    log::error!("Bitstream and weak data lengths do not match.");
+                    return Err(DiskImageError::UnsupportedFormat);
+                }
+
+                log::trace!(
+                    "Bitstream length: {}, weak data length: {}",
+                    bit_data.len(),
+                    weak_data.len()
+                );
+
+                let track_header = TrackHeaderBitCells {
+                    flags: track_flags,
+                    bit_cells: absolute_bit_count as u32,
+                    index_hole: 0,
+                };
+
+                let th_pos = output.stream_position().map_err(|_| DiskImageError::IoError)?;
+                track_header.write(output).map_err(|_| DiskImageError::IoError)?;
+
+                let after_th_pos = output.stream_position().map_err(|_| DiskImageError::IoError)?;
+                let th_size = after_th_pos - th_pos;
+                log::trace!("Wrote track header: {} bytes", th_size);
+                assert_eq!(th_size, 10);
+                output.write_all(&bit_data).map_err(|_| DiskImageError::IoError)?;
+
+                if has_surface_description {
+                    output.write_all(&weak_data).map_err(|_| DiskImageError::IoError)?;
+                }
+
+                h += 1;
+                if h == heads {
+                    h = 0;
+
+                    if double_tracks {
+                        track_copy += 1;
+                        if track_copy == 2 {
+                            track_copy = 0;
+                            c += 1;
+                        }
+                    } else {
+                        c += 1;
+                    }
+                }
+            } else {
+                return Err(DiskImageError::UnsupportedFormat);
+            }
+        }
+
+        // Now we have to go back and patch up the offsets
+        output
+            .seek(std::io::SeekFrom::Start(offset_table_pos))
+            .map_err(|_| DiskImageError::IoError)?;
+
+        for (i, offset) in track_offsets.iter().enumerate() {
+            log::trace!("Writing track offset {}: {:X} ({})", i, offset, offset);
+            output
+                .write_all(&offset.to_le_bytes())
+                .map_err(|_| DiskImageError::IoError)?;
+        }
+
+        // Perform post-write verification
+
+        // Seek to the end in case the caller wants to write more data.
+        output
+            .seek(std::io::SeekFrom::End(0))
+            .map_err(|_| DiskImageError::IoError)?;
+
+        Ok(())
     }
 }

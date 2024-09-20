@@ -39,8 +39,7 @@ use crate::file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility}
 use crate::io::{ReadSeek, ReadWriteSeek};
 
 use crate::diskimage::DiskDescriptor;
-use crate::util::read_ascii;
-use crate::{DiskCh, DiskDataEncoding, DiskDataRate, DiskImage, DiskImageError, DEFAULT_SECTOR_SIZE};
+use crate::{DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DEFAULT_SECTOR_SIZE};
 use binrw::{binrw, BinRead};
 
 // All formats are listed here, but fluxfox will initially only support PC-specific formats
@@ -60,7 +59,7 @@ pub const TC_FLAG_COPY_WEAK_BITS: u16 = 0b0000_0000_0000_0100;
 //pub const TC_FLAG_VERIFY_WRITE: u16 = 0b0000_0000_0000_1000;
 pub const TC_FLAG_TOLERANCE_ADJUST: u16 = 0b0000_0000_0100_0000;
 pub const TC_FLAG_NO_ADDRESS_MARKS: u16 = 0b0000_0000_1000_0000;
-pub const TC_FLAG_UNKNOWN: u16 = 0b1000_0000_0000_0000;
+//pub const TC_FLAG_UNKNOWN: u16 = 0b1000_0000_0000_0000;
 
 pub const TC_EMPTY_TRACK_SKEW: u16 = 0x1111;
 pub const TC_EMPTY_TRACK_DATA: u16 = 0x3333;
@@ -117,7 +116,7 @@ pub struct TCFormat {}
 
 impl TCFormat {
     pub fn extensions() -> Vec<&'static str> {
-        vec!["86f"]
+        vec!["tc"]
     }
 
     pub fn capabilities() -> FormatCaps {
@@ -282,7 +281,8 @@ impl TCFormat {
         log::trace!("Lack track size: {}", disk_info.track_sizes[raw_track_data_ct - 1]);
         log::trace!(
             "End of track data: {}",
-            (disk_info.track_offsets[raw_track_data_ct - 1] << 8) + disk_info.track_sizes[raw_track_data_ct - 1]
+            ((disk_info.track_offsets[raw_track_data_ct - 1] as u64) << 8)
+                + disk_info.track_sizes[raw_track_data_ct - 1] as u64
         );
 
         // Read the tracks
@@ -328,8 +328,9 @@ impl TCFormat {
 
         disk_image.descriptor = DiskDescriptor {
             geometry: DiskCh::from((disk_info.ending_c as u16, disk_info.num_sides)),
-            data_rate: Default::default(),
+            data_rate: disk_data_rate,
             data_encoding: disk_encoding,
+            density: DiskDensity::from(disk_data_rate),
             default_sector_size: DEFAULT_SECTOR_SIZE,
             rpm: None,
             write_protect: None,

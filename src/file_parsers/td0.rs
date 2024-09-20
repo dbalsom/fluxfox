@@ -40,7 +40,7 @@ use crate::diskimage::{DiskDescriptor, SectorDescriptor};
 use crate::file_parsers::compression::lzhuf::{expand, TD0_READ_OPTIONS};
 use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{Cursor, Read, ReadBytesExt, ReadSeek, ReadWriteSeek, Seek};
-use crate::{DiskCh, DiskChs, DiskDataEncoding, DiskDataRate, FoxHashSet};
+use crate::{DiskCh, DiskChs, DiskDataEncoding, DiskDataRate, DiskDensity, FoxHashSet};
 use crate::{DiskChsn, DiskImage, DiskImageError, DiskImageFormat};
 use binrw::{binrw, BinRead};
 
@@ -444,6 +444,7 @@ impl Td0Format {
             geometry: DiskCh::from((cylinder_set.len() as u16, file_header.heads)),
             data_rate: disk_data_rate,
             data_encoding: DiskDataEncoding::Mfm,
+            density: DiskDensity::from(disk_data_rate),
             default_sector_size: 512,
             rpm: None,
             write_protect: None,

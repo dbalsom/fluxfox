@@ -34,7 +34,10 @@
 use crate::diskimage::DiskDescriptor;
 use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
-use crate::{DiskCh, DiskDataEncoding, DiskDataRate, DiskImage, DiskImageError, DiskImageFormat, DEFAULT_SECTOR_SIZE};
+use crate::{
+    DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat,
+    DEFAULT_SECTOR_SIZE,
+};
 use binrw::{binrw, BinRead};
 
 const fn reverse_bits(mut byte: u8) -> u8 {
@@ -98,6 +101,29 @@ impl From<u8> for HfeFloppyInterface {
             0x0D => HfeFloppyInterface::S950Hd,
             0xFE => HfeFloppyInterface::Disable,
             _ => HfeFloppyInterface::Unknown,
+        }
+    }
+}
+
+impl From<HfeFloppyInterface> for DiskDensity {
+    fn from(value: HfeFloppyInterface) -> Self {
+        match value {
+            HfeFloppyInterface::IbmPcDd => DiskDensity::Double,
+            HfeFloppyInterface::IbmPcHd => DiskDensity::High,
+            HfeFloppyInterface::AtariStDd => DiskDensity::Double,
+            HfeFloppyInterface::AtariStHd => DiskDensity::High,
+            HfeFloppyInterface::AmigaDd => DiskDensity::Double,
+            HfeFloppyInterface::AmigaHd => DiskDensity::High,
+            HfeFloppyInterface::CpcDd => DiskDensity::Double,
+            HfeFloppyInterface::GenericShugartDd => DiskDensity::Double,
+            HfeFloppyInterface::IbmPcEd => DiskDensity::Extended,
+            HfeFloppyInterface::Msx2Dd => DiskDensity::Double,
+            HfeFloppyInterface::C64Dd => DiskDensity::Double,
+            HfeFloppyInterface::EmuShugart => DiskDensity::Double,
+            HfeFloppyInterface::S950Dd => DiskDensity::Double,
+            HfeFloppyInterface::S950Hd => DiskDensity::High,
+            HfeFloppyInterface::Disable => DiskDensity::Double,
+            HfeFloppyInterface::Unknown => DiskDensity::Double,
         }
     }
 }
@@ -212,6 +238,8 @@ impl HfeFormat {
         } else {
             return Err(DiskImageError::IoError);
         };
+
+        let hfe_floppy_interface = HfeFloppyInterface::from(file_header.interface_mode);
 
         let hfe_track_encoding = HfeFloppyEncoding::from(file_header.track_encoding);
         log::trace!(
@@ -360,6 +388,7 @@ impl HfeFormat {
         disk_image.descriptor = DiskDescriptor {
             geometry: DiskCh::from((file_header.number_of_tracks as u16, file_header.number_of_sides)),
             data_rate: DiskDataRate::from(file_header.bit_rate as u32 * 100),
+            density: DiskDensity::from(hfe_floppy_interface),
             data_encoding: DiskDataEncoding::Mfm,
             default_sector_size: DEFAULT_SECTOR_SIZE,
             rpm: None,

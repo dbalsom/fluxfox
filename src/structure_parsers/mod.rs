@@ -90,6 +90,17 @@ impl DiskStructureMetadata {
         }
         sector_ct
     }
+
+    pub fn get_sector_ids(&self) -> Vec<DiskChsn> {
+        let mut sector_ids = Vec::new();
+        for item in &self.items {
+            if let DiskStructureElement::System34(System34Element::SectorHeader(chsn, true)) = item.elem_type {
+                sector_ids.push(chsn);
+            }
+        }
+
+        sector_ids
+    }
 }
 
 #[derive(Copy, Clone, Debug)]

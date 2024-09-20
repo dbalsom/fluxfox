@@ -36,9 +36,9 @@ use crossbeam::channel;
 use fast_image_resize::images::Image as FirImage;
 use fast_image_resize::{FilterType, PixelType, ResizeAlg, Resizer};
 use fluxfox::structure_parsers::DiskStructureGenericElement;
-use fluxfox::visualization::ResolutionType;
 use fluxfox::visualization::RotationDirection;
 use fluxfox::visualization::{render_track_data, render_track_metadata_quadrant};
+use fluxfox::visualization::{render_track_weak_bits, ResolutionType};
 use fluxfox::DiskImage;
 use std::collections::HashMap;
 use std::io::Write;
@@ -46,7 +46,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
-use tiny_skia::{BlendMode, Color, FilterQuality, IntSize, Pixmap, PixmapPaint, Transform};
+use tiny_skia::{BlendMode, Color, FilterQuality, IntSize, Pixmap, PixmapPaint, PremultipliedColorU8, Transform};
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -55,9 +55,11 @@ struct Out {
     in_filename: PathBuf,
     out_filename: PathBuf,
     resolution: u32,
+    side: Option<u8>,
     hole_ratio: f32,
     angle: f32,
     data: bool,
+    weak: bool,
     metadata: bool,
     index_hole: bool,
     decode: bool,
@@ -84,6 +86,13 @@ fn opts() -> OptionParser<Out> {
         .help("Size of resulting image, in pixels")
         .argument::<u32>("SIZE");
 
+    let side = short('s')
+        .long("side")
+        .help("Side to render. Omit to render both sides")
+        .argument::<u8>("SIDE")
+        .guard(|side| *side < 2, "Side must be 0 or 1")
+        .optional();
+
     let hole_ratio = short('h')
         .long("hole_ratio")
         .help("Ratio of inner radius to outer radius")
@@ -97,6 +106,8 @@ fn opts() -> OptionParser<Out> {
         .fallback(0.0);
 
     let data = long("data").help("Render data").switch();
+
+    let weak = short('w').long("weak").help("Render weak bits").switch();
 
     let metadata = long("metadata").help("Render metadata").switch();
 
@@ -116,9 +127,11 @@ fn opts() -> OptionParser<Out> {
         in_filename,
         out_filename,
         resolution,
+        side,
         hole_ratio,
         angle,
         data,
+        weak,
         metadata,
         index_hole,
         decode,
@@ -189,7 +202,19 @@ fn main() {
 
     let render_track_gap = 0.10; // Fraction of the track width to leave transparent as a gap between tracks (0.0-1.0)
 
-    let heads = if disk.heads() > 1 { 2 } else { 1 };
+    let heads;
+    let mut head: u32 = 0;
+    if let Some(side) = opts.side {
+        if disk.heads() < side {
+            eprintln!("Disk image does not have side {}", side);
+            std::process::exit(1);
+        }
+        heads = 1;
+        head = side as u32;
+    } else {
+        heads = if disk.heads() > 1 { 2 } else { 1 };
+    }
+
     let high_res_size = (render_size, render_size); // High-resolution image size
     let final_size = (opts.resolution * heads, opts.resolution);
 
@@ -227,6 +252,8 @@ fn main() {
     let pal_orange = Color::from_rgba8(0xef, 0x7d, 0x57, 0xff);
     let pal_dark_read = Color::from_rgba8(0xb1, 0x3e, 0x53, 0xff);
 
+    let pal_weak_bits = PremultipliedColorU8::from_rgba(70, 200, 200, 255).unwrap();
+
     #[rustfmt::skip]
     let palette = HashMap::from([
         (DiskStructureGenericElement::SectorData, pal_medium_green),
@@ -247,7 +274,7 @@ fn main() {
     log::trace!("Image has {} tracks.", track_ct);
     let a_disk = Arc::new(Mutex::new(disk));
 
-    for side in 0..heads {
+    for side in head..heads {
         let disk = Arc::clone(&a_disk);
 
         // Render data if data flag was passed.
@@ -262,6 +289,8 @@ fn main() {
                 track_ct,
                 render_track_gap,
                 opts.decode,
+                opts.weak,
+                pal_weak_bits,
                 resolution,
             ) {
                 Ok(pixmap) => pixmap,
@@ -432,6 +461,8 @@ fn render_side(
     track_limit: usize,
     track_gap: f32,
     decode: bool,
+    weak: bool,
+    weak_color: PremultipliedColorU8,
     resolution_type: ResolutionType,
 ) -> Result<Pixmap, anyhow::Error> {
     let direction = match side {
@@ -468,13 +499,41 @@ fn render_side(
         decode,
         resolution_type,
     ) {
-        Ok(_) => {}
+        Ok(_) => {
+            println!("Rendered data layer in {:?}", data_render_start_time.elapsed());
+        }
         Err(e) => {
             eprintln!("Error rendering tracks: {}", e);
             std::process::exit(1);
         }
     };
-    println!("Rendered data layer in {:?}", data_render_start_time.elapsed());
+
+    // Render weak bits on composited image if requested.
+    if weak {
+        let weak_render_start_time = Instant::now();
+        println!("Rendering weak bits layer...");
+        match render_track_weak_bits(
+            &disk,
+            &mut rendered_image,
+            side as u8,
+            (supersample_size, supersample_size),
+            (0, 0),
+            min_radius,
+            angle,
+            track_limit,
+            track_gap,
+            direction,
+            weak_color,
+        ) {
+            Ok(_) => {
+                println!("Rendered weak bits layer in {:?}", weak_render_start_time.elapsed());
+            }
+            Err(e) => {
+                eprintln!("Error rendering tracks: {}", e);
+                std::process::exit(1);
+            }
+        };
+    }
 
     let resampled_image = match supersample {
         1 => rendered_image,

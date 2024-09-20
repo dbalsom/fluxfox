@@ -319,6 +319,12 @@ impl DiskCh {
     pub fn h(&self) -> u8 {
         self.h
     }
+    pub fn set_c(&mut self, c: u16) {
+        self.c = c
+    }
+    pub fn set_h(&mut self, h: u8) {
+        self.h = h
+    }
 
     /// Return a new CHS that is the next sector on the disk.
     /// If the current CHS is the last sector on the disk, the next CHS will be the first sector on the disk.

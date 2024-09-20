@@ -24,8 +24,8 @@
 
     --------------------------------------------------------------------------
 */
-use crate::bitstream::mfm::MfmDecoder;
-use crate::bitstream::raw::RawDecoder;
+use crate::bitstream::mfm::MfmCodec;
+use crate::bitstream::raw::RawCodec;
 use crate::bitstream::TrackDataStream;
 use crate::boot_sector::BootSector;
 use crate::chs::{DiskCh, DiskChs, DiskChsn};
@@ -39,8 +39,8 @@ use crate::structure_parsers::system34::{System34Element, System34Parser};
 use crate::structure_parsers::{DiskStructureElement, DiskStructureMetadata, DiskStructureParser};
 use crate::trackdata::TrackData;
 use crate::{
-    util, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskImageError, DiskRpm, EncodingPhase, FoxHashMap,
-    DEFAULT_SECTOR_SIZE,
+    util, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskImageError, DiskRpm, EncodingPhase,
+    FoxHashMap, DEFAULT_SECTOR_SIZE,
 };
 use bit_vec::BitVec;
 use sha1_smol::Digest;
@@ -194,6 +194,10 @@ impl DiskTrack {
     pub fn get_hash(&self) -> Digest {
         self.data.get_hash()
     }
+
+    pub fn has_weak_bits(&self) -> bool {
+        self.data.has_weak_bits()
+    }
 }
 
 #[derive(Copy, Clone, Default)]
@@ -204,6 +208,8 @@ pub struct DiskDescriptor {
     pub default_sector_size: usize,
     /// The default data encoding used. The disk may still contain tracks in different encodings.
     pub data_encoding: DiskDataEncoding,
+    /// The density of the disk
+    pub density: DiskDensity,
     /// The data rate of the disk
     pub data_rate: DiskDataRate,
     /// The rotation rate of the disk. If not provided, this can be determined from other parameters.
@@ -247,6 +253,11 @@ pub struct WriteSectorResult {
     pub address_crc_error: bool,
     pub wrong_cylinder: bool,
     pub wrong_head: bool,
+}
+
+pub struct TrackRegion {
+    pub start: usize,
+    pub end: usize,
 }
 
 /// A DiskImage represents an image of a floppy disk in memory. It comprises a pool of sectors, and an ordered
@@ -303,7 +314,7 @@ impl DiskImage {
     pub fn new(disk_format: StandardFormat) -> Self {
         Self {
             standard_format: Some(disk_format),
-            descriptor: disk_format.get_image_format(),
+            descriptor: disk_format.get_descriptor(),
             source_format: None,
             resolution: None,
             consistency: DiskConsistency {
@@ -401,6 +412,11 @@ impl DiskImage {
 
     pub fn set_source_format(&mut self, format: DiskImageFormat) {
         self.source_format = Some(format);
+    }
+
+    /// Return the resolution of the disk image, either ByteStream or BitStream.
+    pub fn resolution(&self) -> DiskDataResolution {
+        self.resolution.unwrap_or(DiskDataResolution::ByteStream)
     }
 
     /// Adds a new track to the disk image, of ByteStream resolution.
@@ -501,12 +517,29 @@ impl DiskImage {
         }
 
         let data = BitVec::from_bytes(data);
-        let weak_mask = BitVec::from_elem(data.len(), false);
+        let weak_bitvec_opt = weak.map(BitVec::from_bytes);
 
         log::trace!("add_track_bitstream(): Encoding is {:?}", data_encoding);
         let (mut data_stream, markers) = match data_encoding {
             DiskDataEncoding::Mfm => {
-                let mut data_stream = TrackDataStream::Mfm(MfmDecoder::new(data, bitcell_ct, Some(weak_mask)));
+                let mut codec;
+
+                // If a weak bit mask was provided by the file format, we will honor it.
+                // Otherwise, we will try to detect weak bits from the MFM stream.
+                if weak_bitvec_opt.is_some() {
+                    codec = MfmCodec::new(data, bitcell_ct, weak_bitvec_opt);
+                } else {
+                    codec = MfmCodec::new(data, bitcell_ct, None);
+                    // let weak_regions = codec.detect_weak_bits(9);
+                    // log::trace!(
+                    //     "add_track_bitstream(): Detected {} weak bit regions",
+                    //     weak_regions.len()
+                    // );
+                    let weak_bitvec = codec.create_weak_bit_mask(MfmCodec::WEAK_BIT_RUN);
+                    _ = codec.set_weak_mask(weak_bitvec);
+                }
+
+                let mut data_stream = TrackDataStream::Mfm(codec);
                 let markers = System34Parser::scan_track_markers(&mut data_stream);
 
                 System34Parser::create_clock_map(&markers, data_stream.clock_map_mut().unwrap());
@@ -517,9 +550,9 @@ impl DiskImage {
             }
             DiskDataEncoding::Fm => {
                 // TODO: Handle FM encoding sync
-                (TrackDataStream::Raw(RawDecoder::new(data, Some(weak_mask))), Vec::new())
+                (TrackDataStream::Raw(RawCodec::new(data, weak_bitvec_opt)), Vec::new())
             }
-            _ => (TrackDataStream::Raw(RawDecoder::new(data, Some(weak_mask))), Vec::new()),
+            _ => (TrackDataStream::Raw(RawCodec::new(data, weak_bitvec_opt)), Vec::new()),
         };
 
         let format = TrackFormat {
@@ -529,6 +562,13 @@ impl DiskImage {
         };
 
         let metadata = DiskStructureMetadata::new(System34Parser::scan_track_metadata(&mut data_stream, markers));
+        let sector_ids = metadata.get_sector_ids();
+        if sector_ids.is_empty() {
+            log::warn!(
+                "add_track_bitstream(): No sectors ids found in track {} metadata.",
+                ch.c()
+            );
+        }
 
         let sector_offsets = metadata
             .items
@@ -556,6 +596,7 @@ impl DiskImage {
                 data_clock,
                 data: data_stream,
                 metadata,
+                sector_ids,
             },
         });
         self.track_map[ch.h() as usize].push(self.track_pool.len() - 1);
@@ -621,6 +662,7 @@ impl DiskImage {
         Ok(())
     }
 
+    // TODO: Fix this, it doesn't handle nonconsecutive sectors
     pub fn next_sector_on_track(&self, chs: DiskChs) -> Option<DiskChs> {
         let ti = self.track_map[chs.h() as usize][chs.c() as usize];
         let track = &self.track_pool[ti];
@@ -731,6 +773,16 @@ impl DiskImage {
         false
     }
 
+    pub fn get_next_id(&self, chs: DiskChs) -> Option<DiskChsn> {
+        if chs.h() > 1 || chs.c() as usize >= self.track_map[chs.h() as usize].len() {
+            return None;
+        }
+        let ti = self.track_map[chs.h() as usize][chs.c() as usize];
+        let track = &self.track_pool[ti];
+
+        track.data.get_next_id(chs)
+    }
+
     pub(crate) fn read_boot_sector(&mut self) -> Result<Vec<u8>, DiskImageError> {
         if self.track_map.is_empty() || self.track_map[0].is_empty() {
             return Err(DiskImageError::IncompatibleImage);
@@ -812,6 +864,10 @@ impl DiskImage {
         self.boot_sector.as_ref()
     }
 
+    pub fn get_track_ct(&self, head: usize) -> usize {
+        self.track_map[head].len()
+    }
+
     /// Normalize a disk image by detecting and correcting typical image issues.
     /// This includes:
     /// 40 track images encoded as 80 tracks with empty tracks
@@ -840,6 +896,7 @@ impl DiskImage {
         if track_ct > 50 && empty_tracks.len() >= track_ct / 2 {
             log::warn!("normalize(): Image is wide track image stored as narrow tracks, odd tracks empty. Removing odd tracks.");
             self.remove_empty_tracks();
+            self.descriptor.geometry.set_c(self.get_track_ct(0) as u16);
         }
 
         // Remove duplicate tracks (created by 86f, etc.)
@@ -855,6 +912,7 @@ impl DiskImage {
                 "normalize(): Image is wide track image stored as narrow tracks, odd tracks duplicated. Removing odd tracks."
             );
             self.remove_odd_tracks();
+            self.descriptor.geometry.set_c(self.get_track_ct(0) as u16);
         }
     }
 
@@ -1037,5 +1095,14 @@ impl DiskImage {
         };
 
         util::dump_slice(data_slice, 0, bytes_per_row, &mut out)
+    }
+
+    pub fn has_weak_bits(&self) -> bool {
+        for track in &self.track_pool {
+            if track.has_weak_bits() {
+                return true;
+            }
+        }
+        false
     }
 }

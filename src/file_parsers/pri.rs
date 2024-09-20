@@ -41,7 +41,8 @@ use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{Cursor, ReadSeek, ReadWriteSeek};
 
 use crate::{
-    DiskDataEncoding, DiskDataRate, DiskImage, DiskImageError, DiskImageFormat, FoxHashSet, DEFAULT_SECTOR_SIZE,
+    DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat, FoxHashSet,
+    DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, BinRead};
 
@@ -245,6 +246,8 @@ impl PriFormat {
         let mut expected_data_size = 0;
         let mut track_header = PriTrackHeader::default();
 
+        let mut disk_data_rate = None;
+
         while chunk.chunk_type != PriChunkType::End {
             match chunk.chunk_type {
                 PriChunkType::TrackHeader => {
@@ -292,6 +295,11 @@ impl PriFormat {
                         current_crc_error
                     );
 
+                    // Set the global disk data rate once.
+                    if disk_data_rate.is_none() {
+                        disk_data_rate = Some(DiskDataRate::from(current_bit_clock));
+                    }
+
                     disk_image.add_track_bitstream(
                         DiskDataEncoding::Mfm,
                         DiskDataRate::from(current_bit_clock),
@@ -336,8 +344,9 @@ impl PriFormat {
         let track_ct = track_set.len() as u16;
         disk_image.descriptor = DiskDescriptor {
             geometry: DiskCh::from((track_ct / head_ct, head_ct as u8)),
-            data_rate: Default::default(),
+            data_rate: disk_data_rate.unwrap(),
             data_encoding: DiskDataEncoding::Mfm,
+            density: DiskDensity::from(disk_data_rate.unwrap()),
             default_sector_size: DEFAULT_SECTOR_SIZE,
             rpm: None,
             write_protect: None,

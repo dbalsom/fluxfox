@@ -26,19 +26,20 @@
 */
 
 pub mod bitstream;
+mod boot_sector;
 mod chs;
+mod containers;
 mod detect;
 pub mod diskimage;
 mod file_parsers;
 mod io;
+mod random;
 mod sector;
 pub mod standard_format;
 pub mod structure_parsers;
 mod trackdata;
 pub mod util;
 
-mod boot_sector;
-mod containers;
 #[cfg(feature = "viz")]
 pub mod visualization;
 
@@ -82,7 +83,7 @@ pub enum DiskImageError {
 }
 
 #[repr(usize)]
-#[derive(Default, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Default, PartialEq, Eq, Hash)]
 pub enum DiskDataResolution {
     #[default]
     ByteStream = 0,
@@ -105,6 +106,18 @@ pub enum DiskDensity {
     Double,
     High,
     Extended,
+}
+
+impl From<(DiskDataRate)> for DiskDensity {
+    fn from(rate: DiskDataRate) -> Self {
+        match rate {
+            DiskDataRate::Rate125Kbps => DiskDensity::Standard,
+            DiskDataRate::Rate250Kbps => DiskDensity::Double,
+            DiskDataRate::Rate500Kbps => DiskDensity::High,
+            DiskDataRate::Rate1000Kbps => DiskDensity::Extended,
+            _ => DiskDensity::Standard,
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -220,7 +233,7 @@ impl Display for DiskDataRate {
     }
 }
 
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub enum DiskRpm {
     #[default]
     Rpm300,

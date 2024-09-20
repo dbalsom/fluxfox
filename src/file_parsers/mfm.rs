@@ -33,7 +33,10 @@
 use crate::diskimage::DiskDescriptor;
 use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
-use crate::{DiskCh, DiskDataEncoding, DiskDataRate, DiskImage, DiskImageError, DiskImageFormat, DEFAULT_SECTOR_SIZE};
+use crate::{
+    DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat,
+    DEFAULT_SECTOR_SIZE,
+};
 use binrw::{binrw, BinRead};
 
 pub struct MfmFormat;
@@ -250,6 +253,7 @@ impl MfmFormat {
             geometry: DiskCh::from((file_header.track_ct, file_header.head_ct)),
             data_rate: disk_data_rate,
             data_encoding: DiskDataEncoding::Mfm,
+            density: DiskDensity::from(disk_data_rate),
             default_sector_size: DEFAULT_SECTOR_SIZE,
             rpm: None,
             write_protect: None,

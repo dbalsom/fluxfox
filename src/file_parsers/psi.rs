@@ -365,6 +365,7 @@ impl PsiFormat {
             geometry: DiskCh::from((track_ct / head_ct as u16, head_ct)),
             data_rate: Default::default(),
             data_encoding: DiskDataEncoding::Mfm,
+            density: disk_density,
             default_sector_size: DEFAULT_SECTOR_SIZE,
             rpm: None,
             write_protect: None,

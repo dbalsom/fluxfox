@@ -30,7 +30,7 @@
     such as one that can be represented with a raw sector image (IMG)
 */
 use crate::diskimage::DiskDescriptor;
-use crate::{DiskCh, DiskChs, DiskDataEncoding, DiskDataRate, DiskRpm, DEFAULT_SECTOR_SIZE};
+use crate::{DiskCh, DiskChs, DiskDataEncoding, DiskDataRate, DiskDensity, DiskRpm, DEFAULT_SECTOR_SIZE};
 
 /// An enumeration describing the type of disk image.
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
@@ -84,6 +84,10 @@ impl StandardFormat {
         }
     }
 
+    pub fn get_density(&self) -> DiskDensity {
+        DiskDensity::from(self.get_data_rate())
+    }
+
     pub fn get_rpm(&self) -> DiskRpm {
         match self {
             StandardFormat::PcFloppy160 => DiskRpm::Rpm300,
@@ -98,13 +102,14 @@ impl StandardFormat {
         }
     }
 
-    pub fn get_image_format(&self) -> DiskDescriptor {
+    pub fn get_descriptor(&self) -> DiskDescriptor {
         DiskDescriptor {
             geometry: self.get_ch(),
             default_sector_size: DEFAULT_SECTOR_SIZE,
             data_encoding: DiskDataEncoding::Mfm,
-            data_rate: DiskDataRate::Rate500Kbps,
-            rpm: Some(DiskRpm::Rpm300),
+            density: self.get_density(),
+            data_rate: self.get_data_rate(),
+            rpm: Some(self.get_rpm()),
             write_protect: None,
         }
     }

@@ -30,7 +30,7 @@
     This was the standard disk format used on IBM PCs and compatibles.
 
 */
-use crate::bitstream::mfm::{MfmDecoder, MFM_BYTE_LEN, MFM_MARKER_LEN};
+use crate::bitstream::mfm::{MfmCodec, MFM_BYTE_LEN, MFM_MARKER_LEN};
 use crate::bitstream::TrackDataStream;
 use crate::chs::DiskChsn;
 use crate::io::{Read, Seek, SeekFrom};
@@ -94,7 +94,7 @@ pub enum System34Element {
     Gap4b,
     Sync,
     Marker(System34Marker, Option<bool>),
-    SectorHeader(bool),
+    SectorHeader(DiskChsn, bool),
     Data {
         address_crc: bool,
         data_crc: bool,
@@ -112,8 +112,8 @@ impl From<System34Element> for DiskStructureGenericElement {
             System34Element::Gap4b => DiskStructureGenericElement::NoElement,
             System34Element::Sync => DiskStructureGenericElement::NoElement,
             System34Element::Marker(_, _) => DiskStructureGenericElement::Marker,
-            System34Element::SectorHeader(true) => DiskStructureGenericElement::SectorHeader,
-            System34Element::SectorHeader(false) => DiskStructureGenericElement::SectorBadHeader,
+            System34Element::SectorHeader(_, true) => DiskStructureGenericElement::SectorHeader,
+            System34Element::SectorHeader(_, false) => DiskStructureGenericElement::SectorBadHeader,
             System34Element::Data {
                 address_crc,
                 data_crc,
@@ -139,7 +139,7 @@ impl System34Element {
             System34Element::Sync => 8,
             System34Element::Marker(_, _) => 4,
             System34Element::Data { .. } => 0,
-            System34Element::SectorHeader(_) => 0,
+            System34Element::SectorHeader(_, _) => 0,
         }
     }
 
@@ -147,6 +147,13 @@ impl System34Element {
         match self {
             System34Element::Marker(System34Marker::Dam, _) => true,
             _ => false,
+        }
+    }
+
+    pub fn is_sector_id(&self) -> (u8, bool) {
+        match self {
+            System34Element::SectorHeader(chsn, true) => (chsn.s(), true),
+            _ => (0, false),
         }
     }
 }
@@ -186,7 +193,7 @@ impl System34Parser {
     const MFM_MARKER_CLOCK: u64 = 0x0088_0088_0088_0000;
     #[inline]
     pub fn encode_marker(pattern: &[u8]) -> u64 {
-        let marker = MfmDecoder::encode_marker(pattern);
+        let marker = MfmCodec::encode_marker(pattern);
         marker & Self::MFM_MARKER_CLOCK_MASK | Self::MFM_MARKER_CLOCK
     }
 }
@@ -256,7 +263,7 @@ impl DiskStructureParser for System34Parser {
 
             let (marker, _pattern) = match element {
                 Gap1 | Gap2 | Gap3 | Gap4a | Gap4b => (System34Parser::encode_marker(&[0x4E; 4]), &[0x4E; 4]),
-                Sync => (MfmDecoder::encode_marker(&[0x00; 4]), &[0x00; 4]),
+                Sync => (MfmCodec::encode_marker(&[0x00; 4]), &[0x00; 4]),
                 _ => return None,
             };
 
@@ -356,7 +363,7 @@ impl DiskStructureParser for System34Parser {
     /// Scan a track bitstream using the pre-scanned marker positions to extract marker data such
     /// as Sector ID values and CRCs. This is done in a second pass after the markers have been
     /// found by scan_track_markers() and a clock phase map created for the track - required for the
-    /// proper functioning of the Read and Seek traits on MfmDecoder.
+    /// proper functioning of the Read and Seek traits on MfmCodec.
     fn scan_track_metadata(
         track: &mut TrackDataStream,
         markers: Vec<DiskStructureMarkerItem>,
@@ -451,6 +458,12 @@ impl DiskStructureParser for System34Parser {
                         // Push a Sector Header metadata item spanning from IDAM to DAM.
                         let data_metadata = DiskStructureMetadataItem {
                             elem_type: DiskStructureElement::System34(System34Element::SectorHeader(
+                                DiskChsn::from((
+                                    last_sector_id.c as u16,
+                                    last_sector_id.h,
+                                    last_sector_id.s,
+                                    last_sector_id.b,
+                                )),
                                 last_sector_id.crc_valid,
                             )),
                             start: last_element_offset,
@@ -535,7 +548,7 @@ impl DiskStructureParser for System34Parser {
     }
 
     /// Use the list of track markers to create a clock phase map for the track. This a requirement
-    /// for the proper functioning of the Read and Seek traits on MfmDecoder. A clock phase map is
+    /// for the proper functioning of the Read and Seek traits on MfmCodec. A clock phase map is
     /// basically a bit vector congruent to the stream bitvec that indicates whether the
     /// corresponding stream bit is a clock or data bit.
     fn create_clock_map(markers: &[DiskStructureMarkerItem], clock_map: &mut BitVec) {

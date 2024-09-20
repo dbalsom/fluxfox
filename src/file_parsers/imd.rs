@@ -30,7 +30,8 @@ use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::util::{get_length, read_ascii};
 use crate::{
-    DiskDataEncoding, DiskDataRate, DiskImage, DiskImageError, DiskImageFormat, FoxHashSet, DEFAULT_SECTOR_SIZE,
+    DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat, FoxHashSet,
+    DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, BinRead, BinReaderExt};
 use regex::Regex;
@@ -316,6 +317,7 @@ impl ImdFormat {
             geometry: DiskCh::from((track_ct as u16 / head_ct as u16, head_ct)),
             data_rate: rate_opt.unwrap(),
             data_encoding: encoding_opt.unwrap(),
+            density: DiskDensity::from(rate_opt.unwrap()),
             default_sector_size: DEFAULT_SECTOR_SIZE,
             rpm: None,
             write_protect: None,

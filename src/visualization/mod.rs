@@ -35,6 +35,7 @@ use crate::structure_parsers::system34::System34Element;
 use crate::structure_parsers::{DiskStructureElement, DiskStructureGenericElement, DiskStructureMetadata};
 use crate::trackdata::TrackData;
 use crate::{DiskImage, DiskImageError, FoxHashMap};
+use bit_vec::BitVec;
 use std::cmp::min;
 use std::f32::consts::{PI, TAU};
 use tiny_skia::{
@@ -153,6 +154,16 @@ fn collect_streams(head: u8, disk_image: &DiskImage) -> Vec<&TrackDataStream> {
         .collect()
 }
 
+fn collect_weak_masks(head: u8, disk_image: &DiskImage) -> Vec<&BitVec> {
+    disk_image.track_map[head as usize]
+        .iter()
+        .filter_map(|track_i| match disk_image.track_pool[*track_i].data {
+            TrackData::BitStream { ref data, .. } => data.get_weak_mask(),
+            _ => None,
+        })
+        .collect()
+}
+
 fn collect_metadata(head: u8, disk_image: &DiskImage) -> Vec<&DiskStructureMetadata> {
     disk_image.track_map[head as usize]
         .iter()
@@ -160,150 +171,6 @@ fn collect_metadata(head: u8, disk_image: &DiskImage) -> Vec<&DiskStructureMetad
         .collect()
 }
 
-/*
-/// Render a disk image to an image buffer.
-pub fn render_tracks(
-    disk_image: &DiskImage,
-    imgbuf: &mut ImageBuffer<Rgba<u8>, Vec<u8>>,
-    head: u8,
-    image_size: (u32, u32),
-    image_pos: (u32, u32),
-    min_radius_fraction: f32, // Minimum radius as a fraction (0.0 to 1.0)
-    track_gap_weight: f32,
-    direction: RotationDirection, // Added parameter for rotation direction
-    resolution: ResolutionType,   // Added parameter for resolution type
-    colorize: bool,
-) -> Result<(), DiskImageError> {
-    let (width, height) = image_size;
-    let (x_offset, y_offset) = image_pos;
-
-    let center_x = width as f32 / 2.0;
-    let center_y = height as f32 / 2.0;
-    let total_radius = width.min(height) as f32 / 2.0;
-    let min_radius = min_radius_fraction * total_radius; // Scale min_radius to pixel value
-
-    let rtracks = collect_streams(head, disk_image);
-    let rmetadata = collect_metadata(head, disk_image);
-    let num_tracks = rtracks.len();
-
-    log::trace!("collected {} track references.", num_tracks);
-    for (ti, track) in rtracks.iter().enumerate() {
-        log::trace!("track {} length: {}", ti, track.len());
-    }
-
-    let track_width = (total_radius - min_radius) / num_tracks as f32;
-
-    // Draw the tracks
-    for y in 0..height {
-        for x in 0..width {
-            let dx = x as f32 - center_x;
-            let dy = y as f32 - center_y;
-            let distance = (dx * dx + dy * dy).sqrt();
-            let angle = (dy.atan2(dx) + PI) % TAU;
-
-            if distance >= min_radius && distance <= total_radius {
-                let track_index =
-                    (num_tracks - 1).saturating_sub(((distance - min_radius) / track_width).floor() as usize) as usize;
-
-                if track_index < num_tracks {
-                    // Adjust angle for clockwise or counter-clockwise
-                    let normalized_angle = if matches!(direction, RotationDirection::Clockwise) {
-                        angle
-                    } else {
-                        TAU - angle
-                    };
-
-                    let normalized_angle = (normalized_angle + PI) % TAU;
-                    let bit_index = ((normalized_angle / TAU) * rtracks[track_index].len() as f32) as usize;
-
-                    // Ensure bit_index is within bounds
-                    let bit_index = min(bit_index, rtracks[track_index].len() - 1);
-
-                    let color = match resolution {
-                        ResolutionType::Bit => {
-                            if rtracks[track_index][bit_index] {
-                                Rgba([255, 255, 255, 255])
-                            } else {
-                                Rgba([0, 0, 0, 0])
-                            }
-                        }
-                        ResolutionType::Byte => {
-                            // Calculate the byte value
-                            let byte_index = bit_index / 8;
-                            let _bit_offset = bit_index % 8;
-                            let byte_value = if byte_index < rtracks[track_index].len() / 8 - 1 {
-                                let mut build_byte: u8 = 0;
-                                for bi in 0..8 {
-                                    build_byte |= if rtracks[track_index][bit_index + bi] { 1 } else { 0 };
-                                    build_byte <<= 1;
-                                }
-                                build_byte
-                            } else {
-                                0
-                            };
-
-                            let gray_value = POPCOUNT_TABLE[byte_value as usize];
-
-                            let mut data_color = if track_index > 39 {
-                                Rgba([255, 0, 0, 255])
-                            } else if track_index == 0 {
-                                //Rgba([gray_value, gray_value, 255, 255])
-                                Rgba([gray_value, gray_value, gray_value, 255])
-                            } else {
-                                Rgba([gray_value, gray_value, gray_value, 255])
-                            };
-
-                            let meta_color: Option<Rgba<u8>> = match rmetadata[track_index].item_at(bit_index << 1) {
-                                Some((item, nest_ct)) => {
-                                    if let DiskStructureElement::System34(element) = item.elem_type {
-                                        Some(element.to_rgba_nested(nest_ct))
-                                    } else {
-                                        None
-                                    }
-                                }
-                                None => None,
-                            };
-
-                            if let Some(meta_color) = meta_color {
-                                if colorize {
-                                    data_color.blend(&meta_color);
-                                }
-                                data_color
-                            } else {
-                                data_color
-                            }
-                        }
-                    };
-
-                    imgbuf.put_pixel(x + x_offset, y + y_offset, color);
-                }
-            } else {
-                imgbuf.put_pixel(x + x_offset, y + y_offset, Rgba([0, 0, 0, 0]));
-            }
-        }
-    }
-
-    // Draw inter-track gaps
-    for i in 0..=num_tracks {
-        let radius = min_radius + i as f32 * track_width;
-
-        for y in 0..height {
-            for x in 0..width {
-                let dx = x as f32 - center_x;
-                let dy = y as f32 - center_y;
-                let distance = (dx * dx + dy * dy).sqrt();
-
-                if distance >= radius - track_gap_weight / 2.0 && distance <= radius + track_gap_weight / 2.0 {
-                    let color = Rgba([0, 0, 0, 255]);
-                    imgbuf.put_pixel(x + x_offset, y + y_offset, color);
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
-*/
 /// Render a representation of a disk's data to a Pixmap.
 /// Used as a base for other visualization functions.
 pub fn render_track_data(
@@ -403,17 +270,6 @@ pub fn render_track_data(
                                 }
                             };
 
-                            // let byte_value = if byte_index < rtracks[track_index].len() / 8 - 1 {
-                            //     let mut build_byte: u8 = 0;
-                            //     for bi in 0..8 {
-                            //         build_byte |= if rtracks[track_index][bit_index + bi] { 1 } else { 0 };
-                            //         build_byte <<= 1;
-                            //     }
-                            //     build_byte
-                            // } else {
-                            //     0
-                            // };
-
                             let gray_value = POPCOUNT_TABLE[byte_value as usize];
 
                             PremultipliedColorU8::from_rgba(gray_value, gray_value, gray_value, 255).unwrap()
@@ -424,28 +280,135 @@ pub fn render_track_data(
                 }
             } else {
                 pix_buf[((y + y_offset) * span + (x + x_offset)) as usize] = color_trans;
-                //imgbuf.put_pixel(x + x_offset, y + y_offset, Rgba([0, 0, 0, 0]));
             }
         }
     }
 
-    // Draw inter-track gaps
-    /*    for i in 0..=num_tracks {
-        let radius = min_radius + i as f32 * track_width;
+    Ok(())
+}
 
-        for y in 0..height {
-            for x in 0..width {
-                let dx = x as f32 - center_x;
-                let dy = y as f32 - center_y;
-                let distance = (dx * dx + dy * dy).sqrt();
+/// Render a representation of a disk's weak bit mask to a Pixmap.
+/// Used as a base for other visualization functions.
+pub fn render_track_weak_bits(
+    disk_image: &DiskImage,
+    pixmap: &mut Pixmap,
+    head: u8,
+    image_size: (u32, u32),
+    image_pos: (u32, u32),
+    min_radius_fraction: f32, // Minimum radius as a fraction (0.0 to 1.0)
+    index_angle: f32,         // Index angle (0 starts data at 90 degrees cw)
+    track_limit: usize,
+    track_gap_weight: f32,
+    direction: RotationDirection, // Added parameter for rotation direction
+    weak_color: PremultipliedColorU8,
+) -> Result<(), DiskImageError> {
+    let (width, height) = image_size;
+    let span = pixmap.width();
 
-                if distance >= radius - track_gap_weight / 2.0 && distance <= radius + track_gap_weight / 2.0 {
-                    let color = Rgba([0, 0, 0, 255]);
-                    imgbuf.put_pixel(x + x_offset, y + y_offset, color);
+    let (x_offset, y_offset) = image_pos;
+
+    let center_x = width as f32 / 2.0;
+    let center_y = height as f32 / 2.0;
+    let total_radius = width.min(height) as f32 / 2.0;
+    let min_radius = min_radius_fraction * total_radius; // Scale min_radius to pixel value
+    let _min_radius_sq = min_radius * min_radius;
+
+    let rtracks = collect_weak_masks(head, disk_image);
+    let num_tracks = min(rtracks.len(), track_limit);
+
+    log::trace!("collected {} track references.", num_tracks);
+    for (ti, track) in rtracks.iter().enumerate() {
+        log::trace!("track {} length: {}", ti, track.len());
+    }
+
+    let track_width = (total_radius - min_radius) / num_tracks as f32;
+    let _track_width_sq = track_width * track_width;
+    let _render_track_width = track_width * (1.0 - track_gap_weight);
+
+    let pix_buf = pixmap.pixels_mut();
+
+    let color_black = PremultipliedColorU8::from_rgba(0, 0, 0, 255).unwrap();
+    let color_white = PremultipliedColorU8::from_rgba(255, 255, 255, 255).unwrap();
+    let color_trans: PremultipliedColorU8 = PremultipliedColorU8::from_rgba(0, 0, 0, 0).unwrap();
+
+    // Draw the tracks
+    for y in 0..height {
+        for x in 0..width {
+            let dx = x as f32 - center_x;
+            let dy = y as f32 - center_y;
+            let distance = (dx * dx + dy * dy).sqrt();
+            let _distance_sq = dx * dx + dy * dy;
+            let angle = (dy.atan2(dx) + PI) % TAU;
+
+            if distance >= min_radius && distance <= total_radius {
+                let track_offset = (distance - min_radius) / track_width;
+                if track_offset.fract() < track_gap_weight {
+                    continue;
                 }
+
+                let track_index = (num_tracks - 1).saturating_sub(track_offset.floor() as usize);
+
+                if track_index < num_tracks {
+                    // Adjust angle for clockwise or counter-clockwise
+                    let normalized_angle = match direction {
+                        RotationDirection::Clockwise => angle - index_angle,
+                        RotationDirection::CounterClockwise => TAU - (angle - index_angle),
+                    };
+
+                    let normalized_angle = (normalized_angle + PI) % TAU;
+                    let bit_index = ((normalized_angle / TAU) * rtracks[track_index].len() as f32) as usize;
+
+                    // Ensure bit_index is within bounds
+                    let bit_index = min(bit_index.saturating_sub(8), rtracks[track_index].len() - 17);
+
+                    let word_index = bit_index / 16;
+                    let word_value = if word_index < rtracks[track_index].len() / 16 - 1 {
+                        let mut build_word: u16 = 0;
+                        for bi in 0..16 {
+                            build_word |= if rtracks[track_index][bit_index + bi] { 1 } else { 0 };
+                            build_word <<= 1;
+                        }
+                        build_word
+                    } else {
+                        0
+                    };
+
+                    if word_value != 0 {
+                        pix_buf[((y + y_offset) * span + (x + x_offset)) as usize] = weak_color;
+                    }
+
+                    // let color = match resolution {
+                    //     ResolutionType::Bit => {
+                    //         if rtracks[track_index][bit_index] {
+                    //             color_white
+                    //         } else {
+                    //             color_black
+                    //         }
+                    //     }
+                    //     ResolutionType::Byte => {
+                    //         // Calculate the byte value
+                    //         let byte_value = match decode {
+                    //             false => rtracks[track_index].read_byte(bit_index).unwrap_or_default(),
+                    //             true => {
+                    //                 // Only render bits in 16-bit steps.
+                    //                 let decoded_bit_idx = (bit_index) & !0xF;
+                    //                 rtracks[track_index]
+                    //                     .read_decoded_byte(decoded_bit_idx)
+                    //                     .unwrap_or_default()
+                    //             }
+                    //         };
+                    //
+                    //         let gray_value = POPCOUNT_TABLE[byte_value as usize];
+                    //
+                    //         PremultipliedColorU8::from_rgba(gray_value, gray_value, gray_value, 255).unwrap()
+                    //     }
+                    // };
+                }
+            } else {
+                pix_buf[((y + y_offset) * span + (x + x_offset)) as usize] = color_trans;
             }
         }
-    }*/
+    }
 
     Ok(())
 }

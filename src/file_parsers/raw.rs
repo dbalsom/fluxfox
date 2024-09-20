@@ -32,7 +32,7 @@ use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::trackdata::TrackData;
 use crate::util::get_length;
-use crate::{DiskImageError, DiskImageFormat, StandardFormat, DEFAULT_SECTOR_SIZE};
+use crate::{DiskDensity, DiskImageError, DiskImageFormat, StandardFormat, DEFAULT_SECTOR_SIZE};
 
 pub struct RawFormat;
 
@@ -133,6 +133,7 @@ impl RawFormat {
             geometry: disk_chs.into(),
             data_rate,
             data_encoding,
+            density: DiskDensity::from(data_rate),
             default_sector_size: DEFAULT_SECTOR_SIZE,
             rpm: Some(rpm),
             write_protect: None,

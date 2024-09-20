@@ -29,7 +29,9 @@
     Implements a wrapper around a BitVec to provide MFM encoding and decoding.
 
 */
+use crate::diskimage::TrackRegion;
 use crate::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom};
+use crate::random::random_bit;
 use crate::EncodingPhase;
 use bit_vec::BitVec;
 use std::ops::Index;
@@ -45,13 +47,14 @@ macro_rules! mfm_offset {
 }
 
 #[derive(Debug)]
-pub struct MfmDecoder {
+pub struct MfmCodec {
     bit_vec: BitVec,
     clock_map: BitVec,
     weak_mask: BitVec,
     initial_phase: usize,
     bit_cursor: usize,
     track_padding: usize,
+    random_offset: usize,
 }
 
 pub enum MfmEncodingType {
@@ -59,12 +62,9 @@ pub enum MfmEncodingType {
     AddressMark,
 }
 
-pub fn encode_mfm(data: &[u8], encoding_type: MfmEncodingType) -> BitVec {
+pub fn encode_mfm(data: &[u8], prev_bit: bool, encoding_type: MfmEncodingType) -> BitVec {
     let mut bitvec = BitVec::new();
     let mut bit_count = 0;
-
-    // Add initial zero bit
-    bitvec.push(false);
 
     for &byte in data {
         for i in (0..8).rev() {
@@ -75,10 +75,16 @@ pub fn encode_mfm(data: &[u8], encoding_type: MfmEncodingType) -> BitVec {
                 bitvec.push(true);
             } else {
                 // 0 is encoded as 10 if previous bit was 0, otherwise 00
-                if !bitvec.is_empty() && !bitvec[bitvec.len() - 1] {
-                    bitvec.push(true);
+                let previous_bit = if bitvec.is_empty() {
+                    prev_bit
                 } else {
+                    bitvec[bitvec.len() - 1]
+                };
+
+                if previous_bit {
                     bitvec.push(false);
+                } else {
+                    bitvec.push(true);
                 }
                 bitvec.push(false);
             }
@@ -127,7 +133,9 @@ pub fn find_sync(track: &BitVec, start_idx: usize) -> Option<usize> {
     None
 }
 
-impl MfmDecoder {
+impl MfmCodec {
+    pub const WEAK_BIT_RUN: usize = 6;
+
     pub fn new(mut bit_vec: BitVec, bit_ct: Option<usize>, weak_mask: Option<BitVec>) -> Self {
         // If a bit count was provided, we can trim the bit vector to that length.
         if let Some(bit_ct) = bit_ct {
@@ -147,13 +155,14 @@ impl MfmDecoder {
             panic!("Weak mask must be the same length as the bit vector");
         }
 
-        MfmDecoder {
+        MfmCodec {
             bit_vec,
             clock_map,
             weak_mask,
             initial_phase: sync,
             bit_cursor: sync,
             track_padding: 0,
+            random_offset: 0,
         }
     }
 
@@ -165,8 +174,16 @@ impl MfmDecoder {
         self.bit_vec.is_empty()
     }
 
+    pub fn has_weak_bits(&self) -> bool {
+        !self.detect_weak_bits(6).is_empty()
+    }
+
     pub fn data(&self) -> Vec<u8> {
         self.bit_vec.to_bytes()
+    }
+
+    pub fn weak_data(&self) -> Vec<u8> {
+        self.weak_mask.to_bytes()
     }
 
     pub fn get_sync(&self) -> Option<EncodingPhase> {
@@ -184,6 +201,22 @@ impl MfmDecoder {
         &mut self.clock_map
     }
 
+    pub fn set_weak_mask(&mut self, weak_mask: BitVec) -> Result<()> {
+        if weak_mask.len() != self.bit_vec.len() {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "Weak mask must be the same length as the bit vector",
+            ));
+        }
+        self.weak_mask = weak_mask;
+
+        Ok(())
+    }
+
+    pub fn get_weak_mask(&self) -> &BitVec {
+        &self.weak_mask
+    }
+
     pub fn set_track_padding(&mut self) {
         let mut wrap_buffer: [u8; 4] = [0; 4];
 
@@ -191,9 +224,9 @@ impl MfmDecoder {
             // Track length was an even multiple of 8, so it is possible track data was padded to
             // byte margins.
 
-            let mut found_pad = false;
+            let found_pad = false;
             // Read buffer across the end of the track and see if all bytes are the same.
-            for pad in (1..16) {
+            for pad in 1..16 {
                 log::trace!(
                     "bitcells: {} data bits: {} window_start: {}",
                     self.bit_vec.len(),
@@ -393,9 +426,90 @@ impl MfmDecoder {
             &self.bit_vec[p_off + (index << 1)]
         }
     }
+
+    pub(crate) fn write_buf(&mut self, buf: &[u8], offset: usize) -> Result<usize> {
+        let encoded_buf = encode_mfm(buf, false, MfmEncodingType::Data);
+
+        let mut copy_len = encoded_buf.len();
+        if self.bit_vec.len() < offset + encoded_buf.len() {
+            copy_len = self.bit_vec.len() - offset;
+        }
+
+        let mut bits_written = 0;
+
+        let phase = !self.clock_map[offset] as usize;
+        println!("write_buf(): offset: {} phase: {}", offset, phase);
+
+        for (i, bit) in encoded_buf.into_iter().enumerate().take(copy_len) {
+            self.bit_vec.set(offset + phase + i, bit);
+            bits_written += 1;
+        }
+
+        let bytes_written = bits_written + 7 / 8;
+        Ok(bytes_written)
+    }
+
+    pub(crate) fn detect_weak_bits(&self, run: usize) -> Vec<TrackRegion> {
+        let mut regions = Vec::new();
+
+        let mut region_ct = 0;
+        let mut weak_bit_ct = 0;
+        let mut zero_ct = 0;
+        let mut region_start = 0;
+        for (i, bit) in self.bit_vec.iter().enumerate() {
+            if !bit {
+                zero_ct += 1;
+            } else {
+                if zero_ct >= run {
+                    region_ct += 1;
+
+                    regions.push(TrackRegion {
+                        start: region_start,
+                        end: i - 1,
+                    });
+                }
+                zero_ct = 0;
+            }
+
+            if zero_ct == run {
+                region_start = i;
+            }
+
+            if zero_ct > 3 {
+                weak_bit_ct += 1;
+            }
+        }
+
+        regions
+    }
+
+    /// Not every format will have a separate weak bit mask, but that doesn't mean weak bits cannot
+    /// be encoded. Formats can encode weak bits as a run of 4 or more zero bits. Here we detect
+    /// such runs and extract them into a weak bit mask as a BitVec.
+    pub(crate) fn create_weak_bit_mask(&self, run: usize) -> BitVec {
+        let mut weak_bitvec = BitVec::new();
+        let mut zero_ct = 0;
+        for bit in self.bit_vec.iter() {
+            if !bit {
+                zero_ct += 1;
+            } else {
+                zero_ct = 0;
+            }
+
+            if zero_ct > run {
+                weak_bitvec.push(true);
+            } else {
+                weak_bitvec.push(false);
+            }
+        }
+
+        assert_eq!(weak_bitvec.len(), self.bit_vec.len());
+
+        weak_bitvec
+    }
 }
 
-impl Iterator for MfmDecoder {
+impl Iterator for MfmCodec {
     type Item = bool;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -410,7 +524,13 @@ impl Iterator for MfmDecoder {
             // Wrap around to the beginning of the track
             data_idx = 0;
         }
-        let decoded_bit = self.bit_vec[data_idx];
+
+        let decoded_bit = if self.weak_mask[data_idx] {
+            // Weak bits return random data
+            rand::random()
+        } else {
+            self.bit_vec[data_idx]
+        };
 
         let new_cursor = data_idx + 1;
         if new_cursor >= (self.bit_vec.len() - self.track_padding) {
@@ -424,7 +544,7 @@ impl Iterator for MfmDecoder {
     }
 }
 
-impl Seek for MfmDecoder {
+impl Seek for MfmCodec {
     fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
         let (base, offset) = match pos {
             // TODO: avoid casting to isize
@@ -473,7 +593,7 @@ impl Seek for MfmDecoder {
     }
 }
 
-impl Read for MfmDecoder {
+impl Read for MfmCodec {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         let mut bytes_read = 0;
         for byte in buf.iter_mut() {
@@ -492,7 +612,7 @@ impl Read for MfmDecoder {
     }
 }
 
-impl Index<usize> for MfmDecoder {
+impl Index<usize> for MfmCodec {
     type Output = bool;
 
     fn index(&self, index: usize) -> &Self::Output {

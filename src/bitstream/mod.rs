@@ -28,10 +28,10 @@
 pub mod mfm;
 pub mod raw;
 
-use crate::bitstream::mfm::MfmDecoder;
-use crate::bitstream::raw::RawDecoder;
+use crate::bitstream::mfm::MfmCodec;
+use crate::bitstream::raw::RawCodec;
 use crate::io::{Read, Seek};
-use crate::{DiskImageError, EncodingPhase};
+use crate::EncodingPhase;
 use bit_vec::BitVec;
 use std::ops::Index;
 
@@ -39,8 +39,8 @@ pub trait TrackDataStreamT: Iterator + Seek + Index<usize> {}
 
 #[derive(Debug)]
 pub enum TrackDataStream {
-    Raw(RawDecoder),
-    Mfm(MfmDecoder),
+    Raw(RawCodec),
+    Mfm(MfmCodec),
     Fm(BitVec),
     Gcr(BitVec),
 }
@@ -110,6 +110,13 @@ impl TrackDataStream {
         }
     }
 
+    pub fn get_weak_mask(&self) -> Option<&BitVec> {
+        match self {
+            TrackDataStream::Mfm(data) => Some(data.get_weak_mask()),
+            _ => None,
+        }
+    }
+
     pub fn set_track_padding(&mut self) {
         match self {
             TrackDataStream::Mfm(data) => data.set_track_padding(),
@@ -137,6 +144,14 @@ impl TrackDataStream {
         match self {
             TrackDataStream::Raw(data) => data.read_exact(buf).ok().map(|_| buf.len()),
             TrackDataStream::Mfm(data) => data.read_exact(buf).ok().map(|_| buf.len()),
+            _ => None,
+        }
+    }
+
+    pub fn write_buf(&mut self, buf: &[u8], offset: usize) -> Option<usize> {
+        match self {
+            TrackDataStream::Raw(data) => data.write_buf(buf, offset).ok().map(|_| buf.len()),
+            TrackDataStream::Mfm(data) => data.write_buf(buf, offset).ok().map(|_| buf.len()),
             _ => None,
         }
     }

@@ -36,13 +36,13 @@ use bit_vec::BitVec;
 use std::ops::Index;
 
 #[derive(Debug)]
-pub struct RawDecoder {
+pub struct RawCodec {
     bit_vec: BitVec,
     weak_mask: BitVec,
     bit_cursor: usize,
 }
 
-impl RawDecoder {
+impl RawCodec {
     pub fn new(bit_vec: BitVec, weak_mask: Option<BitVec>) -> Self {
         let weak_mask = match weak_mask {
             Some(mask) => mask,
@@ -53,7 +53,7 @@ impl RawDecoder {
             panic!("Weak mask must be the same length as the bit vector");
         }
 
-        RawDecoder {
+        RawCodec {
             bit_vec,
             weak_mask,
             bit_cursor: 0,
@@ -67,10 +67,15 @@ impl RawDecoder {
     pub fn get_sync(&self) -> Option<EncodingPhase> {
         None
     }
+
+    pub(crate) fn write_buf(&mut self, _buf: &[u8], _offset: usize) -> Result<usize> {
+        Ok(0)
+    }
+
     // Add other necessary methods here
 }
 
-impl Iterator for RawDecoder {
+impl Iterator for RawCodec {
     type Item = bool;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -84,7 +89,7 @@ impl Iterator for RawDecoder {
     }
 }
 
-impl Seek for RawDecoder {
+impl Seek for RawCodec {
     fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
         let (base, offset) = match pos {
             SeekFrom::Start(offset) => (0, offset as isize),
@@ -103,7 +108,7 @@ impl Seek for RawDecoder {
     }
 }
 
-impl Read for RawDecoder {
+impl Read for RawCodec {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         let mut bytes_read = 0;
         for byte in buf.iter_mut() {
@@ -122,7 +127,7 @@ impl Read for RawDecoder {
     }
 }
 
-impl Index<usize> for RawDecoder {
+impl Index<usize> for RawCodec {
     type Output = bool;
 
     fn index(&self, index: usize) -> &Self::Output {
@@ -135,7 +140,7 @@ impl Index<usize> for RawDecoder {
     }
 }
 
-impl RawDecoder {
+impl RawCodec {
     #[allow(dead_code)]
     fn read_bit(self) -> Option<bool> {
         if self.weak_mask[self.bit_cursor] {
