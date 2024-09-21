@@ -790,6 +790,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "imgconvert"
+version = "0.1.0"
+dependencies = [
+ "bpaf",
+ "env_logger",
+ "fluxfox",
+ "log 0.4.22",
+ "logger",
+]
+
+[[package]]
 name = "imgdump"
 version = "0.1.0"
 dependencies = [

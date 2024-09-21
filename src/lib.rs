@@ -250,7 +250,6 @@ impl Display for DiskRpm {
 }
 
 pub use crate::chs::{DiskCh, DiskChs, DiskChsn};
-pub use crate::detect::supported_extensions;
 pub use crate::diskimage::{DiskImage, DiskImageFormat};
-pub use crate::file_parsers::ImageParser;
+pub use crate::file_parsers::{format_from_ext, supported_extensions, ImageParser, ParserWriteCompatibility};
 pub use crate::standard_format::StandardFormat;

@@ -25,33 +25,15 @@
     --------------------------------------------------------------------------
 */
 use crate::chs::DiskChs;
+use bitflags::BitFlags;
 
 use crate::containers::zip::{detect_zip, extract_first_file};
 use crate::containers::DiskImageContainer;
 use crate::diskimage::DiskImageFormat;
-use crate::file_parsers::ImageParser;
+use crate::file_parsers::{ImageParser, IMAGE_FORMATS};
 use crate::io::ReadSeek;
 use crate::standard_format::StandardFormat;
 use crate::DiskImageError;
-
-const IMAGE_FORMATS: [DiskImageFormat; 9] = [
-    DiskImageFormat::ImageDisk,
-    DiskImageFormat::TeleDisk,
-    DiskImageFormat::PceSectorImage,
-    DiskImageFormat::PceBitstreamImage,
-    DiskImageFormat::RawSectorImage,
-    DiskImageFormat::MfmBitstreamImage,
-    DiskImageFormat::HfeImage,
-    DiskImageFormat::F86Image,
-    DiskImageFormat::TransCopyImage,
-];
-
-/// Returns a list of advertised file extensions supported by available image format parsers.
-/// This is a convenience function for use in file dialogs - internal image detection is not based
-/// on file extension, but by image file content and size.
-pub fn supported_extensions() -> Vec<&'static str> {
-    IMAGE_FORMATS.iter().flat_map(|f| f.extensions()).collect()
-}
 
 /// Attempt to detect the format of a disk image. If the format cannot be determined, UnknownFormat is returned.
 pub fn detect_image_format<T: ReadSeek>(image_io: &mut T) -> Result<DiskImageContainer, DiskImageError> {

@@ -43,12 +43,23 @@ use crate::{
     FoxHashMap, DEFAULT_SECTOR_SIZE,
 };
 use bit_vec::BitVec;
+use bitflags::bitflags;
 use sha1_smol::Digest;
 use std::fmt::Display;
 use std::io::Cursor;
 
+bitflags! {
+    /// Bit flags that can be applied to a disk image.
+    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    #[rustfmt::skip]
+    pub struct DiskImageFlags: u32 {
+        const READONLY      = 0b0000_0000_0000_0001; // Disk Image is read-only
+        const PROLOK        = 0b0000_0000_0000_0010; // Represents a PROLOK-protected disk image
+    }
+}
+
 /// An enumeration describing the type of disk image.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub enum DiskImageFormat {
     RawSectorImage,
     ImageDisk,
@@ -265,6 +276,7 @@ pub struct TrackRegion {
 /// Sectors may be variable length due to various copy protection schemes.
 #[derive(Default)]
 pub struct DiskImage {
+    pub(crate) flags: DiskImageFlags,
     // The standard format of the disk image, if it adheres to one. (Nonstandard images will be None)
     pub(crate) standard_format: Option<StandardFormat>,
     // The image format the disk image was sourced from, if any
@@ -313,6 +325,7 @@ impl DiskImage {
 
     pub fn new(disk_format: StandardFormat) -> Self {
         Self {
+            flags: DiskImageFlags::empty(),
             standard_format: Some(disk_format),
             descriptor: disk_format.get_descriptor(),
             source_format: None,
@@ -334,6 +347,18 @@ impl DiskImage {
             track_pool: Vec::new(),
             track_map: [Vec::new(), Vec::new()],
         }
+    }
+
+    pub fn set_flag(&mut self, flag: DiskImageFlags) {
+        self.flags |= flag;
+    }
+
+    pub fn clear_flag(&mut self, flag: DiskImageFlags) {
+        self.flags &= !flag;
+    }
+
+    pub fn has_flag(&self, flag: DiskImageFlags) -> bool {
+        self.flags.contains(flag)
     }
 
     pub fn load<RS: ReadSeek>(image_io: &mut RS) -> Result<Self, DiskImageError> {
@@ -536,6 +561,12 @@ impl DiskImage {
                     //     weak_regions.len()
                     // );
                     let weak_bitvec = codec.create_weak_bit_mask(MfmCodec::WEAK_BIT_RUN);
+                    if weak_bitvec.any() {
+                        log::trace!(
+                            "add_track_bitstream(): Detected {} weak bits in MFM bitstream.",
+                            weak_bitvec.count_ones()
+                        );
+                    }
                     _ = codec.set_weak_mask(weak_bitvec);
                 }
 

@@ -36,6 +36,7 @@ members = [
     "examples/imginfo",
     "examples/imgdump",
     "examples/imgviz",
+    "examples/imgconvert",
 ]
 
 [features]

@@ -33,7 +33,7 @@
 
 */
 use crate::bitstream::TrackDataStream;
-use crate::diskimage::DiskDescriptor;
+use crate::diskimage::{DiskDescriptor, DiskImageFlags};
 use crate::file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::trackdata::TrackData;
@@ -151,6 +151,18 @@ fn f86_track_rpm(flags: u16) -> Option<DiskRpm> {
         0b000 => Some(DiskRpm::Rpm300),
         0b001 => Some(DiskRpm::Rpm360),
         _ => None,
+    }
+}
+
+fn f86_weak_to_weak(bit_data: &mut [u8], weak_data: &[u8]) {
+    for (byte, &weak_byte) in bit_data.iter_mut().zip(weak_data.iter()) {
+        *byte |= weak_byte;
+    }
+}
+
+fn f86_weak_to_holes(bit_data: &mut [u8], weak_data: &[u8]) {
+    for (byte, &weak_byte) in bit_data.iter_mut().zip(weak_data.iter()) {
+        *byte &= !weak_byte;
     }
 }
 
@@ -423,6 +435,13 @@ impl F86Format {
         Ok(disk_image)
     }
 
+    /// Write a disk image in 86F format.
+    /// We always emit 86f images with absolute bitcell counts - this is easier to handle.
+    /// Without specifying an absolute bitcell count, there is a formula to use to calculate the
+    /// number of words to write per track. Due to the variety of formats we import, we cannot
+    /// guarantee a specific bitcell length.
+    ///
+    /// When writing track data, the size must be rounded to the nearest word (2 bytes).
     pub fn save_image<RWS: ReadWriteSeek>(image: &DiskImage, output: &mut RWS) -> Result<(), DiskImageError> {
         if matches!(image.resolution(), DiskDataResolution::BitStream) {
             log::trace!("Saving 86f image...");
@@ -485,6 +504,19 @@ impl F86Format {
             .map_err(|_| DiskImageError::IoError)?;
         f86_header.write(output).map_err(|_| DiskImageError::IoError)?;
 
+        log::trace!("Image geometry: {}", image.descriptor.geometry);
+        if image.descriptor.geometry.c() as usize > image.track_map[0].len()
+            || image.descriptor.geometry.c() as usize > image.track_map[1].len()
+        {
+            log::error!(
+                "Image geometry does not match track maps: {}: {},{}",
+                image.descriptor.geometry.c(),
+                image.track_map[0].len(),
+                image.track_map[1].len()
+            );
+            return Err(DiskImageError::UnsupportedFormat);
+        }
+
         let double_tracks = if image.descriptor.geometry.c() < 80 {
             log::trace!("Writing double tracks due to 40 track image.");
             true
@@ -515,7 +547,7 @@ impl F86Format {
 
         let mut track_offset_idx = 0;
 
-        // We shouldn't need to change track flags per track.
+        // We shouldn't need to change track flags per track, so set them now.
         let mut track_flags = 0;
         log::trace!("Setting data rate: {:?}", image.descriptor.data_rate);
         track_flags |= match image.descriptor.data_rate {
@@ -545,7 +577,7 @@ impl F86Format {
         let mut c = 0;
         let mut h = 0;
         let mut track_copy = 0;
-        let mut last_crc = 0;
+
         for i in 0..track_entries {
             track_offsets[i] = output.stream_position().map_err(|_| DiskImageError::IoError)? as u32;
             log::trace!(
@@ -564,20 +596,14 @@ impl F86Format {
             } = &image.track_pool[ti].data
             {
                 let absolute_bit_count = mfm_codec.len();
-                log::trace!("Track has {} bitcells.", absolute_bit_count);
+
                 let mut bit_data = mfm_codec.data();
                 let mut weak_data = mfm_codec.weak_data();
 
-                // let crc = crc_ccitt(&bit_data);
-                // if track_copy == 1 {
-                //     if crc != last_crc {
-                //         log::error!("CRC mismatch on double track.");
-                //         return Err(DiskImageError::UnsupportedFormat);
-                //     } else {
-                //         log::trace!("Double-track check: CRC: {:04X} last_crc: {:04X}", crc, last_crc);
-                //     }
-                // }
-                // last_crc = crc;
+                if has_surface_description && (bit_data.len() != weak_data.len()) {
+                    log::error!("Bitstream and weak data lengths do not match.");
+                    return Err(DiskImageError::UnsupportedFormat);
+                }
 
                 if !use_absolute_bit_count {
                     if bit_data.len() < F86_TRACK_SIZE_BYTES {
@@ -586,15 +612,24 @@ impl F86Format {
                     if weak_data.len() < F86_TRACK_SIZE_BYTES {
                         weak_data.resize(F86_TRACK_SIZE_BYTES, 0);
                     }
+                } else {
+                    // Pad to a word boundary
+                    if bit_data.len() % 2 != 0 {
+                        bit_data.push(0);
+                        weak_data.push(0);
+                    }
                 }
 
-                if has_surface_description && (bit_data.len() != weak_data.len()) {
-                    log::error!("Bitstream and weak data lengths do not match.");
-                    return Err(DiskImageError::UnsupportedFormat);
+                if image.has_flag(DiskImageFlags::PROLOK) && c == 39 && h == 0 {
+                    log::trace!("PROLOK: Converting {} weak bits to holes.", mfm_codec.weak_data().len());
+                    f86_weak_to_holes(&mut bit_data, &mut weak_data);
+                } else {
+                    f86_weak_to_weak(&mut bit_data, &mut weak_data);
                 }
 
                 log::trace!(
-                    "Bitstream length: {}, weak data length: {}",
+                    "Track has {} bitcells. Bytestream length: {}, Weak data length: {}",
+                    absolute_bit_count,
                     bit_data.len(),
                     weak_data.len()
                 );
@@ -610,7 +645,6 @@ impl F86Format {
 
                 let after_th_pos = output.stream_position().map_err(|_| DiskImageError::IoError)?;
                 let th_size = after_th_pos - th_pos;
-                log::trace!("Wrote track header: {} bytes", th_size);
                 assert_eq!(th_size, 10);
                 output.write_all(&bit_data).map_err(|_| DiskImageError::IoError)?;
 
@@ -642,8 +676,9 @@ impl F86Format {
             .seek(std::io::SeekFrom::Start(offset_table_pos))
             .map_err(|_| DiskImageError::IoError)?;
 
+        log::trace!("Writing track offsets...");
         for (i, offset) in track_offsets.iter().enumerate() {
-            log::trace!("Writing track offset {}: {:X} ({})", i, offset, offset);
+            //log::trace!("Writing track offset {}: {:X} ({})", i, offset, offset);
             output
                 .write_all(&offset.to_le_bytes())
                 .map_err(|_| DiskImageError::IoError)?;

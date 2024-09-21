@@ -39,7 +39,9 @@ use crate::file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility}
 use crate::io::{ReadSeek, ReadWriteSeek};
 
 use crate::diskimage::DiskDescriptor;
-use crate::{DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DEFAULT_SECTOR_SIZE};
+use crate::{
+    DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskRpm, DEFAULT_SECTOR_SIZE,
+};
 use binrw::{binrw, BinRead};
 
 // All formats are listed here, but fluxfox will initially only support PC-specific formats
@@ -101,15 +103,15 @@ fn tc_read_comment(raw_comment: &[u8]) -> String {
     String::from(std::str::from_utf8(&raw_comment[..comment_end_pos]).unwrap_or_default())
 }
 
-fn tc_parse_disk_type(disk_type: u8) -> Result<(DiskDataEncoding, DiskDataRate), DiskImageError> {
-    let (encoding, data_rate) = match disk_type {
-        TC_DISK_TYPE_MFM_HD => (DiskDataEncoding::Mfm, DiskDataRate::Rate500Kbps),
-        TC_DISK_TYPE_MFM_DD_360 => (DiskDataEncoding::Mfm, DiskDataRate::Rate500Kbps),
-        TC_DISK_TYPE_MFM_DD => (DiskDataEncoding::Mfm, DiskDataRate::Rate250Kbps),
+fn tc_parse_disk_type(disk_type: u8) -> Result<(DiskDataEncoding, DiskDataRate, DiskRpm), DiskImageError> {
+    let (encoding, data_rate, disk_rpm) = match disk_type {
+        TC_DISK_TYPE_MFM_HD => (DiskDataEncoding::Mfm, DiskDataRate::Rate500Kbps, DiskRpm::Rpm300),
+        TC_DISK_TYPE_MFM_DD_360 => (DiskDataEncoding::Mfm, DiskDataRate::Rate500Kbps, DiskRpm::Rpm360),
+        TC_DISK_TYPE_MFM_DD => (DiskDataEncoding::Mfm, DiskDataRate::Rate250Kbps, DiskRpm::Rpm300),
         _ => return Err(DiskImageError::UnsupportedFormat),
     };
 
-    Ok((encoding, data_rate))
+    Ok((encoding, data_rate, disk_rpm))
 }
 
 pub struct TCFormat {}
@@ -180,7 +182,7 @@ impl TCFormat {
             return Err(DiskImageError::IncompatibleImage);
         }
 
-        let (disk_encoding, disk_data_rate) = tc_parse_disk_type(disk_info.disk_type)?;
+        let (disk_encoding, disk_data_rate, disk_rpm) = tc_parse_disk_type(disk_info.disk_type)?;
 
         log::trace!("Disk encoding: {:?}", disk_encoding);
         log::trace!("Starting cylinder: {}", disk_info.starting_c);
@@ -233,6 +235,8 @@ impl TCFormat {
             return Err(DiskImageError::IncompatibleImage);
         }
 
+        // Limit tracks to pairs of sides
+        let raw_track_data_ct = raw_track_data_ct & !0x01;
         let mut last_track_data_offset = 0;
         for i in 0..raw_track_data_ct {
             let track_offset = (disk_info.track_offsets[i] as u64) << 8;
@@ -327,12 +331,15 @@ impl TCFormat {
         }
 
         disk_image.descriptor = DiskDescriptor {
-            geometry: DiskCh::from((disk_info.ending_c as u16, disk_info.num_sides)),
+            geometry: DiskCh::from((
+                (raw_track_data_ct / disk_info.num_sides as usize) as u16,
+                disk_info.num_sides,
+            )),
             data_rate: disk_data_rate,
             data_encoding: disk_encoding,
             density: DiskDensity::from(disk_data_rate),
             default_sector_size: DEFAULT_SECTOR_SIZE,
-            rpm: None,
+            rpm: Some(disk_rpm),
             write_protect: None,
         };
 

@@ -78,6 +78,48 @@ pub enum ParserWriteCompatibility {
     UnsupportedFormat,
 }
 
+pub(crate) const IMAGE_FORMATS: [DiskImageFormat; 9] = [
+    DiskImageFormat::ImageDisk,
+    DiskImageFormat::TeleDisk,
+    DiskImageFormat::PceSectorImage,
+    DiskImageFormat::PceBitstreamImage,
+    DiskImageFormat::RawSectorImage,
+    DiskImageFormat::MfmBitstreamImage,
+    DiskImageFormat::HfeImage,
+    DiskImageFormat::F86Image,
+    DiskImageFormat::TransCopyImage,
+];
+
+/// Returns a list of advertised file extensions supported by available image format parsers.
+/// This is a convenience function for use in file dialogs - internal image detection is not based
+/// on file extension, but by image file content and size.
+pub fn supported_extensions() -> Vec<&'static str> {
+    IMAGE_FORMATS.iter().flat_map(|f| f.extensions()).collect()
+}
+
+/// Returns a DiskImageFormat enum variant based on the file extension provided. If the extension
+/// is not recognized, None is returned.
+pub fn format_from_ext(ext: &str) -> Option<DiskImageFormat> {
+    for format in IMAGE_FORMATS.iter() {
+        if format.extensions().contains(&ext.to_lowercase().as_str()) {
+            return Some(*format);
+        }
+    }
+    None
+}
+
+/// Returns a list of image formats and their associated file extensions that support the specified
+/// capabilities.
+pub fn formats_from_caps(caps: FormatCaps) -> Vec<(DiskImageFormat, Vec<String>)> {
+    let format_vec = IMAGE_FORMATS
+        .iter()
+        .filter(|f| f.capabilities().contains(caps))
+        .map(|f| (*f, f.extensions().iter().map(|s| s.to_string()).collect()))
+        .collect();
+
+    format_vec
+}
+
 /// A trait to be implemented by disk image parsers. Called via enum dispatch.
 pub trait ImageParser {
     /// Return the capability flags for this format.
@@ -90,7 +132,7 @@ pub trait ImageParser {
     fn load_image<RWS: ReadSeek>(&self, image_buf: RWS) -> Result<DiskImage, DiskImageError>;
     /// Return true if the parser can write the specified disk image. Not all formats are writable
     /// at all, and not all DiskImages can be represented in the specified format.
-    fn can_save(&self, image: &DiskImage) -> ParserWriteCompatibility;
+    fn can_write(&self, image: &DiskImage) -> ParserWriteCompatibility;
     fn save_image<RWS: ReadWriteSeek>(self, image: &DiskImage, image_buf: &mut RWS) -> Result<(), DiskImageError>;
 }
 
@@ -155,7 +197,7 @@ impl ImageParser for DiskImageFormat {
         }
     }
 
-    fn can_save(&self, image: &DiskImage) -> ParserWriteCompatibility {
+    fn can_write(&self, image: &DiskImage) -> ParserWriteCompatibility {
         match self {
             DiskImageFormat::RawSectorImage => raw::RawFormat::can_write(image),
             DiskImageFormat::ImageDisk => imd::ImdFormat::can_write(image),
@@ -183,5 +225,18 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::TransCopyImage => tc::TCFormat::save_image(image, image_buf),
             _ => Err(DiskImageError::UnknownFormat),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_from_ext_tc() {
+        let ext = "tc";
+        let expected_format = DiskImageFormat::TransCopyImage;
+        let result = format_from_ext(ext);
+        assert_eq!(result, Some(expected_format));
     }
 }
