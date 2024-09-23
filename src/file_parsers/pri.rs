@@ -35,16 +35,18 @@
 
 */
 
-use crate::chs::{DiskCh, DiskChs};
+use crate::chs::DiskCh;
 use crate::diskimage::DiskDescriptor;
-use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
-use crate::io::{Cursor, ReadSeek, ReadWriteSeek};
+use crate::file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility};
+use crate::io::{Cursor, ReadSeek, ReadWriteSeek, Write};
 
+use crate::trackdata::TrackData;
 use crate::{
-    DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat, FoxHashSet,
-    DEFAULT_SECTOR_SIZE,
+    DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskImage, DiskImageError, DiskImageFormat,
+    FoxHashSet, DEFAULT_SECTOR_SIZE,
 };
-use binrw::{binrw, BinRead};
+use binrw::meta::WriteEndian;
+use binrw::{binrw, BinRead, BinWrite};
 
 pub struct PriFormat;
 pub const MAXIMUM_CHUNK_SIZE: usize = 0x100000; // Reasonable 1MB limit for chunk sizes.
@@ -55,6 +57,26 @@ pub const MAXIMUM_CHUNK_SIZE: usize = 0x100000; // Reasonable 1MB limit for chun
 pub struct PriChunkHeader {
     pub id: [u8; 4],
     pub size: u32,
+}
+
+#[derive(Debug)]
+#[binrw]
+#[brw(big)]
+pub struct PriChunkFooter {
+    pub id: [u8; 4],
+    pub size: u32,
+    pub footer: u32,
+}
+
+/// We use the Default implementation to set the special CRC value for the footer.
+impl Default for PriChunkFooter {
+    fn default() -> Self {
+        PriChunkFooter {
+            id: *b"END ",
+            size: 0,
+            footer: 0x3d64af78,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -129,6 +151,28 @@ pub(crate) fn pri_crc(buf: &[u8]) -> u32 {
     crc & 0xffffffff
 }
 
+/// Return slice bounds for the weak bit mask.
+pub(crate) fn pri_weak_bounds(buf: &[u8]) -> (usize, usize) {
+    let mut start = 0;
+    let mut end = 0;
+
+    for i in 0..buf.len() {
+        if buf[i] != 0 {
+            start = i;
+            break;
+        }
+    }
+
+    for i in (0..buf.len()).rev() {
+        if buf[i] != 0 {
+            end = i;
+            break;
+        }
+    }
+
+    (start, end)
+}
+
 impl PriFormat {
     #[allow(dead_code)]
     fn format() -> DiskImageFormat {
@@ -136,7 +180,7 @@ impl PriFormat {
     }
 
     pub(crate) fn capabilities() -> FormatCaps {
-        FormatCaps::empty()
+        bitstream_flags() | FormatCaps::CAP_COMMENT | FormatCaps::CAP_WEAK_BITS
     }
 
     pub(crate) fn extensions() -> Vec<&'static str> {
@@ -148,7 +192,7 @@ impl PriFormat {
         _ = image.seek(std::io::SeekFrom::Start(0));
 
         if let Ok(file_header) = PriChunkHeader::read_be(&mut image) {
-            if &file_header.id == "PRI ".as_bytes() {
+            if file_header.id == "PRI ".as_bytes() {
                 detected = true;
             }
         }
@@ -156,9 +200,21 @@ impl PriFormat {
         detected
     }
 
-    pub(crate) fn can_write(_image: &DiskImage) -> ParserWriteCompatibility {
-        // TODO: Determine what data representations would lead to data loss for PSI.
-        ParserWriteCompatibility::Ok
+    /// Return the compatibility of the image with the parser.
+    pub(crate) fn can_write(image: &DiskImage) -> ParserWriteCompatibility {
+        if let Some(resolution) = image.resolution {
+            if !matches!(resolution, DiskDataResolution::BitStream) {
+                return ParserWriteCompatibility::Incompatible;
+            }
+        } else {
+            return ParserWriteCompatibility::Incompatible;
+        }
+
+        if PriFormat::capabilities().contains(image.required_caps()) {
+            ParserWriteCompatibility::Ok
+        } else {
+            ParserWriteCompatibility::DataLoss
+        }
     }
 
     pub(crate) fn read_chunk<RWS: ReadSeek>(mut image: RWS) -> Result<PriChunk, DiskImageError> {
@@ -216,6 +272,145 @@ impl PriFormat {
         Ok(chunk)
     }
 
+    pub(crate) fn write_chunk<RWS: ReadWriteSeek, T: BinWrite + WriteEndian>(
+        image: &mut RWS,
+        chunk_type: PriChunkType,
+        data: &T,
+    ) -> Result<(), DiskImageError>
+    where
+        for<'a> <T as BinWrite>::Args<'a>: Default,
+    {
+        // Create a chunk buffer Cursor to write our chunk data into.
+        let mut chunk_buf = Cursor::new(Vec::new());
+
+        let chunk_str = match chunk_type {
+            PriChunkType::FileHeader => b"PRI ",
+            PriChunkType::Text => b"TEXT",
+            PriChunkType::End => b"END ",
+            PriChunkType::TrackHeader => b"TRAK",
+            PriChunkType::TrackData => b"DATA",
+            PriChunkType::WeakMask => b"WEAK",
+            PriChunkType::AlternateBitClock => b"BCLK",
+            PriChunkType::Unknown => b"UNKN",
+        };
+
+        // Serialize the data to a buffer, so we can set the length in the chunk header.
+        let mut data_buf = Cursor::new(Vec::new());
+        data.write(&mut data_buf).map_err(|_| DiskImageError::IoError)?;
+
+        let chunk_header = PriChunkHeader {
+            id: *chunk_str,
+            size: data_buf.get_ref().len() as u32,
+        };
+
+        log::trace!("Writing chunk: {:?} size: {}", chunk_type, data_buf.get_ref().len());
+        chunk_header
+            .write(&mut chunk_buf)
+            .map_err(|_| DiskImageError::IoError)?;
+
+        chunk_buf
+            .write_all(data_buf.get_ref())
+            .map_err(|_| DiskImageError::IoError)?;
+
+        // Calculate CRC for chunk, over header and data bytes.
+        let crc_calc = pri_crc(chunk_buf.get_ref());
+
+        // Write the CRC to the chunk.
+        let chunk_crc = PriChunkCrc { crc: crc_calc };
+        chunk_crc.write(&mut chunk_buf).map_err(|_| DiskImageError::IoError)?;
+
+        // Write the chunk buffer to the image.
+        image
+            .write_all(chunk_buf.get_ref())
+            .map_err(|_| DiskImageError::IoError)?;
+
+        Ok(())
+    }
+
+    /// We use a separate function to write text chunks, as str does not implement BinWrite.
+    pub(crate) fn write_text<RWS: ReadWriteSeek>(image: &mut RWS, text: &str) -> Result<(), DiskImageError> {
+        // Create a chunk buffer Cursor to write our chunk data into.
+        let mut chunk_buf = Cursor::new(Vec::new());
+
+        if text.len() > 1000 {
+            panic!("Text chunk too large.");
+        }
+
+        let chunk_str = b"TEXT";
+        let chunk_header = PriChunkHeader {
+            id: *chunk_str,
+            size: text.len() as u32,
+        };
+
+        chunk_header
+            .write(&mut chunk_buf)
+            .map_err(|_| DiskImageError::IoError)?;
+
+        chunk_buf
+            .write_all(text.as_bytes())
+            .map_err(|_| DiskImageError::IoError)?;
+
+        // Calculate CRC for chunk, over header and data bytes.
+        let crc_calc = pri_crc(chunk_buf.get_ref());
+
+        // Write the CRC to the chunk.
+        let chunk_crc = PriChunkCrc { crc: crc_calc };
+        chunk_crc.write(&mut chunk_buf).map_err(|_| DiskImageError::IoError)?;
+
+        // Write the chunk buffer to the image.
+        image
+            .write_all(chunk_buf.get_ref())
+            .map_err(|_| DiskImageError::IoError)?;
+
+        Ok(())
+    }
+
+    /// We use a separate function to write raw data chunks, as Vec or &[u8] does not implement BinWrite.
+    pub(crate) fn write_chunk_raw<RWS: ReadWriteSeek>(
+        image: &mut RWS,
+        chunk_type: PriChunkType,
+        data: &[u8],
+    ) -> Result<(), DiskImageError> {
+        // Create a chunk buffer Cursor to write our chunk data into.
+        let mut chunk_buf = Cursor::new(Vec::new());
+
+        let chunk_str = match chunk_type {
+            PriChunkType::FileHeader => b"PRI ",
+            PriChunkType::Text => b"TEXT",
+            PriChunkType::End => b"END ",
+            PriChunkType::TrackHeader => b"TRAK",
+            PriChunkType::TrackData => b"DATA",
+            PriChunkType::WeakMask => b"WEAK",
+            PriChunkType::AlternateBitClock => b"BCLK",
+            PriChunkType::Unknown => b"UNKN",
+        };
+
+        let chunk_header = PriChunkHeader {
+            id: *chunk_str,
+            size: data.len() as u32,
+        };
+
+        chunk_header
+            .write(&mut chunk_buf)
+            .map_err(|_| DiskImageError::IoError)?;
+
+        chunk_buf.write_all(data).map_err(|_| DiskImageError::IoError)?;
+
+        // Calculate CRC for chunk, over header and data bytes.
+        let crc_calc = pri_crc(chunk_buf.get_ref());
+
+        // Write the CRC to the chunk.
+        let chunk_crc = PriChunkCrc { crc: crc_calc };
+        chunk_crc.write(&mut chunk_buf).map_err(|_| DiskImageError::IoError)?;
+
+        // Write the chunk buffer to the image.
+        image
+            .write_all(chunk_buf.get_ref())
+            .map_err(|_| DiskImageError::IoError)?;
+
+        Ok(())
+    }
+
     pub(crate) fn load_image<RWS: ReadSeek>(mut image: RWS) -> Result<DiskImage, DiskImageError> {
         let mut disk_image = DiskImage::default();
 
@@ -235,11 +430,11 @@ impl PriFormat {
         log::trace!("Read PRI file header. Format version: {}", file_header.version);
 
         let mut comment_string = String::new();
-        let current_chs = DiskChs::default();
+        let mut current_ch = DiskCh::default();
         let current_crc_error = false;
 
-        let track_set: FoxHashSet<DiskCh> = FoxHashSet::new();
         let mut heads_seen: FoxHashSet<u8> = FoxHashSet::new();
+        let mut cylinders_seen: FoxHashSet<u16> = FoxHashSet::new();
 
         let mut default_bit_clock = 0;
         let mut current_bit_clock = 0;
@@ -266,7 +461,9 @@ impl PriFormat {
                         track_header.bit_length as usize / 8 + if track_header.bit_length % 8 != 0 { 1 } else { 0 };
 
                     default_bit_clock = track_header.clock_rate;
+                    cylinders_seen.insert(track_header.cylinder as u16);
                     heads_seen.insert(track_header.head as u8);
+                    current_ch = ch;
                 }
                 PriChunkType::AlternateBitClock => {
                     let alt_clock = PriAlternateClock::read(&mut Cursor::new(&chunk.data))
@@ -289,7 +486,7 @@ impl PriFormat {
                 PriChunkType::TrackData => {
                     log::trace!(
                         "Track data chunk: {} size: {} expected size: {} crc_error: {}",
-                        current_chs,
+                        current_ch,
                         chunk.size,
                         expected_data_size,
                         current_crc_error
@@ -303,7 +500,7 @@ impl PriFormat {
                     disk_image.add_track_bitstream(
                         DiskDataEncoding::Mfm,
                         DiskDataRate::from(current_bit_clock),
-                        current_chs.into(),
+                        current_ch,
                         current_bit_clock,
                         Some(track_header.bit_length as usize),
                         &chunk.data,
@@ -340,10 +537,10 @@ impl PriFormat {
 
         log::trace!("Comment: {}", comment_string);
 
-        let head_ct = heads_seen.len() as u16;
-        let track_ct = track_set.len() as u16;
+        let head_ct = heads_seen.len() as u8;
+        let cylinder_ct = cylinders_seen.len() as u16;
         disk_image.descriptor = DiskDescriptor {
-            geometry: DiskCh::from((track_ct / head_ct, head_ct as u8)),
+            geometry: DiskCh::from((cylinder_ct, head_ct)),
             data_rate: disk_data_rate.unwrap(),
             data_encoding: DiskDataEncoding::Mfm,
             density: DiskDensity::from(disk_data_rate.unwrap()),
@@ -355,7 +552,102 @@ impl PriFormat {
         Ok(disk_image)
     }
 
-    pub fn save_image<RWS: ReadWriteSeek>(_image: &DiskImage, _output: &mut RWS) -> Result<(), DiskImageError> {
-        Err(DiskImageError::UnsupportedFormat)
+    pub fn save_image<RWS: ReadWriteSeek>(image: &DiskImage, output: &mut RWS) -> Result<(), DiskImageError> {
+        if matches!(image.resolution(), DiskDataResolution::BitStream) {
+            log::trace!("Saving PRI image...");
+        } else {
+            log::error!("Unsupported image resolution.");
+            return Err(DiskImageError::UnsupportedFormat);
+        }
+
+        // Write the file header chunk. Version remains at 0 for now.
+        let file_header = PriHeader {
+            version: 0,
+            reserved: 0,
+        };
+        PriFormat::write_chunk(output, PriChunkType::FileHeader, &file_header)?;
+
+        // Write any comments present in the image to a TEXT chunk.
+        image
+            .get_comment()
+            .map(|comment| PriFormat::write_text(output, comment));
+
+        // Iterate through tracks and write track headers and data.
+        for track in image.track_iter() {
+            if let TrackData::BitStream {
+                encoding,
+                data_rate,
+                data_clock,
+                cylinder,
+                head,
+                data,
+                sector_ids,
+                ..
+            } = track
+            {
+                log::trace!(
+                    "Track c:{} h:{} sectors: {} encoding: {:?} data_rate: {:?} bit length: {}",
+                    cylinder,
+                    head,
+                    sector_ids.len(),
+                    encoding,
+                    data_rate,
+                    data.len(),
+                );
+
+                // Write the track header.
+                let track_header = PriTrackHeader {
+                    cylinder: *cylinder as u32,
+                    head: *head as u32,
+                    bit_length: data.len() as u32,
+                    clock_rate: *data_clock,
+                };
+                PriFormat::write_chunk(output, PriChunkType::TrackHeader, &track_header)?;
+
+                // Write the track data.
+                let track_data = data.data();
+                PriFormat::write_chunk(output, PriChunkType::TrackData, &track_data)?;
+
+                // Write the weak mask, if any bits are set in the weak bit mask.
+                if let Some(weak_mask) = data.get_weak_mask() {
+                    if weak_mask.any() {
+                        // At least one bit is set in the weak bit mask, so let's export it.
+                        let weak_data = weak_mask.to_bytes();
+
+                        // Optimization: PRI supports supplying a bit offset for the weak bit mask.
+                        // Determine the slice of the weak mask that contains the first and last
+                        // set bits.
+                        let (slice_start, slice_end) = pri_weak_bounds(&weak_data);
+                        let weak_header = PriWeakMask {
+                            bit_offset: (slice_start * 8) as u32,
+                        };
+
+                        // Create a buffer for our weak mask.
+                        let mut weak_buffer = Cursor::new(Vec::new());
+
+                        // Write the weak mask header.
+                        weak_header
+                            .write(&mut weak_buffer)
+                            .map_err(|_| DiskImageError::IoError)?;
+
+                        // Write the weak mask data.
+                        weak_buffer
+                            .write_all(&weak_data[slice_start..slice_end])
+                            .map_err(|_| DiskImageError::IoError)?;
+
+                        PriFormat::write_chunk_raw(output, PriChunkType::WeakMask, weak_buffer.get_ref())?;
+                    }
+                }
+            } else {
+                unreachable!("Expected only BitStream variants");
+            }
+        }
+
+        // Write the file-end chunk.
+        log::trace!("Writing END chunk...");
+        let end_chunk = PriChunkFooter::default();
+        end_chunk.write(output).map_err(|_| DiskImageError::IoError)?;
+
+        Ok(())
     }
 }

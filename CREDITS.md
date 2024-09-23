@@ -4,6 +4,8 @@ The LZHUF and LZW decompression routines supporting the TeleDisk format
 are from [retrocompressor](https://github.com/dfgordon/retrocompressor) by [dfgordon](https://github.com/dfgordon),
 under MIT license.
 
+Original bootsector code by Christoph H. Hochstaetter, (C)1991
+
 ## Special Thanks To:
 
 OBattler, Digitoxin, tarlabnor, Overdoze, and TD-Linux for invaluable assistance with questions and research.

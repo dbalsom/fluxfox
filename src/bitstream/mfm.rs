@@ -62,51 +62,6 @@ pub enum MfmEncodingType {
     AddressMark,
 }
 
-pub fn encode_mfm(data: &[u8], prev_bit: bool, encoding_type: MfmEncodingType) -> BitVec {
-    let mut bitvec = BitVec::new();
-    let mut bit_count = 0;
-
-    for &byte in data {
-        for i in (0..8).rev() {
-            let bit = (byte & (1 << i)) != 0;
-            if bit {
-                // 1 is encoded as 01
-                bitvec.push(false);
-                bitvec.push(true);
-            } else {
-                // 0 is encoded as 10 if previous bit was 0, otherwise 00
-                let previous_bit = if bitvec.is_empty() {
-                    prev_bit
-                } else {
-                    bitvec[bitvec.len() - 1]
-                };
-
-                if previous_bit {
-                    bitvec.push(false);
-                } else {
-                    bitvec.push(true);
-                }
-                bitvec.push(false);
-            }
-
-            bit_count += 1;
-
-            // Omit clock bit between source bits 3 and 4 for address marks
-            if let MfmEncodingType::AddressMark = encoding_type {
-                if bit_count == 4 {
-                    // Clear the previous clock bit (which is between bit 3 and 4)
-                    bitvec.set(bitvec.len() - 2, false);
-                }
-            }
-        }
-
-        // Reset bit_count for the next byte
-        bit_count = 0;
-    }
-
-    bitvec
-}
-
 pub fn get_mfm_sync_offset(track: &BitVec) -> Option<EncodingPhase> {
     match find_sync(track, 0) {
         Some(offset) => {
@@ -164,6 +119,10 @@ impl MfmCodec {
             track_padding: 0,
             random_offset: 0,
         }
+    }
+
+    pub fn replace(&mut self, new_bits: BitVec) {
+        self.bit_vec = new_bits;
     }
 
     pub fn len(&self) -> usize {
@@ -258,6 +217,51 @@ impl MfmCodec {
             // track padding.
             self.track_padding = 0;
         }
+    }
+
+    pub fn encode_mfm(data: &[u8], prev_bit: bool, encoding_type: MfmEncodingType) -> BitVec {
+        let mut bitvec = BitVec::new();
+        let mut bit_count = 0;
+
+        for &byte in data {
+            for i in (0..8).rev() {
+                let bit = (byte & (1 << i)) != 0;
+                if bit {
+                    // 1 is encoded as 01
+                    bitvec.push(false);
+                    bitvec.push(true);
+                } else {
+                    // 0 is encoded as 10 if previous bit was 0, otherwise 00
+                    let previous_bit = if bitvec.is_empty() {
+                        prev_bit
+                    } else {
+                        bitvec[bitvec.len() - 1]
+                    };
+
+                    if previous_bit {
+                        bitvec.push(false);
+                    } else {
+                        bitvec.push(true);
+                    }
+                    bitvec.push(false);
+                }
+
+                bit_count += 1;
+
+                // Omit clock bit between source bits 3 and 4 for address marks
+                if let MfmEncodingType::AddressMark = encoding_type {
+                    if bit_count == 4 {
+                        // Clear the previous clock bit (which is between bit 3 and 4)
+                        bitvec.set(bitvec.len() - 2, false);
+                    }
+                }
+            }
+
+            // Reset bit_count for the next byte
+            bit_count = 0;
+        }
+
+        bitvec
     }
 
     /// Encode an MFM address mark.
@@ -428,7 +432,7 @@ impl MfmCodec {
     }
 
     pub(crate) fn write_buf(&mut self, buf: &[u8], offset: usize) -> Result<usize> {
-        let encoded_buf = encode_mfm(buf, false, MfmEncodingType::Data);
+        let encoded_buf = Self::encode_mfm(buf, false, MfmEncodingType::Data);
 
         let mut copy_len = encoded_buf.len();
         if self.bit_vec.len() < offset + encoded_buf.len() {
@@ -446,6 +450,22 @@ impl MfmCodec {
         }
 
         let bytes_written = bits_written + 7 / 8;
+        Ok(bytes_written)
+    }
+
+    pub(crate) fn write_raw_buf(&mut self, buf: &[u8], offset: usize) -> Result<usize> {
+        let mut bytes_written = 0;
+        let mut offset = offset;
+
+        for byte in buf {
+            for bit_pos in (0..8).rev() {
+                let bit = byte & (0x01 << bit_pos) != 0;
+                self.bit_vec.set(offset, bit);
+                offset += 1;
+            }
+            bytes_written += 1;
+        }
+
         Ok(bytes_written)
     }
 

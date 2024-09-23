@@ -37,7 +37,6 @@ use crate::diskimage::{DiskDescriptor, DiskImageFlags};
 use crate::file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::trackdata::TrackData;
-use crate::util::crc_ccitt;
 use crate::{
     DiskCh, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskImage, DiskImageError, DiskRpm,
     DEFAULT_SECTOR_SIZE,
@@ -115,7 +114,7 @@ enum F86Endian {
 }
 
 fn f86_disk_time_shift(flags: u16) -> F86TimeShift {
-    match ((flags >> 5) & 0x03, flags & F86_DISK_SPEEDUP_FLAG != 0) {
+    match (flags & F86_DISK_RPM_SLOWDOWN >> 5, flags & F86_DISK_SPEEDUP_FLAG != 0) {
         (0b00, _) => F86TimeShift::ZeroPercent,
         (0b01, false) => F86TimeShift::SlowOnePercent,
         (0b10, false) => F86TimeShift::SlowOneAndAHalfPercent,
@@ -190,7 +189,15 @@ impl F86Format {
         header.id == "86BF".as_bytes() && header.minor_version == 0x0C && header.major_version == 0x02
     }
 
-    pub fn can_write(_image: &DiskImage) -> ParserWriteCompatibility {
+    pub fn can_write(image: &DiskImage) -> ParserWriteCompatibility {
+        if let Some(resolution) = image.resolution {
+            if !matches!(resolution, DiskDataResolution::BitStream) {
+                return ParserWriteCompatibility::Incompatible;
+            }
+        } else {
+            return ParserWriteCompatibility::Incompatible;
+        }
+
         // 86f images can encode about everything we can store for a bitstream format
         ParserWriteCompatibility::Ok
     }
@@ -222,6 +229,10 @@ impl F86Format {
         };
         log::trace!("Image data rate: {:?} density: {:?}", image_data_rate, image_density);
 
+        if header.flags & F86_DISK_TYPE != 0 {
+            log::error!("Images with Zoned RPM unsupported.");
+            return Err(DiskImageError::UnsupportedFormat);
+        }
         let extra_bitcell_mode = header.flags & F86_DISK_BITCELL_MODE != 0;
         let disk_sides = if header.flags & F86_DISK_SIDES != 0 { 2 } else { 1 };
         let disk_data_endian = if header.flags & F86_DISK_REVERSE_ENDIAN != 0 {
@@ -545,8 +556,6 @@ impl F86Format {
                 .map_err(|_| DiskImageError::IoError)?;
         }
 
-        let mut track_offset_idx = 0;
-
         // We shouldn't need to change track flags per track, so set them now.
         let mut track_flags = 0;
         log::trace!("Setting data rate: {:?}", image.descriptor.data_rate);
@@ -593,9 +602,10 @@ impl F86Format {
             if let TrackData::BitStream {
                 data: TrackDataStream::Mfm(mfm_codec),
                 ..
-            } = &image.track_pool[ti].data
+            } = &image.track_pool[ti]
             {
                 let absolute_bit_count = mfm_codec.len();
+                log::error!("Absolute bit count: {}", absolute_bit_count);
 
                 let mut bit_data = mfm_codec.data();
                 let mut weak_data = mfm_codec.weak_data();
@@ -677,7 +687,7 @@ impl F86Format {
             .map_err(|_| DiskImageError::IoError)?;
 
         log::trace!("Writing track offsets...");
-        for (i, offset) in track_offsets.iter().enumerate() {
+        for offset in track_offsets.iter() {
             //log::trace!("Writing track offset {}: {:X} ({})", i, offset, offset);
             output
                 .write_all(&offset.to_le_bytes())

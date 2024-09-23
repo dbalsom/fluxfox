@@ -93,6 +93,11 @@ impl DiskStructureMetadata {
 
     pub fn get_sector_ids(&self) -> Vec<DiskChsn> {
         let mut sector_ids = Vec::new();
+
+        if self.items.is_empty() {
+            log::error!("get_sector_ids(): items is empty");
+        }
+
         for item in &self.items {
             if let DiskStructureElement::System34(System34Element::SectorHeader(chsn, true)) = item.elem_type {
                 sector_ids.push(chsn);

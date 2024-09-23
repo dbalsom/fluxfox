@@ -118,8 +118,9 @@ impl RawFormat {
             }
         }
 
+        // TODO: Don't manually set DiskConsistency - should be auto-detected after examining image.
         disk_image.consistency = DiskConsistency {
-            image_caps: 0,
+            image_caps: Default::default(),
             weak: false,
             deleted: false,
             bad_address_crc: false,
@@ -158,7 +159,7 @@ impl RawFormat {
                 let ti = image.track_map[head][track_n];
                 let track = &image.track_pool[ti];
 
-                match &track.data {
+                match &track {
                     TrackData::ByteStream { data, sectors, .. } => {
                         for sector in sectors {
                             let sector_len = std::cmp::min(sector.len, DEFAULT_SECTOR_SIZE);

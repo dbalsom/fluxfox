@@ -64,6 +64,10 @@ impl RawCodec {
         self.bit_vec.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.bit_vec.is_empty()
+    }
+
     pub fn get_sync(&self) -> Option<EncodingPhase> {
         None
     }

@@ -78,6 +78,22 @@ impl TrackDataStream {
         }
     }
 
+    pub fn is_empty(&self) -> bool {
+        match self {
+            TrackDataStream::Raw(data) => data.is_empty(),
+            TrackDataStream::Mfm(data) => data.is_empty(),
+            _ => true,
+        }
+    }
+
+    pub fn replace(&mut self, new_bits: BitVec) {
+        match self {
+            TrackDataStream::Raw(data) => *data = RawCodec::new(new_bits, None),
+            TrackDataStream::Mfm(data) => *data = MfmCodec::new(new_bits, None, None),
+            _ => {}
+        }
+    }
+
     pub fn data(&self) -> Vec<u8> {
         match self {
             TrackDataStream::Raw(_data) => panic!("Unsupported operation"),

@@ -25,11 +25,8 @@
     --------------------------------------------------------------------------
 */
 use crate::chs::DiskChs;
-use bitflags::BitFlags;
-
 use crate::containers::zip::{detect_zip, extract_first_file};
 use crate::containers::DiskImageContainer;
-use crate::diskimage::DiskImageFormat;
 use crate::file_parsers::{ImageParser, IMAGE_FORMATS};
 use crate::io::ReadSeek;
 use crate::standard_format::StandardFormat;

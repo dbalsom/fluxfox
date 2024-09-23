@@ -33,6 +33,18 @@
 
     Documentation of this format helpfully provided by NewRisingSun.
     https://www.robcraig.com/wiki/transcopy-version-5-x-format/
+
+    TransCopy images do not have a separate weak bit mask. Instead, weak bits
+    can be detected by an invalid sequence of 0's in the MFM bitstream.
+
+    fluxfox will attempt to detect weak bits when adding tracks to the image,
+    if a weak bit mask is not provided.
+
+    The padding between tracks is not just on 256 byte boundaries. It is a bit
+    unusual, but we don't write to TC yet so don't have to handle whatever
+    scheme it is using. Track data is padded so that it does not pass a 64k
+    boundary. This was apparently done so to make it easier for TransCopy to
+    handle DMA transfer of track data.
 */
 
 use crate::file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility};
@@ -44,7 +56,12 @@ use crate::{
 };
 use binrw::{binrw, BinRead};
 
-// All formats are listed here, but fluxfox will initially only support PC-specific formats
+// Disk Type Constants
+// All types are listed here, but fluxfox will initially only support PC-specific formats
+
+// PCE tools generate TC's with the 'UNKNOWN' disk type, which is unfortunate.
+// We normally use this disk type to set the data rate and RPM. So we'll have to come up with an
+// alternate method for determining these values.
 pub const TC_DISK_TYPE_UNKNOWN: u8 = 0xFF;
 pub const TC_DISK_TYPE_MFM_HD: u8 = 0x02;
 pub const TC_DISK_TYPE_MFM_DD_360: u8 = 0x03;
@@ -55,14 +72,22 @@ pub const TC_DISK_TYPE_MFM_DD: u8 = 0x07;
 //pub const TC_DISK_TYPE_AMIGA: u8 = 0x08;
 //pub const TC_DISK_TYPE_FM_ATARI: u8 = 0x0C;
 
-pub const TC_FLAG_KEEP_TRACK_LENGTH: u16 = 0b0000_0000_0000_0001;
-pub const TC_FLAG_COPY_ACROSS_INDEX: u16 = 0b0000_0000_0000_0010;
-pub const TC_FLAG_COPY_WEAK_BITS: u16 = 0b0000_0000_0000_0100;
+// Track flags. We don't use these yet, but they're here for reference.
+//pub const TC_FLAG_KEEP_TRACK_LENGTH: u16 = 0b0000_0000_0000_0001;
+//pub const TC_FLAG_COPY_ACROSS_INDEX: u16 = 0b0000_0000_0000_0010;
+
+// I suppose this flag was some hint to TransCopy when writing a track. We will always create a
+// weak bit mask when detecting weak bits.
+//pub const TC_FLAG_COPY_WEAK_BITS: u16 = 0b0000_0000_0000_0100;
 //pub const TC_FLAG_VERIFY_WRITE: u16 = 0b0000_0000_0000_1000;
-pub const TC_FLAG_TOLERANCE_ADJUST: u16 = 0b0000_0000_0100_0000;
-pub const TC_FLAG_NO_ADDRESS_MARKS: u16 = 0b0000_0000_1000_0000;
+//pub const TC_FLAG_TOLERANCE_ADJUST: u16 = 0b0000_0000_0100_0000;
+
+// This flag indicates no address marks on a track. We'll find that out for ourselves when we add
+// the track, so it's not really that important.
+//pub const TC_FLAG_NO_ADDRESS_MARKS: u16 = 0b0000_0000_1000_0000;
 //pub const TC_FLAG_UNKNOWN: u16 = 0b1000_0000_0000_0000;
 
+// These values are used to represent empty entries in corresponding tables.
 pub const TC_EMPTY_TRACK_SKEW: u16 = 0x1111;
 pub const TC_EMPTY_TRACK_DATA: u16 = 0x3333;
 pub const TC_EMPTY_TRACK_FLAGS: u16 = 0x4444;
@@ -105,6 +130,8 @@ fn tc_read_comment(raw_comment: &[u8]) -> String {
 
 fn tc_parse_disk_type(disk_type: u8) -> Result<(DiskDataEncoding, DiskDataRate, DiskRpm), DiskImageError> {
     let (encoding, data_rate, disk_rpm) = match disk_type {
+        // Return a default for UNKNOWN, as PCE tools generate TC's with this disk type.
+        TC_DISK_TYPE_UNKNOWN => (DiskDataEncoding::Mfm, DiskDataRate::Rate250Kbps, DiskRpm::Rpm300),
         TC_DISK_TYPE_MFM_HD => (DiskDataEncoding::Mfm, DiskDataRate::Rate500Kbps, DiskRpm::Rpm300),
         TC_DISK_TYPE_MFM_DD_360 => (DiskDataEncoding::Mfm, DiskDataRate::Rate500Kbps, DiskRpm::Rpm360),
         TC_DISK_TYPE_MFM_DD => (DiskDataEncoding::Mfm, DiskDataRate::Rate250Kbps, DiskRpm::Rpm300),
@@ -177,7 +204,15 @@ impl TCFormat {
             return Err(DiskImageError::FormatParseError);
         };
 
-        if ![TC_DISK_TYPE_MFM_HD, TC_DISK_TYPE_MFM_DD_360, TC_DISK_TYPE_MFM_DD].contains(&disk_info.disk_type) {
+        // Only support PC disk types for now
+        if ![
+            TC_DISK_TYPE_UNKNOWN,
+            TC_DISK_TYPE_MFM_HD,
+            TC_DISK_TYPE_MFM_DD_360,
+            TC_DISK_TYPE_MFM_DD,
+        ]
+        .contains(&disk_info.disk_type)
+        {
             log::error!("Unsupported disk type: {:02X}", disk_info.disk_type);
             return Err(DiskImageError::IncompatibleImage);
         }

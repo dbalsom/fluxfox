@@ -24,6 +24,10 @@
 
     --------------------------------------------------------------------------
 */
+use std::borrow::BorrowMut;
+use std::fmt::Display;
+use std::io::Cursor;
+
 use crate::bitstream::mfm::MfmCodec;
 use crate::bitstream::raw::RawCodec;
 use crate::bitstream::TrackDataStream;
@@ -32,10 +36,10 @@ use crate::chs::{DiskCh, DiskChs, DiskChsn};
 use crate::containers::zip::extract_first_file;
 use crate::containers::DiskImageContainer;
 use crate::detect::detect_image_format;
-use crate::file_parsers::ImageParser;
+use crate::file_parsers::{FormatCaps, ImageParser};
 use crate::io::ReadSeek;
 use crate::standard_format::StandardFormat;
-use crate::structure_parsers::system34::{System34Element, System34Parser};
+use crate::structure_parsers::system34::{System34Element, System34Parser, System34Standard};
 use crate::structure_parsers::{DiskStructureElement, DiskStructureMetadata, DiskStructureParser};
 use crate::trackdata::TrackData;
 use crate::{
@@ -45,16 +49,20 @@ use crate::{
 use bit_vec::BitVec;
 use bitflags::bitflags;
 use sha1_smol::Digest;
-use std::fmt::Display;
-use std::io::Cursor;
+
+pub const DEFAULT_BOOT_SECTOR: &[u8] = include_bytes!("../resources/bootsector.bin");
 
 bitflags! {
     /// Bit flags that can be applied to a disk image.
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     #[rustfmt::skip]
     pub struct DiskImageFlags: u32 {
-        const READONLY      = 0b0000_0000_0000_0001; // Disk Image is read-only
-        const PROLOK        = 0b0000_0000_0000_0010; // Represents a PROLOK-protected disk image
+        #[doc = "Disk Image source specified image is read-only"]
+        const READONLY      = 0b0000_0000_0000_0001;
+        #[doc = "Disk Image has been written to since last save"]
+        const DIRTY         = 0b0000_0000_0000_0010;
+        #[doc = "Disk Image represents a PROLOK protected disk"]
+        const PROLOK        = 0b0000_0000_0000_0100;
     }
 }
 
@@ -140,7 +148,7 @@ pub struct SectorMapEntry {
 #[derive(Default)]
 pub struct DiskConsistency {
     // A field to hold image format capability flags that this image requires in order to be represented.
-    pub image_caps: u64,
+    pub image_caps: FormatCaps,
     /// Whether the disk image contains weak bits.
     pub weak: bool,
     /// Whether the disk image contains deleted sectors.
@@ -157,14 +165,6 @@ pub struct DiskConsistency {
     pub consistent_track_length: Option<u8>,
 }
 
-/// Per-track format settings. In most cases, this will not change per-track. Some formats encode
-/// this per-track, so we store it here.
-pub struct TrackFormat {
-    pub data_encoding: DiskDataEncoding,
-    pub data_sync: Option<EncodingPhase>,
-    pub data_rate: DiskDataRate,
-}
-
 pub struct TrackSectorIndex {
     pub sector_id: u8,
     pub cylinder_id: u16,
@@ -175,40 +175,6 @@ pub struct TrackSectorIndex {
     pub address_crc_error: bool,
     pub data_crc_error: bool,
     pub deleted_mark: bool,
-}
-
-/// A Disk Track is a circular region of the disk surface in which a number of sectors are stored.
-/// Certain disk operations can be performed on an entire track, such as reading and formatting.
-pub struct DiskTrack {
-    /// A track comprises a vector of indices into the DiskImage sector pool.
-    pub format: TrackFormat,
-    pub data: TrackData,
-}
-
-impl DiskTrack {
-    pub fn get_sector_count(&self) -> usize {
-        self.data.get_sector_ct()
-    }
-
-    pub fn has_sector_id(&self, id: u8) -> bool {
-        self.data.has_sector_id(id)
-    }
-
-    pub fn get_sector_list(&self) -> Vec<SectorMapEntry> {
-        self.data.get_sector_list()
-    }
-
-    pub fn metadata(&self) -> Option<&DiskStructureMetadata> {
-        self.data.metadata()
-    }
-
-    pub fn get_hash(&self) -> Digest {
-        self.data.get_hash()
-    }
-
-    pub fn has_weak_bits(&self) -> bool {
-        self.data.has_weak_bits()
-    }
 }
 
 #[derive(Copy, Clone, Default)]
@@ -271,11 +237,17 @@ pub struct TrackRegion {
     pub end: usize,
 }
 
-/// A DiskImage represents an image of a floppy disk in memory. It comprises a pool of sectors, and an ordered
-/// list of tracks that reference sectors in the pool.
-/// Sectors may be variable length due to various copy protection schemes.
+/// A [`DiskImage`] represents the structure of a floppy disk. It contains a pool of track data
+/// structures, which are indexed by a head vector which contains cylinder vectors.
+///
+/// A [`DiskImage`] can be created from a specified disk format using an ImageBuilder.
+///
+/// A [`DiskImage`] may be of two [`DiskDataResolution`] levels: ByteStream or BitStream. ByteStream images
+/// are sourced from sector-based disk image formats, while BitStream images are sourced from
+/// bitstream-based disk image formats.
 #[derive(Default)]
 pub struct DiskImage {
+    // Flags that can be applied to a disk image.
     pub(crate) flags: DiskImageFlags,
     // The standard format of the disk image, if it adheres to one. (Nonstandard images will be None)
     pub(crate) standard_format: Option<StandardFormat>,
@@ -294,7 +266,7 @@ pub struct DiskImage {
     // An ASCII comment embedded in the disk image, if any.
     pub(crate) comment: Option<String>,
     /// A pool of track data structures, potentially in any order.
-    pub(crate) track_pool: Vec<DiskTrack>,
+    pub(crate) track_pool: Vec<TrackData>,
     /// An array of vectors containing indices into the track pool. The first index is the head
     /// number, the second is the cylinder number.
     pub(crate) track_map: [Vec<usize>; 2],
@@ -323,7 +295,9 @@ impl DiskImage {
         detect_image_format(&mut image)
     }
 
-    pub fn new(disk_format: StandardFormat) -> Self {
+    /// Create a new [`DiskImage`] with the specified disk format. This function should not be called
+    /// directly - use an [`ImageBuilder]` if you wish to create a new [`DiskImage`] from a specified format.
+    pub fn create(disk_format: StandardFormat) -> Self {
         Self {
             flags: DiskImageFlags::empty(),
             standard_format: Some(disk_format),
@@ -331,7 +305,7 @@ impl DiskImage {
             source_format: None,
             resolution: None,
             consistency: DiskConsistency {
-                image_caps: 0,
+                image_caps: Default::default(),
                 weak: false,
                 deleted: false,
                 bad_address_crc: false,
@@ -340,13 +314,48 @@ impl DiskImage {
                 consistent_sector_size: Some(DEFAULT_SECTOR_SIZE as u32),
                 consistent_track_length: Some(disk_format.get_chs().s()),
             },
-
             boot_sector: None,
             volume_name: None,
             comment: None,
             track_pool: Vec::new(),
             track_map: [Vec::new(), Vec::new()],
         }
+    }
+
+    pub fn track_iter(&self) -> impl Iterator<Item = &TrackData> {
+        // Find the maximum number of tracks among all heads
+        let max_tracks = self.track_map.iter().map(|tracks| tracks.len()).max().unwrap_or(0);
+
+        (0..max_tracks).flat_map(move |track_idx| {
+            self.track_map.iter().filter_map(move |head_tracks| {
+                head_tracks
+                    .get(track_idx)
+                    .and_then(move |&track_index| self.track_pool.get(track_index))
+            })
+        })
+    }
+
+    pub fn track_idx_iter(&self) -> impl Iterator<Item = usize> + '_ {
+        // Find the maximum number of tracks among all heads
+        let max_tracks = self.track_map.iter().map(|tracks| tracks.len()).max().unwrap_or(0);
+
+        (0..max_tracks).flat_map(move |track_idx| {
+            self.track_map
+                .iter()
+                .filter_map(move |head_tracks| head_tracks.get(track_idx).copied())
+        })
+    }
+
+    pub fn get_track(&self, track_idx: usize) -> Option<&TrackData> {
+        self.track_pool.get(track_idx)
+    }
+
+    pub fn get_track_mut(&mut self, track_idx: usize) -> Option<&mut TrackData> {
+        self.track_pool.get_mut(track_idx)
+    }
+
+    pub fn set_resolution(&mut self, resolution: DiskDataResolution) {
+        self.resolution = Some(resolution);
     }
 
     pub fn set_flag(&mut self, flag: DiskImageFlags) {
@@ -359,6 +368,10 @@ impl DiskImage {
 
     pub fn has_flag(&self, flag: DiskImageFlags) -> bool {
         self.flags.contains(flag)
+    }
+
+    pub fn required_caps(&self) -> FormatCaps {
+        self.consistency.image_caps
     }
 
     pub fn load<RS: ReadSeek>(image_io: &mut RS) -> Result<Self, DiskImageError> {
@@ -393,6 +406,14 @@ impl DiskImage {
 
     pub fn volume_name(&self) -> Option<&str> {
         self.volume_name.as_deref()
+    }
+
+    pub fn get_comment(&self) -> Option<&str> {
+        self.comment.as_deref()
+    }
+
+    pub fn set_comment(&mut self, comment: String) {
+        self.comment = Some(comment);
     }
 
     pub fn set_data_rate(&mut self, rate: DiskDataRate) {
@@ -461,7 +482,7 @@ impl DiskImage {
     /// - `Err(DiskImageError::IncompatibleImage)` if the disk image is not compatible with `ByteStream` resolution.
     pub fn add_track_bytestream(
         &mut self,
-        data_encoding: DiskDataEncoding,
+        encoding: DiskDataEncoding,
         data_rate: DiskDataRate,
         ch: DiskCh,
     ) -> Result<(), DiskImageError> {
@@ -476,22 +497,17 @@ impl DiskImage {
             _ => return Err(DiskImageError::IncompatibleImage),
         }
 
-        let format = TrackFormat {
-            data_encoding,
-            data_sync: None,
-            data_rate,
-        };
         //self.tracks[ch.h() as usize].push(DiskTrack {
-        self.track_pool.push(DiskTrack {
-            format,
-            data: TrackData::ByteStream {
-                cylinder: ch.c(),
-                head: ch.h(),
-                sectors: Vec::new(),
-                data: Vec::new(),
-                weak_mask: Vec::new(),
-            },
+        self.track_pool.push(TrackData::ByteStream {
+            encoding,
+            data_rate,
+            cylinder: ch.c(),
+            head: ch.h(),
+            sectors: Vec::new(),
+            data: Vec::new(),
+            weak_mask: Vec::new(),
         });
+
         self.track_map[ch.h() as usize].push(self.track_pool.len() - 1);
 
         Ok(())
@@ -518,7 +534,7 @@ impl DiskImage {
     /// - `Err(DiskImageError::IncompatibleImage)` if the disk image is not compatible with `BitStream` resolution.
     pub fn add_track_bitstream(
         &mut self,
-        data_encoding: DiskDataEncoding,
+        encoding: DiskDataEncoding,
         data_rate: DiskDataRate,
         ch: DiskCh,
         data_clock: u32,
@@ -544,8 +560,8 @@ impl DiskImage {
         let data = BitVec::from_bytes(data);
         let weak_bitvec_opt = weak.map(BitVec::from_bytes);
 
-        log::trace!("add_track_bitstream(): Encoding is {:?}", data_encoding);
-        let (mut data_stream, markers) = match data_encoding {
+        log::trace!("add_track_bitstream(): Encoding is {:?}", encoding);
+        let (mut data_stream, markers) = match encoding {
             DiskDataEncoding::Mfm => {
                 let mut codec;
 
@@ -586,11 +602,11 @@ impl DiskImage {
             _ => (TrackDataStream::Raw(RawCodec::new(data, weak_bitvec_opt)), Vec::new()),
         };
 
-        let format = TrackFormat {
-            data_encoding,
-            data_sync: data_stream.get_sync(),
-            data_rate,
-        };
+        // let format = TrackFormat {
+        //     data_encoding,
+        //     data_sync: data_stream.get_sync(),
+        //     data_rate,
+        // };
 
         let metadata = DiskStructureMetadata::new(System34Parser::scan_track_metadata(&mut data_stream, markers));
         let sector_ids = metadata.get_sector_ids();
@@ -619,17 +635,17 @@ impl DiskImage {
             sector_offsets.len()
         );
 
-        self.track_pool.push(DiskTrack {
-            format,
-            data: TrackData::BitStream {
-                cylinder: ch.c(),
-                head: ch.h(),
-                data_clock,
-                data: data_stream,
-                metadata,
-                sector_ids,
-            },
+        self.track_pool.push(TrackData::BitStream {
+            encoding,
+            data_rate,
+            cylinder: ch.c(),
+            head: ch.h(),
+            data_clock,
+            data: data_stream,
+            metadata,
+            sector_ids,
         });
+
         self.track_map[ch.h() as usize].push(self.track_pool.len() - 1);
 
         Ok(())
@@ -664,7 +680,7 @@ impl DiskImage {
         let ti = self.track_map[chs.h() as usize][chs.c() as usize];
         let track = &mut self.track_pool[ti];
 
-        match track.data {
+        match track {
             TrackData::ByteStream {
                 ref mut sectors,
                 ref mut data,
@@ -697,7 +713,7 @@ impl DiskImage {
     pub fn next_sector_on_track(&self, chs: DiskChs) -> Option<DiskChs> {
         let ti = self.track_map[chs.h() as usize][chs.c() as usize];
         let track = &self.track_pool[ti];
-        let s = track.get_sector_count();
+        let s = track.get_sector_ct();
 
         // Get the track geometry
         let geom_chs = DiskChs::from((self.geometry(), s as u8));
@@ -732,7 +748,7 @@ impl DiskImage {
         let ti = self.track_map[chs.h() as usize][chs.c() as usize];
         let track = &mut self.track_pool[ti];
 
-        track.data.read_sector(chs, n, scope, debug)
+        track.read_sector(chs, n, scope, debug)
     }
 
     pub fn write_sector(
@@ -741,6 +757,7 @@ impl DiskImage {
         n: Option<u8>,
         data: &[u8],
         scope: RwSectorScope,
+        deleted: bool,
         debug: bool,
     ) -> Result<WriteSectorResult, DiskImageError> {
         if chs.h() > 1 || chs.c() as usize >= self.track_map[chs.h() as usize].len() {
@@ -751,7 +768,7 @@ impl DiskImage {
         let track = &mut self.track_pool[ti];
 
         log::trace!("TrackData::write_sector(): data len is now: {}", data.len());
-        track.data.write_sector(chs, n, data, scope, debug)
+        track.write_sector(chs, n, data, scope, deleted, debug)
     }
 
     /// Read all sectors from the track identified by 'ch'. The data is returned within a
@@ -769,7 +786,7 @@ impl DiskImage {
         let ti = self.track_map[ch.h() as usize][ch.c() as usize];
         let track = &mut self.track_pool[ti];
 
-        track.data.read_all_sectors(ch, n, eot)
+        track.read_all_sectors(ch, n, eot)
     }
 
     pub fn read_track(&mut self, ch: DiskCh) -> Result<ReadTrackResult, DiskImageError> {
@@ -781,7 +798,94 @@ impl DiskImage {
         let ti = self.track_map[ch.h() as usize][ch.c() as usize];
         let track = &mut self.track_pool[ti];
 
-        track.data.read_track(ch)
+        track.read_track(ch)
+    }
+
+    pub fn add_empty_track(
+        &mut self,
+        ch: DiskCh,
+        encoding: DiskDataEncoding,
+        data_rate: DiskDataRate,
+        bitcells: usize,
+    ) -> Result<(), DiskImageError> {
+        if ch.h() >= 2 {
+            return Err(DiskImageError::SeekError);
+        }
+
+        let bitcell_bytes = (bitcells + 7) / 8;
+
+        match self.resolution {
+            Some(DiskDataResolution::BitStream) => {
+                if self.track_map[ch.h() as usize].len() != ch.c() as usize {
+                    log::error!("add_empty_track(): Can't create sparse track map.");
+                    return Err(DiskImageError::ParameterError);
+                }
+
+                let stream = match encoding {
+                    DiskDataEncoding::Mfm => {
+                        TrackDataStream::Mfm(MfmCodec::new(BitVec::from_elem(bitcells, false), None, None))
+                    }
+                    DiskDataEncoding::Fm => {
+                        TrackDataStream::Raw(RawCodec::new(BitVec::from_elem(bitcells, false), None))
+                    }
+                    _ => return Err(DiskImageError::UnsupportedFormat),
+                };
+
+                self.track_pool.push(TrackData::BitStream {
+                    encoding,
+                    data_rate,
+                    cylinder: ch.c(),
+                    head: ch.h(),
+                    data_clock: 0,
+                    data: stream,
+                    metadata: DiskStructureMetadata::default(),
+                    sector_ids: Vec::new(),
+                });
+
+                self.track_map[ch.h() as usize].push(self.track_pool.len() - 1);
+            }
+            Some(DiskDataResolution::ByteStream) => {
+                if self.track_map[ch.h() as usize].len() != ch.c() as usize {
+                    log::error!("add_empty_track(): Can't create sparse track map.");
+                    return Err(DiskImageError::ParameterError);
+                }
+
+                self.track_pool.push(TrackData::ByteStream {
+                    encoding,
+                    data_rate,
+                    cylinder: ch.c(),
+                    head: ch.h(),
+                    sectors: Vec::new(),
+                    data: vec![0; bitcell_bytes],
+                    weak_mask: Vec::new(),
+                });
+
+                self.track_map[ch.h() as usize].push(self.track_pool.len() - 1);
+            }
+            _ => return Err(DiskImageError::IncompatibleImage),
+        }
+
+        Ok(())
+    }
+
+    pub fn format_track(
+        &mut self,
+        ch: DiskCh,
+        format_buffer: Vec<DiskChsn>,
+        fill_byte: u8,
+        sector_gap: usize,
+    ) -> Result<(), DiskImageError> {
+        if ch.h() > 1 || ch.c() as usize >= self.track_map[ch.h() as usize].len() {
+            return Err(DiskImageError::SeekError);
+        }
+
+        let ti = self.track_map[ch.h() as usize][ch.c() as usize];
+        let track = &mut self.track_pool[ti];
+
+        // TODO: How would we support other structures here?
+        track.format(System34Standard::Iso, format_buffer, fill_byte, sector_gap)?;
+
+        Ok(())
     }
 
     pub fn is_id_valid(&self, chs: DiskChs) -> bool {
@@ -791,7 +895,7 @@ impl DiskImage {
         let ti = self.track_map[chs.h() as usize][chs.c() as usize];
         let track = &self.track_pool[ti];
 
-        match &track.data {
+        match &track {
             TrackData::BitStream { .. } => return track.has_sector_id(chs.s()),
             TrackData::ByteStream { sectors, .. } => {
                 for si in sectors {
@@ -804,6 +908,79 @@ impl DiskImage {
         false
     }
 
+    /// Reset an image to an empty state.
+    pub fn reset_image(&mut self) {
+        self.track_pool.clear();
+        self.track_map = [Vec::new(), Vec::new()];
+
+        *self = DiskImage {
+            flags: DiskImageFlags::empty(),
+            standard_format: self.standard_format,
+            descriptor: self.descriptor,
+            source_format: self.source_format,
+            resolution: self.resolution,
+            ..Default::default()
+        }
+    }
+
+    pub fn format(
+        &mut self,
+        format: StandardFormat,
+        boot_sector: Option<&[u8]>,
+        creator: Option<&[u8; 8]>,
+    ) -> Result<(), DiskImageError> {
+        let chsn = format.get_chsn();
+        let encoding = format.get_encoding();
+        let data_rate = format.get_data_rate();
+        let bitcell_size = format.get_bitcell_ct();
+
+        // Drop all previous data as we will be overwriting the entire disk.
+        self.reset_image();
+
+        // Attempt to load the boot sector if provided, or fall back to our built-in default.
+        let boot_sector_buf = boot_sector.unwrap_or(DEFAULT_BOOT_SECTOR);
+
+        // Create a BootSector object from the buffer
+        let mut bs_cursor = Cursor::new(boot_sector_buf);
+        let mut bootsector = BootSector::new(&mut bs_cursor)?;
+
+        // Update the boot sector with the disk format
+        bootsector.update_bpb_from_format(format)?;
+        if let Some(creator) = creator {
+            bootsector.set_creator(creator)?;
+        }
+
+        // Repopulate the image with empty tracks.
+        for head in 0..chsn.h() {
+            for cylinder in 0..chsn.c() {
+                let ch = DiskCh::new(cylinder, head);
+                self.add_empty_track(ch, encoding, data_rate, bitcell_size)?;
+            }
+        }
+
+        // Format each track with the specified format
+        for head in 0..chsn.h() {
+            for cylinder in 0..chsn.c() {
+                let ch = DiskCh::new(cylinder, head);
+
+                // Build the format buffer we provide to format_track() that specifies the sector
+                // layout parameters.
+                let mut format_buffer = Vec::new();
+                for s in 0..chsn.s() {
+                    format_buffer.push(DiskChsn::new(ch.c(), ch.h(), s + 1, chsn.n()));
+                }
+
+                let gap3 = format.get_gap3();
+                self.format_track(ch, format_buffer, 0x00, gap3)?;
+            }
+        }
+
+        // Write the boot sector to the disk image
+        self.write_boot_sector(bootsector.as_bytes())?;
+
+        Ok(())
+    }
+
     pub fn get_next_id(&self, chs: DiskChs) -> Option<DiskChsn> {
         if chs.h() > 1 || chs.c() as usize >= self.track_map[chs.h() as usize].len() {
             return None;
@@ -811,7 +988,7 @@ impl DiskImage {
         let ti = self.track_map[chs.h() as usize][chs.c() as usize];
         let track = &self.track_pool[ti];
 
-        track.data.get_next_id(chs)
+        track.get_next_id(chs)
     }
 
     pub(crate) fn read_boot_sector(&mut self) -> Result<Vec<u8>, DiskImageError> {
@@ -821,17 +998,21 @@ impl DiskImage {
         let ti = self.track_map[0][0];
         let track = &mut self.track_pool[ti];
 
-        match track
-            .data
-            .read_sector(DiskChs::new(0, 0, 1), None, RwSectorScope::DataOnly, true)
-        {
+        match track.read_sector(DiskChs::new(0, 0, 1), None, RwSectorScope::DataOnly, true) {
             Ok(result) => Ok(result.read_buf),
             Err(e) => Err(e),
         }
     }
 
     pub(crate) fn write_boot_sector(&mut self, buf: &[u8]) -> Result<(), DiskImageError> {
-        self.write_sector(DiskChs::new(0, 0, 1), Some(2), buf, RwSectorScope::DataOnly, false)?;
+        self.write_sector(
+            DiskChs::new(0, 0, 1),
+            Some(2),
+            buf,
+            RwSectorScope::DataOnly,
+            false,
+            false,
+        )?;
         Ok(())
     }
 
@@ -905,49 +1086,54 @@ impl DiskImage {
     /// Single-sided images encoded as double-sided images with empty tracks
     /// 40 track images encoded as 80 tracks with duplicate tracks
     pub(crate) fn normalize(&mut self) {
-        // Detect empty tracks (can be created by HxC when exporting to IMD, etc.)
-        let mut empty_tracks = Vec::new();
-
-        let mut track_ct = 0;
-        for (head_idx, head) in self.track_map.iter().enumerate() {
-            for (track_idx, track) in head.iter().enumerate() {
-                track_ct += 1;
-                if self.track_pool[*track].get_sector_count() == 0 {
-                    empty_tracks.push((head_idx, track_idx));
-                }
-            }
-        }
+        let track_ct = self.track_idx_iter().count();
+        let empty_odd_track_ct = self.detect_empty_odd_tracks(0);
+        let mut removed_odd = false;
 
         // Remove empty tracks
         log::trace!(
-            "normalize(): Detected {}/{} empty tracks.",
-            empty_tracks.len(),
+            "normalize(): Detected {}/{} empty odd tracks.",
+            empty_odd_track_ct,
             track_ct
         );
-        if track_ct > 50 && empty_tracks.len() >= track_ct / 2 {
+        if track_ct > 50 && empty_odd_track_ct >= track_ct / 2 {
             log::warn!("normalize(): Image is wide track image stored as narrow tracks, odd tracks empty. Removing odd tracks.");
-            self.remove_empty_tracks();
+            self.remove_odd_tracks();
+            removed_odd = true;
             self.descriptor.geometry.set_c(self.get_track_ct(0) as u16);
         }
 
-        // Remove duplicate tracks (created by 86f, etc.)
-        let duplicate_track_ct = self.detect_duplicate_tracks(0);
-        log::trace!(
-            "normalize(): Head {}: Detected {}/{} duplicate tracks.",
-            0,
-            duplicate_track_ct,
-            self.track_map[0].len()
-        );
-        if self.track_map[0].len() > 50 && duplicate_track_ct >= self.track_map[0].len() / 2 {
-            log::warn!(
-                "normalize(): Image is wide track image stored as narrow tracks, odd tracks duplicated. Removing odd tracks."
+        if !removed_odd {
+            // Remove duplicate tracks (created by 86f, etc.)
+            let duplicate_track_ct = self.detect_duplicate_odd_tracks(0);
+            log::trace!(
+                "normalize(): Head {}: Detected {}/{} duplicate tracks.",
+                0,
+                duplicate_track_ct,
+                self.track_map[0].len()
             );
-            self.remove_odd_tracks();
-            self.descriptor.geometry.set_c(self.get_track_ct(0) as u16);
+            if self.track_map[0].len() > 50 && duplicate_track_ct >= self.track_map[0].len() / 2 {
+                log::warn!(
+                    "normalize(): Image is wide track image stored as narrow tracks, odd tracks duplicated. Removing odd tracks."
+                );
+                self.remove_odd_tracks();
+                removed_odd = true;
+                self.descriptor.geometry.set_c(self.get_track_ct(0) as u16);
+            }
+        }
+
+        if removed_odd {
+            // Renumber tracks.
+            self.remap_tracks();
         }
     }
 
-    pub(crate) fn detect_duplicate_tracks(&mut self, head: usize) -> usize {
+    /// Some formats may encode a 40-track image as an 80-track image with each track duplicated.
+    /// (86F, primarily). This function detects such duplicates.
+    ///
+    /// We can't just detect any duplicate tracks, as it is possible for duplicate tracks to exist
+    /// without all odd tracks being duplicates of the previous track.
+    pub(crate) fn detect_duplicate_odd_tracks(&mut self, head: usize) -> usize {
         let mut duplicate_ct = 0;
 
         // Iterate through each pair of tracks and see if the 2nd track is a duplicate of the first.
@@ -961,6 +1147,29 @@ impl DiskImage {
         }
 
         duplicate_ct
+    }
+
+    /// Some formats may encode a 40-track image as an 80-track image with each track duplicated.
+    /// (HxC exporting IMD, etc.) This function detects and removes the empty tracks inserted after
+    /// each valid track.
+    ///
+    /// We can't just detect and remove all empty tracks as we would end up removing tracks present
+    /// in a blank disk image.
+    pub(crate) fn detect_empty_odd_tracks(&mut self, head: usize) -> usize {
+        let mut empty_ct = 0;
+
+        // Iterate through each pair of tracks and see if the 2nd track is empty when the first
+        // track is not.
+        for track_pair in self.track_map[head].chunks_exact(2) {
+            let track0_sectors = self.track_pool[track_pair[0]].get_sector_ct();
+            let track1_sectors = self.track_pool[track_pair[1]].get_sector_ct();
+
+            if track0_sectors > 0 && track1_sectors == 0 {
+                empty_ct += 1;
+            }
+        }
+
+        empty_ct
     }
 
     /// Remove all odd tracks from image. This is useful for handling images that store 40 track
@@ -1034,7 +1243,7 @@ impl DiskImage {
         let mut empty_tracks = vec![Vec::new(); 2];
         for (head_idx, head) in self.track_map.iter().enumerate() {
             for (track_idx, track) in head.iter().enumerate() {
-                if self.track_pool[*track].get_sector_count() == 0 {
+                if self.track_pool[*track].get_sector_ct() == 0 {
                     empty_tracks[head_idx].push(track_idx);
                 }
             }
@@ -1055,6 +1264,44 @@ impl DiskImage {
         // Now we could remove the empty tracks from the track pool, but we'd have to re-index
         // every other track as the pool indices change. It's not that terrible to have deleted
         // tracks hanging out in memory. They will be removed when we re-export the image.
+    }
+
+    /// Remap tracks sequentially after an operation has removed some tracks.
+    pub(crate) fn remap_tracks(&mut self) {
+        let mut logical_cylinder;
+        log::trace!("remap_tracks(): Disk geometry is {}", self.geometry());
+        for (head_idx, head) in self.track_map.iter().enumerate() {
+            logical_cylinder = 0;
+            for track in head.iter() {
+                match self.track_pool[*track] {
+                    TrackData::ByteStream { ref mut cylinder, .. } => {
+                        if *cylinder != logical_cylinder as u16 {
+                            log::trace!(
+                                "remap_tracks(): Remapping track idx {}, head: {} from c:{} to c:{}",
+                                track,
+                                head_idx,
+                                *cylinder,
+                                logical_cylinder
+                            );
+                        }
+                        *cylinder = logical_cylinder as u16;
+                    }
+                    TrackData::BitStream { ref mut cylinder, .. } => {
+                        if *cylinder != logical_cylinder as u16 {
+                            log::trace!(
+                                "remap_tracks(): Remapping track idx {}, head: {} from c:{} to c:{}",
+                                track,
+                                head_idx,
+                                *cylinder,
+                                logical_cylinder
+                            );
+                        }
+                        *cylinder = logical_cylinder as u16;
+                    }
+                }
+                logical_cylinder += 1;
+            }
+        }
     }
 
     pub fn dump_info<W: crate::io::Write>(&mut self, mut out: W) -> Result<(), crate::io::Error> {

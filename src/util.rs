@@ -27,6 +27,8 @@
 use crate::io::{Read, Seek, SeekFrom};
 use crate::{DiskImageError, ASCII_EOF};
 
+pub const CRC_CCITT_INITIAL: u16 = 0xFFFF;
+
 pub(crate) fn get_length<T: Seek>(source: &mut T) -> Result<u64, crate::io::Error> {
     // Seek to the end of the source
     let length = source.seek(SeekFrom::End(0))?;
@@ -67,9 +69,9 @@ pub(crate) fn read_ascii<T: Read>(source: &mut T, max_len: Option<usize>) -> (Op
 }
 
 /// Helper function to calculate a CRC-CCITT 16-bit checksum over a byte slice.
-pub fn crc_ccitt(data: &[u8]) -> u16 {
+pub fn crc_ccitt(data: &[u8], start: Option<u16>) -> u16 {
     const POLY: u16 = 0x1021; // Polynomial x^16 + x^12 + x^5 + 1
-    let mut crc: u16 = 0xFFFF;
+    let mut crc: u16 = start.unwrap_or(0xFFFF);
 
     for &byte in data {
         crc ^= (byte as u16) << 8;
@@ -79,6 +81,21 @@ pub fn crc_ccitt(data: &[u8]) -> u16 {
             } else {
                 crc <<= 1;
             }
+        }
+    }
+    crc
+}
+
+pub fn crc_ccitt_byte(byte: u8, crc: u16) -> u16 {
+    const POLY: u16 = 0x1021; // Polynomial x^16 + x^12 + x^5 + 1
+    let mut crc = crc;
+
+    crc ^= (byte as u16) << 8;
+    for _ in 0..8 {
+        if (crc & 0x8000) != 0 {
+            crc = (crc << 1) ^ POLY;
+        } else {
+            crc <<= 1;
         }
     }
     crc

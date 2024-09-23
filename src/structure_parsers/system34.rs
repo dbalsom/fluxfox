@@ -34,21 +34,78 @@ use crate::bitstream::mfm::{MfmCodec, MFM_BYTE_LEN, MFM_MARKER_LEN};
 use crate::bitstream::TrackDataStream;
 use crate::chs::DiskChsn;
 use crate::io::{Read, Seek, SeekFrom};
-use crate::mfm_offset;
 use crate::structure_parsers::{
     DiskStructureElement, DiskStructureGenericElement, DiskStructureMarker, DiskStructureMarkerItem,
     DiskStructureMetadataItem, DiskStructureParser,
 };
 use crate::util::crc_ccitt;
+use crate::{mfm_offset, DiskImageError};
 use bit_vec::BitVec;
 use std::fmt::{Display, Formatter};
 
+pub const DEFAULT_TRACK_SIZE_BYTES: usize = 6250;
+
+pub const GAP_BYTE: u8 = 0x4E;
+pub const SYNC_BYTE: u8 = 0;
+
+pub const IBM_GAP3_DEFAULT: usize = 22;
+pub const IBM_GAP4A: usize = 80;
+pub const IBM_GAP1: usize = 50;
+pub const IBM_GAP2: usize = 22;
+pub const ISO_GAP1: usize = 32;
+pub const ISO_GAP2: usize = 22;
+pub const SYNC_LEN: usize = 12;
+pub const PERPENDICULAR_GAP1: usize = 50;
+pub const PERPENDICULAR_GAP2: usize = 41;
+
+// Pre-encoded markers for IAM, IDAM, DAM and DDAM.
 pub const IAM_MARKER: u64 = 0x5224522452245552;
 pub const IDAM_MARKER: u64 = 0x4489448944895554;
 pub const DAM_MARKER: u64 = 0x4489448944895545;
 pub const DDAM_MARKER: u64 = 0x4489448944895548;
 pub const ANY_MARKER: u64 = 0x4489448944890000;
 pub const MARKER_MASK: u64 = 0xFFFFFFFFFFFF0000;
+
+pub const IAM_MARKER_BYTES: [u8; 4] = [0xC2, 0xC2, 0xC2, 0xFC];
+pub const IDAM_MARKER_BYTES: [u8; 4] = [0xA1, 0xA1, 0xA1, 0xFE];
+pub const DAM_MARKER_BYTES: [u8; 4] = [0xA1, 0xA1, 0xA1, 0xFB];
+pub const DDAM_MARKER_BYTES: [u8; 4] = [0xA1, 0xA1, 0xA1, 0xF8];
+
+#[derive(Debug)]
+pub struct System34FormatBuffer {
+    pub chs_vec: Vec<DiskChsn>,
+}
+
+impl From<&[u8]> for System34FormatBuffer {
+    fn from(buffer: &[u8]) -> Self {
+        let mut chs_vec = Vec::new();
+        for i in (0..buffer.len()).step_by(4) {
+            let c = buffer[i];
+            let h = buffer[i + 1];
+            let s = buffer[i + 2];
+            let n = buffer[i + 3];
+            chs_vec.push(DiskChsn::new(c as u16, h, s, n));
+        }
+        System34FormatBuffer { chs_vec }
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum System34Standard {
+    Ibm,
+    Perpendicular,
+    Iso,
+}
+
+impl System34Standard {
+    pub fn gap2(&self) -> usize {
+        match self {
+            System34Standard::Ibm => IBM_GAP2,
+            System34Standard::Perpendicular => PERPENDICULAR_GAP2,
+            System34Standard::Iso => ISO_GAP2,
+        }
+    }
+}
 
 #[derive(Copy, Clone, Debug)]
 pub enum System34Marker {
@@ -184,6 +241,11 @@ impl Display for SectorId {
     }
 }
 
+pub struct System34FormatResult {
+    pub track_bytes: Vec<u8>,
+    pub markers: Vec<(System34Marker, usize)>,
+}
+
 pub struct System34Parser;
 
 impl System34Parser {
@@ -195,6 +257,114 @@ impl System34Parser {
     pub fn encode_marker(pattern: &[u8]) -> u64 {
         let marker = MfmCodec::encode_marker(pattern);
         marker & Self::MFM_MARKER_CLOCK_MASK | Self::MFM_MARKER_CLOCK
+    }
+
+    pub fn format_track_as_bytes(
+        standard: System34Standard,
+        bitcell_ct: usize,
+        format_buffer: Vec<DiskChsn>,
+        fill_byte: u8,
+        gap3: usize,
+    ) -> Result<System34FormatResult, DiskImageError> {
+        let track_byte_ct = (bitcell_ct + MFM_BYTE_LEN - 1) / MFM_BYTE_LEN;
+        log::error!(
+            "format_track_as_bytes(): Formatting track with {} bitcells, {} bytes",
+            bitcell_ct,
+            track_byte_ct
+        );
+        let mut track_bytes: Vec<u8> = Vec::with_capacity(track_byte_ct);
+        let mut markers = Vec::new();
+
+        if matches!(standard, System34Standard::Ibm | System34Standard::Perpendicular) {
+            // Write out GAP0, sync,IAM marker, and GAP1.
+            track_bytes.extend_from_slice(&[GAP_BYTE; IBM_GAP4A]); // GAP0
+            track_bytes.extend_from_slice(&[SYNC_BYTE; SYNC_LEN]); // Sync
+            markers.push((System34Marker::Iam, track_bytes.len()));
+        } else {
+            // Just write Gap1 for ISO standard, there is no IAM marker.
+            track_bytes.extend_from_slice(&[GAP_BYTE; ISO_GAP1]);
+        }
+
+        for sector in format_buffer {
+            track_bytes.extend_from_slice(&[SYNC_BYTE; SYNC_LEN]); // Write initial sync.
+            markers.push((System34Marker::Idam, track_bytes.len()));
+            let idam_crc_offset = track_bytes.len();
+            track_bytes.extend_from_slice(IDAM_MARKER_BYTES.as_ref()); // Write IDAM marker.
+
+            // Write CHSN bytes.
+            track_bytes.push(sector.c() as u8);
+            track_bytes.push(sector.h());
+            track_bytes.push(sector.s());
+            track_bytes.push(sector.n());
+
+            // Write CRC word.
+            //log::error!("Calculating crc over : {:X?}", &track_bytes[idam_crc_offset..]);
+            let crc16 = crc_ccitt(&track_bytes[idam_crc_offset..], None);
+            track_bytes.extend_from_slice(&crc16.to_be_bytes());
+
+            // Write GAP2.
+            track_bytes.extend_from_slice(&vec![GAP_BYTE; standard.gap2()]);
+
+            // Write SYNC.
+            track_bytes.extend_from_slice(&[SYNC_BYTE; SYNC_LEN]);
+
+            // Write DAM marker.
+            markers.push((System34Marker::Dam, track_bytes.len()));
+            let dam_crc_offset = track_bytes.len();
+            track_bytes.extend_from_slice(DAM_MARKER_BYTES.as_ref());
+
+            // Write sector data.
+            track_bytes.extend_from_slice(&vec![fill_byte; sector.n_size()]);
+
+            // Write CRC word.
+            let crc16 = crc_ccitt(&track_bytes[dam_crc_offset..], None);
+            track_bytes.extend_from_slice(&crc16.to_be_bytes());
+
+            // Write GAP3.
+            track_bytes.extend_from_slice(&vec![GAP_BYTE; gap3]);
+        }
+
+        // Fill rest of track with GAP4B.
+        if track_bytes.len() < track_byte_ct {
+            track_bytes.extend_from_slice(&vec![GAP_BYTE; track_byte_ct - track_bytes.len()]);
+        }
+
+        if track_bytes.len() > track_byte_ct {
+            log::warn!(
+                "format_track_as_bytes(): Format operation passed index. Truncating track to {} bytes",
+                track_byte_ct
+            );
+            track_bytes.truncate(track_byte_ct);
+        }
+
+        log::trace!(
+            "format_track_as_bytes(): Wrote {} markers to track of size {} bitcells: {}",
+            markers.len(),
+            track_bytes.len(),
+            track_bytes.len() * 8
+        );
+
+        Ok(System34FormatResult { track_bytes, markers })
+    }
+
+    pub(crate) fn set_track_markers(
+        mfm_codec: &mut MfmCodec,
+        markers: Vec<(System34Marker, usize)>,
+    ) -> Result<(), DiskImageError> {
+        for (marker, offset) in markers {
+            let marker_u64 = u64::from(marker);
+
+            let marker_bit_index = offset * MFM_BYTE_LEN;
+
+            let marker_bytes = marker_u64.to_be_bytes();
+
+            log::error!("Setting marker {:X?} at bit index: {}", marker_bytes, marker_bit_index);
+            mfm_codec
+                .write_raw_buf(&marker_bytes, marker_bit_index)
+                .map_err(|_| DiskImageError::IoError)?;
+        }
+
+        Ok(())
     }
 }
 
@@ -398,7 +568,7 @@ impl DiskStructureParser for System34Parser {
                         let crc_byte1 = track.read_decoded_byte(marker.start + mfm_offset!(9)).unwrap_or(0xAA);
 
                         let crc = u16::from_be_bytes([crc_byte0, crc_byte1]);
-                        let calculated_crc = crc_ccitt(&sector_header[0..8]);
+                        let calculated_crc = crc_ccitt(&sector_header[0..8], None);
 
                         let sector_id = SectorId {
                             c: sector_header[4],
@@ -600,7 +770,7 @@ impl DiskStructureParser for System34Parser {
             let mut data = vec![0; bytes_requested];
             mfm_stream.seek(SeekFrom::Start((bit_index >> 1) as u64)).unwrap();
             mfm_stream.read_exact(&mut data).unwrap();
-            crc_ccitt(&data)
+            crc_ccitt(&data, None)
         } else {
             0
         }

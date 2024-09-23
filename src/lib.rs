@@ -25,6 +25,24 @@
     --------------------------------------------------------------------------
 */
 
+//! # fluxfox
+//!
+//! fluxfox is a Rust library for reading, writing, and manipulating disk images of the kind used
+//! with vintage IBM Personal Computers, compatibles, and emulators thereof.
+//!
+//! It is primarily designed for emulator authors who may be writing a PC emulator in Rust and would
+//! like to support disk images in a variety of formats, however it can be used for visualization,
+//! dumping, editing, conversion, and other disk image tasks.
+//!
+//! fluxfox currently supports several different disk image formats, both modern and vintage, of
+//! bitstream and sector-based resolution. Internally, fluxfox disk images can exist as either
+//! byte or bit representations, and up-conversion is possible depending on the format and sector
+//! encoding.
+//!
+//! The main interface to fluxfox is via a [`DiskImage`] object, which can be created by loading
+//! a disk image file, or by creating a new disk image from scratch.
+//!
+//! It is recommended to use the [`image_builder::ImageBuilder`] interface to load or create a disk image.
 pub mod bitstream;
 mod boot_sector;
 mod chs;
@@ -32,6 +50,7 @@ mod containers;
 mod detect;
 pub mod diskimage;
 mod file_parsers;
+pub mod image_builder;
 mod io;
 mod random;
 mod sector;
@@ -80,8 +99,12 @@ pub enum DiskImageError {
     CrcError,
     #[error("Invalid parameters were specified to a library function")]
     ParameterError,
+    #[error("Write-protect status prevents writing to the disk image")]
+    WriteProtectError,
 }
 
+/// The resolution of the data in the disk image.
+/// Currently only ByteStream and BitStream are implemented.
 #[repr(usize)]
 #[derive(Copy, Clone, Default, PartialEq, Eq, Hash)]
 pub enum DiskDataResolution {
@@ -91,14 +114,46 @@ pub enum DiskDataResolution {
     FluxStream = 2,
 }
 
+/// The base bitcell encoding method of the data in a disk image.
+/// Note that some disk images may contain tracks with different encodings.
 #[derive(Default, Copy, Clone, Debug)]
 pub enum DiskDataEncoding {
     #[default]
+    #[doc = "Frequency Modulation encoding. Used by older 8&quot; diskettes, and duplication tracks on some 5.25&quot; diskettes."]
     Fm,
+    #[doc = "Modified Frequency Modulation encoding. Used by almost all 5.25&quot; and 3.5&quot; diskettes."]
     Mfm,
+    #[doc = "Group Code Recording encoding. Used by Apple and Macintosh diskettes."]
     Gcr,
 }
 
+impl Display for DiskDataEncoding {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            DiskDataEncoding::Fm => write!(f, "FM"),
+            DiskDataEncoding::Mfm => write!(f, "MFM"),
+            DiskDataEncoding::Gcr => write!(f, "GCR"),
+        }
+    }
+}
+
+/// The physical dimensions of a disk corresponding to the format of the image.
+/// This is rarely stored by disk image formats, so it is determined automatically.
+#[derive(Default, Copy, Clone, Debug)]
+pub enum DiskPhysicalDimensions {
+    #[doc = "An 8\" Diskette"]
+    Dimension8,
+    #[default]
+    #[doc = "A 5.25\" Diskette"]
+    Dimension5_25,
+    #[doc = "A 3.5\" Diskette"]
+    Dimension3_5,
+}
+
+/// The density of the disk image. Only 8" diskettes were available in standard density.
+///
+/// * 5.25" diskettes were available in double and high densities.
+/// * 3.5" diskettes were available in double, high and extended densities.
 #[derive(Default, Copy, Clone, Debug)]
 pub enum DiskDensity {
     Standard,
@@ -108,7 +163,7 @@ pub enum DiskDensity {
     Extended,
 }
 
-impl From<(DiskDataRate)> for DiskDensity {
+impl From<DiskDataRate> for DiskDensity {
     fn from(rate: DiskDataRate) -> Self {
         match rate {
             DiskDataRate::Rate125Kbps => DiskDensity::Standard,
@@ -116,6 +171,22 @@ impl From<(DiskDataRate)> for DiskDensity {
             DiskDataRate::Rate500Kbps => DiskDensity::High,
             DiskDataRate::Rate1000Kbps => DiskDensity::Extended,
             _ => DiskDensity::Standard,
+        }
+    }
+}
+
+impl DiskDensity {
+    /// Return the number of bitcells for a given disk density.
+    /// It is ideal to provide the disk dimensions to get the most accurate bitcell count as high
+    /// density 5.25 disks have different bitcell counts than high density 3.5 disks.
+    pub fn bitcells(&self, dimensions: Option<DiskPhysicalDimensions>) -> Option<usize> {
+        match (self, dimensions) {
+            (DiskDensity::Standard, _) => Some(50_000),
+            (DiskDensity::Double, _) => Some(100_000),
+            (DiskDensity::High, Some(DiskPhysicalDimensions::Dimension5_25)) => Some(166_666),
+            (DiskDensity::High, Some(DiskPhysicalDimensions::Dimension3_5) | None) => Some(200_000),
+            (DiskDensity::Extended, _) => Some(400_000),
+            _ => None,
         }
     }
 }
@@ -162,16 +233,6 @@ impl From<usize> for EncodingPhase {
     }
 }
 
-impl Display for DiskDataEncoding {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self {
-            DiskDataEncoding::Fm => write!(f, "FM"),
-            DiskDataEncoding::Mfm => write!(f, "MFM"),
-            DiskDataEncoding::Gcr => write!(f, "GCR"),
-        }
-    }
-}
-
 #[derive(Copy, Clone, Debug, Default)]
 pub enum DiskDataRate {
     RateNonstandard(u32),
@@ -186,11 +247,11 @@ pub enum DiskDataRate {
 impl From<DiskDataRate> for u32 {
     fn from(rate: DiskDataRate) -> Self {
         match rate {
-            DiskDataRate::Rate125Kbps => 125000,
-            DiskDataRate::Rate250Kbps => 250000,
-            DiskDataRate::Rate300Kbps => 300000,
-            DiskDataRate::Rate500Kbps => 500000,
-            DiskDataRate::Rate1000Kbps => 1000000,
+            DiskDataRate::Rate125Kbps => 125_000,
+            DiskDataRate::Rate250Kbps => 250_000,
+            DiskDataRate::Rate300Kbps => 300_000,
+            DiskDataRate::Rate500Kbps => 500_000,
+            DiskDataRate::Rate1000Kbps => 1_000_000,
             DiskDataRate::RateNonstandard(rate) => rate,
         }
     }
@@ -199,11 +260,11 @@ impl From<DiskDataRate> for u32 {
 impl From<u32> for DiskDataRate {
     fn from(rate: u32) -> Self {
         match rate {
-            125000 => DiskDataRate::Rate125Kbps,
-            250000 => DiskDataRate::Rate250Kbps,
-            300000 => DiskDataRate::Rate300Kbps,
-            500000 => DiskDataRate::Rate500Kbps,
-            1000000 => DiskDataRate::Rate1000Kbps,
+            125_000 => DiskDataRate::Rate125Kbps,
+            250_000 => DiskDataRate::Rate250Kbps,
+            300_000 => DiskDataRate::Rate300Kbps,
+            500_000 => DiskDataRate::Rate500Kbps,
+            1_000_000 => DiskDataRate::Rate1000Kbps,
             _ => DiskDataRate::RateNonstandard(rate),
         }
     }
@@ -233,6 +294,12 @@ impl Display for DiskDataRate {
     }
 }
 
+/// The nominal rotational speed of the disk.
+///
+/// All PC floppy disk drives typically rotate at 300 RPM, except for high density 5.25\" drives
+/// which rotate at 360 RPM.
+///
+/// Macintosh disk drives may have variable rotation rates per-track.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub enum DiskRpm {
     #[default]

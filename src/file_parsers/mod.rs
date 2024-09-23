@@ -42,7 +42,7 @@ pub mod td0;
 bitflags! {
     /// Bit flags representing the capabilities of a specific image format. Used to determine if a
     /// specific image format can represent a particular DiskImage.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     #[rustfmt::skip]
     pub struct FormatCaps: u32 {
         const CAP_VARIABLE_SPT      = 0b0000_0000_0000_0001; // Can support variable sector counts per track
