@@ -68,8 +68,8 @@ impl ImageBuilder {
     /// Set whether the [`DiskImage`] to be built should be formatted.
     /// If this is not set, the DiskImage will be created as a blank image which must be formatted
     /// before it can be read in a disk drive or emulator.
-    pub fn with_formatted(mut self) -> ImageBuilder {
-        self.formatted = true;
+    pub fn with_formatted(mut self, formatted: bool) -> ImageBuilder {
+        self.formatted = formatted;
         self
     }
 
@@ -123,6 +123,9 @@ impl ImageBuilder {
             disk_image.format(format, None, self.creator_tag.as_ref())?;
         }
 
+        // Do post-load processing as normal
+        disk_image.post_load_process();
+
         // Clear dirty flag
         disk_image.clear_flag(DiskImageFlags::DIRTY);
 
@@ -132,6 +135,9 @@ impl ImageBuilder {
     fn build_bytestream(self) -> Result<DiskImage, DiskImageError> {
         let mut disk_image = DiskImage::create(self.standard_format.unwrap());
         disk_image.set_resolution(DiskDataResolution::ByteStream);
+
+        // Do post-load processing as normal
+        disk_image.post_load_process();
 
         // Clear dirty flag
         disk_image.clear_flag(DiskImageFlags::DIRTY);

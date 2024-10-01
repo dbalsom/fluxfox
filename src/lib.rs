@@ -103,10 +103,18 @@ pub enum DiskImageError {
     WriteProtectError,
 }
 
+#[derive(Debug, Error)]
+pub enum DiskVisualizationError {
+    #[error("An invalid parameter was supplied")]
+    InvalidParameter,
+    #[error("The disk image is not a valid format for visualization")]
+    NoTracks,
+}
+
 /// The resolution of the data in the disk image.
 /// Currently only ByteStream and BitStream are implemented.
 #[repr(usize)]
-#[derive(Copy, Clone, Default, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Default, Debug, PartialEq, Eq, Hash)]
 pub enum DiskDataResolution {
     #[default]
     ByteStream = 0,
@@ -317,6 +325,9 @@ impl Display for DiskRpm {
 }
 
 pub use crate::chs::{DiskCh, DiskChs, DiskChsn};
-pub use crate::diskimage::{DiskImage, DiskImageFormat};
+pub use crate::diskimage::{DiskImage, DiskImageFormat, SectorMapEntry};
 pub use crate::file_parsers::{format_from_ext, supported_extensions, ImageParser, ParserWriteCompatibility};
+pub use crate::image_builder::ImageBuilder;
 pub use crate::standard_format::StandardFormat;
+
+pub type DiskSectorMap = Vec<Vec<Vec<SectorMapEntry>>>;

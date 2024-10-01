@@ -34,7 +34,7 @@ use crate::bitstream::TrackDataStream;
 use crate::structure_parsers::system34::System34Element;
 use crate::structure_parsers::{DiskStructureElement, DiskStructureGenericElement, DiskStructureMetadata};
 use crate::trackdata::TrackData;
-use crate::{DiskImage, DiskImageError, FoxHashMap};
+use crate::{DiskImage, DiskImageError, DiskVisualizationError, FoxHashMap};
 use bit_vec::BitVec;
 use std::cmp::min;
 use std::f32::consts::{PI, TAU};
@@ -430,10 +430,15 @@ pub fn render_track_metadata_quadrant(
     track_gap: f32,
     direction: RotationDirection, // Added parameter for rotation direction
     palette: FoxHashMap<DiskStructureGenericElement, Color>,
-) -> Result<(), DiskImageError> {
+    draw_empty_tracks: bool,
+) -> Result<(), DiskVisualizationError> {
     let rtracks = collect_streams(head, disk_image);
     let rmetadata = collect_metadata(head, disk_image);
     let total_tracks = min(rtracks.len(), track_limit);
+
+    if total_tracks == 0 {
+        return Err(DiskVisualizationError::NoTracks);
+    }
 
     let image_size = pixmap.width() as f64 * 2.0;
     let image_radius = image_size / 2.0;
@@ -444,7 +449,7 @@ pub fn render_track_metadata_quadrant(
         1 => Point::from_xy(0.0, image_radius as f32),
         2 => Point::from_xy(image_radius as f32, 0.0),
         3 => Point::from_xy(0.0, 0.0),
-        _ => panic!("Invalid quadrant"),
+        _ => return Err(DiskVisualizationError::InvalidParameter),
     };
 
     let mut path_builder = PathBuilder::new();
@@ -460,13 +465,62 @@ pub fn render_track_metadata_quadrant(
         1 => (3.0 * PI / 2.0, 2.0 * PI),
         2 => (PI / 2.0, PI),
         3 => (0.0, PI / 2.0),
-        _ => panic!("Invalid quadrant"),
+        _ => return Err(DiskVisualizationError::InvalidParameter),
     };
 
     //println!("Rendering side {:?}", direction);
+    let null_color = Color::from_rgba(0.0, 0.0, 0.0, 0.0).unwrap();
+
+    let draw_metadata_slice = |path_builder: &mut PathBuilder,
+                               paint: &mut Paint,
+                               start_angle: f32,
+                               end_angle: f32,
+                               inner_radius: f32,
+                               outer_radius: f32,
+                               element_type: Option<DiskStructureElement>| {
+        // Draw the outer curve
+        add_arc(path_builder, center, inner_radius, start_angle, end_angle);
+        // Draw line segment to end angle of inner curve
+        path_builder.line_to(
+            center.x + outer_radius * end_angle.cos(),
+            center.y + outer_radius * end_angle.sin(),
+        );
+        // Draw inner curve back to start angle
+        add_arc(path_builder, center, outer_radius, end_angle, start_angle);
+        // Draw line segment back to start angle of outer curve
+        path_builder.line_to(
+            center.x + inner_radius * start_angle.cos(),
+            center.y + inner_radius * start_angle.sin(),
+        );
+        path_builder.close();
+
+        // Use a predefined color for each sector
+        let color;
+
+        if let Some(element_type) = element_type {
+            let generic_elem = DiskStructureGenericElement::from(element_type);
+            color = palette.get(&generic_elem).unwrap_or(&null_color);
+        } else {
+            color = &Color::BLACK;
+        }
+
+        paint.set_color(*color);
+    };
+
+    let (clip_start, clip_end) = match direction {
+        RotationDirection::CounterClockwise => (quadrant_angles_cc.0, quadrant_angles_cc.1),
+        RotationDirection::Clockwise => (quadrant_angles_cc.0, quadrant_angles_cc.1),
+    };
 
     for draw_markers in [false, true].iter() {
         for (ti, track_meta) in rmetadata.iter().enumerate() {
+            let mut has_elements = false;
+            let outer_radius = image_radius as f32 - (ti as f32 * track_width as f32);
+            let inner_radius = outer_radius - (track_width as f32 * (1.0 - track_gap));
+            let mut paint = Paint {
+                blend_mode: BlendMode::SourceOver,
+                ..Default::default()
+            };
             for (_mi, meta_item) in track_meta.items.iter().enumerate() {
                 if let DiskStructureElement::System34(System34Element::Marker(..)) = meta_item.elem_type {
                     if !*draw_markers {
@@ -476,8 +530,7 @@ pub fn render_track_metadata_quadrant(
                     continue;
                 }
 
-                let outer_radius = image_radius as f32 - (ti as f32 * track_width as f32);
-                let inner_radius = outer_radius - (track_width as f32 * (1.0 - track_gap));
+                has_elements = true;
 
                 let mut start_angle = ((meta_item.start as f32 / rtracks[ti].len() as f32) * TAU) + index_angle;
                 let mut end_angle = ((meta_item.end as f32 / rtracks[ti].len() as f32) * TAU) + index_angle;
@@ -485,11 +538,6 @@ pub fn render_track_metadata_quadrant(
                 if start_angle > end_angle {
                     std::mem::swap(&mut start_angle, &mut end_angle);
                 }
-
-                let (clip_start, clip_end) = match direction {
-                    RotationDirection::CounterClockwise => (quadrant_angles_cc.0, quadrant_angles_cc.1),
-                    RotationDirection::Clockwise => (quadrant_angles_cc.0, quadrant_angles_cc.1),
-                };
 
                 (start_angle, end_angle) = match direction {
                     RotationDirection::CounterClockwise => (start_angle, end_angle),
@@ -514,49 +562,38 @@ pub fn render_track_metadata_quadrant(
                     end_angle = clip_end;
                 }
 
-                // Draw the outer curve
-                add_arc(
+                draw_metadata_slice(
                     &mut path_builder,
-                    center,
+                    &mut paint,
+                    start_angle,
+                    end_angle,
                     inner_radius,
-                    start_angle.max(clip_start),
-                    end_angle.min(clip_end),
-                );
-                // Draw line segment to end angle of inner curve
-                path_builder.line_to(
-                    center.x + outer_radius * end_angle.cos(),
-                    center.y + outer_radius * end_angle.sin(),
-                );
-                // Draw inner curve back to start angle
-                add_arc(
-                    &mut path_builder,
-                    center,
                     outer_radius,
-                    end_angle.min(clip_end),
-                    start_angle.max(clip_start),
+                    Some(meta_item.elem_type),
                 );
-                // Draw line segment back to start angle of outer curve
-                path_builder.line_to(
-                    center.x + inner_radius * start_angle.cos(),
-                    center.y + inner_radius * start_angle.sin(),
-                );
-                path_builder.close();
-
-                // Use a predefined color for each sector
-                let generic_elem = DiskStructureGenericElement::from(meta_item.elem_type);
-                let null_color = Color::from_rgba(0.0, 0.0, 0.0, 0.0).unwrap();
-                let color = palette.get(&generic_elem).unwrap_or(&null_color);
-
-                let mut paint = Paint {
-                    blend_mode: BlendMode::SourceOver,
-                    ..Default::default()
-                };
-                paint.set_color(*color);
 
                 if let Some(path) = path_builder.finish() {
                     pixmap.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
                 }
 
+                path_builder = PathBuilder::new(); // Reset the path builder for the next sector
+            }
+
+            // If a track contained no elements, draw a black ring
+            if !has_elements && draw_empty_tracks {
+                draw_metadata_slice(
+                    &mut path_builder,
+                    &mut paint,
+                    clip_start,
+                    clip_end,
+                    inner_radius,
+                    outer_radius,
+                    None,
+                );
+
+                if let Some(path) = path_builder.finish() {
+                    pixmap.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
+                }
                 path_builder = PathBuilder::new(); // Reset the path builder for the next sector
             }
         }

@@ -120,7 +120,7 @@ pub fn formats_from_caps(caps: FormatCaps) -> Vec<(DiskImageFormat, Vec<String>)
     format_vec
 }
 
-/// A trait to be implemented by disk image parsers. Called via enum dispatch.
+/// Currently called via enum dispatch - implement on parsers directly?
 pub trait ImageParser {
     /// Return the capability flags for this format.
     fn capabilities(&self) -> FormatCaps;

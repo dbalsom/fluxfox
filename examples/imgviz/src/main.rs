@@ -250,7 +250,7 @@ fn main() {
     let pal_light_blue = Color::from_rgba8(0x41, 0xa6, 0xf6, 0xff);
     let pal_dark_purple = Color::from_rgba8(0x5d, 0x27, 0x5d, 0xff);
     let pal_orange = Color::from_rgba8(0xef, 0x7d, 0x57, 0xff);
-    let pal_dark_read = Color::from_rgba8(0xb1, 0x3e, 0x53, 0xff);
+    let pal_dark_red = Color::from_rgba8(0xb1, 0x3e, 0x53, 0xff);
 
     let pal_weak_bits = PremultipliedColorU8::from_rgba(70, 200, 200, 255).unwrap();
 
@@ -331,6 +331,7 @@ fn main() {
                         render_track_gap,
                         direction,
                         palette,
+                        false,
                     );
 
                     //println!("Sending quadrant over channel...");

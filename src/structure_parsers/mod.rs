@@ -99,7 +99,7 @@ impl DiskStructureMetadata {
         }
 
         for item in &self.items {
-            if let DiskStructureElement::System34(System34Element::SectorHeader(chsn, true)) = item.elem_type {
+            if let DiskStructureElement::System34(System34Element::SectorHeader { chsn, .. }) = item.elem_type {
                 sector_ids.push(chsn);
             }
         }

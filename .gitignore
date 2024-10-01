@@ -29,3 +29,4 @@ tests/images/*
 
 # Added by cargo
 /target
+/resources/bootsector2.asm

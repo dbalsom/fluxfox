@@ -44,7 +44,7 @@ use crate::structure_parsers::{DiskStructureElement, DiskStructureMetadata, Disk
 use crate::trackdata::TrackData;
 use crate::{
     util, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskImageError, DiskRpm, EncodingPhase,
-    FoxHashMap, DEFAULT_SECTOR_SIZE,
+    FoxHashMap, FoxHashSet, DEFAULT_SECTOR_SIZE,
 };
 use bit_vec::BitVec;
 use bitflags::bitflags;
@@ -142,6 +142,7 @@ pub struct SectorMapEntry {
     pub address_crc_valid: bool,
     pub data_crc_valid: bool,
     pub deleted_mark: bool,
+    pub no_dam: bool,
 }
 
 /// A DiskConsistency structure maintains information about the consistency of a disk image.
@@ -166,11 +167,8 @@ pub struct DiskConsistency {
 }
 
 pub struct TrackSectorIndex {
-    pub sector_id: u8,
-    pub cylinder_id: u16,
-    pub head_id: u8,
+    pub id_chsn: DiskChsn,
     pub t_idx: usize,
-    pub n: u8,
     pub len: usize,
     pub address_crc_error: bool,
     pub data_crc_error: bool,
@@ -208,6 +206,7 @@ pub struct ReadSectorResult {
     pub read_buf: Vec<u8>,
     pub deleted_mark: bool,
     pub not_found: bool,
+    pub no_dam: bool,
     pub address_crc_error: bool,
     pub data_crc_error: bool,
     pub wrong_cylinder: bool,
@@ -227,6 +226,7 @@ pub struct ReadTrackResult {
 #[derive(Clone)]
 pub struct WriteSectorResult {
     pub not_found: bool,
+    pub no_dam: bool,
     pub address_crc_error: bool,
     pub wrong_cylinder: bool,
     pub wrong_head: bool,
@@ -270,6 +270,9 @@ pub struct DiskImage {
     /// An array of vectors containing indices into the track pool. The first index is the head
     /// number, the second is the cylinder number.
     pub(crate) track_map: [Vec<usize>; 2],
+    /// The number of write operations (WriteData or FormatTrack) operations performed on the disk image.
+    /// This can be used to determine if the disk image has been modified since the last save.
+    pub(crate) writes: u64,
 }
 
 // impl Default for DiskImage {
@@ -319,6 +322,7 @@ impl DiskImage {
             comment: None,
             track_pool: Vec::new(),
             track_map: [Vec::new(), Vec::new()],
+            writes: 0,
         }
     }
 
@@ -452,6 +456,11 @@ impl DiskImage {
         self.descriptor.geometry.c()
     }
 
+    pub fn write_ct(&self) -> u64 {
+        //log::trace!("write_ct(): writes: {}", self.writes);
+        self.writes
+    }
+
     pub fn source_format(&self) -> Option<DiskImageFormat> {
         self.source_format
     }
@@ -556,6 +565,7 @@ impl DiskImage {
             Some(DiskDataResolution::BitStream) => {}
             _ => return Err(DiskImageError::IncompatibleImage),
         }
+        log::debug!("add_track_bitstream(): image resolution is now {:?}", self.resolution);
 
         let data = BitVec::from_bytes(data);
         let weak_bitvec_opt = weak.map(BitVec::from_bytes);
@@ -687,11 +697,15 @@ impl DiskImage {
                 ref mut weak_mask,
                 ..
             } => {
+                let id_chsn = DiskChsn::from((
+                    sd.cylinder_id.unwrap_or(chs.c()),
+                    sd.head_id.unwrap_or(chs.h()),
+                    sd.id,
+                    sd.n,
+                ));
+
                 sectors.push(TrackSectorIndex {
-                    sector_id: sd.id,
-                    cylinder_id: sd.cylinder_id.unwrap_or(chs.c()),
-                    head_id: sd.head_id.unwrap_or(chs.h()),
-                    n: sd.n,
+                    id_chsn,
                     t_idx: data.len(),
                     len: sd.data.len(),
                     address_crc_error: sd.address_crc_error,
@@ -768,6 +782,7 @@ impl DiskImage {
         let track = &mut self.track_pool[ti];
 
         log::trace!("TrackData::write_sector(): data len is now: {}", data.len());
+        self.writes = self.writes.wrapping_add(1);
         track.write_sector(chs, n, data, scope, deleted, debug)
     }
 
@@ -885,6 +900,7 @@ impl DiskImage {
         // TODO: How would we support other structures here?
         track.format(System34Standard::Iso, format_buffer, fill_byte, sector_gap)?;
 
+        self.writes = self.writes.wrapping_add(1);
         Ok(())
     }
 
@@ -899,7 +915,7 @@ impl DiskImage {
             TrackData::BitStream { .. } => return track.has_sector_id(chs.s()),
             TrackData::ByteStream { sectors, .. } => {
                 for si in sectors {
-                    if si.sector_id == chs.s() {
+                    if si.id_chsn.s() == chs.s() {
                         return true;
                     }
                 }
@@ -977,7 +993,7 @@ impl DiskImage {
 
         // Write the boot sector to the disk image
         self.write_boot_sector(bootsector.as_bytes())?;
-
+        self.writes = self.writes.wrapping_add(1);
         Ok(())
     }
 
@@ -1042,6 +1058,9 @@ impl DiskImage {
 
     /// Called after loading a disk image to perform any post-load operations.
     pub(crate) fn post_load_process(&mut self) {
+        // Set writes to 1.
+        self.writes = 1;
+
         // Normalize the disk image
         self.normalize();
 
@@ -1051,7 +1070,7 @@ impl DiskImage {
         match self.read_boot_sector() {
             Ok(buf) => _ = self.parse_boot_sector(&buf),
             Err(e) => {
-                log::error!("post_load_process(): Failed to read boot sector: {:?}", e);
+                log::warn!("post_load_process(): Failed to read boot sector: {:?}", e);
             }
         }
 
@@ -1128,6 +1147,64 @@ impl DiskImage {
         }
     }
 
+    /// Update a DiskImage's DiskConsistency struct to reflect the current state of the image.
+    /// This function should be called after any changes to a track.
+    /// update_consistency takes a list of track indices that have been modified.
+    pub(crate) fn update_consistency(&mut self, track_indices: &[usize]) {
+        let mut spt: FoxHashSet<usize> = FoxHashSet::new();
+        let mut bad_data_crc = false;
+        let mut bad_address_crc = false;
+        let mut deleted_data = false;
+        let mut variable_sector_size = false;
+        let mut nonconsecutive_sectors = false;
+
+        for track_idx in track_indices {
+            let td = &self.track_pool[*track_idx];
+
+            match td {
+                TrackData::ByteStream { sectors, .. } => {
+                    let sector_ct = sectors.len();
+                    spt.insert(sector_ct);
+
+                    let mut n_set: FoxHashSet<u8> = FoxHashSet::new();
+                    for (si, sector) in sectors.iter().enumerate() {
+                        if sector.id_chsn.s() != si as u8 + 1 {
+                            nonconsecutive_sectors = true;
+                        }
+                        if sector.data_crc_error {
+                            bad_data_crc = true;
+                        }
+                        if sector.address_crc_error {
+                            bad_address_crc = true;
+                        }
+                        if sector.deleted_mark {
+                            deleted_data = true;
+                        }
+                        n_set.insert(sector.id_chsn.n());
+                    }
+
+                    if n_set.len() > 1 {
+                        variable_sector_size = true;
+                    }
+                }
+                TrackData::BitStream { sector_ids, .. } => {
+                    let mut n_set: FoxHashSet<u8> = FoxHashSet::new();
+
+                    for (si, sector_id) in sector_ids.iter().enumerate() {
+                        if sector_id.s() != si as u8 + 1 {
+                            nonconsecutive_sectors = true;
+                        }
+                        n_set.insert(sector_id.n());
+                    }
+
+                    if n_set.len() > 1 {
+                        variable_sector_size = true;
+                    }
+                }
+            }
+        }
+    }
+
     /// Some formats may encode a 40-track image as an 80-track image with each track duplicated.
     /// (86F, primarily). This function detects such duplicates.
     ///
@@ -1138,10 +1215,12 @@ impl DiskImage {
 
         // Iterate through each pair of tracks and see if the 2nd track is a duplicate of the first.
         for track_pair in self.track_map[head].chunks_exact(2) {
+            let track0_sectors = self.track_pool[track_pair[0]].get_sector_ct();
             let track0_hash = self.track_pool[track_pair[0]].get_hash();
             let track1_hash = self.track_pool[track_pair[1]].get_hash();
 
-            if track0_hash == track1_hash {
+            // Only count a track as duplicate if the even track in the pair has any data
+            if (track0_sectors > 0) && track0_hash == track1_hash {
                 duplicate_ct += 1;
             }
         }
@@ -1376,7 +1455,7 @@ impl DiskImage {
     }
 
     pub fn has_weak_bits(&self) -> bool {
-        for track in &self.track_pool {
+        for track in self.track_iter() {
             if track.has_weak_bits() {
                 return true;
             }

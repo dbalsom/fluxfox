@@ -151,7 +151,11 @@ pub enum System34Element {
     Gap4b,
     Sync,
     Marker(System34Marker, Option<bool>),
-    SectorHeader(DiskChsn, bool),
+    SectorHeader {
+        chsn: DiskChsn,
+        address_crc: bool,
+        data_missing: bool,
+    },
     Data {
         address_crc: bool,
         data_crc: bool,
@@ -169,8 +173,10 @@ impl From<System34Element> for DiskStructureGenericElement {
             System34Element::Gap4b => DiskStructureGenericElement::NoElement,
             System34Element::Sync => DiskStructureGenericElement::NoElement,
             System34Element::Marker(_, _) => DiskStructureGenericElement::Marker,
-            System34Element::SectorHeader(_, true) => DiskStructureGenericElement::SectorHeader,
-            System34Element::SectorHeader(_, false) => DiskStructureGenericElement::SectorBadHeader,
+            System34Element::SectorHeader { address_crc, .. } => match address_crc {
+                true => DiskStructureGenericElement::SectorHeader,
+                false => DiskStructureGenericElement::SectorBadHeader,
+            },
             System34Element::Data {
                 address_crc,
                 data_crc,
@@ -196,7 +202,7 @@ impl System34Element {
             System34Element::Sync => 8,
             System34Element::Marker(_, _) => 4,
             System34Element::Data { .. } => 0,
-            System34Element::SectorHeader(_, _) => 0,
+            System34Element::SectorHeader { .. } => 0,
         }
     }
 
@@ -209,7 +215,10 @@ impl System34Element {
 
     pub fn is_sector_id(&self) -> (u8, bool) {
         match self {
-            System34Element::SectorHeader(chsn, true) => (chsn.s(), true),
+            System34Element::SectorHeader { chsn, address_crc, .. } => match address_crc {
+                true => (chsn.s(), true),
+                false => (0, false),
+            },
             _ => (0, false),
         }
     }
@@ -267,7 +276,7 @@ impl System34Parser {
         gap3: usize,
     ) -> Result<System34FormatResult, DiskImageError> {
         let track_byte_ct = (bitcell_ct + MFM_BYTE_LEN - 1) / MFM_BYTE_LEN;
-        log::error!(
+        log::trace!(
             "format_track_as_bytes(): Formatting track with {} bitcells, {} bytes",
             bitcell_ct,
             track_byte_ct
@@ -358,7 +367,7 @@ impl System34Parser {
 
             let marker_bytes = marker_u64.to_be_bytes();
 
-            log::error!("Setting marker {:X?} at bit index: {}", marker_bytes, marker_bit_index);
+            //log::trace!("Setting marker {:X?} at bit index: {}", marker_bytes, marker_bit_index);
             mfm_codec
                 .write_raw_buf(&marker_bytes, marker_bit_index)
                 .map_err(|_| DiskImageError::IoError)?;
@@ -549,6 +558,29 @@ impl DiskStructureParser for System34Parser {
 
             if let DiskStructureMarker::System34(sys34_marker) = marker.elem_type {
                 match (last_marker_opt, sys34_marker) {
+                    (Some(System34Marker::Idam), System34Marker::Idam) => {
+                        // Encountered IDAMs back to back. This is sometimes seen in copy-protection methods
+                        // such as XELOK v1.
+
+                        // Push a Sector Header metadata item spanning from last IDAM to this IDAM.
+                        let data_metadata = DiskStructureMetadataItem {
+                            elem_type: DiskStructureElement::System34(System34Element::SectorHeader {
+                                chsn: DiskChsn::from((
+                                    last_sector_id.c as u16,
+                                    last_sector_id.h,
+                                    last_sector_id.s,
+                                    last_sector_id.b,
+                                )),
+                                address_crc: last_sector_id.crc_valid,
+                                data_missing: true, // Flag data as missing.
+                            }),
+                            start: last_element_offset,
+                            end: element_offset,
+                            chsn: None,
+                            _crc: None,
+                        };
+                        elements.push(data_metadata)
+                    }
                     (_, System34Marker::Idam) => {
                         let mut sector_header = [0; 8];
 
@@ -627,15 +659,16 @@ impl DiskStructureParser for System34Parser {
 
                         // Push a Sector Header metadata item spanning from IDAM to DAM.
                         let data_metadata = DiskStructureMetadataItem {
-                            elem_type: DiskStructureElement::System34(System34Element::SectorHeader(
-                                DiskChsn::from((
+                            elem_type: DiskStructureElement::System34(System34Element::SectorHeader {
+                                chsn: DiskChsn::from((
                                     last_sector_id.c as u16,
                                     last_sector_id.h,
                                     last_sector_id.s,
                                     last_sector_id.b,
                                 )),
-                                last_sector_id.crc_valid,
-                            )),
+                                address_crc: last_sector_id.crc_valid,
+                                data_missing: false,
+                            }),
                             start: last_element_offset,
                             end: element_offset,
                             chsn: None,
@@ -689,27 +722,33 @@ impl DiskStructureParser for System34Parser {
                 };
                 elements.push(marker_metadata);
 
-                /*                if let Some(last_marker) = last_marker_opt {
-                    let last_marker_offset = last_marker.selement_offset - 4 * MFM_BYTE_LEN;
-                    let last_marker_metadata = DiskStructureMetadataItem {
-                        elem_type: DiskStructureElement::System34(System34Element::Marker(last_marker, None)),
-                        start: last_marker_offset,
-                        end: element_offset,
-                        chsn: Some(DiskChsn::new(
-                            last_sector_id.c as u16,
-                            last_sector_id.h,
-                            last_sector_id.s,
-                            last_sector_id.b,
-                        )),
-                        _crc: None,
-                    };
-                    elements.push(last_marker_metadata);
-                }*/
-
                 // Save the last element seen.
                 last_element_offset = element_offset;
                 last_marker_opt = Some(sys34_marker);
             }
+        }
+
+        if let Some(System34Marker::Idam) = last_marker_opt {
+            // Track ends with an IDAM marker. Push a Sector Header metadata item spanning from last
+            // IDAM to some point after (range is not important except for viz)
+
+            let data_metadata = DiskStructureMetadataItem {
+                elem_type: DiskStructureElement::System34(System34Element::SectorHeader {
+                    chsn: DiskChsn::from((
+                        last_sector_id.c as u16,
+                        last_sector_id.h,
+                        last_sector_id.s,
+                        last_sector_id.b,
+                    )),
+                    address_crc: last_sector_id.crc_valid,
+                    data_missing: true, // Flag data as missing.
+                }),
+                start: last_element_offset,
+                end: last_element_offset + 256,
+                chsn: None,
+                _crc: None,
+            };
+            elements.push(data_metadata)
         }
 
         // Sort elements by start offset.
