@@ -169,8 +169,7 @@ impl PsiFormat {
     }
 
     pub(crate) fn can_write(_image: &DiskImage) -> ParserWriteCompatibility {
-        // TODO: Determine what data representations would lead to data loss for PSI.
-        ParserWriteCompatibility::Ok
+        ParserWriteCompatibility::UnsupportedFormat
     }
 
     pub(crate) fn read_chunk<RWS: ReadSeek>(mut image: RWS) -> Result<PsiChunk, DiskImageError> {
@@ -233,6 +232,7 @@ impl PsiFormat {
 
     pub(crate) fn load_image<RWS: ReadSeek>(mut image: RWS) -> Result<DiskImage, DiskImageError> {
         let mut disk_image = DiskImage::default();
+        disk_image.set_source_format(DiskImageFormat::PceSectorImage);
 
         // Seek to start of image.
         image

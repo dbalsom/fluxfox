@@ -38,7 +38,7 @@ use crate::structure_parsers::{
     DiskStructureElement, DiskStructureGenericElement, DiskStructureMarker, DiskStructureMarkerItem,
     DiskStructureMetadataItem, DiskStructureParser,
 };
-use crate::util::crc_ccitt;
+use crate::util::crc_ibm_3740;
 use crate::{mfm_offset, DiskImageError};
 use bit_vec::BitVec;
 use std::fmt::{Display, Formatter};
@@ -272,9 +272,13 @@ impl System34Parser {
         standard: System34Standard,
         bitcell_ct: usize,
         format_buffer: Vec<DiskChsn>,
-        fill_byte: u8,
+        fill_pattern: &[u8],
         gap3: usize,
     ) -> Result<System34FormatResult, DiskImageError> {
+        if fill_pattern.is_empty() {
+            return Err(DiskImageError::ParameterError);
+        }
+
         let track_byte_ct = (bitcell_ct + MFM_BYTE_LEN - 1) / MFM_BYTE_LEN;
         log::trace!(
             "format_track_as_bytes(): Formatting track with {} bitcells, {} bytes",
@@ -294,6 +298,8 @@ impl System34Parser {
             track_bytes.extend_from_slice(&[GAP_BYTE; ISO_GAP1]);
         }
 
+        let mut pat_cursor = 0;
+
         for sector in format_buffer {
             track_bytes.extend_from_slice(&[SYNC_BYTE; SYNC_LEN]); // Write initial sync.
             markers.push((System34Marker::Idam, track_bytes.len()));
@@ -308,7 +314,7 @@ impl System34Parser {
 
             // Write CRC word.
             //log::error!("Calculating crc over : {:X?}", &track_bytes[idam_crc_offset..]);
-            let crc16 = crc_ccitt(&track_bytes[idam_crc_offset..], None);
+            let crc16 = crc_ibm_3740(&track_bytes[idam_crc_offset..], None);
             track_bytes.extend_from_slice(&crc16.to_be_bytes());
 
             // Write GAP2.
@@ -322,11 +328,33 @@ impl System34Parser {
             let dam_crc_offset = track_bytes.len();
             track_bytes.extend_from_slice(DAM_MARKER_BYTES.as_ref());
 
-            // Write sector data.
-            track_bytes.extend_from_slice(&vec![fill_byte; sector.n_size()]);
+            // Write sector data using provided pattern buffer.
+            if fill_pattern.len() == 1 {
+                track_bytes.extend_from_slice(&vec![fill_pattern[0]; sector.n_size()]);
+            } else {
+                let mut sector_buffer = Vec::with_capacity(sector.n_size());
+                while sector_buffer.len() < sector.n_size() {
+                    let remain = sector.n_size() - sector_buffer.len();
+                    let copy_pat = if pat_cursor + remain <= fill_pattern.len() {
+                        &fill_pattern[pat_cursor..pat_cursor + remain]
+                    } else {
+                        &fill_pattern[pat_cursor..]
+                    };
+
+                    sector_buffer.extend_from_slice(copy_pat);
+                    //log::warn!("format: sector_buffer: {:X?}", sector_buffer);
+                    pat_cursor = (pat_cursor + copy_pat.len()) % fill_pattern.len();
+                }
+
+                //log::warn!("sector buffer is now {} bytes", sector_buffer.len());
+                track_bytes.extend_from_slice(&sector_buffer);
+            }
+
+            //log::warn!("format: track_bytes: {:X?}", track_bytes);
+            //log::warn!("track_bytes is now {} bytes", track_bytes.len());
 
             // Write CRC word.
-            let crc16 = crc_ccitt(&track_bytes[dam_crc_offset..], None);
+            let crc16 = crc_ibm_3740(&track_bytes[dam_crc_offset..], None);
             track_bytes.extend_from_slice(&crc16.to_be_bytes());
 
             // Write GAP3.
@@ -600,7 +628,7 @@ impl DiskStructureParser for System34Parser {
                         let crc_byte1 = track.read_decoded_byte(marker.start + mfm_offset!(9)).unwrap_or(0xAA);
 
                         let crc = u16::from_be_bytes([crc_byte0, crc_byte1]);
-                        let calculated_crc = crc_ccitt(&sector_header[0..8], None);
+                        let calculated_crc = crc_ibm_3740(&sector_header[0..8], None);
 
                         let sector_id = SectorId {
                             c: sector_header[4],
@@ -767,7 +795,7 @@ impl DiskStructureParser for System34Parser {
         #[allow(unused)]
         let mut bit_set = 0;
         for marker in markers {
-            if let DiskStructureMarker::System34(_) = marker.elem_type {
+            if let DiskStructureMarker::System34(element) = marker.elem_type {
                 let bit_index = marker.start;
 
                 if last_marker_index > 0 {
@@ -809,7 +837,7 @@ impl DiskStructureParser for System34Parser {
             let mut data = vec![0; bytes_requested];
             mfm_stream.seek(SeekFrom::Start((bit_index >> 1) as u64)).unwrap();
             mfm_stream.read_exact(&mut data).unwrap();
-            crc_ccitt(&data, None)
+            crc_ibm_3740(&data, None)
         } else {
             0
         }

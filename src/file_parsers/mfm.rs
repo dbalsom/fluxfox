@@ -108,12 +108,12 @@ impl MfmFormat {
     }
 
     pub(crate) fn can_write(_image: &DiskImage) -> ParserWriteCompatibility {
-        // TODO: Determine what data representations would lead to data loss for MFM images
-        ParserWriteCompatibility::Ok
+        ParserWriteCompatibility::UnsupportedFormat
     }
 
     pub(crate) fn load_image<RWS: ReadSeek>(mut image: RWS) -> Result<DiskImage, DiskImageError> {
         let mut disk_image = DiskImage::default();
+        disk_image.set_source_format(DiskImageFormat::MfmBitstreamImage);
 
         image
             .seek(std::io::SeekFrom::Start(0))
@@ -139,7 +139,7 @@ impl MfmFormat {
             advanced_tracks
         );
 
-        let disk_data_rate = DiskDataRate::from(file_header.bit_rate as u32 * 100);
+        let disk_data_rate = DiskDataRate::from(file_header.bit_rate as u32 * 1000);
 
         let total_tracks = file_header.track_ct as usize * file_header.head_ct as usize;
 

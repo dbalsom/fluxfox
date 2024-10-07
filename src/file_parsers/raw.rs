@@ -24,15 +24,19 @@
 
     --------------------------------------------------------------------------
 */
-
 use crate::chs::{DiskChs, DiskChsn};
 use crate::detect::chs_from_raw_size;
-use crate::diskimage::{DiskConsistency, DiskDescriptor, DiskImage, SectorDescriptor};
+use crate::diskimage::{DiskDescriptor, DiskImage, RwSectorScope, SectorDescriptor};
 use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
+use crate::structure_parsers::system34::System34Standard;
 use crate::trackdata::TrackData;
 use crate::util::get_length;
-use crate::{DiskDensity, DiskImageError, DiskImageFormat, StandardFormat, DEFAULT_SECTOR_SIZE};
+use crate::{
+    DiskCh, DiskDataEncoding, DiskDataResolution, DiskDensity, DiskImageError, DiskImageFormat, StandardFormat,
+    DEFAULT_SECTOR_SIZE,
+};
+use std::cmp::Ordering;
 
 pub struct RawFormat;
 
@@ -55,12 +59,20 @@ impl RawFormat {
         chs_from_raw_size(raw_len).is_some()
     }
 
-    pub(crate) fn can_write(_image: &DiskImage) -> ParserWriteCompatibility {
-        ParserWriteCompatibility::UnsupportedFormat
+    pub(crate) fn can_write(image: &DiskImage) -> ParserWriteCompatibility {
+        if !image.consistency.image_caps.is_empty() {
+            // RAW sector images support no capability flags.
+            log::warn!("RAW sector images do not support capability flags.");
+            ParserWriteCompatibility::DataLoss
+        } else {
+            ParserWriteCompatibility::Ok
+        }
     }
 
     pub(crate) fn load_image<RWS: ReadSeek>(mut raw: RWS) -> Result<DiskImage, DiskImageError> {
         let mut disk_image = DiskImage::default();
+        disk_image.set_source_format(DiskImageFormat::RawSectorImage);
+        disk_image.set_resolution(DiskDataResolution::BitStream);
 
         // Assign the disk geometry or return error.
         let raw_len = get_length(&mut raw).map_err(|_e| DiskImageError::UnknownFormat)? as usize;
@@ -68,13 +80,17 @@ impl RawFormat {
         let floppy_format = StandardFormat::from(raw_len);
         if floppy_format == StandardFormat::Invalid {
             return Err(DiskImageError::UnknownFormat);
+        } else {
+            log::trace!("Raw::load_image(): Detected format {}", floppy_format);
         }
 
         let disk_chs = floppy_format.get_chs();
-        log::trace!("load_image(): Disk CHS: {}", disk_chs);
+        log::trace!("Raw::load_image(): Disk CHS: {}", disk_chs);
         let data_rate = floppy_format.get_data_rate();
         let data_encoding = floppy_format.get_encoding();
+        let bitcell_ct = floppy_format.get_bitcell_ct();
         let rpm = floppy_format.get_rpm();
+        let gap3 = floppy_format.get_gap3();
 
         let mut cursor_chs = DiskChs::default();
 
@@ -83,52 +99,54 @@ impl RawFormat {
 
         let track_size = disk_chs.s() as usize * DEFAULT_SECTOR_SIZE;
         let track_ct = raw_len / track_size;
-        let track_ct_overflow = raw_len % track_size;
 
+        if disk_chs.c() as usize * disk_chs.h() as usize != track_ct {
+            log::error!("Raw::load_image(): Calculated track count does not match standard image.");
+            return Err(DiskImageError::UnknownFormat);
+        }
+
+        let track_ct_overflow = raw_len % track_size;
         if track_ct_overflow != 0 {
             return Err(DiskImageError::UnknownFormat);
         }
 
+        // Despite being a sector-based format, we convert to a bitstream based image by providing
+        // the raw sector data to each track's format function.
+
         let mut sector_buffer = vec![0u8; DEFAULT_SECTOR_SIZE];
 
         // Insert sectors in order encountered.
-        for _t in 0..track_ct {
-            disk_image.add_track_bytestream(data_encoding, data_rate, cursor_chs.into())?;
+        for c in 0..disk_chs.c() {
+            for h in 0..disk_chs.h() {
+                log::trace!("Raw::load_image(): Adding new track: c:{} h:{}", c, h);
+                let new_track_idx =
+                    disk_image.add_empty_track(DiskCh::new(c, h), data_encoding, data_rate, bitcell_ct)?;
 
-            for sector_id in 0..disk_chs.s() {
-                raw.read_exact(&mut sector_buffer)
-                    .map_err(|_e| DiskImageError::IoError)?;
+                let mut format_buffer = Vec::with_capacity(disk_chs.s() as usize);
+                let mut track_pattern = Vec::with_capacity(DEFAULT_SECTOR_SIZE * disk_chs.s() as usize);
 
-                // Add this sector to track.
-                let sd = SectorDescriptor {
-                    id: sector_id + 1,
-                    cylinder_id: None,
-                    head_id: None,
-                    n: DiskChsn::bytes_to_n(512),
-                    data: sector_buffer.clone(),
-                    weak: None,
-                    address_crc_error: false,
-                    data_crc_error: false,
-                    deleted_mark: false,
-                };
+                log::trace!("Raw::load_image(): Formatting track with {} sectors", disk_chs.s());
+                for s in 1..disk_chs.s() + 1 {
+                    let sector_chsn = DiskChsn::new(c, h, s, 2);
 
-                //log::trace!("Importing sector {} of length {}", cursor_chs, DEFAULT_SECTOR_SIZE);
-                disk_image.master_sector(cursor_chs, &sd)?;
-                cursor_chs.seek_forward(1, &disk_chs);
+                    raw.read_exact(&mut sector_buffer)
+                        .map_err(|_e| DiskImageError::IoError)?;
+
+                    //log::warn!("Raw::load_image(): Sector data: {:X?}", sector_buffer);
+
+                    track_pattern.extend(sector_buffer.clone());
+                    format_buffer.push(sector_chsn);
+                }
+
+                let td = disk_image
+                    .get_track_mut(new_track_idx)
+                    .ok_or(DiskImageError::FormatParseError)?;
+
+                //log::warn!("Raw::load_image(): Track pattern: {:X?}", track_pattern);
+
+                td.format(System34Standard::Ibm, format_buffer, &track_pattern, gap3)?;
             }
         }
-
-        // TODO: Don't manually set DiskConsistency - should be auto-detected after examining image.
-        disk_image.consistency = DiskConsistency {
-            image_caps: Default::default(),
-            weak: false,
-            deleted: false,
-            bad_address_crc: false,
-            bad_data_crc: false,
-            overlapped: false,
-            consistent_sector_size: Some(DEFAULT_SECTOR_SIZE as u32),
-            consistent_track_length: Some(disk_chs.s()),
-        };
 
         disk_image.descriptor = DiskDescriptor {
             geometry: disk_chs.into(),
@@ -143,35 +161,81 @@ impl RawFormat {
         Ok(disk_image)
     }
 
-    pub fn save_image<RWS: ReadWriteSeek>(image: &DiskImage, output: &mut RWS) -> Result<(), DiskImageError> {
+    pub fn save_image<RWS: ReadWriteSeek>(image: &mut DiskImage, output: &mut RWS) -> Result<(), DiskImageError> {
         // Clamp track count to 40 or 80 for a standard disk image. We may read in more tracks
         // depending on image format. For example, 86f format exports 86 tracks
         let track_ct = match image.track_map[0].len() {
             39..=50 => 40,
             79..=90 => 80,
             _ => {
+                log::error!(
+                    "Raw::save_image(): Unsupported track count: {}",
+                    image.track_map[0].len()
+                );
                 return Err(DiskImageError::UnsupportedFormat);
             }
         };
 
-        for track_n in 0..track_ct {
-            for head in 0..2 {
-                let ti = image.track_map[head][track_n];
-                let track = &image.track_pool[ti];
+        let track_sector_size = if let Some(css) = image.consistency.consistent_sector_size {
+            css as usize
+        } else {
+            log::warn!("Raw::save_image(): Image has inconsistent sector counts per track. Data will be lost.");
 
-                match &track {
-                    TrackData::ByteStream { data, sectors, .. } => {
-                        for sector in sectors {
-                            let sector_len = std::cmp::min(sector.len, DEFAULT_SECTOR_SIZE);
+            let track_idx = image.track_map[0][0];
+            let track = &image.track_pool[track_idx];
+            track.get_sector_ct()
+        };
+
+        log::trace!("Raw::save_image(): Using {} sectors per track.", track_sector_size);
+
+        for c in 0..track_ct {
+            for h in 0..image.heads() as usize {
+                let ti = image.track_map[h][c];
+                let track = &mut image.track_pool[ti];
+
+                for s in 1..(track_sector_size + 1) {
+                    match track.read_sector(
+                        DiskChs::new(c as u16, h as u8, s as u8),
+                        None,
+                        RwSectorScope::DataOnly,
+                        false,
+                    ) {
+                        Ok(read_sector) => {
+                            let mut new_buf = read_sector.read_buf.clone();
+
+                            match new_buf.len().cmp(&DEFAULT_SECTOR_SIZE) {
+                                Ordering::Greater => {
+                                    log::warn!(
+                                        "Raw::save_image(): c:{} h:{} Sector {} is too large: {}. Truncating to {}",
+                                        c,
+                                        h,
+                                        s,
+                                        new_buf.len(),
+                                        DEFAULT_SECTOR_SIZE
+                                    );
+                                    new_buf.truncate(DEFAULT_SECTOR_SIZE);
+                                }
+                                Ordering::Less => {
+                                    log::warn!(
+                                        "Raw::save_image(): c:{} h:{} Sector {} is too small: {}. Padding with 0",
+                                        c,
+                                        h,
+                                        s,
+                                        new_buf.len()
+                                    );
+                                    new_buf.extend(vec![0u8; DEFAULT_SECTOR_SIZE - new_buf.len()]);
+                                }
+                                Ordering::Equal => {}
+                            }
+
                             output
-                                .write_all(
-                                    data[sector.t_idx..std::cmp::min(sector.t_idx + sector_len, data.len())].as_ref(),
-                                )
+                                .write_all(new_buf.as_ref())
                                 .map_err(|_e| DiskImageError::IoError)?;
                         }
-                    }
-                    _ => {
-                        return Err(DiskImageError::UnsupportedFormat);
+                        Err(e) => {
+                            log::error!("Raw::save_image(): Error reading c:{} h:{} s:{} err: {}", c, h, s, e);
+                            return Err(DiskImageError::DataError);
+                        }
                     }
                 }
             }

@@ -214,12 +214,12 @@ impl HfeFormat {
     }
 
     pub(crate) fn can_write(_image: &DiskImage) -> ParserWriteCompatibility {
-        // TODO: Determine what data representations would lead to data loss for PSI.
-        ParserWriteCompatibility::Ok
+        ParserWriteCompatibility::UnsupportedFormat
     }
 
     pub(crate) fn load_image<RWS: ReadSeek>(mut image: RWS) -> Result<DiskImage, DiskImageError> {
         let mut disk_image = DiskImage::default();
+        disk_image.set_source_format(DiskImageFormat::HfeImage);
 
         let image_len = image
             .seek(std::io::SeekFrom::End(0))
@@ -387,7 +387,7 @@ impl HfeFormat {
 
         disk_image.descriptor = DiskDescriptor {
             geometry: DiskCh::from((file_header.number_of_tracks as u16, file_header.number_of_sides)),
-            data_rate: DiskDataRate::from(file_header.bit_rate as u32 * 100),
+            data_rate: DiskDataRate::from(file_header.bit_rate as u32 * 1000),
             density: DiskDensity::from(hfe_floppy_interface),
             data_encoding: DiskDataEncoding::Mfm,
             default_sector_size: DEFAULT_SECTOR_SIZE,

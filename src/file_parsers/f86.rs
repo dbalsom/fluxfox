@@ -38,8 +38,8 @@ use crate::file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility}
 use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::trackdata::TrackData;
 use crate::{
-    DiskCh, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskImage, DiskImageError, DiskRpm,
-    DEFAULT_SECTOR_SIZE,
+    DiskCh, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskImage, DiskImageError,
+    DiskImageFormat, DiskRpm, DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, BinRead, BinWrite};
 use std::mem::size_of;
@@ -204,6 +204,7 @@ impl F86Format {
 
     pub(crate) fn load_image<RWS: ReadSeek>(mut image: RWS) -> Result<DiskImage, DiskImageError> {
         let mut disk_image = DiskImage::default();
+        disk_image.set_source_format(DiskImageFormat::F86Image);
 
         image
             .seek(std::io::SeekFrom::Start(0))

@@ -413,6 +413,7 @@ impl PriFormat {
 
     pub(crate) fn load_image<RWS: ReadSeek>(mut image: RWS) -> Result<DiskImage, DiskImageError> {
         let mut disk_image = DiskImage::default();
+        disk_image.set_source_format(DiskImageFormat::PceBitstreamImage);
 
         // Seek to start of image.
         image

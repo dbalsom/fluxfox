@@ -134,12 +134,12 @@ impl ImdFormat {
     }
 
     pub(crate) fn can_write(_image: &DiskImage) -> ParserWriteCompatibility {
-        // TODO: Determine what data representations would lead to data loss for IMD.
-        ParserWriteCompatibility::Ok
+        ParserWriteCompatibility::UnsupportedFormat
     }
 
     pub(crate) fn load_image<RWS: ReadSeek>(mut image: RWS) -> Result<DiskImage, DiskImageError> {
         let mut disk_image = DiskImage::default();
+        disk_image.set_source_format(DiskImageFormat::ImageDisk);
 
         // Assign the disk geometry or return error.
         let _raw_len = get_length(&mut image).map_err(|_e| DiskImageError::UnknownFormat)? as usize;

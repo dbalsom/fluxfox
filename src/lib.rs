@@ -59,6 +59,8 @@ pub mod structure_parsers;
 mod trackdata;
 pub mod util;
 
+mod copy_protection;
+mod image_writer;
 #[cfg(feature = "viz")]
 pub mod visualization;
 
@@ -91,8 +93,12 @@ pub enum DiskImageError {
     FormatParseError,
     #[error("The disk image format parser determined the image was corrupt")]
     ImageCorruptError,
-    #[error("The requested sector could not be found")]
+    #[error("The requested head or cylinder could not be found")]
     SeekError,
+    #[error("An error occurred addressing the track bitstream")]
+    BitstreamError,
+    #[error("The requested sector ID could not be found")]
+    IdError,
     #[error("No sectors were found on the current track")]
     DataError,
     #[error("A CRC error was detected in the disk image")]
@@ -328,6 +334,8 @@ pub use crate::chs::{DiskCh, DiskChs, DiskChsn};
 pub use crate::diskimage::{DiskImage, DiskImageFormat, SectorMapEntry};
 pub use crate::file_parsers::{format_from_ext, supported_extensions, ImageParser, ParserWriteCompatibility};
 pub use crate::image_builder::ImageBuilder;
+pub use crate::image_writer::ImageWriter;
 pub use crate::standard_format::StandardFormat;
+pub use crate::trackdata::TrackConsistency;
 
 pub type DiskSectorMap = Vec<Vec<Vec<SectorMapEntry>>>;

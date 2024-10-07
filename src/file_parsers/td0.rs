@@ -49,8 +49,8 @@ pub const SECTOR_CRC_ERROR: u8 = 0b0000_0010;
 pub const SECTOR_DELETED: u8 = 0b0000_0100;
 
 pub const SECTOR_SKIPPED: u8 = 0b0001_0000;
-pub const SECTOR_NO_DATA: u8 = 0b0010_0000;
-pub const SECTOR_NO_ID: u8 = 0b0100_0000;
+pub const SECTOR_NO_DAM: u8 = 0b0010_0000;
+pub const SECTOR_NO_IDAM: u8 = 0b0100_0000;
 
 #[derive(Debug)]
 #[binrw]
@@ -196,12 +196,13 @@ impl Td0Format {
     }
 
     pub(crate) fn can_write(_image: &DiskImage) -> ParserWriteCompatibility {
-        // TODO: Determine what data representations would lead to data loss for IMD.
-        ParserWriteCompatibility::Ok
+        ParserWriteCompatibility::UnsupportedFormat
     }
 
     pub(crate) fn load_image<RWS: ReadSeek>(mut image: RWS) -> Result<DiskImage, DiskImageError> {
         let mut disk_image = DiskImage::default();
+        disk_image.set_source_format(DiskImageFormat::TeleDisk);
+
         let mut image_data = Vec::new();
 
         image
@@ -361,7 +362,7 @@ impl Td0Format {
                 // sector header or sector data header.
 
                 // A Sector Data Header follows as long as neither of these two flags are not set.
-                let have_sector_data = sector_header.flags & (SECTOR_NO_DATA | SECTOR_SKIPPED) == 0;
+                let have_sector_data = sector_header.flags & (SECTOR_NO_DAM | SECTOR_SKIPPED) == 0;
                 let sector_size_bytes = DiskChsn::n_to_bytes(sector_header.sector_size);
 
                 if have_sector_data {

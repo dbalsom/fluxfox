@@ -327,8 +327,6 @@ pub fn render_track_weak_bits(
 
     let pix_buf = pixmap.pixels_mut();
 
-    let color_black = PremultipliedColorU8::from_rgba(0, 0, 0, 255).unwrap();
-    let color_white = PremultipliedColorU8::from_rgba(255, 255, 255, 255).unwrap();
     let color_trans: PremultipliedColorU8 = PremultipliedColorU8::from_rgba(0, 0, 0, 0).unwrap();
 
     // Draw the tracks
