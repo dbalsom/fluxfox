@@ -158,7 +158,7 @@ fn collect_weak_masks(head: u8, disk_image: &DiskImage) -> Vec<&BitVec> {
     disk_image.track_map[head as usize]
         .iter()
         .filter_map(|track_i| match disk_image.track_pool[*track_i] {
-            TrackData::BitStream { ref data, .. } => data.get_weak_mask(),
+            TrackData::BitStream { ref data, .. } => Some(data.weak_mask()),
             _ => None,
         })
         .collect()

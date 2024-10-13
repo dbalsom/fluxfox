@@ -590,30 +590,28 @@ impl PriFormat {
                 PriFormat::write_chunk(output, PriChunkType::TrackData, &track_data)?;
 
                 // Write the weak mask, if any bits are set in the weak bit mask.
-                if let Some(weak_mask) = data.get_weak_mask() {
-                    if weak_mask.any() {
-                        // At least one bit is set in the weak bit mask, so let's export it.
-                        let weak_data = weak_mask.to_bytes();
+                if data.weak_mask().any() {
+                    // At least one bit is set in the weak bit mask, so let's export it.
+                    let weak_data = data.weak_data();
 
-                        // Optimization: PRI supports supplying a bit offset for the weak bit mask.
-                        // Determine the slice of the weak mask that contains the first and last
-                        // set bits.
-                        let (slice_start, slice_end) = pri_weak_bounds(&weak_data);
-                        let weak_header = PriWeakMask {
-                            bit_offset: (slice_start * 8) as u32,
-                        };
+                    // Optimization: PRI supports supplying a bit offset for the weak bit mask.
+                    // Determine the slice of the weak mask that contains the first and last
+                    // set bits.
+                    let (slice_start, slice_end) = pri_weak_bounds(&weak_data);
+                    let weak_header = PriWeakMask {
+                        bit_offset: (slice_start * 8) as u32,
+                    };
 
-                        // Create a buffer for our weak mask.
-                        let mut weak_buffer = Cursor::new(Vec::new());
+                    // Create a buffer for our weak mask.
+                    let mut weak_buffer = Cursor::new(Vec::new());
 
-                        // Write the weak mask header.
-                        weak_header.write(&mut weak_buffer)?;
+                    // Write the weak mask header.
+                    weak_header.write(&mut weak_buffer)?;
 
-                        // Write the weak mask data.
-                        weak_buffer.write_all(&weak_data[slice_start..slice_end])?;
+                    // Write the weak mask data.
+                    weak_buffer.write_all(&weak_data[slice_start..slice_end])?;
 
-                        PriFormat::write_chunk_raw(output, PriChunkType::WeakMask, weak_buffer.get_ref())?;
-                    }
+                    PriFormat::write_chunk_raw(output, PriChunkType::WeakMask, weak_buffer.get_ref())?;
                 }
             } else {
                 unreachable!("Expected only BitStream variants");

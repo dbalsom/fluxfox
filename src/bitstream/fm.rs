@@ -24,9 +24,9 @@
 
     --------------------------------------------------------------------------
 
-    src/mfm.rs
+    src/fm.rs
 
-    Implements a wrapper around a BitVec to provide MFM encoding and decoding.
+    Implements a wrapper around a BitVec to provide FM encoding and decoding.
 
 */
 use crate::bitstream::{EncodingVariant, TrackCodec, TrackDataStreamT};
@@ -36,18 +36,18 @@ use crate::{DiskDataEncoding, EncodingPhase};
 use bit_vec::BitVec;
 use std::ops::Index;
 
-pub const MFM_BYTE_LEN: usize = 16;
-pub const MFM_MARKER_LEN: usize = 64;
+pub const FM_BYTE_LEN: usize = 16;
+pub const FM_MARKER_LEN: usize = 64;
 
 #[macro_export]
-macro_rules! mfm_offset {
+macro_rules! fm_offset {
     ($x:expr) => {
         $x * 16
     };
 }
 
 #[derive(Debug)]
-pub struct MfmCodec {
+pub struct FmCodec {
     bit_vec: BitVec,
     clock_map: BitVec,
     weak_mask: BitVec,
@@ -57,7 +57,12 @@ pub struct MfmCodec {
     random_offset: usize,
 }
 
-pub fn get_mfm_sync_offset(track: &BitVec) -> Option<EncodingPhase> {
+pub enum FmEncodingType {
+    Data,
+    AddressMark,
+}
+
+pub fn get_fm_sync_offset(track: &BitVec) -> Option<EncodingPhase> {
     match find_sync(track, 0) {
         Some(offset) => {
             if offset % 2 == 0 {
@@ -83,9 +88,9 @@ pub fn find_sync(track: &BitVec, start_idx: usize) -> Option<usize> {
     None
 }
 
-impl TrackCodec for MfmCodec {
+impl TrackCodec for FmCodec {
     fn encoding(&self) -> DiskDataEncoding {
-        DiskDataEncoding::Mfm
+        DiskDataEncoding::Fm
     }
 
     fn len(&self) -> usize {
@@ -208,7 +213,7 @@ impl TrackCodec for MfmCodec {
         }
         let p_off: usize = self.clock_map[index] as usize;
         let mut byte = 0;
-        for bi in (index..std::cmp::min(index + MFM_BYTE_LEN, self.bit_vec.len()))
+        for bi in (index..std::cmp::min(index + FM_BYTE_LEN, self.bit_vec.len()))
             .skip(p_off)
             .step_by(2)
         {
@@ -218,7 +223,7 @@ impl TrackCodec for MfmCodec {
     }
 
     fn write_buf(&mut self, buf: &[u8], offset: usize) -> Option<usize> {
-        let encoded_buf = self.encode(buf, false, EncodingVariant::Data);
+        let encoded_buf = Self::encode(buf, false, EncodingVariant::Data);
 
         let mut copy_len = encoded_buf.len();
         if self.bit_vec.len() < offset + encoded_buf.len() {
@@ -345,7 +350,7 @@ impl TrackCodec for MfmCodec {
     }
 }
 
-impl MfmCodec {
+impl FmCodec {
     pub const WEAK_BIT_RUN: usize = 6;
 
     pub fn new(mut bit_vec: BitVec, bit_ct: Option<usize>, weak_mask: Option<BitVec>) -> Self {
@@ -354,7 +359,7 @@ impl MfmCodec {
             bit_vec.truncate(bit_ct);
         }
 
-        let encoding_sync = get_mfm_sync_offset(&bit_vec).unwrap_or(EncodingPhase::Even);
+        let encoding_sync = get_fm_sync_offset(&bit_vec).unwrap_or(EncodingPhase::Even);
         let sync = encoding_sync.into();
 
         let clock_map = BitVec::from_elem(bit_vec.len(), encoding_sync.into());
@@ -367,7 +372,7 @@ impl MfmCodec {
             panic!("Weak mask must be the same length as the bit vector");
         }
 
-        MfmCodec {
+        FmCodec {
             bit_vec,
             clock_map,
             weak_mask,
@@ -376,6 +381,14 @@ impl MfmCodec {
             track_padding: 0,
             random_offset: 0,
         }
+    }
+
+    pub fn has_weak_bits(&self) -> bool {
+        !self.detect_weak_bits(6).is_empty()
+    }
+
+    pub fn weak_data(&self) -> Vec<u8> {
+        self.weak_mask.to_bytes()
     }
 
     pub fn set_weak_mask(&mut self, weak_mask: BitVec) -> Result<()> {
@@ -388,6 +401,51 @@ impl MfmCodec {
         self.weak_mask = weak_mask;
 
         Ok(())
+    }
+
+    pub fn encode(data: &[u8], prev_bit: bool, encoding_type: EncodingVariant) -> BitVec {
+        let mut bitvec = BitVec::new();
+        let mut bit_count = 0;
+
+        for &byte in data {
+            for i in (0..8).rev() {
+                let bit = (byte & (1 << i)) != 0;
+                if bit {
+                    // 1 is encoded as 01
+                    bitvec.push(false);
+                    bitvec.push(true);
+                } else {
+                    // 0 is encoded as 10 if previous bit was 0, otherwise 00
+                    let previous_bit = if bitvec.is_empty() {
+                        prev_bit
+                    } else {
+                        bitvec[bitvec.len() - 1]
+                    };
+
+                    if previous_bit {
+                        bitvec.push(false);
+                    } else {
+                        bitvec.push(true);
+                    }
+                    bitvec.push(false);
+                }
+
+                bit_count += 1;
+
+                // Omit clock bit between source bits 3 and 4 for address marks
+                if let EncodingVariant::AddressMark = encoding_type {
+                    if bit_count == 4 {
+                        // Clear the previous clock bit (which is between bit 3 and 4)
+                        bitvec.set(bitvec.len() - 2, false);
+                    }
+                }
+            }
+
+            // Reset bit_count for the next byte
+            bit_count = 0;
+        }
+
+        bitvec
     }
 
     /// Encode an MFM address mark.
@@ -512,7 +570,7 @@ impl MfmCodec {
     }
 }
 
-impl Iterator for MfmCodec {
+impl Iterator for FmCodec {
     type Item = bool;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -547,7 +605,7 @@ impl Iterator for MfmCodec {
     }
 }
 
-impl Seek for MfmCodec {
+impl Seek for FmCodec {
     fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
         let (base, offset) = match pos {
             // TODO: avoid casting to isize
@@ -596,7 +654,7 @@ impl Seek for MfmCodec {
     }
 }
 
-impl Read for MfmCodec {
+impl Read for FmCodec {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         let mut bytes_read = 0;
         for byte in buf.iter_mut() {
@@ -615,7 +673,7 @@ impl Read for MfmCodec {
     }
 }
 
-impl Index<usize> for MfmCodec {
+impl Index<usize> for FmCodec {
     type Output = bool;
 
     fn index(&self, index: usize) -> &Self::Output {
@@ -628,4 +686,4 @@ impl Index<usize> for MfmCodec {
     }
 }
 
-impl TrackDataStreamT for MfmCodec {}
+impl TrackDataStreamT for FmCodec {}

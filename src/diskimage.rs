@@ -26,8 +26,9 @@
 */
 
 use crate::bitstream::mfm::MfmCodec;
-use crate::bitstream::raw::RawCodec;
-use crate::bitstream::TrackDataStream;
+
+use crate::bitstream::fm::FmCodec;
+use crate::bitstream::{TrackDataStream, TrackDataStreamT};
 use crate::boot_sector::BootSector;
 use crate::chs::{DiskCh, DiskChs, DiskChsn};
 use crate::containers::zip::extract_first_file;
@@ -712,20 +713,52 @@ impl DiskImage {
                     _ = codec.set_weak_mask(weak_bitvec);
                 }
 
-                let mut data_stream = TrackDataStream::Mfm(codec);
-                let markers = System34Parser::scan_track_markers(&mut data_stream);
+                let mut data_stream: TrackDataStream = Box::new(codec);
+                let markers = System34Parser::scan_track_markers(&data_stream);
 
-                System34Parser::create_clock_map(&markers, data_stream.clock_map_mut().unwrap());
+                System34Parser::create_clock_map(&markers, data_stream.clock_map_mut());
 
                 data_stream.set_track_padding();
 
                 (data_stream, markers)
             }
             DiskDataEncoding::Fm => {
-                // TODO: Handle FM encoding sync
-                (TrackDataStream::Raw(RawCodec::new(data, weak_bitvec_opt)), Vec::new())
+                let mut codec;
+
+                // If a weak bit mask was provided by the file format, we will honor it.
+                // Otherwise, we will try to detect weak bits from the MFM stream.
+                if weak_bitvec_opt.is_some() {
+                    codec = MfmCodec::new(data, bitcell_ct, weak_bitvec_opt);
+                } else {
+                    codec = MfmCodec::new(data, bitcell_ct, None);
+                    // let weak_regions = codec.detect_weak_bits(9);
+                    // log::trace!(
+                    //     "add_track_bitstream(): Detected {} weak bit regions",
+                    //     weak_regions.len()
+                    // );
+                    let weak_bitvec = codec.create_weak_bit_mask(MfmCodec::WEAK_BIT_RUN);
+                    if weak_bitvec.any() {
+                        log::trace!(
+                            "add_track_bitstream(): Detected {} weak bits in FM bitstream.",
+                            weak_bitvec.count_ones()
+                        );
+                    }
+                    _ = codec.set_weak_mask(weak_bitvec);
+                }
+
+                let mut data_stream: TrackDataStream = Box::new(codec);
+                let markers = System34Parser::scan_track_markers(&data_stream);
+
+                System34Parser::create_clock_map(&markers, data_stream.clock_map_mut());
+
+                data_stream.set_track_padding();
+
+                (data_stream, markers)
             }
-            _ => (TrackDataStream::Raw(RawCodec::new(data, weak_bitvec_opt)), Vec::new()),
+            _ => {
+                log::error!("add_track_bitstream(): Unsupported data encoding: {:?}", encoding);
+                return Err(DiskImageError::UnsupportedFormat);
+            }
         };
 
         // let format = TrackFormat {
@@ -961,13 +994,9 @@ impl DiskImage {
                     return Err(DiskImageError::ParameterError);
                 }
 
-                let stream = match encoding {
-                    DiskDataEncoding::Mfm => {
-                        TrackDataStream::Mfm(MfmCodec::new(BitVec::from_elem(bitcells, false), None, None))
-                    }
-                    DiskDataEncoding::Fm => {
-                        TrackDataStream::Raw(RawCodec::new(BitVec::from_elem(bitcells, false), None))
-                    }
+                let stream: Box<dyn TrackDataStreamT<Output = bool>> = match encoding {
+                    DiskDataEncoding::Mfm => Box::new(MfmCodec::new(BitVec::from_elem(bitcells, false), None, None)),
+                    DiskDataEncoding::Fm => Box::new(FmCodec::new(BitVec::from_elem(bitcells, false), None, None)),
                     _ => return Err(DiskImageError::UnsupportedFormat),
                 };
 

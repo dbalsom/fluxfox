@@ -34,6 +34,7 @@ use crate::bitstream::mfm::{MfmCodec, MFM_BYTE_LEN, MFM_MARKER_LEN};
 use crate::bitstream::TrackDataStream;
 use crate::chs::DiskChsn;
 use crate::io::{Read, Seek, SeekFrom};
+use crate::structure_parsers::TrackDataStreamT;
 use crate::structure_parsers::{
     DiskStructureElement, DiskStructureGenericElement, DiskStructureMarker, DiskStructureMarkerItem,
     DiskStructureMetadataItem, DiskStructureParser,
@@ -385,7 +386,7 @@ impl System34Parser {
     }
 
     pub(crate) fn set_track_markers(
-        mfm_codec: &mut MfmCodec,
+        codec: &mut Box<(dyn TrackDataStreamT<Output = bool> + 'static)>,
         markers: Vec<(System34Marker, usize)>,
     ) -> Result<(), DiskImageError> {
         for (marker, offset) in markers {
@@ -396,7 +397,7 @@ impl System34Parser {
             let marker_bytes = marker_u64.to_be_bytes();
 
             //log::trace!("Setting marker {:X?} at bit index: {}", marker_bytes, marker_bit_index);
-            mfm_codec.write_raw_buf(&marker_bytes, marker_bit_index)?;
+            codec.write_raw_buf(&marker_bytes, marker_bit_index);
         }
 
         Ok(())
@@ -408,7 +409,11 @@ impl DiskStructureParser for System34Parser {
     /// into the track.
     /// The bit offset of the pattern is returned if found, otherwise None.
     /// The pattern length is limited to 8 characters.
-    fn find_data_pattern(track: &TrackDataStream, pattern: &[u8], offset: usize) -> Option<usize> {
+    fn find_data_pattern(
+        track: &Box<(dyn TrackDataStreamT<Output = bool> + 'static)>,
+        pattern: &[u8],
+        offset: usize,
+    ) -> Option<usize> {
         let mut buffer = [0u8; 8];
         let len = pattern.len().min(8);
         buffer[(8 - len)..8].copy_from_slice(&pattern[..len]);
@@ -434,35 +439,36 @@ impl DiskStructureParser for System34Parser {
 
     /// Find the next address marker in the track bitstream. The type of marker and its position in
     /// the bitstream is returned, or None.
-    fn find_next_marker(track: &TrackDataStream, offset: usize) -> Option<(DiskStructureMarker, usize)> {
-        if let TrackDataStream::Mfm(mfm_stream) = track {
-            if let Some((index, marker_u16)) = mfm_stream.find_next_marker(ANY_MARKER, MARKER_MASK, offset) {
-                if let Ok(marker) = marker_u16.try_into() {
-                    return Some((DiskStructureMarker::System34(marker), index));
-                }
+    fn find_next_marker(
+        track: &Box<(dyn TrackDataStreamT<Output = bool> + 'static)>,
+        offset: usize,
+    ) -> Option<(DiskStructureMarker, usize)> {
+        if let Some((index, marker_u16)) = track.find_marker(ANY_MARKER, Some(MARKER_MASK), offset, None) {
+            if let Ok(marker) = marker_u16.try_into() {
+                return Some((DiskStructureMarker::System34(marker), index));
             }
         }
         None
     }
 
     fn find_marker(
-        track: &TrackDataStream,
+        track: &Box<(dyn TrackDataStreamT<Output = bool> + 'static)>,
         marker: DiskStructureMarker,
         offset: usize,
         limit: Option<usize>,
-    ) -> Option<usize> {
+    ) -> Option<(usize, u16)> {
         if let DiskStructureMarker::System34(marker) = marker {
             let marker_u64 = u64::from(marker);
-
-            if let TrackDataStream::Mfm(mfm_stream) = track {
-                //log::trace!("find_marker(): Searching for marker at offset: {}", offset);
-                return mfm_stream.find_marker(marker_u64, offset, limit);
-            }
+            return track.find_marker(marker_u64, None, offset, limit);
         }
         None
     }
 
-    fn find_element(track: &TrackDataStream, element: DiskStructureElement, offset: usize) -> Option<usize> {
+    fn find_element(
+        track: &Box<(dyn TrackDataStreamT<Output = bool> + 'static)>,
+        element: DiskStructureElement,
+        offset: usize,
+    ) -> Option<usize> {
         if let DiskStructureElement::System34(element) = element {
             use System34Element::*;
 
@@ -480,37 +486,18 @@ impl DiskStructureParser for System34Parser {
                 marker
             );
 
-            if let TrackDataStream::Mfm(mfm_stream) = track {
-                log::trace!("find_element(): Searching for element at offset: {}", offset);
-                //let mfm_offset = System34Parser::find_data_pattern(track, pattern, offset >> 1);
-                let raw_offset = mfm_stream.find_marker(marker, offset, None);
-                /*                if let Some(mfm_offset) = mfm_offset {
-                    log::trace!(
-                        "find_element(): Found element in decoded stream: {:?} at offset: {}",
-                        element,
-                        mfm_offset << 1
-                    );
+            log::trace!("find_element(): Searching for element at offset: {}", offset);
+            let marker = track.find_marker(marker, None, offset, None);
 
-                    log::trace!(
-                        "find_element(): marker_bits (encoded) {}",
-                        mfm_stream.debug_marker(mfm_offset << 1)
-                    );
-                    log::trace!(
-                        "find_element(): marker_bits (decoded) {}",
-                        mfm_stream.debug_decode(mfm_offset)
-                    );
-                }*/
-
-                if let Some(offset) = raw_offset {
-                    log::trace!(
-                        "find_element(): Found element in raw stream: {:?} at offset: {}, sync: {} debug: {}",
-                        element,
-                        offset,
-                        offset & 1,
-                        mfm_stream.debug_marker(offset)
-                    );
-                    return Some(offset);
-                }
+            if let Some(marker_pos) = marker {
+                log::trace!(
+                    "find_element(): Found element in raw stream: {:?} at offset: {}, sync: {} debug: {}",
+                    element,
+                    marker_pos.0,
+                    marker_pos.0 & 1,
+                    track.debug_marker(offset)
+                );
+                return Some(offset);
             }
 
             //log::trace!("Searching for pattern: {:02X?} at offset {}", pattern, offset);
@@ -524,28 +511,27 @@ impl DiskStructureParser for System34Parser {
     /// their positions. The marker positions will be used to create the clock phase map for the
     /// track, which must be performed before we can read the data off the disk which is done in
     /// a second pass.
-    fn scan_track_markers(track: &mut TrackDataStream) -> Vec<DiskStructureMarkerItem> {
+    fn scan_track_markers(
+        track: &Box<(dyn TrackDataStreamT<Output = bool> + 'static)>,
+    ) -> Vec<DiskStructureMarkerItem> {
         let mut bit_cursor: usize = 0;
         let mut markers = Vec::new();
 
         // Look for the IAM marker first - but it may not be present (ISO standard encoding does
         // not require it).
 
-        if let Some(marker_offset) = System34Parser::find_marker(
+        if let Some(marker) = System34Parser::find_marker(
             track,
             DiskStructureMarker::System34(System34Marker::Iam),
             bit_cursor,
             Some(5_000),
         ) {
-            log::trace!(
-                "scan_track_markers(): Found IAM marker at bit offset: {}",
-                marker_offset
-            );
+            log::trace!("scan_track_markers(): Found IAM marker at bit offset: {}", marker.0);
             markers.push(DiskStructureMarkerItem {
                 elem_type: DiskStructureMarker::System34(System34Marker::Iam),
-                start: marker_offset,
+                start: marker.0,
             });
-            bit_cursor = marker_offset + 4 * MFM_BYTE_LEN;
+            bit_cursor = marker.0 + 4 * MFM_BYTE_LEN;
         }
 
         while let Some((marker, marker_offset)) = System34Parser::find_next_marker(track, bit_cursor) {
@@ -570,7 +556,7 @@ impl DiskStructureParser for System34Parser {
     /// found by scan_track_markers() and a clock phase map created for the track - required for the
     /// proper functioning of the Read and Seek traits on MfmCodec.
     fn scan_track_metadata(
-        track: &mut TrackDataStream,
+        track: &mut Box<(dyn TrackDataStreamT<Output = bool> + 'static)>,
         markers: Vec<DiskStructureMarkerItem>,
     ) -> Vec<DiskStructureMetadataItem> {
         let mut elements = Vec::new();
@@ -823,7 +809,7 @@ impl DiskStructureParser for System34Parser {
         }
     }
 
-    fn crc16(track: &mut TrackDataStream, bit_index: usize, end: usize) -> u16 {
+    fn crc16(track: &mut Box<(dyn TrackDataStreamT<Output = bool> + 'static)>, bit_index: usize, end: usize) -> u16 {
         let bytes_requested = ((end - bit_index) >> 1) / 8;
 
         log::trace!(
@@ -831,13 +817,10 @@ impl DiskStructureParser for System34Parser {
             bytes_requested,
             bit_index
         );
-        if let TrackDataStream::Mfm(mfm_stream) = track {
-            let mut data = vec![0; bytes_requested];
-            mfm_stream.seek(SeekFrom::Start((bit_index >> 1) as u64)).unwrap();
-            mfm_stream.read_exact(&mut data).unwrap();
-            crc_ibm_3740(&data, None)
-        } else {
-            0
-        }
+
+        let mut data = vec![0; bytes_requested];
+        track.seek(SeekFrom::Start((bit_index >> 1) as u64)).unwrap();
+        track.read_exact(&mut data).unwrap();
+        crc_ibm_3740(&data, None)
     }
 }

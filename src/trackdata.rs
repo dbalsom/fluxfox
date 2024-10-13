@@ -30,8 +30,8 @@
     and associated methods.
 
 */
-use crate::bitstream::mfm::{MfmCodec, MfmEncodingType, MFM_BYTE_LEN};
-use crate::bitstream::TrackDataStream;
+use crate::bitstream::mfm::{MfmCodec, MFM_BYTE_LEN};
+use crate::bitstream::{EncodingVariant, TrackDataStream};
 use crate::chs::DiskChsn;
 use crate::diskimage::{
     ReadSectorResult, ReadTrackResult, RwSectorScope, ScanSectorResult, SectorMapEntry, TrackSectorIndex,
@@ -213,17 +213,12 @@ impl TrackData {
 
     pub(crate) fn read_exact_at(&mut self, offset: usize, buf: &mut [u8]) -> Result<(), DiskImageError> {
         match self {
-            TrackData::BitStream { data, .. } => match data {
-                TrackDataStream::Mfm(mfm_decoder) => {
-                    mfm_decoder
-                        .seek(SeekFrom::Start((offset >> 1) as u64))
-                        .map_err(|_| DiskImageError::SeekError)?;
-                    mfm_decoder.read_exact(buf)?;
-                }
-                _ => {
-                    return Err(DiskImageError::UnsupportedFormat);
-                }
-            },
+            TrackData::BitStream { data: track, .. } => {
+                track
+                    .seek(SeekFrom::Start((offset >> 1) as u64))
+                    .map_err(|_| DiskImageError::SeekError)?;
+                track.read_exact(buf)?;
+            }
             TrackData::ByteStream { data, .. } => {
                 buf.copy_from_slice(&data[offset..offset + buf.len()]);
             }
@@ -455,10 +450,7 @@ impl TrackData {
         let bit_index = self.get_sector_bit_index(chs, n);
 
         match self {
-            TrackData::BitStream {
-                data: TrackDataStream::Mfm(mfm_decoder),
-                ..
-            } => {
+            TrackData::BitStream { data: codec, .. } => {
                 match bit_index {
                     TrackSectorScanResult::Found {
                         address_crc_valid,
@@ -555,10 +547,10 @@ impl TrackData {
                             read_vec.len()
                         );
 
-                        mfm_decoder
+                        codec
                             .seek(SeekFrom::Start(((element_start >> 1) + scope_read_off) as u64))
                             .map_err(|_| DiskImageError::BitstreamError)?;
-                        mfm_decoder
+                        codec
                             .read_exact(&mut read_vec)
                             .map_err(|_| DiskImageError::BitstreamError)?;
                     }
@@ -655,10 +647,7 @@ impl TrackData {
         let bit_index = self.get_sector_bit_index(chs, n);
 
         match self {
-            TrackData::BitStream {
-                data: TrackDataStream::Mfm(mfm_decoder),
-                ..
-            } => {
+            TrackData::BitStream { data: codec, .. } => {
                 match bit_index {
                     TrackSectorScanResult::Found {
                         sector_chsn,
@@ -790,10 +779,7 @@ impl TrackData {
         let bit_index = self.get_sector_bit_index(chs, n);
 
         match self {
-            TrackData::BitStream {
-                data: TrackDataStream::Mfm(mfm_codec),
-                ..
-            } => {
+            TrackData::BitStream { data: codec, .. } => {
                 match bit_index {
                     TrackSectorScanResult::Found {
                         address_crc_valid,
@@ -888,7 +874,7 @@ impl TrackData {
                             data_len = sector_chsn.n_size();
                         }
 
-                        mfm_codec
+                        codec
                             .seek(SeekFrom::Start(((sector_offset >> 1) + 32) as u64))
                             .map_err(|_| DiskImageError::SeekError)?;
 
@@ -899,18 +885,14 @@ impl TrackData {
                             sector_offset + 4 * MFM_BYTE_LEN
                         );
 
-                        mfm_codec
-                            .write_buf(&write_data[0..data_len], sector_offset + 4 * MFM_BYTE_LEN)
-                            .map_err(|_| DiskImageError::BitstreamError)?;
+                        codec.write_buf(&write_data[0..data_len], sector_offset + 4 * MFM_BYTE_LEN);
 
                         // Calculate the CRC of the data address mark + data.
                         let mut crc = crc_ibm_3740(&mark_bytes, None);
                         crc = crc_ibm_3740(&write_data[0..data_len], Some(crc));
 
                         // Write the CRC after the data.
-                        mfm_codec
-                            .write_buf(&crc.to_be_bytes(), sector_offset + (4 + data_len) * MFM_BYTE_LEN)
-                            .map_err(|_| DiskImageError::BitstreamError)?;
+                        codec.write_buf(&crc.to_be_bytes(), sector_offset + (4 + data_len) * MFM_BYTE_LEN);
 
                         return Ok(WriteSectorResult {
                             not_found: false,
@@ -1232,18 +1214,12 @@ impl TrackData {
     }
 
     fn read_track_bitstream(&mut self, _ch: DiskCh) -> Result<ReadTrackResult, DiskImageError> {
-        if let TrackData::BitStream {
-            data: TrackDataStream::Mfm(mfm_decoder),
-            ..
-        } = self
-        {
-            let data_size = mfm_decoder.len() / 16 + if mfm_decoder.len() % 16 > 0 { 1 } else { 0 };
+        if let TrackData::BitStream { data: codec, .. } = self {
+            let data_size = codec.len() / 16 + if codec.len() % 16 > 0 { 1 } else { 0 };
             let mut track_read_vec = vec![0u8; data_size];
 
-            mfm_decoder
-                .seek(SeekFrom::Start(0))
-                .map_err(|_| DiskImageError::SeekError)?;
-            mfm_decoder
+            codec.seek(SeekFrom::Start(0)).map_err(|_| DiskImageError::SeekError)?;
+            codec
                 .read_exact(&mut track_read_vec)
                 .map_err(|_| DiskImageError::BitstreamError)?;
 
@@ -1266,13 +1242,7 @@ impl TrackData {
 
     pub(crate) fn has_weak_bits(&self) -> bool {
         match self {
-            TrackData::BitStream { data, .. } => {
-                if let TrackDataStream::Mfm(mfm_decoder) = data {
-                    mfm_decoder.has_weak_bits()
-                } else {
-                    false
-                }
-            }
+            TrackData::BitStream { data: codec, .. } => codec.has_weak_bits(),
             TrackData::ByteStream { weak_mask, .. } => !weak_mask.is_empty() && weak_mask.iter().any(|&x| x != 0),
         }
     }
@@ -1286,41 +1256,37 @@ impl TrackData {
     ) -> Result<(), DiskImageError> {
         match self {
             TrackData::BitStream {
-                data,
+                data: codec,
                 metadata,
                 sector_ids,
                 ..
             } => {
-                let bitcell_ct = data.len();
+                let bitcell_ct = codec.len();
                 let new_bit_vec;
 
-                if let TrackDataStream::Mfm(mfm_codec) = data {
-                    let format_result =
-                        System34Parser::format_track_as_bytes(standard, bitcell_ct, format_buffer, fill_pattern, gap3)?;
+                let format_result =
+                    System34Parser::format_track_as_bytes(standard, bitcell_ct, format_buffer, fill_pattern, gap3)?;
 
-                    new_bit_vec = MfmCodec::encode_mfm(&format_result.track_bytes, false, MfmEncodingType::Data);
-                    log::trace!(
-                        "New bitstream size: {} from {} bytes",
-                        new_bit_vec.len(),
-                        format_result.track_bytes.len()
-                    );
-                    mfm_codec.replace(new_bit_vec);
+                new_bit_vec = codec.encode(&format_result.track_bytes, false, EncodingVariant::Data);
+                log::trace!(
+                    "New bitstream size: {} from {} bytes",
+                    new_bit_vec.len(),
+                    format_result.track_bytes.len()
+                );
+                codec.replace(new_bit_vec);
 
-                    System34Parser::set_track_markers(mfm_codec, format_result.markers)?;
-                } else {
-                    return Err(DiskImageError::UnsupportedFormat);
-                }
+                System34Parser::set_track_markers(codec, format_result.markers)?;
 
                 // Scan the new track data for markers and create a clock map.
-                let markers = System34Parser::scan_track_markers(data);
+                let markers = System34Parser::scan_track_markers(codec);
                 if markers.is_empty() {
                     log::error!("TrackData::format(): No markers found in track data post-format.");
                 } else {
                     log::trace!("TrackData::format(): Found {} markers in track data.", markers.len());
                 }
-                System34Parser::create_clock_map(&markers, data.clock_map_mut().unwrap());
+                System34Parser::create_clock_map(&markers, codec.clock_map_mut());
 
-                let new_metadata = DiskStructureMetadata::new(System34Parser::scan_track_metadata(data, markers));
+                let new_metadata = DiskStructureMetadata::new(System34Parser::scan_track_metadata(codec, markers));
 
                 // log::trace!(
                 //     "TrackData::format(): Found {} metadata items in track data.",

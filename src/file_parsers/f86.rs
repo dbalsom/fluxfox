@@ -588,16 +588,12 @@ impl F86Format {
 
             let ti = image.track_map[h][c as usize];
 
-            if let TrackData::BitStream {
-                data: TrackDataStream::Mfm(mfm_codec),
-                ..
-            } = &image.track_pool[ti]
-            {
-                let absolute_bit_count = mfm_codec.len();
+            if let TrackData::BitStream { data: codec, .. } = &image.track_pool[ti] {
+                let absolute_bit_count = codec.len();
                 log::error!("Absolute bit count: {}", absolute_bit_count);
 
-                let mut bit_data = mfm_codec.data();
-                let mut weak_data = mfm_codec.weak_data();
+                let mut bit_data = codec.data();
+                let mut weak_data = codec.weak_data();
 
                 if has_surface_description && (bit_data.len() != weak_data.len()) {
                     log::error!("Bitstream and weak data lengths do not match.");
@@ -620,7 +616,7 @@ impl F86Format {
                 }
 
                 if image.has_flag(DiskImageFlags::PROLOK) && c == 39 && h == 0 {
-                    log::trace!("PROLOK: Converting {} weak bits to holes.", mfm_codec.weak_data().len());
+                    log::debug!("PROLOK: Converting {} weak bits to holes.", codec.weak_data().len());
                     f86_weak_to_holes(&mut bit_data, &mut weak_data);
                 } else {
                     f86_weak_to_weak(&mut bit_data, &mut weak_data);
