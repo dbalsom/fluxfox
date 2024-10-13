@@ -470,7 +470,7 @@ impl ScpFormat {
             flux_stream.decode2(&mut pll, false);
 
             //let flux_ct = flux_stream.transition_ct();
-            let rev_density = match flux_stream.guess_density() {
+            let rev_density = match flux_stream.guess_density(false) {
                 Some(d) => d,
                 None => {
                     log::error!("Unable to detect track density, skipping track");

@@ -33,6 +33,7 @@ pub mod f86;
 pub mod hfe;
 pub mod imd;
 pub mod kryoflux;
+mod mfi;
 pub mod mfm;
 pub mod pfi;
 pub mod pri;
@@ -89,14 +90,15 @@ pub(crate) const IMAGE_FORMATS: [DiskImageFormat; 12] = [
     DiskImageFormat::TeleDisk,
     DiskImageFormat::PceSectorImage,
     DiskImageFormat::PceBitstreamImage,
-    DiskImageFormat::RawSectorImage,
     DiskImageFormat::MfmBitstreamImage,
     DiskImageFormat::HfeImage,
     DiskImageFormat::F86Image,
     DiskImageFormat::TransCopyImage,
     DiskImageFormat::SuperCardPro,
-    DiskImageFormat::PceFluxImage,
+    //DiskImageFormat::PceFluxImage,
+    DiskImageFormat::MameFloppyImage,
     DiskImageFormat::KryofluxStream,
+    DiskImageFormat::RawSectorImage,
 ];
 
 /// Returns a list of advertised file extensions supported by available image format parsers.
@@ -175,6 +177,7 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::SuperCardPro => scp::ScpFormat::capabilities(),
             DiskImageFormat::PceFluxImage => pfi::PfiFormat::capabilities(),
             DiskImageFormat::KryofluxStream => kryoflux::KfxFormat::capabilities(),
+            DiskImageFormat::MameFloppyImage => mfi::MfiFormat::capabilities(),
             _ => FormatCaps::empty(),
         }
     }
@@ -193,6 +196,7 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::SuperCardPro => scp::ScpFormat::detect(image_buf),
             DiskImageFormat::PceFluxImage => pfi::PfiFormat::detect(image_buf),
             DiskImageFormat::KryofluxStream => kryoflux::KfxFormat::detect(image_buf),
+            DiskImageFormat::MameFloppyImage => mfi::MfiFormat::detect(image_buf),
             _ => false,
         }
     }
@@ -211,6 +215,7 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::SuperCardPro => scp::ScpFormat::extensions(),
             DiskImageFormat::PceFluxImage => pfi::PfiFormat::extensions(),
             DiskImageFormat::KryofluxStream => kryoflux::KfxFormat::extensions(),
+            DiskImageFormat::MameFloppyImage => mfi::MfiFormat::extensions(),
             _ => vec![],
         }
     }
@@ -233,6 +238,7 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::SuperCardPro => scp::ScpFormat::load_image(image_buf),
             DiskImageFormat::PceFluxImage => pfi::PfiFormat::load_image(image_buf),
             DiskImageFormat::KryofluxStream => kryoflux::KfxFormat::load_image(image_buf, append_image),
+            DiskImageFormat::MameFloppyImage => mfi::MfiFormat::load_image(image_buf),
             _ => Err(DiskImageError::UnknownFormat),
         }
     }
@@ -251,6 +257,7 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::SuperCardPro => scp::ScpFormat::can_write(image),
             DiskImageFormat::PceFluxImage => pfi::PfiFormat::can_write(image),
             DiskImageFormat::KryofluxStream => kryoflux::KfxFormat::can_write(image),
+            DiskImageFormat::MameFloppyImage => mfi::MfiFormat::can_write(image),
             _ => ParserWriteCompatibility::UnsupportedFormat,
         }
     }
@@ -269,6 +276,7 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::SuperCardPro => scp::ScpFormat::save_image(image, image_buf),
             DiskImageFormat::PceFluxImage => pfi::PfiFormat::save_image(image, image_buf),
             DiskImageFormat::KryofluxStream => kryoflux::KfxFormat::save_image(image, image_buf),
+            DiskImageFormat::MameFloppyImage => mfi::MfiFormat::save_image(image, image_buf),
             _ => Err(DiskImageError::UnknownFormat),
         }
     }

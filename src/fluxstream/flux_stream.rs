@@ -34,6 +34,7 @@ pub const AVERAGE_FLUX_DENSITY: f64 = 2.636; // Average number of bits encoded p
 pub struct RawFluxTrack {
     pub sample_freq: f64,
     pub revolutions: Vec<RawFluxStream>,
+    pub density: DiskDensity,
 }
 
 impl RawFluxTrack {
@@ -46,7 +47,25 @@ impl RawFluxTrack {
         RawFluxTrack {
             sample_freq,
             revolutions: Vec::new(),
+            density: DiskDensity::Double,
         }
+    }
+
+    pub fn density(&self) -> DiskDensity {
+        self.density
+    }
+
+    pub fn set_density(&mut self, density: DiskDensity) {
+        self.density = density;
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.revolutions.is_empty()
+    }
+
+    pub fn normalize(&mut self) {
+        // Drop revolutions that didn't decode at least 100 bits
+        self.revolutions.retain(|r| r.bitstream.len() > 100);
     }
 
     pub fn add_revolution(&mut self, data: &[f64], data_rate: f64) {
@@ -59,7 +78,7 @@ impl RawFluxTrack {
         self.revolutions.push(new_stream);
     }
 
-    pub fn revolution(&mut self, index: usize) -> Option<&RawFluxStream> {
+    pub fn revolution(&self, index: usize) -> Option<&RawFluxStream> {
         self.revolutions.get(index)
     }
 
@@ -115,9 +134,13 @@ impl RawFluxStream {
         self.transitions.len()
     }
 
-    pub fn guess_density(&self) -> Option<DiskDensity> {
-        let avg = self.transition_avg();
+    pub fn guess_density(&self, mfi: bool) -> Option<DiskDensity> {
+        let mut avg = self.transition_avg();
         log::debug!("guess_density(): Transition average: {}", avg);
+
+        if mfi {
+            avg *= 2.0;
+        }
 
         match avg {
             1.0e-6..=3.5e-6 => Some(DiskDensity::High),

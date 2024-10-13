@@ -50,6 +50,7 @@ use sha1_smol::Digest;
 use std::fmt::Display;
 use std::io::Cursor;
 use std::path::PathBuf;
+use std::path::Prefix::Disk;
 
 pub const DEFAULT_BOOT_SECTOR: &[u8] = include_bytes!("../resources/bootsector.bin");
 
@@ -82,6 +83,7 @@ pub enum DiskImageFormat {
     F86Image, // 86F
     TransCopyImage,
     SuperCardPro,
+    MameFloppyImage,
 }
 
 impl DiskImageFormat {
@@ -106,6 +108,7 @@ impl DiskImageFormat {
             // Flux images (not supported for writes)
             DiskImageFormat::SuperCardPro => 0,
             DiskImageFormat::PceFluxImage => 0,
+            DiskImageFormat::MameFloppyImage => 0,
         }
     }
 
@@ -123,6 +126,7 @@ impl DiskImageFormat {
             DiskImageFormat::TransCopyImage => DiskDataResolution::BitStream,
             DiskImageFormat::SuperCardPro => DiskDataResolution::FluxStream,
             DiskImageFormat::PceFluxImage => DiskDataResolution::FluxStream,
+            DiskImageFormat::MameFloppyImage => DiskDataResolution::FluxStream,
         }
     }
 }
@@ -142,6 +146,7 @@ impl Display for DiskImageFormat {
             DiskImageFormat::TransCopyImage => "TransCopy Bitstream".to_string(),
             DiskImageFormat::SuperCardPro => "SuperCard Pro Flux".to_string(),
             DiskImageFormat::PceFluxImage => "PCE Flux Stream".to_string(),
+            DiskImageFormat::MameFloppyImage => "MAME Floppy Image".to_string(),
         };
         write!(f, "{}", str)
     }

@@ -591,6 +591,7 @@ dependencies = [
  "bit-vec",
  "bitflags 2.6.0",
  "env_logger",
+ "flate2",
  "hex",
  "image",
  "log 0.4.22",

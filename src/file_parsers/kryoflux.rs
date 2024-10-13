@@ -243,7 +243,7 @@ impl KfxFormat {
         let flux_stream = flux_track.revolution_mut(rev).unwrap();
         flux_stream.decode2(&mut pll, true);
 
-        let rev_density = match flux_stream.guess_density() {
+        let rev_density = match flux_stream.guess_density(false) {
             Some(d) => {
                 log::debug!("Revolution {} density: {:?}", rev, d);
                 d
