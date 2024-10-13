@@ -21,6 +21,10 @@ tests/images/*
 # Output images
 *.png
 *.jpg
+*.csv
+
+# scripts
+*.py
 
 # Allow doc images
 !/doc/img/*

@@ -30,7 +30,7 @@ use crate::containers::DiskImageContainer;
 use crate::file_parsers::{ImageParser, IMAGE_FORMATS};
 use crate::io::ReadSeek;
 use crate::standard_format::StandardFormat;
-use crate::DiskImageError;
+use crate::{DiskImageError, DiskImageFormat};
 
 /// Attempt to detect the format of a disk image. If the format cannot be determined, UnknownFormat is returned.
 pub fn detect_image_format<T: ReadSeek>(image_io: &mut T) -> Result<DiskImageContainer, DiskImageError> {
@@ -75,6 +75,9 @@ pub fn detect_image_format<T: ReadSeek>(image_io: &mut T) -> Result<DiskImageCon
 
     for format in IMAGE_FORMATS.iter() {
         if format.detect(&mut *image_io) {
+            if let DiskImageFormat::KryofluxStream = format {
+                return Ok(DiskImageContainer::KryofluxSet);
+            }
             return Ok(DiskImageContainer::Raw(*format));
         }
     }

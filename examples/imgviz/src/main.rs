@@ -184,7 +184,7 @@ fn main() {
 
     println!("Detected disk image type: {}", disk_image_type);
 
-    let disk = match DiskImage::load(&mut reader) {
+    let disk = match DiskImage::load(&mut reader, Some(opts.in_filename)) {
         Ok(disk) => disk,
         Err(e) => {
             eprintln!("Error loading disk image: {}", e);
@@ -265,7 +265,7 @@ fn main() {
         (DiskStructureGenericElement::Marker, vis_purple),
     ]);
 
-    let total_render_start_time = Instant::now();
+    let _total_render_start_time = Instant::now();
     let data_render_start_time = Instant::now();
     let mut rendered_pixmaps = Vec::new();
 

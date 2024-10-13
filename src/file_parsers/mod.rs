@@ -32,7 +32,9 @@ pub mod compression;
 pub mod f86;
 pub mod hfe;
 pub mod imd;
+pub mod kryoflux;
 pub mod mfm;
+pub mod pfi;
 pub mod pri;
 pub mod psi;
 pub mod raw;
@@ -82,7 +84,7 @@ pub enum ParserWriteCompatibility {
     UnsupportedFormat,
 }
 
-pub(crate) const IMAGE_FORMATS: [DiskImageFormat; 10] = [
+pub(crate) const IMAGE_FORMATS: [DiskImageFormat; 12] = [
     DiskImageFormat::ImageDisk,
     DiskImageFormat::TeleDisk,
     DiskImageFormat::PceSectorImage,
@@ -93,6 +95,8 @@ pub(crate) const IMAGE_FORMATS: [DiskImageFormat; 10] = [
     DiskImageFormat::F86Image,
     DiskImageFormat::TransCopyImage,
     DiskImageFormat::SuperCardPro,
+    DiskImageFormat::PceFluxImage,
+    DiskImageFormat::KryofluxStream,
 ];
 
 /// Returns a list of advertised file extensions supported by available image format parsers.
@@ -145,7 +149,11 @@ pub trait ImageParser {
     /// Return a list of file extensions associated with the parser.
     fn extensions(&self) -> Vec<&'static str>;
     /// Create a DiskImage from the specified image buffer, or DiskImageError if the format is not supported.
-    fn load_image<RWS: ReadSeek>(&self, image_buf: RWS) -> Result<DiskImage, DiskImageError>;
+    fn load_image<RWS: ReadSeek>(
+        &self,
+        image_buf: RWS,
+        append_image: Option<DiskImage>,
+    ) -> Result<DiskImage, DiskImageError>;
     /// Return true if the parser can write the specified disk image. Not all formats are writable
     /// at all, and not all DiskImages can be represented in the specified format.
     fn can_write(&self, image: &DiskImage) -> ParserWriteCompatibility;
@@ -165,6 +173,8 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::F86Image => f86::F86Format::capabilities(),
             DiskImageFormat::TransCopyImage => tc::TCFormat::capabilities(),
             DiskImageFormat::SuperCardPro => scp::ScpFormat::capabilities(),
+            DiskImageFormat::PceFluxImage => pfi::PfiFormat::capabilities(),
+            DiskImageFormat::KryofluxStream => kryoflux::KfxFormat::capabilities(),
             _ => FormatCaps::empty(),
         }
     }
@@ -181,6 +191,8 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::F86Image => f86::F86Format::detect(image_buf),
             DiskImageFormat::TransCopyImage => tc::TCFormat::detect(image_buf),
             DiskImageFormat::SuperCardPro => scp::ScpFormat::detect(image_buf),
+            DiskImageFormat::PceFluxImage => pfi::PfiFormat::detect(image_buf),
+            DiskImageFormat::KryofluxStream => kryoflux::KfxFormat::detect(image_buf),
             _ => false,
         }
     }
@@ -197,11 +209,17 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::F86Image => f86::F86Format::extensions(),
             DiskImageFormat::TransCopyImage => tc::TCFormat::extensions(),
             DiskImageFormat::SuperCardPro => scp::ScpFormat::extensions(),
+            DiskImageFormat::PceFluxImage => pfi::PfiFormat::extensions(),
+            DiskImageFormat::KryofluxStream => kryoflux::KfxFormat::extensions(),
             _ => vec![],
         }
     }
 
-    fn load_image<RWS: ReadSeek>(&self, image_buf: RWS) -> Result<DiskImage, DiskImageError> {
+    fn load_image<RWS: ReadSeek>(
+        &self,
+        image_buf: RWS,
+        append_image: Option<DiskImage>,
+    ) -> Result<DiskImage, DiskImageError> {
         match self {
             DiskImageFormat::RawSectorImage => raw::RawFormat::load_image(image_buf),
             DiskImageFormat::ImageDisk => imd::ImdFormat::load_image(image_buf),
@@ -213,6 +231,8 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::F86Image => f86::F86Format::load_image(image_buf),
             DiskImageFormat::TransCopyImage => tc::TCFormat::load_image(image_buf),
             DiskImageFormat::SuperCardPro => scp::ScpFormat::load_image(image_buf),
+            DiskImageFormat::PceFluxImage => pfi::PfiFormat::load_image(image_buf),
+            DiskImageFormat::KryofluxStream => kryoflux::KfxFormat::load_image(image_buf, append_image),
             _ => Err(DiskImageError::UnknownFormat),
         }
     }
@@ -229,6 +249,8 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::F86Image => f86::F86Format::can_write(image),
             DiskImageFormat::TransCopyImage => tc::TCFormat::can_write(image),
             DiskImageFormat::SuperCardPro => scp::ScpFormat::can_write(image),
+            DiskImageFormat::PceFluxImage => pfi::PfiFormat::can_write(image),
+            DiskImageFormat::KryofluxStream => kryoflux::KfxFormat::can_write(image),
             _ => ParserWriteCompatibility::UnsupportedFormat,
         }
     }
@@ -245,6 +267,8 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::F86Image => f86::F86Format::save_image(image, image_buf),
             DiskImageFormat::TransCopyImage => tc::TCFormat::save_image(image, image_buf),
             DiskImageFormat::SuperCardPro => scp::ScpFormat::save_image(image, image_buf),
+            DiskImageFormat::PceFluxImage => pfi::PfiFormat::save_image(image, image_buf),
+            DiskImageFormat::KryofluxStream => kryoflux::KfxFormat::save_image(image, image_buf),
             _ => Err(DiskImageError::UnknownFormat),
         }
     }

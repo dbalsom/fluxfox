@@ -25,9 +25,6 @@
     --------------------------------------------------------------------------
 */
 
-use std::fmt::Display;
-use std::io::Cursor;
-
 use crate::bitstream::mfm::MfmCodec;
 use crate::bitstream::raw::RawCodec;
 use crate::bitstream::TrackDataStream;
@@ -36,6 +33,7 @@ use crate::chs::{DiskCh, DiskChs, DiskChsn};
 use crate::containers::zip::extract_first_file;
 use crate::containers::DiskImageContainer;
 use crate::detect::detect_image_format;
+use crate::file_parsers::kryoflux::KfxFormat;
 use crate::file_parsers::{filter_writable, formats_from_caps, FormatCaps, ImageParser};
 use crate::io::ReadSeek;
 use crate::standard_format::StandardFormat;
@@ -49,6 +47,9 @@ use crate::{
 use bit_vec::BitVec;
 use bitflags::bitflags;
 use sha1_smol::Digest;
+use std::fmt::Display;
+use std::io::Cursor;
+use std::path::PathBuf;
 
 pub const DEFAULT_BOOT_SECTOR: &[u8] = include_bytes!("../resources/bootsector.bin");
 
@@ -71,8 +72,9 @@ bitflags! {
 pub enum DiskImageFormat {
     RawSectorImage,
     ImageDisk,
-    PceSectorImage,
-    PceBitstreamImage,
+    PceSectorImage,    // PSI
+    PceBitstreamImage, // PRI
+    PceFluxImage,      // PFI
     MfmBitstreamImage,
     TeleDisk,
     KryofluxStream,
@@ -103,6 +105,7 @@ impl DiskImageFormat {
             DiskImageFormat::F86Image => 8,
             // Flux images (not supported for writes)
             DiskImageFormat::SuperCardPro => 0,
+            DiskImageFormat::PceFluxImage => 0,
         }
     }
 
@@ -119,6 +122,7 @@ impl DiskImageFormat {
             DiskImageFormat::F86Image => DiskDataResolution::BitStream,
             DiskImageFormat::TransCopyImage => DiskDataResolution::BitStream,
             DiskImageFormat::SuperCardPro => DiskDataResolution::FluxStream,
+            DiskImageFormat::PceFluxImage => DiskDataResolution::FluxStream,
         }
     }
 }
@@ -137,6 +141,7 @@ impl Display for DiskImageFormat {
             DiskImageFormat::F86Image => "86F Bitstream".to_string(),
             DiskImageFormat::TransCopyImage => "TransCopy Bitstream".to_string(),
             DiskImageFormat::SuperCardPro => "SuperCard Pro Flux".to_string(),
+            DiskImageFormat::PceFluxImage => "PCE Flux Stream".to_string(),
         };
         write!(f, "{}", str)
     }
@@ -189,7 +194,7 @@ pub struct DiskConsistency {
     /// Whether the disk image contains overlapped sectors
     pub overlapped: bool,
     /// The sector size if the disk image has consistent sector sizes, otherwise None.
-    pub consistent_sector_size: Option<u32>,
+    pub consistent_sector_size: Option<u8>,
     /// The track length in sectors if the disk image has consistent track lengths, otherwise None.
     pub consistent_track_length: Option<u32>,
 }
@@ -201,7 +206,7 @@ impl DiskConsistency {
         self.bad_data_crc = track_consistency.bad_data_crc;
         self.no_dam = track_consistency.no_dam;
 
-        if track_consistency.variable_sector_size {
+        if track_consistency.consistent_sector_size.is_none() {
             self.consistent_sector_size = None;
         }
     }
@@ -370,7 +375,7 @@ impl DiskImage {
                 bad_address_crc: false,
                 bad_data_crc: false,
                 overlapped: false,
-                consistent_sector_size: Some(DEFAULT_SECTOR_SIZE as u32),
+                consistent_sector_size: Some(2),
                 consistent_track_length: Some(disk_format.get_chs().s() as u32),
             },
             boot_sector: None,
@@ -439,12 +444,20 @@ impl DiskImage {
         self.consistency.image_caps
     }
 
-    pub fn load<RS: ReadSeek>(image_io: &mut RS) -> Result<Self, DiskImageError> {
+    pub fn load_from_file(file_path: PathBuf) -> Result<Self, DiskImageError> {
+        let mut file = std::fs::File::open(file_path.clone())?;
+        let mut buf_reader = std::io::BufReader::new(&mut file);
+        let image = DiskImage::load(&mut buf_reader, Some(file_path))?;
+
+        Ok(image)
+    }
+
+    pub fn load<RS: ReadSeek>(image_io: &mut RS, image_path: Option<PathBuf>) -> Result<Self, DiskImageError> {
         let container = DiskImage::detect_format(image_io)?;
 
         match container {
             DiskImageContainer::Raw(format) => {
-                let mut image = format.load_image(image_io)?;
+                let mut image = format.load_image(image_io, None)?;
                 image.post_load_process();
                 Ok(image)
             }
@@ -453,13 +466,39 @@ impl DiskImage {
                 {
                     let file_vec = extract_first_file(image_io)?;
                     let file_cursor = std::io::Cursor::new(file_vec);
-                    let mut image = format.load_image(file_cursor)?;
+                    let mut image = format.load_image(file_cursor, None)?;
                     image.post_load_process();
                     Ok(image)
                 }
                 #[cfg(not(feature = "zip"))]
                 {
                     Err(DiskImageError::UnknownFormat);
+                }
+            }
+            DiskImageContainer::KryofluxSet => {
+                if let Some(image_path) = image_path {
+                    let (file_set, set_ch) = KfxFormat::expand_kryoflux_set(image_path, None)?;
+
+                    log::debug!(
+                        "load(): Expanded Kryoflux set to {} files, ch: {}",
+                        file_set.len(),
+                        set_ch
+                    );
+
+                    // Create an empty image. We will loop through all the files in the set and
+                    // append tracks to them as we go.
+                    let mut build_image = DiskImage::default();
+
+                    for file_path in file_set {
+                        let mut file = std::fs::File::open(file_path.clone())?;
+                        let mut buf_reader = std::io::BufReader::new(&mut file);
+                        log::debug!("load(): Loading Kryoflux stream file: {:?}", file_path);
+                        build_image = KfxFormat::load_image(&mut buf_reader, Some(build_image))?;
+                    }
+
+                    Ok(build_image)
+                } else {
+                    Err(DiskImageError::ParameterError)
                 }
             }
         }
@@ -615,23 +654,34 @@ impl DiskImage {
         if ch.h() >= 2 {
             return Err(DiskImageError::SeekError);
         }
-
+        if data.is_empty() {
+            log::error!("add_track_bitstream(): Data is empty.");
+            return Err(DiskImageError::ParameterError);
+        }
         if weak.is_some() && (data.len() != weak.unwrap().len()) {
+            log::error!("add_track_bitstream(): Data and weak bit mask lengths do not match.");
             return Err(DiskImageError::ParameterError);
         }
 
         // Lock the disk image to BitStream resolution.
         match self.resolution {
-            None => self.resolution = Some(DiskDataResolution::BitStream),
+            None => {
+                self.resolution = Some(DiskDataResolution::BitStream);
+                log::debug!("add_track_bitstream(): Disk resolution is now: {:?}", self.resolution);
+            }
             Some(DiskDataResolution::BitStream) => {}
             _ => return Err(DiskImageError::IncompatibleImage),
         }
-        log::debug!("add_track_bitstream(): image resolution is now {:?}", self.resolution);
+
+        log::debug!(
+            "add_track_bitstream(): adding {:?} track of {} bits",
+            encoding,
+            bitcell_ct.unwrap_or(data.len() * 8)
+        );
 
         let data = BitVec::from_bytes(data);
         let weak_bitvec_opt = weak.map(BitVec::from_bytes);
 
-        log::trace!("add_track_bitstream(): Encoding is {:?}", encoding);
         let (mut data_stream, markers) = match encoding {
             DiskDataEncoding::Mfm => {
                 let mut codec;
@@ -683,7 +733,7 @@ impl DiskImage {
         let sector_ids = metadata.get_sector_ids();
         if sector_ids.is_empty() {
             log::warn!(
-                "add_track_bitstream(): No sectors ids found in track {} metadata.",
+                "add_track_bitstream(): No sector ids found in track {} metadata.",
                 ch.c()
             );
         }
@@ -802,9 +852,10 @@ impl DiskImage {
         }
     }
 
-    /// Read the sector data from the sector identified by 'chs'. The data is returned within a
-    /// ReadSectorResult struct which also sets some convenience metadata flags which are needed
-    /// when handling ByteStream images.
+    /// Read the sector data from the sector at the physical location 'phys_ch' with the sector ID
+    /// values specified by 'id_chs'.
+    /// The data is returned within a ReadSectorResult struct which also sets some convenience
+    /// metadata flags which are needed when handling ByteStream images.
     /// When reading a BitStream image, the sector data includes the address mark and crc.
     /// Offsets are provided within ReadSectorResult so these can be skipped when processing the
     /// read operation.
@@ -948,7 +999,13 @@ impl DiskImage {
                 new_track_index = self.track_pool.len() - 1;
                 self.track_map[ch.h() as usize].push(self.track_pool.len() - 1);
             }
-            _ => return Err(DiskImageError::IncompatibleImage),
+            _ => {
+                log::error!(
+                    "add_empty_track(): Disk image resolution not set: {:?}",
+                    self.resolution
+                );
+                return Err(DiskImageError::IncompatibleImage);
+            }
         }
 
         Ok(new_track_index)
@@ -1246,24 +1303,39 @@ impl DiskImage {
         let mut variable_sector_size = false;
         let mut track_sector_ct = 0;
 
+        let mut consistent_size_map: FoxHashSet<u8> = FoxHashSet::new();
+
+        let mut last_track_sector_size = 0;
+
         for track_idx in self.track_idx_iter() {
             let td = &self.track_pool[track_idx];
             let track_consistency = td.get_track_consistency();
 
-            variable_sector_size |= track_consistency.variable_sector_size;
+            match track_consistency.consistent_sector_size {
+                None => {
+                    variable_sector_size = true;
+                }
+                Some(size) if size > 0 => {
+                    last_track_sector_size = size;
+                    consistent_size_map.insert(size);
+                }
+                _ => {}
+            }
 
             // Don't count tracks with no sectors for purposes of sectors-per-track consistency.
             // Empty sectors can be dropped in the output format.
             if track_consistency.sector_ct > 0 {
                 spt.insert(track_consistency.sector_ct);
                 track_sector_ct = track_consistency.sector_ct;
+                all_consistency.sector_ct = track_consistency.sector_ct;
+                all_consistency.join(&track_consistency);
             }
-
-            all_consistency.join(&track_consistency);
-            all_consistency.sector_ct = track_consistency.sector_ct;
         }
 
         self.consistency.set_track_consistency(&all_consistency);
+        if consistent_size_map.len() > 1 {
+            self.consistency.consistent_sector_size = None;
+        }
 
         if spt.len() > 1 {
             log::debug!(
@@ -1272,6 +1344,7 @@ impl DiskImage {
             );
             self.consistency.consistent_track_length = None;
         } else {
+            log::warn!("all_consistency.sector_ct: {}", all_consistency.sector_ct);
             self.consistency.consistent_track_length = Some(all_consistency.sector_ct as u32);
         }
 
@@ -1279,7 +1352,7 @@ impl DiskImage {
             log::debug!("update_consistency(): Variable sector sizes detected in tracks.");
             self.consistency.consistent_sector_size = None;
         } else {
-            self.consistency.consistent_sector_size = Some(track_sector_ct as u32);
+            self.consistency.consistent_sector_size = Some(last_track_sector_size);
         }
 
         let mut new_caps = self.consistency.image_caps;

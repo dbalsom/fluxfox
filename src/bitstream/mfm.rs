@@ -319,11 +319,14 @@ impl MfmCodec {
     }
 
     pub fn find_marker(&self, marker: u64, start: usize, limit: Option<usize>) -> Option<usize> {
+        if self.bit_vec.is_empty() {
+            return None;
+        }
         let mut shift_reg: u64 = 0;
         let mut shift_ct: u32 = 0;
 
         let search_limit = if let Some(provided_limit) = limit {
-            provided_limit
+            std::cmp::min(provided_limit, self.bit_vec.len())
         } else {
             self.bit_vec.len()
         };

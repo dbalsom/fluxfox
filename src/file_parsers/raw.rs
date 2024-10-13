@@ -94,8 +94,7 @@ impl RawFormat {
 
         let mut cursor_chs = DiskChs::default();
 
-        raw.seek(std::io::SeekFrom::Start(0))
-            .map_err(|_e| DiskImageError::IoError)?;
+        raw.seek(std::io::SeekFrom::Start(0))?;
 
         let track_size = disk_chs.s() as usize * DEFAULT_SECTOR_SIZE;
         let track_ct = raw_len / track_size;
@@ -129,8 +128,7 @@ impl RawFormat {
                 for s in 1..disk_chs.s() + 1 {
                     let sector_chsn = DiskChsn::new(c, h, s, 2);
 
-                    raw.read_exact(&mut sector_buffer)
-                        .map_err(|_e| DiskImageError::IoError)?;
+                    raw.read_exact(&mut sector_buffer)?;
 
                     //log::warn!("Raw::load_image(): Sector data: {:X?}", sector_buffer);
 
@@ -228,9 +226,7 @@ impl RawFormat {
                                 Ordering::Equal => {}
                             }
 
-                            output
-                                .write_all(new_buf.as_ref())
-                                .map_err(|_e| DiskImageError::IoError)?;
+                            output.write_all(new_buf.as_ref())?;
                         }
                         Err(e) => {
                             log::error!("Raw::save_image(): Error reading c:{} h:{} s:{} err: {}", c, h, s, e);

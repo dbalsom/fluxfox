@@ -176,9 +176,7 @@ impl TCFormat {
 
         let disk_image_size = image.seek(std::io::SeekFrom::End(0)).unwrap();
 
-        if image.seek(std::io::SeekFrom::Start(0)).is_err() {
-            return Err(DiskImageError::IoError);
-        }
+        image.seek(std::io::SeekFrom::Start(0))?;
 
         let header = if let Ok(header) = TCFileHeader::read(&mut image) {
             header

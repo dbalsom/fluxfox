@@ -173,10 +173,10 @@ impl PsiFormat {
     }
 
     pub(crate) fn read_chunk<RWS: ReadSeek>(mut image: RWS) -> Result<PsiChunk, DiskImageError> {
-        let chunk_pos = image.stream_position().map_err(|_| DiskImageError::IoError)?;
+        let chunk_pos = image.stream_position()?;
 
         //log::trace!("Reading chunk header...");
-        let chunk_header = PsiChunkHeader::read(&mut image).map_err(|_| DiskImageError::IoError)?;
+        let chunk_header = PsiChunkHeader::read(&mut image)?;
 
         if let Ok(id) = std::str::from_utf8(&chunk_header.id) {
             log::trace!("Chunk ID: {} Size: {}", id, chunk_header.size);
@@ -209,13 +209,11 @@ impl PsiFormat {
         let mut buffer = vec![0u8; chunk_header.size as usize + 8];
 
         //log::trace!("Seeking to chunk start...");
-        image
-            .seek(std::io::SeekFrom::Start(chunk_pos))
-            .map_err(|_| DiskImageError::IoError)?;
-        image.read_exact(&mut buffer).map_err(|_| DiskImageError::IoError)?;
+        image.seek(std::io::SeekFrom::Start(chunk_pos))?;
+        image.read_exact(&mut buffer)?;
 
         let crc_calc = psi_crc(&buffer);
-        let chunk_crc = PsiChunkCrc::read(&mut image).map_err(|_| DiskImageError::IoError)?;
+        let chunk_crc = PsiChunkCrc::read(&mut image)?;
 
         if chunk_crc.crc != crc_calc {
             return Err(DiskImageError::CrcError);
@@ -235,9 +233,7 @@ impl PsiFormat {
         disk_image.set_source_format(DiskImageFormat::PceSectorImage);
 
         // Seek to start of image.
-        image
-            .seek(std::io::SeekFrom::Start(0))
-            .map_err(|_| DiskImageError::IoError)?;
+        image.seek(std::io::SeekFrom::Start(0))?;
 
         let mut chunk = PsiFormat::read_chunk(&mut image)?;
         // File header must be first chunk.

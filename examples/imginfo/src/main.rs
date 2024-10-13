@@ -91,7 +91,7 @@ fn main() {
 
     println!("Detected disk image type: {}", disk_image_type);
 
-    let mut disk = match DiskImage::load(&mut reader) {
+    let mut disk = match DiskImage::load(&mut reader, Some(opts.filename)) {
         Ok(disk) => disk,
         Err(e) => {
             eprintln!("Error loading disk image: {}", e);

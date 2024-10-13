@@ -115,9 +115,7 @@ impl MfmFormat {
         let mut disk_image = DiskImage::default();
         disk_image.set_source_format(DiskImageFormat::MfmBitstreamImage);
 
-        image
-            .seek(std::io::SeekFrom::Start(0))
-            .map_err(|_e| DiskImageError::IoError)?;
+        image.seek(std::io::SeekFrom::Start(0))?;
 
         let mut file_header = Default::default();
         if let Ok(file_header_inner) = MfmFileHeader::read_le(&mut image) {
@@ -148,9 +146,7 @@ impl MfmFormat {
         // If the advanced header flag is set, a table of 'total_tracks' advanced track headers follows the file header.
         // Otherwise, a table of 'total_tracks' standard track headers follows the file header.
 
-        image
-            .seek(std::io::SeekFrom::Start(file_header.track_list_offset as u64))
-            .map_err(|_e| DiskImageError::IoError)?;
+        image.seek(std::io::SeekFrom::Start(file_header.track_list_offset as u64))?;
 
         for _t in 0..total_tracks {
             match advanced_tracks {
@@ -265,13 +261,8 @@ impl MfmFormat {
     fn read_track_data<RWS: ReadSeek>(image: &mut RWS, offset: u64, size: usize) -> Result<Vec<u8>, DiskImageError> {
         let mut track_data = vec![0u8; size];
 
-        image
-            .seek(std::io::SeekFrom::Start(offset))
-            .map_err(|_e| DiskImageError::IoError)?;
-
-        image
-            .read_exact(&mut track_data)
-            .map_err(|_e| DiskImageError::IoError)?;
+        image.seek(std::io::SeekFrom::Start(offset))?;
+        image.read_exact(&mut track_data)?;
 
         Ok(track_data)
     }

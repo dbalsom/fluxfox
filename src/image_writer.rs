@@ -74,7 +74,7 @@ impl ImageWriter {
         format.save_image(image, &mut buf)?;
 
         let data = buf.into_inner();
-        std::fs::write(path, data).map_err(|_e| DiskImageError::IoError)?;
+        std::fs::write(path, data)?;
 
         Ok(())
     }

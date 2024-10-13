@@ -72,7 +72,7 @@ pub struct TrackConsistency {
     pub bad_address_crc: bool,
     pub deleted_data: bool,
     pub no_dam: bool,
-    pub variable_sector_size: bool,
+    pub consistent_sector_size: Option<u8>,
     pub nonconsecutive_sectors: bool,
     pub sector_ct: usize,
 }
@@ -83,8 +83,11 @@ impl TrackConsistency {
         self.bad_address_crc |= other.bad_address_crc;
         self.deleted_data |= other.deleted_data;
         self.no_dam |= other.no_dam;
-        self.variable_sector_size |= other.variable_sector_size;
         self.nonconsecutive_sectors |= other.nonconsecutive_sectors;
+
+        if other.consistent_sector_size.is_none() {
+            self.consistent_sector_size = None;
+        }
     }
 }
 
@@ -215,7 +218,7 @@ impl TrackData {
                     mfm_decoder
                         .seek(SeekFrom::Start((offset >> 1) as u64))
                         .map_err(|_| DiskImageError::SeekError)?;
-                    mfm_decoder.read_exact(buf).map_err(|_| DiskImageError::IoError)?;
+                    mfm_decoder.read_exact(buf)?;
                 }
                 _ => {
                     return Err(DiskImageError::UnsupportedFormat);
@@ -557,7 +560,7 @@ impl TrackData {
                             .map_err(|_| DiskImageError::BitstreamError)?;
                         mfm_decoder
                             .read_exact(&mut read_vec)
-                            .map_err(|_| DiskImageError::IoError)?;
+                            .map_err(|_| DiskImageError::BitstreamError)?;
                     }
                     TrackSectorScanResult::NotFound {
                         wrong_cylinder: wc,
@@ -898,7 +901,7 @@ impl TrackData {
 
                         mfm_codec
                             .write_buf(&write_data[0..data_len], sector_offset + 4 * MFM_BYTE_LEN)
-                            .map_err(|_| DiskImageError::IoError)?;
+                            .map_err(|_| DiskImageError::BitstreamError)?;
 
                         // Calculate the CRC of the data address mark + data.
                         let mut crc = crc_ibm_3740(&mark_bytes, None);
@@ -907,7 +910,7 @@ impl TrackData {
                         // Write the CRC after the data.
                         mfm_codec
                             .write_buf(&crc.to_be_bytes(), sector_offset + (4 + data_len) * MFM_BYTE_LEN)
-                            .map_err(|_| DiskImageError::IoError)?;
+                            .map_err(|_| DiskImageError::BitstreamError)?;
 
                         return Ok(WriteSectorResult {
                             not_found: false,
@@ -1067,7 +1070,7 @@ impl TrackData {
             );
 
             self.read_exact_at(element_start + 64, &mut sector_read_vec)
-                .map_err(|_| DiskImageError::IoError)?;
+                .map_err(|_| DiskImageError::BitstreamError)?;
 
             track_read_vec.extend(sector_read_vec.clone());
             sectors_read = sectors_read.saturating_add(1);
@@ -1242,7 +1245,7 @@ impl TrackData {
                 .map_err(|_| DiskImageError::SeekError)?;
             mfm_decoder
                 .read_exact(&mut track_read_vec)
-                .map_err(|_| DiskImageError::IoError)?;
+                .map_err(|_| DiskImageError::BitstreamError)?;
 
             Ok(ReadTrackResult {
                 not_found: false,
@@ -1348,6 +1351,7 @@ impl TrackData {
                 sector_ct = sectors.len();
 
                 let mut n_set: FoxHashSet<u8> = FoxHashSet::new();
+                let mut last_n = 0;
                 for (si, sector) in sectors.iter().enumerate() {
                     if sector.id_chsn.s() != si as u8 + 1 {
                         consistency.nonconsecutive_sectors = true;
@@ -1361,29 +1365,36 @@ impl TrackData {
                     if sector.deleted_mark {
                         consistency.deleted_data = true;
                     }
+                    last_n = sector.id_chsn.n();
                     n_set.insert(sector.id_chsn.n());
                 }
 
                 if n_set.len() > 1 {
-                    consistency.variable_sector_size = true;
+                    consistency.consistent_sector_size = None;
+                } else {
+                    consistency.consistent_sector_size = Some(last_n);
                 }
             }
             TrackData::BitStream {
                 sector_ids, metadata, ..
             } => {
                 let mut n_set: FoxHashSet<u8> = FoxHashSet::new();
-
+                let mut last_n = 0;
                 sector_ct = sector_ids.len();
                 for (si, sector_id) in sector_ids.iter().enumerate() {
                     if sector_id.s() != si as u8 + 1 {
                         consistency.nonconsecutive_sectors = true;
                     }
+                    last_n = sector_id.n();
                     n_set.insert(sector_id.n());
                 }
 
                 if n_set.len() > 1 {
-                    log::warn!("get_track_consistency(): Variable sector sizes detected: {:?}", n_set);
-                    consistency.variable_sector_size = true;
+                    //log::warn!("get_track_consistency(): Variable sector sizes detected: {:?}", n_set);
+                    consistency.consistent_sector_size = None;
+                } else {
+                    //log::warn!("get_track_consistency(): Consistent sector size: {}", last_n);
+                    consistency.consistent_sector_size = Some(last_n);
                 }
 
                 for item in &metadata.items {

@@ -46,7 +46,7 @@ pub(crate) fn read_ascii<T: Read>(source: &mut T, max_len: Option<usize>) -> (Op
     for (i, byte) in byte_iter.enumerate() {
         match byte {
             Ok(b) => {
-                if b == ASCII_EOF || !b.is_ascii() {
+                if b < 32 || b == ASCII_EOF || !b.is_ascii() {
                     terminating_byte = b;
                     break;
                 } else {

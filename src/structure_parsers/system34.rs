@@ -396,9 +396,7 @@ impl System34Parser {
             let marker_bytes = marker_u64.to_be_bytes();
 
             //log::trace!("Setting marker {:X?} at bit index: {}", marker_bytes, marker_bit_index);
-            mfm_codec
-                .write_raw_buf(&marker_bytes, marker_bit_index)
-                .map_err(|_| DiskImageError::IoError)?;
+            mfm_codec.write_raw_buf(&marker_bytes, marker_bit_index)?;
         }
 
         Ok(())

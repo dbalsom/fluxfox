@@ -23,33 +23,39 @@
     DEALINGS IN THE SOFTWARE.
 
     --------------------------------------------------------------------------
-
-    src/containers/mod.rs
-
-    A module supporting disk image container formats.
-    Currently only ZIP is expected to be needed, but other container formats
-    could be added in the future.
-
 */
-use crate::DiskImageFormat;
-use std::fmt::{Display, Formatter, Result};
+use std::fmt;
+use std::fmt::{Display, Formatter};
 
-#[cfg(feature = "zip")]
-pub mod zip;
+pub mod flux_stream;
+pub mod pll;
 
-#[derive(Copy, Clone, Debug)]
-pub enum DiskImageContainer {
-    Raw(DiskImageFormat),
-    Zip(DiskImageFormat),
-    KryofluxSet,
+#[derive(PartialEq, Debug)]
+pub enum FluxTransition {
+    Short,
+    Medium,
+    Long,
+    Other,
 }
 
-impl Display for DiskImageContainer {
-    fn fmt(&self, f: &mut Formatter) -> Result {
+impl Display for FluxTransition {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            DiskImageContainer::Raw(fmt) => write!(f, "{:?}", fmt),
-            DiskImageContainer::Zip(fmt) => write!(f, "Zipped {:?}", fmt),
-            DiskImageContainer::KryofluxSet => write!(f, "Kryoflux Image Set"),
+            FluxTransition::Short => write!(f, "S"),
+            FluxTransition::Medium => write!(f, "M"),
+            FluxTransition::Long => write!(f, "L"),
+            FluxTransition::Other => write!(f, "X"),
+        }
+    }
+}
+
+impl FluxTransition {
+    pub fn to_bits(&self) -> &[bool] {
+        match self {
+            FluxTransition::Short => &[true, false],
+            FluxTransition::Medium => &[true, false, false],
+            FluxTransition::Long => &[true, false, false, false],
+            FluxTransition::Other => &[],
         }
     }
 }

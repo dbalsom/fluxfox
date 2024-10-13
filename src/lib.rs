@@ -60,6 +60,7 @@ mod trackdata;
 pub mod util;
 
 mod copy_protection;
+mod fluxstream;
 mod image_writer;
 #[cfg(feature = "viz")]
 pub mod visualization;
@@ -82,7 +83,9 @@ type FoxHashSet<T, S = RandomState> = std::collections::HashSet<T, S>;
 #[derive(Debug, Error)]
 pub enum DiskImageError {
     #[error("An IO error occurred reading or writing the disk image")]
-    IoError,
+    IoError(String),
+    #[error("A filesystem error occurred or path not found")]
+    FsError,
     #[error("Unknown disk image format")]
     UnknownFormat,
     #[error("Unsupported disk image format for requested operation")]
@@ -103,10 +106,24 @@ pub enum DiskImageError {
     DataError,
     #[error("A CRC error was detected in the disk image")]
     CrcError,
-    #[error("Invalid parameters were specified to a library function")]
+    #[error("An invalid function parameter was supplied")]
     ParameterError,
     #[error("Write-protect status prevents writing to the disk image")]
     WriteProtectError,
+}
+
+// Manually implement `From<io::Error>` for `DiskImageError`
+impl From<io::Error> for DiskImageError {
+    fn from(err: io::Error) -> Self {
+        DiskImageError::IoError(err.to_string()) // You could convert in a different way
+    }
+}
+
+// Manually implement `From<binrw::Error>` for `DiskImageError`
+impl From<binrw::Error> for DiskImageError {
+    fn from(err: binrw::Error) -> Self {
+        DiskImageError::IoError(err.to_string()) // Again, you could convert differently
+    }
 }
 
 #[derive(Debug, Error)]

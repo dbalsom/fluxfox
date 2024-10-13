@@ -206,11 +206,9 @@ impl F86Format {
         let mut disk_image = DiskImage::default();
         disk_image.set_source_format(DiskImageFormat::F86Image);
 
-        image
-            .seek(std::io::SeekFrom::Start(0))
-            .map_err(|_| DiskImageError::IoError)?;
+        image.seek(std::io::SeekFrom::Start(0))?;
 
-        let header = FileHeader::read(&mut image).map_err(|_| DiskImageError::IoError)?;
+        let header = FileHeader::read(&mut image)?;
 
         let has_surface_desc = header.flags & F86_DISK_HAS_SURFACE_DESC != 0;
         if has_surface_desc {
@@ -277,9 +275,7 @@ impl F86Format {
 
         let mut track_offsets: Vec<(u32, usize)> = Vec::new();
         let mut first_offset_buf = [0u8; 4];
-        image
-            .read_exact(&mut first_offset_buf)
-            .map_err(|_| DiskImageError::IoError)?;
+        image.read_exact(&mut first_offset_buf)?;
         let first_offset = u32::from_le_bytes(first_offset_buf);
 
         let num_tracks = (first_offset as usize - size_of::<FileHeader>()) / 4;
@@ -290,7 +286,7 @@ impl F86Format {
         // Read the rest of the track offsets now that we know how many there are
         for _ in 1..num_tracks {
             let mut offset_buf = [0u8; 4];
-            image.read_exact(&mut offset_buf).map_err(|_| DiskImageError::IoError)?;
+            image.read_exact(&mut offset_buf)?;
             let offset = u32::from_le_bytes(offset_buf);
 
             if offset == 0 {
@@ -308,9 +304,7 @@ impl F86Format {
 
         // Patch up the size of the last track
         if let Some((prev_offset, prev_size)) = track_offsets.last_mut() {
-            let stream_len = image
-                .seek(std::io::SeekFrom::End(0))
-                .map_err(|_| DiskImageError::IoError)?;
+            let stream_len = image.seek(std::io::SeekFrom::End(0))?;
             *prev_size = (stream_len - *prev_offset as u64) as usize;
         }
 
@@ -322,18 +316,16 @@ impl F86Format {
         let mut disk_rpm: Option<DiskRpm> = None;
 
         for (track_offset, track_entry_len) in track_offsets {
-            image
-                .seek(std::io::SeekFrom::Start(track_offset as u64))
-                .map_err(|_| DiskImageError::IoError)?;
+            image.seek(std::io::SeekFrom::Start(track_offset as u64))?;
 
             let (track_flags, extra_bitcells) = match extra_bitcell_mode {
                 true => {
-                    let track_header = TrackHeaderBitCells::read(&mut image).map_err(|_| DiskImageError::IoError)?;
+                    let track_header = TrackHeaderBitCells::read(&mut image)?;
                     log::trace!("Read track header with extra bitcells: {:?}", track_header);
                     (track_header.flags, Some(track_header.bit_cells))
                 }
                 false => {
-                    let track_header = TrackHeader::read(&mut image).map_err(|_| DiskImageError::IoError)?;
+                    let track_header = TrackHeader::read(&mut image)?;
                     log::trace!("Read track header: {:?}", track_header);
                     (track_header.flags, None)
                 }
@@ -408,7 +400,7 @@ impl F86Format {
 
             let track_data_vec = {
                 let mut track_data = vec![0u8; track_data_length];
-                image.read_exact(&mut track_data).map_err(|_| DiskImageError::IoError)?;
+                image.read_exact(&mut track_data)?;
                 track_data
             };
 
@@ -511,10 +503,8 @@ impl F86Format {
         };
 
         // Write header to output.
-        output
-            .seek(std::io::SeekFrom::Start(0))
-            .map_err(|_| DiskImageError::IoError)?;
-        f86_header.write(output).map_err(|_| DiskImageError::IoError)?;
+        output.seek(std::io::SeekFrom::Start(0))?;
+        f86_header.write(output)?;
 
         log::trace!("Image geometry: {}", image.descriptor.geometry);
         if image.descriptor.geometry.c() as usize > image.track_map[0].len()
@@ -548,13 +538,11 @@ impl F86Format {
 
         let mut track_offsets = vec![0u32; F86_TRACK_TABLE_LEN_PER_HEAD * heads];
 
-        let offset_table_pos = output.stream_position().map_err(|_| DiskImageError::IoError)?;
+        let offset_table_pos = output.stream_position()?;
 
         // Write track offsets to output.
         for offset in &track_offsets {
-            output
-                .write_all(&offset.to_le_bytes())
-                .map_err(|_| DiskImageError::IoError)?;
+            output.write_all(&offset.to_le_bytes())?;
         }
 
         // We shouldn't need to change track flags per track, so set them now.
@@ -589,7 +577,7 @@ impl F86Format {
         let mut track_copy = 0;
 
         for i in 0..track_entries {
-            track_offsets[i] = output.stream_position().map_err(|_| DiskImageError::IoError)? as u32;
+            track_offsets[i] = output.stream_position()? as u32;
             log::trace!(
                 "Writing track entry {}, c: {} h: {}, offset: {}",
                 i,
@@ -651,16 +639,16 @@ impl F86Format {
                     index_hole: 0,
                 };
 
-                let th_pos = output.stream_position().map_err(|_| DiskImageError::IoError)?;
-                track_header.write(output).map_err(|_| DiskImageError::IoError)?;
+                let th_pos = output.stream_position()?;
+                track_header.write(output)?;
 
-                let after_th_pos = output.stream_position().map_err(|_| DiskImageError::IoError)?;
+                let after_th_pos = output.stream_position()?;
                 let th_size = after_th_pos - th_pos;
                 assert_eq!(th_size, 10);
-                output.write_all(&bit_data).map_err(|_| DiskImageError::IoError)?;
+                output.write_all(&bit_data)?;
 
                 if has_surface_description {
-                    output.write_all(&weak_data).map_err(|_| DiskImageError::IoError)?;
+                    output.write_all(&weak_data)?;
                 }
 
                 h += 1;
@@ -683,24 +671,18 @@ impl F86Format {
         }
 
         // Now we have to go back and patch up the offsets
-        output
-            .seek(std::io::SeekFrom::Start(offset_table_pos))
-            .map_err(|_| DiskImageError::IoError)?;
+        output.seek(std::io::SeekFrom::Start(offset_table_pos))?;
 
         log::trace!("Writing track offsets...");
         for offset in track_offsets.iter() {
             //log::trace!("Writing track offset {}: {:X} ({})", i, offset, offset);
-            output
-                .write_all(&offset.to_le_bytes())
-                .map_err(|_| DiskImageError::IoError)?;
+            output.write_all(&offset.to_le_bytes())?;
         }
 
         // Perform post-write verification
 
         // Seek to the end in case the caller wants to write more data.
-        output
-            .seek(std::io::SeekFrom::End(0))
-            .map_err(|_| DiskImageError::IoError)?;
+        output.seek(std::io::SeekFrom::End(0))?;
 
         Ok(())
     }

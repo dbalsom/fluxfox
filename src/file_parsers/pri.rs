@@ -218,10 +218,10 @@ impl PriFormat {
     }
 
     pub(crate) fn read_chunk<RWS: ReadSeek>(mut image: RWS) -> Result<PriChunk, DiskImageError> {
-        let chunk_pos = image.stream_position().map_err(|_| DiskImageError::IoError)?;
+        let chunk_pos = image.stream_position()?;
 
         //log::trace!("Reading chunk header...");
-        let chunk_header = PriChunkHeader::read(&mut image).map_err(|_| DiskImageError::IoError)?;
+        let chunk_header = PriChunkHeader::read(&mut image)?;
 
         if let Ok(id) = std::str::from_utf8(&chunk_header.id) {
             log::trace!("Chunk ID: {} Size: {}", id, chunk_header.size);
@@ -250,13 +250,11 @@ impl PriFormat {
         let mut buffer = vec![0u8; chunk_header.size as usize + 8];
 
         //log::trace!("Seeking to chunk start...");
-        image
-            .seek(std::io::SeekFrom::Start(chunk_pos))
-            .map_err(|_| DiskImageError::IoError)?;
-        image.read_exact(&mut buffer).map_err(|_| DiskImageError::IoError)?;
+        image.seek(std::io::SeekFrom::Start(chunk_pos))?;
+        image.read_exact(&mut buffer)?;
 
         let crc_calc = pri_crc(&buffer);
-        let chunk_crc = PriChunkCrc::read(&mut image).map_err(|_| DiskImageError::IoError)?;
+        let chunk_crc = PriChunkCrc::read(&mut image)?;
 
         if chunk_crc.crc != crc_calc {
             return Err(DiskImageError::CrcError);
@@ -296,7 +294,7 @@ impl PriFormat {
 
         // Serialize the data to a buffer, so we can set the length in the chunk header.
         let mut data_buf = Cursor::new(Vec::new());
-        data.write(&mut data_buf).map_err(|_| DiskImageError::IoError)?;
+        data.write(&mut data_buf)?;
 
         let chunk_header = PriChunkHeader {
             id: *chunk_str,
@@ -304,25 +302,19 @@ impl PriFormat {
         };
 
         log::trace!("Writing chunk: {:?} size: {}", chunk_type, data_buf.get_ref().len());
-        chunk_header
-            .write(&mut chunk_buf)
-            .map_err(|_| DiskImageError::IoError)?;
+        chunk_header.write(&mut chunk_buf)?;
 
-        chunk_buf
-            .write_all(data_buf.get_ref())
-            .map_err(|_| DiskImageError::IoError)?;
+        chunk_buf.write_all(data_buf.get_ref())?;
 
         // Calculate CRC for chunk, over header and data bytes.
         let crc_calc = pri_crc(chunk_buf.get_ref());
 
         // Write the CRC to the chunk.
         let chunk_crc = PriChunkCrc { crc: crc_calc };
-        chunk_crc.write(&mut chunk_buf).map_err(|_| DiskImageError::IoError)?;
+        chunk_crc.write(&mut chunk_buf)?;
 
         // Write the chunk buffer to the image.
-        image
-            .write_all(chunk_buf.get_ref())
-            .map_err(|_| DiskImageError::IoError)?;
+        image.write_all(chunk_buf.get_ref())?;
 
         Ok(())
     }
@@ -342,25 +334,19 @@ impl PriFormat {
             size: text.len() as u32,
         };
 
-        chunk_header
-            .write(&mut chunk_buf)
-            .map_err(|_| DiskImageError::IoError)?;
+        chunk_header.write(&mut chunk_buf)?;
 
-        chunk_buf
-            .write_all(text.as_bytes())
-            .map_err(|_| DiskImageError::IoError)?;
+        chunk_buf.write_all(text.as_bytes())?;
 
         // Calculate CRC for chunk, over header and data bytes.
         let crc_calc = pri_crc(chunk_buf.get_ref());
 
         // Write the CRC to the chunk.
         let chunk_crc = PriChunkCrc { crc: crc_calc };
-        chunk_crc.write(&mut chunk_buf).map_err(|_| DiskImageError::IoError)?;
+        chunk_crc.write(&mut chunk_buf)?;
 
         // Write the chunk buffer to the image.
-        image
-            .write_all(chunk_buf.get_ref())
-            .map_err(|_| DiskImageError::IoError)?;
+        image.write_all(chunk_buf.get_ref())?;
 
         Ok(())
     }
@@ -390,23 +376,19 @@ impl PriFormat {
             size: data.len() as u32,
         };
 
-        chunk_header
-            .write(&mut chunk_buf)
-            .map_err(|_| DiskImageError::IoError)?;
+        chunk_header.write(&mut chunk_buf)?;
 
-        chunk_buf.write_all(data).map_err(|_| DiskImageError::IoError)?;
+        chunk_buf.write_all(data)?;
 
         // Calculate CRC for chunk, over header and data bytes.
         let crc_calc = pri_crc(chunk_buf.get_ref());
 
         // Write the CRC to the chunk.
         let chunk_crc = PriChunkCrc { crc: crc_calc };
-        chunk_crc.write(&mut chunk_buf).map_err(|_| DiskImageError::IoError)?;
+        chunk_crc.write(&mut chunk_buf)?;
 
         // Write the chunk buffer to the image.
-        image
-            .write_all(chunk_buf.get_ref())
-            .map_err(|_| DiskImageError::IoError)?;
+        image.write_all(chunk_buf.get_ref())?;
 
         Ok(())
     }
@@ -416,9 +398,7 @@ impl PriFormat {
         disk_image.set_source_format(DiskImageFormat::PceBitstreamImage);
 
         // Seek to start of image.
-        image
-            .seek(std::io::SeekFrom::Start(0))
-            .map_err(|_| DiskImageError::IoError)?;
+        image.seek(std::io::SeekFrom::Start(0))?;
 
         let mut chunk = PriFormat::read_chunk(&mut image)?;
         // File header must be first chunk.
@@ -627,14 +607,10 @@ impl PriFormat {
                         let mut weak_buffer = Cursor::new(Vec::new());
 
                         // Write the weak mask header.
-                        weak_header
-                            .write(&mut weak_buffer)
-                            .map_err(|_| DiskImageError::IoError)?;
+                        weak_header.write(&mut weak_buffer)?;
 
                         // Write the weak mask data.
-                        weak_buffer
-                            .write_all(&weak_data[slice_start..slice_end])
-                            .map_err(|_| DiskImageError::IoError)?;
+                        weak_buffer.write_all(&weak_data[slice_start..slice_end])?;
 
                         PriFormat::write_chunk_raw(output, PriChunkType::WeakMask, weak_buffer.get_ref())?;
                     }
@@ -647,7 +623,7 @@ impl PriFormat {
         // Write the file-end chunk.
         log::trace!("Writing END chunk...");
         let end_chunk = PriChunkFooter::default();
-        end_chunk.write(output).map_err(|_| DiskImageError::IoError)?;
+        end_chunk.write(output)?;
 
         Ok(())
     }
