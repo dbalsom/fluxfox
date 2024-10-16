@@ -126,7 +126,7 @@ pub struct KfxFormat {
     sck: f64,
     ick: f64,
     last_index_counter: Option<u32>,
-    first_flux_offset: Option<u64>,
+    current_offset_idx: usize,
     idx_ct: u32,
     flux_ovl: u32,
 }
@@ -138,7 +138,7 @@ impl Default for KfxFormat {
             sck: KFX_DEFAULT_SCK,
             ick: KFX_DEFAULT_ICK,
             last_index_counter: None,
-            first_flux_offset: None,
+            current_offset_idx: 0,
             idx_ct: 0,
             flux_ovl: 0,
         }
@@ -180,7 +180,7 @@ impl KfxFormat {
 
         let mut kfx_context = KfxFormat::default();
 
-        image.seek(std::io::SeekFrom::Start(0))?;
+        image.seek(io::SeekFrom::Start(0))?;
 
         // Create vector of streams.
         let mut streams: Vec<Vec<f64>> = Vec::with_capacity(5);
@@ -189,10 +189,30 @@ impl KfxFormat {
 
         // Create vector of index times.
         let mut index_times: Vec<f64> = Vec::with_capacity(5);
+        // Create vector if index offsets
+        let mut index_offsets: Vec<u64> = Vec::with_capacity(5);
 
+        // Read the steam once to gather the index offsets.
+        log::debug!("Scanning stream for index blocks...");
         let mut eof = false;
         while !eof {
-            eof = kfx_context.read_block(&mut image, &mut streams, &mut index_times)?;
+            eof = kfx_context.read_index_block(&mut image, &mut index_offsets, &mut index_times)?;
+        }
+
+        // We need to have at least two index markers to have a complete revolution.
+        if index_offsets.len() < 2 {
+            log::error!("Stream did not contain a complete revolution.");
+            return Err(DiskImageError::IncompatibleImage);
+        }
+
+        kfx_context.current_offset_idx = 0;
+
+        // Read the stream again now that we know where the indexes are
+        log::debug!("Reading stream... [Found {} index offsets]", index_offsets.len());
+        image.seek(io::SeekFrom::Start(0))?;
+        eof = false;
+        while !eof {
+            eof = kfx_context.read_block(&mut image, &index_offsets, &mut streams)?;
         }
 
         let mut pll = Pll::from_preset(PllPreset::Aggressive);
@@ -307,25 +327,128 @@ impl KfxFormat {
         Err(DiskImageError::UnsupportedFormat)
     }
 
+    fn read_index_block<RWS: ReadSeek>(
+        &mut self,
+        image: &mut RWS,
+        index_offsets: &mut Vec<u64>,
+        index_times: &mut Vec<f64>,
+    ) -> Result<bool, DiskImageError> {
+        let current_pos = image.stream_position()?;
+        let byte = image.read_u8()?;
+
+        match byte {
+            0x00..=0x07 => {
+                // Flux2 block
+                image.seek(std::io::SeekFrom::Current(1))?;
+            }
+            0x09 => {
+                // Nop2 block
+                // Skip one byte
+                image.seek(std::io::SeekFrom::Current(1))?;
+            }
+            0x0A => {
+                // Nop3 block
+                // Skip two bytes
+                image.seek(std::io::SeekFrom::Current(2))?;
+            }
+            0x0C => {
+                // Flux3 block
+                image.seek(std::io::SeekFrom::Current(2))?;
+            }
+            0x0D => {
+                // OOB block
+                let oob_block = read_oob_block(image);
+
+                match oob_block {
+                    OobBlock::Invalid(oob_byte) => {
+                        log::error!("Invalid OOB block type: {:02X}", oob_byte);
+                    }
+                    OobBlock::StreamInfo => {
+                        let _sib = StreamInfoBlock::read(image)?;
+                    }
+                    OobBlock::Index => {
+                        let ib = IndexBlock::read(image)?;
+
+                        let index_time = ib.index_counter as f64 / self.ick;
+
+                        if let Some(last_index_counter) = self.last_index_counter {
+                            let index_delta = ib.index_counter.wrapping_sub(last_index_counter);
+                            let index_time_delta = index_delta as f64 / self.ick;
+
+                            index_offsets.push(ib.stream_pos as u64);
+                            index_times.push(index_time_delta);
+
+                            log::debug!(
+                                "Index block: current_pos: {} next_pos: {} sample_ct: {} index_ct: {} delta: {:.6} rpm: {:.3}",
+                                current_pos,
+                                ib.stream_pos,
+                                ib.sample_counter,
+                                ib.index_counter,
+                                index_time_delta,
+                                60.0 / index_time_delta
+                            );
+
+                            // If stream_pos is behind us, we need to go back and create a revolution
+                            // at stream_pos
+                            if (ib.stream_pos as u64) < current_pos {
+                                log::warn!("Stream pos is behind current position.");
+                            }
+                        } else {
+                            log::debug!(
+                                "Index block: current_pos: {} pos: {} sample_ct: {} index_ct: {}",
+                                current_pos,
+                                ib.stream_pos,
+                                ib.sample_counter,
+                                ib.index_counter
+                            );
+                        }
+
+                        self.last_index_counter = Some(ib.index_counter);
+                    }
+                    OobBlock::StreamEnd => {
+                        let _seb = StreamEndBlock::read(image)?;
+                    }
+                    OobBlock::KfInfo => {
+                        log::debug!("KfInfo block");
+                        let _kib = KfInfoBlock::read(image)?;
+                        // Ascii string follows
+                        let mut string_end = false;
+                        while !string_end {
+                            let (str_opt, terminator) = read_ascii(image, None);
+                            string_end = str_opt.is_none() || terminator == 0;
+                        }
+                    }
+                    OobBlock::Eof => {
+                        log::debug!("EOF block");
+                        return Ok(true);
+                    }
+                }
+            }
+            _ => {
+                // Flux1 block
+            }
+        }
+
+        // Return whether we reached end of file
+        Ok(false)
+    }
+
     fn read_block<RWS: ReadSeek>(
         &mut self,
         image: &mut RWS,
+        index_offsets: &[u64],
         streams: &mut Vec<Vec<f64>>,
-        index_times: &mut Vec<f64>,
     ) -> Result<bool, DiskImageError> {
         let current_pos = image.stream_position()?;
         let byte = image.read_u8()?;
 
         // If we've reached the stream position indicated by the last index block,
         // we're starting a new revolution.
-
-        if let Some(offset) = self.first_flux_offset {
-            if current_pos >= offset {
-                log::debug!("Starting new revolution at pos: {}", current_pos);
-                streams.push(Vec::new());
-                self.first_flux_offset = None;
-                self.idx_ct += 1;
-            }
+        if (self.current_offset_idx < index_offsets.len()) && (current_pos >= index_offsets[self.current_offset_idx]) {
+            log::debug!("Starting new revolution at pos: {}", current_pos);
+            streams.push(Vec::new());
+            self.current_offset_idx += 1;
+            self.idx_ct += 1;
         }
 
         //log::trace!("Read block type: {:02X}", byte);
@@ -386,38 +509,7 @@ impl KfxFormat {
                         );
                     }
                     OobBlock::Index => {
-                        let ib = IndexBlock::read(image)?;
-
-                        let index_time = ib.index_counter as f64 / self.ick;
-
-                        if let Some(last_index_counter) = self.last_index_counter {
-                            let index_delta = ib.index_counter.wrapping_sub(last_index_counter);
-                            let index_time_delta = index_delta as f64 / self.ick;
-                            log::debug!(
-                                "Index block: current_pos: {} next_pos: {} sample_ct: {} index_ct: {} delta: {:.6} rpm: {:.3}",
-                                current_pos,
-                                ib.stream_pos,
-                                ib.sample_counter,
-                                ib.index_counter,
-                                index_time_delta,
-                                60.0 / index_time_delta
-                            );
-                            index_times.push(index_time_delta);
-                        } else {
-                            log::debug!(
-                                "Index block: current_pos: {} pos: {} sample_ct: {} index_ct: {}",
-                                current_pos,
-                                ib.stream_pos,
-                                ib.sample_counter,
-                                ib.index_counter
-                            );
-                        }
-
-                        self.last_index_counter = Some(ib.index_counter);
-
-                        // Record the offset of the flux immediately following the index.
-                        // When we reach this offset, we will start a new revolution.
-                        self.first_flux_offset = Some(ib.stream_pos as u64);
+                        let _ib = IndexBlock::read(image)?;
                     }
                     OobBlock::StreamEnd => {
                         let seb = StreamEndBlock::read(image)?;
@@ -535,14 +627,15 @@ impl KfxFormat {
                     }
 
                     // If it does, add it to the set
-                    set_vec.push(base_path.join(test_name));
-                    h += 1;
-                    if h > 1 {
-                        h = 0;
-                        c += 1;
-                    }
+                    set_vec.push(base_path.join(test_name))
                 } else if h == 0 {
                     found_file = false;
+                }
+
+                h += 1;
+                if h > 1 {
+                    h = 0;
+                    c += 1;
                 }
             }
 

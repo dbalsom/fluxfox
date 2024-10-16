@@ -160,9 +160,11 @@ impl MfmFormat {
                             let track_offset = track_header.track_offset as usize;
 
                             log::trace!(
-                                "load_image(): Track: {} Side: {} Size: {} Offset: {}",
+                                "load_image(): Advanced Track: {} Side: {} Rpm: {} Bit rate: {} Size: {} Offset: {}",
                                 track_no,
                                 side_no,
+                                track_header.rpm,
+                                track_header.bit_rate,
                                 track_size,
                                 track_offset
                             );
@@ -210,8 +212,11 @@ impl MfmFormat {
             let head;
             let track_data;
             let data_rate;
+            let mut bitcell_ct = None;
             match header {
                 TrackHeader::Standard(s_header) => {
+                    let track_data_size = s_header.track_size;
+                    log::debug!("Reading {} bytes of track data", track_data_size);
                     track_data = MfmFormat::read_track_data(
                         &mut image,
                         s_header.track_offset as u64,
@@ -222,11 +227,12 @@ impl MfmFormat {
                     data_rate = file_header.bit_rate as u32 * 100;
                 }
                 TrackHeader::Advanced(a_header) => {
-                    track_data = MfmFormat::read_track_data(
-                        &mut image,
-                        a_header.track_offset as u64,
-                        a_header.track_size as usize,
-                    )?;
+                    // Advanced header specifies actual bitcell count.
+                    // Size in bytes is / 8, rounded up.
+                    bitcell_ct = Some(a_header.track_size as usize);
+                    let track_data_size = (a_header.track_size as usize + 7) / 8;
+                    log::debug!("Reading {} bytes of advanced track data", track_data_size);
+                    track_data = MfmFormat::read_track_data(&mut image, a_header.track_offset as u64, track_data_size)?;
                     head = a_header.side_no;
                     cylinder = a_header.track_no as u8;
                     data_rate = a_header.bit_rate as u32 * 100;
@@ -239,7 +245,7 @@ impl MfmFormat {
                 disk_data_rate,
                 DiskCh::from((cylinder as u16, head)),
                 data_rate,
-                None,
+                bitcell_ct,
                 &track_data,
                 None,
             )?;

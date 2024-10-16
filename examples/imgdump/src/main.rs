@@ -49,13 +49,14 @@ struct Out {
     n: Option<u8>,
     row_size: usize,
     structure: bool,
+    find: Option<String>,
 }
 
 /// Set up bpaf argument parsing.
 fn opts() -> OptionParser<Out> {
     let debug = short('d').long("debug").help("Print debug messages").switch();
 
-    let filename = short('t')
+    let filename = short('i')
         .long("filename")
         .help("Filename of image to read")
         .argument::<PathBuf>("FILE");
@@ -99,6 +100,11 @@ fn opts() -> OptionParser<Out> {
         .help("Dump IDAM header and data CRC in addition to data.")
         .switch();
 
+    let find = long("find")
+        .help("String to find")
+        .argument::<String>("FIND_STRING")
+        .optional();
+
     construct!(Out {
         debug,
         filename,
@@ -109,7 +115,8 @@ fn opts() -> OptionParser<Out> {
         sector,
         n,
         row_size,
-        structure
+        structure,
+        find,
     })
     .to_options()
     .descr("imginfo: display info about disk image")
@@ -140,7 +147,7 @@ fn main() {
 
     println!("Detected disk image type: {}", disk_image_type);
 
-    let mut disk = match DiskImage::load(&mut reader) {
+    let mut disk = match DiskImage::load(&mut reader, Some(opts.filename.clone())) {
         Ok(disk) => disk,
         Err(e) => {
             eprintln!("Error loading disk image: {}", e);
@@ -173,13 +180,6 @@ fn main() {
             false => (RwSectorScope::DataOnly, false),
         };
 
-        println!(
-            "Dumping sector from {} with id {} in hex format, with scope {:?}:",
-            phys_ch,
-            DiskChsn::from((id_chs, opts.n.unwrap_or(2))),
-            scope
-        );
-
         let rsr = match disk.read_sector(phys_ch, id_chs, opts.n, scope, true) {
             Ok(rsr) => rsr,
             Err(e) => {
@@ -195,12 +195,33 @@ fn main() {
             RwSectorScope::DataBlock => &rsr.read_buf,
         };
 
-        _ = fluxfox::util::dump_slice(data_slice, 0, opts.row_size, &mut buf);
+        if let Some(find_string) = &opts.find {
+            let find_bytes = find_string.as_bytes();
+            let mut found = false;
+            for i in 0..data_slice.len() {
+                if data_slice[i..].starts_with(find_bytes) {
+                    _ = writeln!(&mut buf, "Found {} at offset {}", find_string, i);
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                _ = writeln!(&mut buf, "Did not find search string.");
+            }
+        } else {
+            println!(
+                "Dumping sector from {} with id {} in hex format, with scope {:?}:",
+                phys_ch,
+                DiskChsn::from((id_chs, opts.n.unwrap_or(2))),
+                scope
+            );
+            _ = fluxfox::util::dump_slice(data_slice, 0, opts.row_size, &mut buf);
 
-        // If we requested DataBlock scope, we can independently calculate the CRC, so do that now.
-        if calc_crc {
-            let calculated_crc = fluxfox::util::crc_ibm_3740(&data_slice[0..0x104], None);
-            _ = writeln!(&mut buf, "Calculated CRC: {:04X}", calculated_crc);
+            // If we requested DataBlock scope, we can independently calculate the CRC, so do that now.
+            if calc_crc {
+                let calculated_crc = fluxfox::util::crc_ibm_3740(&data_slice[0..0x104], None);
+                _ = writeln!(&mut buf, "Calculated CRC: {:04X}", calculated_crc);
+            }
         }
     } else {
         // No sector was provided, dump the whole track.

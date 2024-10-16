@@ -60,12 +60,19 @@ pub const PERPENDICULAR_GAP1: usize = 50;
 pub const PERPENDICULAR_GAP2: usize = 41;
 
 // Pre-encoded markers for IAM, IDAM, DAM and DDAM.
-pub const IAM_MARKER: u64 = 0x5224522452245552;
-pub const IDAM_MARKER: u64 = 0x4489448944895554;
-pub const DAM_MARKER: u64 = 0x4489448944895545;
-pub const DDAM_MARKER: u64 = 0x4489448944895548;
-pub const ANY_MARKER: u64 = 0x4489448944890000;
-pub const MARKER_MASK: u64 = 0xFFFFFFFFFFFF0000;
+pub const IAM_MARKER: u64 = 0x5224_5224_5224_5552;
+pub const IDAM_MARKER: u64 = 0x4489_4489_4489_5554;
+pub const DAM_MARKER: u64 = 0x4489_4489_4489_5545;
+pub const DDAM_MARKER: u64 = 0x4489_4489_4489_5548;
+pub const ANY_MARKER: u64 = 0x4489_4489_4489_0000;
+pub const CLOCK_MASK: u64 = 0xAAAA_AAAA_AAAA_0000;
+pub const DATA_MARK: u64 = 0x5555_5555_5555_5555;
+pub const MARKER_MASK: u64 = 0xFFFF_FFFF_FFFF_0000;
+
+pub const FM_MARKER_CLOCK: u64 = 0xAAAA_AAAA_AAAA_0000;
+pub const MFM_MARKER_CLOCK: u64 = 0x0220_0220_0220_0000;
+
+pub const IAM_MARKER_FM: u64 = 0xFAAE_FAAE_FAAE_FFFA;
 
 pub const IAM_MARKER_BYTES: [u8; 4] = [0xC2, 0xC2, 0xC2, 0xFC];
 pub const IDAM_MARKER_BYTES: [u8; 4] = [0xA1, 0xA1, 0xA1, 0xFE];
@@ -386,7 +393,7 @@ impl System34Parser {
     }
 
     pub(crate) fn set_track_markers(
-        codec: &mut Box<(dyn TrackDataStreamT<Output = bool> + 'static)>,
+        codec: &mut TrackDataStream,
         markers: Vec<(System34Marker, usize)>,
     ) -> Result<(), DiskImageError> {
         for (marker, offset) in markers {
@@ -409,11 +416,7 @@ impl DiskStructureParser for System34Parser {
     /// into the track.
     /// The bit offset of the pattern is returned if found, otherwise None.
     /// The pattern length is limited to 8 characters.
-    fn find_data_pattern(
-        track: &Box<(dyn TrackDataStreamT<Output = bool> + 'static)>,
-        pattern: &[u8],
-        offset: usize,
-    ) -> Option<usize> {
+    fn find_data_pattern(track: &TrackDataStream, pattern: &[u8], offset: usize) -> Option<usize> {
         let mut buffer = [0u8; 8];
         let len = pattern.len().min(8);
         buffer[(8 - len)..8].copy_from_slice(&pattern[..len]);
@@ -439,10 +442,7 @@ impl DiskStructureParser for System34Parser {
 
     /// Find the next address marker in the track bitstream. The type of marker and its position in
     /// the bitstream is returned, or None.
-    fn find_next_marker(
-        track: &Box<(dyn TrackDataStreamT<Output = bool> + 'static)>,
-        offset: usize,
-    ) -> Option<(DiskStructureMarker, usize)> {
+    fn find_next_marker(track: &TrackDataStream, offset: usize) -> Option<(DiskStructureMarker, usize)> {
         if let Some((index, marker_u16)) = track.find_marker(ANY_MARKER, Some(MARKER_MASK), offset, None) {
             if let Ok(marker) = marker_u16.try_into() {
                 return Some((DiskStructureMarker::System34(marker), index));
@@ -452,7 +452,7 @@ impl DiskStructureParser for System34Parser {
     }
 
     fn find_marker(
-        track: &Box<(dyn TrackDataStreamT<Output = bool> + 'static)>,
+        track: &TrackDataStream,
         marker: DiskStructureMarker,
         offset: usize,
         limit: Option<usize>,
@@ -464,11 +464,7 @@ impl DiskStructureParser for System34Parser {
         None
     }
 
-    fn find_element(
-        track: &Box<(dyn TrackDataStreamT<Output = bool> + 'static)>,
-        element: DiskStructureElement,
-        offset: usize,
-    ) -> Option<usize> {
+    fn find_element(track: &TrackDataStream, element: DiskStructureElement, offset: usize) -> Option<usize> {
         if let DiskStructureElement::System34(element) = element {
             use System34Element::*;
 
@@ -511,9 +507,7 @@ impl DiskStructureParser for System34Parser {
     /// their positions. The marker positions will be used to create the clock phase map for the
     /// track, which must be performed before we can read the data off the disk which is done in
     /// a second pass.
-    fn scan_track_markers(
-        track: &Box<(dyn TrackDataStreamT<Output = bool> + 'static)>,
-    ) -> Vec<DiskStructureMarkerItem> {
+    fn scan_track_markers(track: &TrackDataStream) -> Vec<DiskStructureMarkerItem> {
         let mut bit_cursor: usize = 0;
         let mut markers = Vec::new();
 
@@ -556,7 +550,7 @@ impl DiskStructureParser for System34Parser {
     /// found by scan_track_markers() and a clock phase map created for the track - required for the
     /// proper functioning of the Read and Seek traits on MfmCodec.
     fn scan_track_metadata(
-        track: &mut Box<(dyn TrackDataStreamT<Output = bool> + 'static)>,
+        track: &mut TrackDataStream,
         markers: Vec<DiskStructureMarkerItem>,
     ) -> Vec<DiskStructureMetadataItem> {
         let mut elements = Vec::new();
@@ -809,7 +803,7 @@ impl DiskStructureParser for System34Parser {
         }
     }
 
-    fn crc16(track: &mut Box<(dyn TrackDataStreamT<Output = bool> + 'static)>, bit_index: usize, end: usize) -> u16 {
+    fn crc16(track: &mut TrackDataStream, bit_index: usize, end: usize) -> u16 {
         let bytes_requested = ((end - bit_index) >> 1) / 8;
 
         log::trace!(

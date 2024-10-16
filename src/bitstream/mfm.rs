@@ -38,6 +38,7 @@ use std::ops::Index;
 
 pub const MFM_BYTE_LEN: usize = 16;
 pub const MFM_MARKER_LEN: usize = 64;
+pub const MFM_MARKER_CLOCK: u64 = 0x0220_0220_0220_0000;
 
 #[macro_export]
 macro_rules! mfm_offset {
@@ -127,12 +128,12 @@ impl TrackCodec for MfmCodec {
         &self.weak_mask
     }
 
-    fn weak_data(&self) -> Vec<u8> {
-        self.weak_mask.to_bytes()
-    }
-
     fn has_weak_bits(&self) -> bool {
         !self.detect_weak_bits(6).is_empty()
+    }
+
+    fn weak_data(&self) -> Vec<u8> {
+        self.weak_mask.to_bytes()
     }
 
     fn set_track_padding(&mut self) {
@@ -178,7 +179,7 @@ impl TrackCodec for MfmCodec {
         }
     }
 
-    fn read_byte(&self, index: usize) -> Option<u8> {
+    fn read_raw_byte(&self, index: usize) -> Option<u8> {
         if index >= self.len() {
             return None;
         }
@@ -196,7 +197,7 @@ impl TrackCodec for MfmCodec {
         Some(byte_val)
     }
 
-    fn read_decoded_byte(&self, index: usize) -> Option<u8> {
+    fn read_decoded_byte2(&self, index: usize) -> Option<u8> {
         if index >= self.bit_vec.len() || index >= self.clock_map.len() {
             log::error!(
                 "read_decoded_byte(): index out of bounds: {} vec: {} clock_map:{}",
@@ -213,6 +214,54 @@ impl TrackCodec for MfmCodec {
             .step_by(2)
         {
             byte = (byte << 1) | self.bit_vec[bi] as u8;
+        }
+        Some(byte)
+    }
+
+    /// This is essentially a reimplementation of Read + Iterator that avoids mutation.
+    /// This allows us to read track data through an immutable reference.
+    fn read_decoded_byte(&self, index: usize) -> Option<u8> {
+        let mut byte = 0;
+        // Perform initial wrap of bit cursor if necessary
+        let mut cursor = self.wrap_cursor(index);
+
+        for _ in 0..8 {
+            // Bump cursor to the next clock bit if necessary
+            cursor += !self.clock_map[cursor] as usize;
+
+            // The bit cursor should always be aligned to a clock bit.
+            // So retrieve the next bit which is the data bit, then point to the next clock.
+            let mut data_idx = cursor + 1;
+            if data_idx >= (self.bit_vec.len() - self.track_padding) {
+                // Wrap around to the beginning of the track
+                data_idx = 0 + !self.clock_map[0] as usize;
+            }
+
+            if data_idx >= self.weak_mask.len() {
+                log::error!(
+                    "read_decoded_byte(): data index out of bounds: {} vs {}",
+                    data_idx,
+                    self.weak_mask.len()
+                );
+                return None;
+            }
+
+            let decoded_bit = if !self.weak_mask.is_empty() && self.weak_mask[data_idx] {
+                // Weak bits return random data
+                rand::random()
+            } else {
+                self.bit_vec[data_idx]
+            };
+
+            let new_cursor = data_idx + 1;
+            if new_cursor >= (self.bit_vec.len() - self.track_padding) {
+                // Wrap around to the beginning of the track
+                cursor = 0;
+            } else {
+                cursor = new_cursor;
+            }
+
+            byte = (byte << 1) | decoded_bit as u8;
         }
         Some(byte)
     }
@@ -378,6 +427,17 @@ impl MfmCodec {
         }
     }
 
+    #[inline]
+    pub fn wrap_cursor(&self, cursor: usize) -> usize {
+        let mut new_cursor = cursor;
+
+        while new_cursor >= self.bit_vec.len() {
+            new_cursor -= self.bit_vec.len();
+        }
+
+        new_cursor
+    }
+
     pub fn set_weak_mask(&mut self, weak_mask: BitVec) -> Result<()> {
         if weak_mask.len() != self.bit_vec.len() {
             return Err(Error::new(
@@ -516,8 +576,9 @@ impl Iterator for MfmCodec {
     type Item = bool;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.bit_cursor >= (self.bit_vec.len() - 1) {
-            return None;
+        while self.bit_cursor >= (self.bit_vec.len() - 1) {
+            self.bit_cursor = self.bit_cursor.saturating_sub(self.bit_vec.len());
+            log::debug!("next(): bit cursor wrapped. new cursor: {}", self.bit_cursor);
         }
 
         // The bit cursor should always be aligned to a clock bit.

@@ -182,6 +182,7 @@ fn main() {
         }
     };
 
+    println!("Reading disk image: {}", opts.in_filename.display());
     println!("Detected disk image type: {}", disk_image_type);
 
     let disk = match DiskImage::load(&mut reader, Some(opts.in_filename)) {
@@ -363,11 +364,11 @@ fn main() {
                     _ => panic!("Invalid quadrant"),
                 };
 
-                pixmap_pool[quadrant as usize]
-                    .lock()
-                    .unwrap()
-                    .save_png(format!("metadata_quadrant_{}.png", quadrant))
-                    .unwrap();
+                // pixmap_pool[quadrant as usize]
+                //     .lock()
+                //     .unwrap()
+                //     .save_png(format!("metadata_quadrant_{}.png", quadrant))
+                //     .unwrap();
 
                 let paint = match opts.data {
                     true => PixmapPaint {

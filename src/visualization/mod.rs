@@ -260,12 +260,12 @@ pub fn render_track_data(
                         ResolutionType::Byte => {
                             // Calculate the byte value
                             let byte_value = match decode {
-                                false => rtracks[track_index].read_byte(bit_index).unwrap_or_default(),
+                                false => rtracks[track_index].read_raw_byte(bit_index).unwrap_or_default(),
                                 true => {
                                     // Only render bits in 16-bit steps.
                                     let decoded_bit_idx = (bit_index) & !0xF;
                                     rtracks[track_index]
-                                        .read_decoded_byte(decoded_bit_idx)
+                                        .read_decoded_byte2(decoded_bit_idx)
                                         .unwrap_or_default()
                                 }
                             };

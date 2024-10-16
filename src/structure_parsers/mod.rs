@@ -182,36 +182,24 @@ pub trait DiskStructureParser {
     /// into the track.
     /// The bit offset of the pattern is returned if found, otherwise None.
     /// The pattern length is limited to 8 characters.
-    fn find_data_pattern(
-        track: &Box<dyn TrackDataStreamT<Output = bool>>,
-        pattern: &[u8],
-        offset: usize,
-    ) -> Option<usize>;
-    fn find_next_marker(
-        track: &Box<dyn TrackDataStreamT<Output = bool>>,
-        offset: usize,
-    ) -> Option<(DiskStructureMarker, usize)>;
+    fn find_data_pattern(track: &TrackDataStream, pattern: &[u8], offset: usize) -> Option<usize>;
+    fn find_next_marker(track: &TrackDataStream, offset: usize) -> Option<(DiskStructureMarker, usize)>;
 
     fn find_marker(
-        track: &Box<(dyn TrackDataStreamT<Output = bool> + 'static)>,
+        track: &TrackDataStream,
         marker: DiskStructureMarker,
         offset: usize,
         limit: Option<usize>,
     ) -> Option<(usize, u16)>;
-    fn find_element(
-        track: &Box<(dyn TrackDataStreamT<Output = bool> + 'static)>,
-        element: DiskStructureElement,
-        offset: usize,
-    ) -> Option<usize>;
+    fn find_element(track: &TrackDataStream, element: DiskStructureElement, offset: usize) -> Option<usize>;
 
-    fn scan_track_markers(track: &Box<(dyn TrackDataStreamT<Output = bool> + 'static)>)
-        -> Vec<DiskStructureMarkerItem>;
+    fn scan_track_markers(track: &TrackDataStream) -> Vec<DiskStructureMarkerItem>;
     fn scan_track_metadata(
-        track: &mut Box<(dyn TrackDataStreamT<Output = bool> + 'static)>,
+        track: &mut TrackDataStream,
         markers: Vec<DiskStructureMarkerItem>,
     ) -> Vec<DiskStructureMetadataItem>;
 
     fn create_clock_map(markers: &[DiskStructureMarkerItem], clock_map: &mut BitVec);
 
-    fn crc16(track: &mut Box<(dyn TrackDataStreamT<Output = bool> + 'static)>, start: usize, end: usize) -> u16;
+    fn crc16(track: &mut TrackDataStream, start: usize, end: usize) -> u16;
 }

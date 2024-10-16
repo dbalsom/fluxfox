@@ -158,6 +158,24 @@ pub enum DiskDataEncoding {
     Gcr,
 }
 
+impl DiskDataEncoding {
+    pub fn byte_size(&self) -> usize {
+        match self {
+            DiskDataEncoding::Fm => 16,
+            DiskDataEncoding::Mfm => 16,
+            DiskDataEncoding::Gcr => 0,
+        }
+    }
+
+    pub fn marker_size(&self) -> usize {
+        match self {
+            DiskDataEncoding::Fm => 64,
+            DiskDataEncoding::Mfm => 64,
+            DiskDataEncoding::Gcr => 0,
+        }
+    }
+}
+
 impl Display for DiskDataEncoding {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {

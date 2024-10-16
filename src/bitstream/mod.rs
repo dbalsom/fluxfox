@@ -51,8 +51,9 @@ pub trait TrackCodec {
     fn has_weak_bits(&self) -> bool;
     fn weak_data(&self) -> Vec<u8>;
     fn set_track_padding(&mut self);
-    fn read_byte(&self, index: usize) -> Option<u8>;
+    fn read_raw_byte(&self, index: usize) -> Option<u8>;
     fn read_decoded_byte(&self, index: usize) -> Option<u8>;
+    fn read_decoded_byte2(&self, index: usize) -> Option<u8>;
     fn write_buf(&mut self, buf: &[u8], offset: usize) -> Option<usize>;
     fn write_raw_buf(&mut self, buf: &[u8], offset: usize) -> usize;
     fn encode(&self, data: &[u8], prev_bit: bool, encoding_type: EncodingVariant) -> BitVec;
@@ -66,4 +67,4 @@ pub trait TrackCodec {
 pub trait TrackDataStreamT: TrackCodec + Read + Seek + Index<usize> {}
 
 //pub type TrackDataStream = Box<dyn TrackDataStreamT<Item = bool, Output = bool>>;
-pub type TrackDataStream = Box<dyn TrackDataStreamT<Output = bool>>;
+pub type TrackDataStream = Box<dyn TrackDataStreamT<Output = bool> + Send + Sync>;
