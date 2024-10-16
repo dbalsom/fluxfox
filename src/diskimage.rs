@@ -502,6 +502,9 @@ impl DiskImage {
                         build_image = KfxFormat::load_image(&mut buf_reader, Some(build_image))?;
                     }
 
+                    let ch = DiskCh::new(build_image.track_map[0].len() as u16, build_image.track_map.len() as u8);
+                    build_image.descriptor.geometry = ch;
+
                     Ok(build_image)
                 } else {
                     Err(DiskImageError::ParameterError)
@@ -680,8 +683,9 @@ impl DiskImage {
         }
 
         log::debug!(
-            "add_track_bitstream(): adding {:?} track of {} bits",
+            "add_track_bitstream(): adding {:?} track {}, {} bits",
             encoding,
+            ch,
             bitcell_ct.unwrap_or(data.len() * 8)
         );
 
@@ -705,7 +709,7 @@ impl DiskImage {
                     // );
                     let weak_bitvec = codec.create_weak_bit_mask(MfmCodec::WEAK_BIT_RUN);
                     if weak_bitvec.any() {
-                        log::trace!(
+                        log::debug!(
                             "add_track_bitstream(): Detected {} weak bits in MFM bitstream.",
                             weak_bitvec.count_ones()
                         );
@@ -994,7 +998,7 @@ impl DiskImage {
                     return Err(DiskImageError::ParameterError);
                 }
 
-                let stream: Box<dyn TrackDataStreamT<Output = bool>> = match encoding {
+                let stream: TrackDataStream = match encoding {
                     DiskDataEncoding::Mfm => Box::new(MfmCodec::new(BitVec::from_elem(bitcells, false), None, None)),
                     DiskDataEncoding::Fm => Box::new(FmCodec::new(BitVec::from_elem(bitcells, false), None, None)),
                     _ => return Err(DiskImageError::UnsupportedFormat),
