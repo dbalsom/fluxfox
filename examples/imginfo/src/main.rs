@@ -91,7 +91,7 @@ fn main() {
 
     println!("Detected disk image type: {}", disk_image_type);
 
-    let mut disk = match DiskImage::load(&mut reader) {
+    let mut disk = match DiskImage::load(&mut reader, Some(opts.filename)) {
         Ok(disk) => disk,
         Err(e) => {
             eprintln!("Error loading disk image: {}", e);
@@ -100,14 +100,29 @@ fn main() {
     };
 
     println!("Disk image info:");
-    println!("--------------------------------------------------------------------------------");
+    println!("{}", "-".repeat(79));
     let _ = disk.dump_info(&mut std::io::stdout());
     println!();
 
+    println!("Disk consistency report:");
+    println!("{}", "-".repeat(79));
+    let _ = disk.dump_consistency(&mut std::io::stdout());
+
+    println!("Image can be represented by the following formats with write support:");
+    let formats = disk.compatible_formats(true);
+    for format in formats {
+        println!("  {} [{}]", format.0, format.1.join(", "));
+    }
+
     if let Some(bootsector) = disk.boot_sector() {
-        println!("Boot sector detected:");
-        println!("--------------------------------------------------------------------------------");
-        let _ = bootsector.dump_bpb(&mut std::io::stdout());
+        println!("Disk has a boot sector");
+        if bootsector.has_valid_bpb() {
+            println!("Boot sector with valid BPB detected:");
+            println!("{}", "-".repeat(79));
+            let _ = bootsector.dump_bpb(&mut std::io::stdout());
+        } else {
+            println!("Boot sector has an invalid BPB");
+        }
     }
     println!();
 

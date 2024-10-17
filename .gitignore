@@ -21,6 +21,10 @@ tests/images/*
 # Output images
 *.png
 *.jpg
+*.csv
+
+# scripts
+*.py
 
 # Allow doc images
 !/doc/img/*
@@ -29,3 +33,4 @@ tests/images/*
 
 # Added by cargo
 /target
+/resources/bootsector2.asm

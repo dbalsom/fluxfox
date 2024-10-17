@@ -40,6 +40,7 @@
 pub mod system34;
 
 use crate::bitstream::TrackDataStream;
+use crate::bitstream::TrackDataStreamT;
 use crate::chs::DiskChsn;
 use crate::structure_parsers::system34::{System34Element, System34Marker};
 use bit_vec::BitVec;
@@ -94,12 +95,8 @@ impl DiskStructureMetadata {
     pub fn get_sector_ids(&self) -> Vec<DiskChsn> {
         let mut sector_ids = Vec::new();
 
-        if self.items.is_empty() {
-            log::error!("get_sector_ids(): items is empty");
-        }
-
         for item in &self.items {
-            if let DiskStructureElement::System34(System34Element::SectorHeader(chsn, true)) = item.elem_type {
+            if let DiskStructureElement::System34(System34Element::SectorHeader { chsn, .. }) = item.elem_type {
                 sector_ids.push(chsn);
             }
         }
@@ -111,7 +108,7 @@ impl DiskStructureMetadata {
 #[derive(Copy, Clone, Debug)]
 pub struct DiskStructureMarkerItem {
     pub(crate) elem_type: DiskStructureMarker,
-    start: usize,
+    pub(crate) start: usize,
 }
 
 /// A DiskStructureMetadataItem represents a single element of a disk structure, such as an
@@ -193,10 +190,10 @@ pub trait DiskStructureParser {
         marker: DiskStructureMarker,
         offset: usize,
         limit: Option<usize>,
-    ) -> Option<usize>;
+    ) -> Option<(usize, u16)>;
     fn find_element(track: &TrackDataStream, element: DiskStructureElement, offset: usize) -> Option<usize>;
 
-    fn scan_track_markers(track: &mut TrackDataStream) -> Vec<DiskStructureMarkerItem>;
+    fn scan_track_markers(track: &TrackDataStream) -> Vec<DiskStructureMarkerItem>;
     fn scan_track_metadata(
         track: &mut TrackDataStream,
         markers: Vec<DiskStructureMarkerItem>,

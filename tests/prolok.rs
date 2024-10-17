@@ -1,7 +1,5 @@
 mod common;
 
-use fluxfox::bitstream::mfm;
-use fluxfox::bitstream::mfm::encode_mfm;
 use fluxfox::diskimage::RwSectorScope;
 use fluxfox::{DiskChs, DiskImage, DiskImageError, DiskImageFormat, ImageParser};
 
@@ -29,6 +27,7 @@ fn test_prolok() {
         };
 
     let sector_data = read_sector_result.read_buf;
+    let original_data = sector_data.clone();
 
     println!(
         "Read sector data: {:02X?} of length {}",
@@ -38,25 +37,12 @@ fn test_prolok() {
 
     assert_eq!(sector_data.len(), 512);
 
-    let original_data = sector_data.clone();
-
-    let encoded_bits = encode_mfm(&sector_data, false, mfm::MfmEncodingType::Data);
-
-    let encoded_bytes = encoded_bits.to_bytes();
-
-    let idx_range: Vec<u8> = (0..16).collect();
-    for pair in idx_range.chunks_exact(2) {
-        println!(
-            "Encoded byte: {:08b}{:08b}",
-            encoded_bytes[pair[0] as usize], encoded_bytes[pair[1] as usize]
-        );
-    }
-
-    let _write_sector_result = match tc_image.write_sector(
+    match tc_image.write_sector(
         DiskChs::from((39, 0, 5)),
         None,
         &sector_data,
         RwSectorScope::DataOnly,
+        false,
         false,
     ) {
         Ok(result) => result,

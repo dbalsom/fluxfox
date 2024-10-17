@@ -59,6 +59,9 @@ pub mod structure_parsers;
 mod trackdata;
 pub mod util;
 
+mod copy_protection;
+mod fluxstream;
+mod image_writer;
 #[cfg(feature = "viz")]
 pub mod visualization;
 
@@ -80,7 +83,9 @@ type FoxHashSet<T, S = RandomState> = std::collections::HashSet<T, S>;
 #[derive(Debug, Error)]
 pub enum DiskImageError {
     #[error("An IO error occurred reading or writing the disk image")]
-    IoError,
+    IoError(String),
+    #[error("A filesystem error occurred or path not found")]
+    FsError,
     #[error("Unknown disk image format")]
     UnknownFormat,
     #[error("Unsupported disk image format for requested operation")]
@@ -91,22 +96,48 @@ pub enum DiskImageError {
     FormatParseError,
     #[error("The disk image format parser determined the image was corrupt")]
     ImageCorruptError,
-    #[error("The requested sector could not be found")]
+    #[error("The requested head or cylinder could not be found")]
     SeekError,
+    #[error("An error occurred addressing the track bitstream")]
+    BitstreamError,
+    #[error("The requested sector ID could not be found")]
+    IdError,
     #[error("No sectors were found on the current track")]
     DataError,
     #[error("A CRC error was detected in the disk image")]
     CrcError,
-    #[error("Invalid parameters were specified to a library function")]
+    #[error("An invalid function parameter was supplied")]
     ParameterError,
     #[error("Write-protect status prevents writing to the disk image")]
     WriteProtectError,
 }
 
+// Manually implement `From<io::Error>` for `DiskImageError`
+impl From<io::Error> for DiskImageError {
+    fn from(err: io::Error) -> Self {
+        DiskImageError::IoError(err.to_string()) // You could convert in a different way
+    }
+}
+
+// Manually implement `From<binrw::Error>` for `DiskImageError`
+impl From<binrw::Error> for DiskImageError {
+    fn from(err: binrw::Error) -> Self {
+        DiskImageError::IoError(err.to_string()) // Again, you could convert differently
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum DiskVisualizationError {
+    #[error("An invalid parameter was supplied")]
+    InvalidParameter,
+    #[error("The disk image is not a valid format for visualization")]
+    NoTracks,
+}
+
 /// The resolution of the data in the disk image.
 /// Currently only ByteStream and BitStream are implemented.
 #[repr(usize)]
-#[derive(Copy, Clone, Default, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Default, Debug, PartialEq, Eq, Hash)]
 pub enum DiskDataResolution {
     #[default]
     ByteStream = 0,
@@ -125,6 +156,24 @@ pub enum DiskDataEncoding {
     Mfm,
     #[doc = "Group Code Recording encoding. Used by Apple and Macintosh diskettes."]
     Gcr,
+}
+
+impl DiskDataEncoding {
+    pub fn byte_size(&self) -> usize {
+        match self {
+            DiskDataEncoding::Fm => 16,
+            DiskDataEncoding::Mfm => 16,
+            DiskDataEncoding::Gcr => 0,
+        }
+    }
+
+    pub fn marker_size(&self) -> usize {
+        match self {
+            DiskDataEncoding::Fm => 64,
+            DiskDataEncoding::Mfm => 64,
+            DiskDataEncoding::Gcr => 0,
+        }
+    }
 }
 
 impl Display for DiskDataEncoding {
@@ -317,6 +366,11 @@ impl Display for DiskRpm {
 }
 
 pub use crate::chs::{DiskCh, DiskChs, DiskChsn};
-pub use crate::diskimage::{DiskImage, DiskImageFormat};
+pub use crate::diskimage::{DiskImage, DiskImageFormat, SectorMapEntry};
 pub use crate::file_parsers::{format_from_ext, supported_extensions, ImageParser, ParserWriteCompatibility};
+pub use crate::image_builder::ImageBuilder;
+pub use crate::image_writer::ImageWriter;
 pub use crate::standard_format::StandardFormat;
+pub use crate::trackdata::TrackConsistency;
+
+pub type DiskSectorMap = Vec<Vec<Vec<SectorMapEntry>>>;

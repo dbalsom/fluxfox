@@ -25,7 +25,9 @@ sha1_smol = "1.0.1"
 # Dependencies for optional features
 image = { version = "0.25", features = ["png"], optional = true }
 tiny-skia = { version = "0.11", optional = true }
-zip = { version = "2.1.3", optional = true }
+zip = { version = "2.1.3", default-features = false, features = ["bzip2", "deflate", "deflate64", "lzma", "time", "zstd"], optional = true }
+# Match version of flate2 used by zip
+flate2 = { version = "^1.0.30", optional = true }
 
 [dev-dependencies]
 sha1 = "0.10.6"
@@ -40,9 +42,10 @@ members = [
 ]
 
 [features]
-default = ["viz", "zip"]
+default = ["viz", "zip", "mfi"]
 viz = ["dep:tiny-skia", "dep:image"]
 zip = ["dep:zip"]
+mfi = ["dep:flate2"]
 
 [lints.clippy]
 too-many-arguments = "allow"

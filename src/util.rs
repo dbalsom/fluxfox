@@ -46,7 +46,7 @@ pub(crate) fn read_ascii<T: Read>(source: &mut T, max_len: Option<usize>) -> (Op
     for (i, byte) in byte_iter.enumerate() {
         match byte {
             Ok(b) => {
-                if b == ASCII_EOF || !b.is_ascii() {
+                if b < 32 || b == ASCII_EOF || !b.is_ascii() {
                     terminating_byte = b;
                     break;
                 } else {
@@ -68,8 +68,10 @@ pub(crate) fn read_ascii<T: Read>(source: &mut T, max_len: Option<usize>) -> (Op
     }
 }
 
-/// Helper function to calculate a CRC-CCITT 16-bit checksum over a byte slice.
-pub fn crc_ccitt(data: &[u8], start: Option<u16>) -> u16 {
+/// Calculate a 16-bit checksum over a byte slice.
+/// Note: previously attributed to CRC-CCITT.
+/// See: https://reveng.sourceforge.io/crc-catalogue/16.htm
+pub fn crc_ibm_3740(data: &[u8], start: Option<u16>) -> u16 {
     const POLY: u16 = 0x1021; // Polynomial x^16 + x^12 + x^5 + 1
     let mut crc: u16 = start.unwrap_or(0xFFFF);
 
@@ -86,7 +88,10 @@ pub fn crc_ccitt(data: &[u8], start: Option<u16>) -> u16 {
     crc
 }
 
-pub fn crc_ccitt_byte(byte: u8, crc: u16) -> u16 {
+/// Calculate a 16-bit checksum one byte at a time.
+/// Note: previously attributed to CRC-CCITT.
+/// See: https://reveng.sourceforge.io/crc-catalogue/16.htm
+pub fn crc_ibm_3740_byte(byte: u8, crc: u16) -> u16 {
     const POLY: u16 = 0x1021; // Polynomial x^16 + x^12 + x^5 + 1
     let mut crc = crc;
 

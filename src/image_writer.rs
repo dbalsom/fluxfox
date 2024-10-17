@@ -24,32 +24,58 @@
 
     --------------------------------------------------------------------------
 
-    src/containers/mod.rs
+    src/image_writer.rs
 
-    A module supporting disk image container formats.
-    Currently only ZIP is expected to be needed, but other container formats
-    could be added in the future.
+    Implements an output helper for writing disk images to a file.
 
 */
-use crate::DiskImageFormat;
-use std::fmt::{Display, Formatter, Result};
+use crate::io::Cursor;
+use crate::{DiskImage, DiskImageError, DiskImageFormat, ImageParser};
+use std::path::PathBuf;
 
-#[cfg(feature = "zip")]
-pub mod zip;
-
-#[derive(Copy, Clone, Debug)]
-pub enum DiskImageContainer {
-    Raw(DiskImageFormat),
-    Zip(DiskImageFormat),
-    KryofluxSet,
+#[derive(Debug, Default)]
+pub struct ImageWriter {
+    pub path: Option<PathBuf>,
+    pub format: Option<DiskImageFormat>,
 }
 
-impl Display for DiskImageContainer {
-    fn fmt(&self, f: &mut Formatter) -> Result {
-        match self {
-            DiskImageContainer::Raw(fmt) => write!(f, "{:?}", fmt),
-            DiskImageContainer::Zip(fmt) => write!(f, "Zipped {:?}", fmt),
-            DiskImageContainer::KryofluxSet => write!(f, "Kryoflux Image Set"),
+impl ImageWriter {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn with_format(self, format: DiskImageFormat) -> Self {
+        Self {
+            format: Some(format),
+            ..self
         }
+    }
+
+    pub fn with_path(self, path: PathBuf) -> Self {
+        Self {
+            path: Some(path),
+            ..self
+        }
+    }
+
+    pub fn write(self, image: &mut DiskImage) -> Result<(), DiskImageError> {
+        if self.path.is_none() {
+            return Err(DiskImageError::ParameterError);
+        }
+        if self.format.is_none() {
+            return Err(DiskImageError::ParameterError);
+        }
+
+        let path = self.path.unwrap();
+        let format = self.format.unwrap();
+
+        let mut buf = Cursor::new(Vec::with_capacity(1_000_000));
+
+        format.save_image(image, &mut buf)?;
+
+        let data = buf.into_inner();
+        std::fs::write(path, data)?;
+
+        Ok(())
     }
 }

@@ -31,7 +31,7 @@
 */
 
 use crate::boot_sector::bpb::{BiosParameterBlock2, BiosParameterBlock3, BPB_OFFSET};
-use crate::io::{Cursor, Read, ReadSeek, ReadWriteSeek, Seek, SeekFrom, Write};
+use crate::io::{Cursor, ReadSeek, ReadWriteSeek, Seek, SeekFrom, Write};
 use crate::{DiskImageError, StandardFormat};
 use binrw::{binrw, BinRead, BinWrite};
 
@@ -51,24 +51,20 @@ pub struct CreatorString {
 impl BootSector {
     pub fn new<T: ReadSeek>(buffer: &mut T) -> Result<Self, DiskImageError> {
         let mut sector_buf = [0; 512];
-        buffer.seek(SeekFrom::Start(0)).map_err(|_e| DiskImageError::IoError)?;
+        buffer.seek(SeekFrom::Start(0))?;
         // Save a copy of the boot sector internally.
-        buffer
-            .read_exact(&mut sector_buf)
-            .map_err(|_e| DiskImageError::IoError)?;
+        buffer.read_exact(&mut sector_buf)?;
 
         // Seek to and read the BPB. Currently, we only support versions 2 and 3.
-        buffer
-            .seek(SeekFrom::Start(BPB_OFFSET))
-            .map_err(|_e| DiskImageError::IoError)?;
+        buffer.seek(SeekFrom::Start(BPB_OFFSET))?;
 
-        let bpb2 = BiosParameterBlock2::read(buffer).map_err(|_e| DiskImageError::IoError)?;
-        let bpb3 = BiosParameterBlock3::read(buffer).map_err(|_e| DiskImageError::IoError)?;
+        let bpb2 = BiosParameterBlock2::read(buffer)?;
+        let bpb3 = BiosParameterBlock3::read(buffer)?;
 
         // Seek to the end and check the marker.
-        buffer.seek(SeekFrom::End(-2)).map_err(|_e| DiskImageError::IoError)?;
+        buffer.seek(SeekFrom::End(-2))?;
         let mut marker = [0; 2];
-        buffer.read_exact(&mut marker).map_err(|_e| DiskImageError::IoError)?;
+        buffer.read_exact(&mut marker)?;
 
         Ok(BootSector {
             bpb2,
@@ -93,7 +89,7 @@ impl BootSector {
             Ok(_) => {}
             Err(e) => {
                 eprintln!("Error seeking to creator offset: {:?}", e);
-                return Err(DiskImageError::IoError);
+                return Err(e)?;
             }
         }
 
@@ -103,25 +99,21 @@ impl BootSector {
 
         //let creator_string = CreatorString { creator: *creator };
 
-        let creator_string = CreatorString::read(&mut self.sector_buf).map_err(|_e| DiskImageError::IoError)?;
+        let creator_string = CreatorString::read(&mut self.sector_buf)?;
 
         if creator_string.bytes != "fluxfox ".as_bytes() {
             // We can only set the creator if we're using the included boot sector, otherwise we'd overwrite some random data.
             return Err(DiskImageError::IncompatibleImage);
         }
 
-        self.sector_buf
-            .seek(SeekFrom::Start(creator_offset))
-            .map_err(|_e| DiskImageError::IoError)?;
+        self.sector_buf.seek(SeekFrom::Start(creator_offset))?;
 
         let new_creator_string = CreatorString { bytes: *creator };
-        new_creator_string
-            .write(&mut self.sector_buf)
-            .map_err(|_e| DiskImageError::IoError)?;
+        new_creator_string.write(&mut self.sector_buf)?;
         Ok(())
     }
 
-    pub(crate) fn has_valid_bpb(&self) -> bool {
+    pub fn has_valid_bpb(&self) -> bool {
         self.bpb2.is_valid()
     }
 
@@ -133,16 +125,10 @@ impl BootSector {
         self.bpb3 = BiosParameterBlock3::from(format);
 
         // Update the internal buffer.
-        self.sector_buf
-            .seek(SeekFrom::Start(BPB_OFFSET))
-            .map_err(|_e| DiskImageError::IoError)?;
+        self.sector_buf.seek(SeekFrom::Start(BPB_OFFSET))?;
 
-        self.bpb2
-            .write(&mut self.sector_buf)
-            .map_err(|_e| DiskImageError::IoError)?;
-        self.bpb3
-            .write(&mut self.sector_buf)
-            .map_err(|_e| DiskImageError::IoError)?;
+        self.bpb2.write(&mut self.sector_buf)?;
+        self.bpb3.write(&mut self.sector_buf)?;
 
         Ok(())
     }
@@ -154,12 +140,10 @@ impl BootSector {
     /// Write a new BPB to the provided sector buffer based on the specified StandardFormat.
     /// StandardFormat must not be Invalid!
     pub(crate) fn write_bpb_to_buffer<T: ReadWriteSeek>(&mut self, buffer: &mut T) -> Result<(), DiskImageError> {
-        buffer
-            .seek(SeekFrom::Start(BPB_OFFSET))
-            .map_err(|_e| DiskImageError::IoError)?;
+        buffer.seek(SeekFrom::Start(BPB_OFFSET))?;
 
-        self.bpb2.write(buffer).map_err(|_e| DiskImageError::IoError)?;
-        self.bpb3.write(buffer).map_err(|_e| DiskImageError::IoError)?;
+        self.bpb2.write(buffer)?;
+        self.bpb3.write(buffer)?;
         Ok(())
     }
 

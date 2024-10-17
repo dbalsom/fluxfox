@@ -25,157 +25,46 @@
     --------------------------------------------------------------------------
 */
 
+pub mod fm;
 pub mod mfm;
-pub mod raw;
 
-use crate::bitstream::mfm::MfmCodec;
-use crate::bitstream::raw::RawCodec;
 use crate::io::{Read, Seek};
-use crate::EncodingPhase;
+use crate::{DiskDataEncoding, EncodingPhase};
 use bit_vec::BitVec;
 use std::ops::Index;
 
-pub trait TrackDataStreamT: Iterator + Seek + Index<usize> {}
+pub enum EncodingVariant {
+    Data,
+    AddressMark,
+}
+pub trait TrackCodec {
+    fn encoding(&self) -> DiskDataEncoding;
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool;
+    fn replace(&mut self, new_bits: BitVec);
+    fn data(&self) -> Vec<u8>;
+    fn set_clock_map(&mut self, clock_map: BitVec);
+    fn clock_map(&self) -> &BitVec;
+    fn clock_map_mut(&mut self) -> &mut BitVec;
+    fn get_sync(&self) -> Option<EncodingPhase>;
+    fn weak_mask(&self) -> &BitVec;
+    fn has_weak_bits(&self) -> bool;
+    fn weak_data(&self) -> Vec<u8>;
+    fn set_track_padding(&mut self);
+    fn read_raw_byte(&self, index: usize) -> Option<u8>;
+    fn read_decoded_byte(&self, index: usize) -> Option<u8>;
+    fn read_decoded_byte2(&self, index: usize) -> Option<u8>;
+    fn write_buf(&mut self, buf: &[u8], offset: usize) -> Option<usize>;
+    fn write_raw_buf(&mut self, buf: &[u8], offset: usize) -> usize;
+    fn encode(&self, data: &[u8], prev_bit: bool, encoding_type: EncodingVariant) -> BitVec;
+    fn find_marker(&self, marker: u64, mask: Option<u64>, start: usize, limit: Option<usize>) -> Option<(usize, u16)>;
 
-#[derive(Debug)]
-pub enum TrackDataStream {
-    Raw(RawCodec),
-    Mfm(MfmCodec),
-    Fm(BitVec),
-    Gcr(BitVec),
+    fn debug_marker(&self, index: usize) -> String;
+    fn debug_decode(&self, index: usize) -> String;
 }
 
-impl Iterator for TrackDataStream {
-    type Item = bool;
+//pub trait TrackDataStreamT: TrackCodec + Iterator + Read + Seek + Index<usize> {}
+pub trait TrackDataStreamT: TrackCodec + Read + Seek + Index<usize> {}
 
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            TrackDataStream::Raw(data) => data.next(),
-            TrackDataStream::Mfm(data) => data.next(),
-            _ => None,
-        }
-    }
-}
-
-impl Index<usize> for TrackDataStream {
-    type Output = bool;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        match self {
-            TrackDataStream::Raw(data) => &data[index],
-            TrackDataStream::Mfm(data) => &data[index],
-            _ => &false,
-        }
-    }
-}
-
-impl TrackDataStream {
-    pub fn len(&self) -> usize {
-        match self {
-            TrackDataStream::Raw(data) => data.len(),
-            TrackDataStream::Mfm(data) => data.len(),
-            _ => 0,
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        match self {
-            TrackDataStream::Raw(data) => data.is_empty(),
-            TrackDataStream::Mfm(data) => data.is_empty(),
-            _ => true,
-        }
-    }
-
-    pub fn replace(&mut self, new_bits: BitVec) {
-        match self {
-            TrackDataStream::Raw(data) => *data = RawCodec::new(new_bits, None),
-            TrackDataStream::Mfm(data) => *data = MfmCodec::new(new_bits, None, None),
-            _ => {}
-        }
-    }
-
-    pub fn data(&self) -> Vec<u8> {
-        match self {
-            TrackDataStream::Raw(_data) => panic!("Unsupported operation"),
-            TrackDataStream::Mfm(data) => {
-                //let data_len = data.len() / 8;
-                data.data()
-            }
-            _ => panic!("Unsupported operation"),
-        }
-    }
-
-    pub fn set_clock_map(&mut self, clock_map: BitVec) {
-        match self {
-            TrackDataStream::Mfm(data) => data.set_clock_map(clock_map),
-            _ => {}
-        }
-    }
-
-    pub fn clock_map_mut(&mut self) -> Option<&mut BitVec> {
-        match self {
-            TrackDataStream::Mfm(data) => Some(data.clock_map_mut()),
-            _ => None,
-        }
-    }
-
-    pub fn get_sync(&self) -> Option<EncodingPhase> {
-        match self {
-            TrackDataStream::Mfm(data) => data.get_sync(),
-            _ => None,
-        }
-    }
-
-    pub fn get_weak_mask(&self) -> Option<&BitVec> {
-        match self {
-            TrackDataStream::Mfm(data) => Some(data.get_weak_mask()),
-            _ => None,
-        }
-    }
-
-    pub fn set_track_padding(&mut self) {
-        match self {
-            TrackDataStream::Mfm(data) => data.set_track_padding(),
-            _ => {}
-        }
-    }
-
-    pub fn read_byte(&self, index: usize) -> Option<u8> {
-        match self {
-            TrackDataStream::Raw(data) => data.read_byte(index),
-            TrackDataStream::Mfm(data) => data.read_byte(index),
-            _ => None,
-        }
-    }
-
-    pub fn read_decoded_byte(&self, index: usize) -> Option<u8> {
-        match self {
-            TrackDataStream::Raw(data) => data.read_byte(index),
-            TrackDataStream::Mfm(data) => data.read_decoded_byte(index),
-            _ => None,
-        }
-    }
-
-    pub fn read_exact(&mut self, buf: &mut [u8]) -> Option<usize> {
-        match self {
-            TrackDataStream::Raw(data) => data.read_exact(buf).ok().map(|_| buf.len()),
-            TrackDataStream::Mfm(data) => data.read_exact(buf).ok().map(|_| buf.len()),
-            _ => None,
-        }
-    }
-
-    pub fn write_buf(&mut self, buf: &[u8], offset: usize) -> Option<usize> {
-        match self {
-            TrackDataStream::Raw(data) => data.write_buf(buf, offset).ok().map(|_| buf.len()),
-            TrackDataStream::Mfm(data) => data.write_buf(buf, offset).ok().map(|_| buf.len()),
-            _ => None,
-        }
-    }
-
-    pub fn debug_marker(&self, index: usize) -> String {
-        match self {
-            TrackDataStream::Mfm(data) => data.debug_marker(index),
-            _ => String::new(),
-        }
-    }
-}
+//pub type TrackDataStream = Box<dyn TrackDataStreamT<Item = bool, Output = bool>>;
+pub type TrackDataStream = Box<dyn TrackDataStreamT<Output = bool> + Send + Sync>;

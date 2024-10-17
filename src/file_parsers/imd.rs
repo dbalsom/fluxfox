@@ -134,12 +134,12 @@ impl ImdFormat {
     }
 
     pub(crate) fn can_write(_image: &DiskImage) -> ParserWriteCompatibility {
-        // TODO: Determine what data representations would lead to data loss for IMD.
-        ParserWriteCompatibility::Ok
+        ParserWriteCompatibility::UnsupportedFormat
     }
 
     pub(crate) fn load_image<RWS: ReadSeek>(mut image: RWS) -> Result<DiskImage, DiskImageError> {
         let mut disk_image = DiskImage::default();
+        disk_image.set_source_format(DiskImageFormat::ImageDisk);
 
         // Assign the disk geometry or return error.
         let _raw_len = get_length(&mut image).map_err(|_e| DiskImageError::UnknownFormat)? as usize;
@@ -204,26 +204,20 @@ impl ImdFormat {
             // Keep a set of heads seen.
             heads_seen.insert(track_header.h());
 
-            image
-                .read_exact(&mut sector_numbers)
-                .map_err(|_e| DiskImageError::IoError)?;
+            image.read_exact(&mut sector_numbers)?;
 
             if track_header.has_cylinder_map() {
-                image
-                    .read_exact(&mut cylinder_map)
-                    .map_err(|_e| DiskImageError::IoError)?;
+                image.read_exact(&mut cylinder_map)?;
             }
 
             if track_header.has_head_map() {
-                image.read_exact(&mut head_map).map_err(|_e| DiskImageError::IoError)?;
+                image.read_exact(&mut head_map)?;
             }
 
             // Note: This is listed as a 'proposed extension' in the IMD docs but apparently there
             // are images like this in the wild. 86box supports this extension.
             if track_header.has_sector_size_map() {
-                image
-                    .read_exact(&mut sector_size_map_u8)
-                    .map_err(|_e| DiskImageError::IoError)?;
+                image.read_exact(&mut sector_size_map_u8)?;
 
                 // Convert raw u8 to u16 values, little-endian.
                 for (i, s) in sector_size_map_u8.chunks_exact(2).enumerate() {
@@ -261,7 +255,7 @@ impl ImdFormat {
             // Read all sectors for this track.
             for s in 0..sector_numbers.len() {
                 // Read data byte marker.
-                let data_marker: u8 = image.read_le().map_err(|_e| DiskImageError::IoError)?;
+                let data_marker: u8 = image.read_le()?;
                 let sector_size = sector_size_map[s] as usize;
                 let sector_n = DiskChsn::bytes_to_n(sector_size);
 
@@ -343,7 +337,7 @@ impl ImdFormat {
             0x01 => {
                 // Normal data - sector_size bytes follow.
                 let mut data = vec![0; sector_size];
-                image.read_exact(&mut data).map_err(|_e| DiskImageError::IoError)?;
+                image.read_exact(&mut data)?;
                 Ok(ImdSectorData {
                     data,
                     deleted: false,
@@ -352,7 +346,7 @@ impl ImdFormat {
             }
             0x02 => {
                 // Compressed data: A single byte follows, repeated sector_size times.
-                let data_byte = image.read_le().map_err(|_e| DiskImageError::IoError)?;
+                let data_byte = image.read_le()?;
                 let data = vec![data_byte; sector_size];
                 Ok(ImdSectorData {
                     data,
@@ -363,7 +357,7 @@ impl ImdFormat {
             0x03 => {
                 // Normal data with 'deleted' address-mark.
                 let mut data = vec![0; sector_size];
-                image.read_exact(&mut data).map_err(|_e| DiskImageError::IoError)?;
+                image.read_exact(&mut data)?;
                 Ok(ImdSectorData {
                     data,
                     deleted: true,
@@ -373,7 +367,7 @@ impl ImdFormat {
             0x04 => {
                 // Compressed data with 'deleted' address-mark.
                 // A single byte follows, repeated sector_size times.
-                let data_byte = image.read_le().map_err(|_e| DiskImageError::IoError)?;
+                let data_byte = image.read_le()?;
                 let data = vec![data_byte; sector_size];
                 Ok(ImdSectorData {
                     data,
@@ -384,7 +378,7 @@ impl ImdFormat {
             0x05 => {
                 // Normal data with 'error' indicator.
                 let mut data = vec![0; sector_size];
-                image.read_exact(&mut data).map_err(|_e| DiskImageError::IoError)?;
+                image.read_exact(&mut data)?;
                 Ok(ImdSectorData {
                     data,
                     deleted: false,
@@ -393,7 +387,7 @@ impl ImdFormat {
             }
             0x06 => {
                 // Compressed data with 'error' indicator.
-                let data_byte = image.read_le().map_err(|_e| DiskImageError::IoError)?;
+                let data_byte = image.read_le()?;
                 let data = vec![data_byte; sector_size];
                 Ok(ImdSectorData {
                     data,

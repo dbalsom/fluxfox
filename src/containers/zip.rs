@@ -65,12 +65,12 @@ pub fn extract_first_file<T: ReadSeek>(image_io: &mut T) -> Result<Vec<u8>, Disk
 
     // Sanity check, is file < 100MB? Let's not zip-bomb ourselves.
     if file.size() > 100_000_000 {
-        return Err(DiskImageError::IoError);
+        return Err(DiskImageError::IoError("File too large".to_string()));
     }
 
     // Read the entire first file.
     let mut file_buf = Vec::new();
-    file.read_to_end(&mut file_buf).map_err(|_| DiskImageError::IoError)?;
+    file.read_to_end(&mut file_buf)?;
 
     Ok(file_buf)
 }

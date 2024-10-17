@@ -52,7 +52,8 @@ use crate::io::{ReadSeek, ReadWriteSeek};
 
 use crate::diskimage::DiskDescriptor;
 use crate::{
-    DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskRpm, DEFAULT_SECTOR_SIZE,
+    DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat, DiskRpm,
+    DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, BinRead};
 
@@ -171,12 +172,11 @@ impl TCFormat {
 
     pub(crate) fn load_image<RWS: ReadSeek>(mut image: RWS) -> Result<DiskImage, DiskImageError> {
         let mut disk_image = DiskImage::default();
+        disk_image.set_source_format(DiskImageFormat::TransCopyImage);
 
         let disk_image_size = image.seek(std::io::SeekFrom::End(0)).unwrap();
 
-        if image.seek(std::io::SeekFrom::Start(0)).is_err() {
-            return Err(DiskImageError::IoError);
-        }
+        image.seek(std::io::SeekFrom::Start(0))?;
 
         let header = if let Ok(header) = TCFileHeader::read(&mut image) {
             header

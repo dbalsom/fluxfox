@@ -45,6 +45,7 @@
 */
 use crate::diskimage::DiskDescriptor;
 use crate::{DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskDensity, DiskRpm, DEFAULT_SECTOR_SIZE};
+use std::fmt::{Display, Formatter};
 
 /// An enumeration describing the type of disk image.
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
@@ -58,6 +59,22 @@ pub enum StandardFormat {
     PcFloppy1200,
     PcFloppy1440,
     PcFloppy2880,
+}
+
+impl Display for StandardFormat {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        match self {
+            StandardFormat::Invalid => write!(f, "Invalid"),
+            StandardFormat::PcFloppy160 => write!(f, "160K 5.25\" DD"),
+            StandardFormat::PcFloppy180 => write!(f, "180K 5.25\" DD"),
+            StandardFormat::PcFloppy320 => write!(f, "320K 5.25\" DD"),
+            StandardFormat::PcFloppy360 => write!(f, "360K 5.25\" DD"),
+            StandardFormat::PcFloppy720 => write!(f, "720K 3.5\" DD"),
+            StandardFormat::PcFloppy1200 => write!(f, "1.2M 5.25\" HD"),
+            StandardFormat::PcFloppy1440 => write!(f, "1.44M 3.5\" HD"),
+            StandardFormat::PcFloppy2880 => write!(f, "2.88M 3.5\" ED"),
+        }
+    }
 }
 
 impl StandardFormat {
@@ -92,15 +109,15 @@ impl StandardFormat {
 
     pub fn get_data_rate(&self) -> DiskDataRate {
         match self {
-            StandardFormat::PcFloppy160 => DiskDataRate::Rate500Kbps,
-            StandardFormat::PcFloppy180 => DiskDataRate::Rate500Kbps,
-            StandardFormat::PcFloppy320 => DiskDataRate::Rate500Kbps,
-            StandardFormat::PcFloppy360 => DiskDataRate::Rate500Kbps,
-            StandardFormat::PcFloppy720 => DiskDataRate::Rate500Kbps,
+            StandardFormat::PcFloppy160 => DiskDataRate::Rate250Kbps,
+            StandardFormat::PcFloppy180 => DiskDataRate::Rate250Kbps,
+            StandardFormat::PcFloppy320 => DiskDataRate::Rate250Kbps,
+            StandardFormat::PcFloppy360 => DiskDataRate::Rate250Kbps,
+            StandardFormat::PcFloppy720 => DiskDataRate::Rate250Kbps,
             StandardFormat::PcFloppy1200 => DiskDataRate::Rate500Kbps,
             StandardFormat::PcFloppy1440 => DiskDataRate::Rate500Kbps,
-            StandardFormat::PcFloppy2880 => DiskDataRate::Rate500Kbps,
-            _ => DiskDataRate::Rate500Kbps,
+            StandardFormat::PcFloppy2880 => DiskDataRate::Rate1000Kbps,
+            _ => DiskDataRate::Rate250Kbps,
         }
     }
 

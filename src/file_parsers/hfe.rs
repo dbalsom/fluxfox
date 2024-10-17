@@ -214,30 +214,21 @@ impl HfeFormat {
     }
 
     pub(crate) fn can_write(_image: &DiskImage) -> ParserWriteCompatibility {
-        // TODO: Determine what data representations would lead to data loss for PSI.
-        ParserWriteCompatibility::Ok
+        ParserWriteCompatibility::UnsupportedFormat
     }
 
     pub(crate) fn load_image<RWS: ReadSeek>(mut image: RWS) -> Result<DiskImage, DiskImageError> {
         let mut disk_image = DiskImage::default();
+        disk_image.set_source_format(DiskImageFormat::HfeImage);
 
-        let image_len = image
-            .seek(std::io::SeekFrom::End(0))
-            .map_err(|_| DiskImageError::IoError)?;
+        let image_len = image.seek(std::io::SeekFrom::End(0))?;
 
-        image
-            .seek(std::io::SeekFrom::Start(0))
-            .map_err(|_| DiskImageError::IoError)?;
+        image.seek(std::io::SeekFrom::Start(0))?;
 
-        let file_header = if let Ok(file_header) = HfeFileHeader::read(&mut image) {
-            if file_header.signature == "HXCPICFE".as_bytes() {
-                file_header
-            } else {
-                return Err(DiskImageError::UnknownFormat);
-            }
-        } else {
-            return Err(DiskImageError::IoError);
-        };
+        let file_header = HfeFileHeader::read(&mut image)?;
+        if file_header.signature != "HXCPICFE".as_bytes() {
+            return Err(DiskImageError::UnknownFormat);
+        }
 
         let hfe_floppy_interface = HfeFloppyInterface::from(file_header.interface_mode);
 
@@ -249,13 +240,11 @@ impl HfeFormat {
             hfe_track_encoding
         );
         let track_list_offset = file_header.rack_list_offset as u64 * HFE_TRACK_OFFSET_BLOCK;
-        image
-            .seek(std::io::SeekFrom::Start(track_list_offset))
-            .map_err(|_| DiskImageError::IoError)?;
+        image.seek(std::io::SeekFrom::Start(track_list_offset))?;
 
         let mut track_index_vec = Vec::new();
         for ti in 0..file_header.number_of_tracks {
-            let track_index = HfeTrackIndexEntry::read(&mut image).map_err(|_| DiskImageError::IoError)?;
+            let track_index = HfeTrackIndexEntry::read(&mut image)?;
             log::trace!("Track index: {:?}", track_index);
             if track_index.len & 1 != 0 {
                 log::error!("Track {} length cannot be odd, due to head interleave.", ti);
@@ -267,9 +256,7 @@ impl HfeFormat {
         for (ti, track) in track_index_vec.iter().enumerate() {
             let mut track_data: [Vec<u8>; 2] = [Vec::with_capacity(50 * 512), Vec::with_capacity(50 * 512)];
             let track_data_offset = track.offset as u64 * HFE_TRACK_OFFSET_BLOCK;
-            image
-                .seek(std::io::SeekFrom::Start(track_data_offset))
-                .map_err(|_| DiskImageError::IoError)?;
+            image.seek(std::io::SeekFrom::Start(track_data_offset))?;
 
             // Use either the offset of the next data block od the end of the file to determine the
             // length of the current data block.
@@ -320,9 +307,7 @@ impl HfeFormat {
                     );
                     // Read 256 bytes for the current head...
                     let mut track_block_data = vec![0; block_data_size];
-                    image
-                        .read_exact(&mut track_block_data)
-                        .map_err(|_| DiskImageError::IoError)?;
+                    image.read_exact(&mut track_block_data)?;
 
                     // Reverse all the bits in each byte read.
                     for byte in track_block_data.iter_mut() {
@@ -387,7 +372,7 @@ impl HfeFormat {
 
         disk_image.descriptor = DiskDescriptor {
             geometry: DiskCh::from((file_header.number_of_tracks as u16, file_header.number_of_sides)),
-            data_rate: DiskDataRate::from(file_header.bit_rate as u32 * 100),
+            data_rate: DiskDataRate::from(file_header.bit_rate as u32 * 1000),
             density: DiskDensity::from(hfe_floppy_interface),
             data_encoding: DiskDataEncoding::Mfm,
             default_sector_size: DEFAULT_SECTOR_SIZE,

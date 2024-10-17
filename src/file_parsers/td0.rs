@@ -49,8 +49,8 @@ pub const SECTOR_CRC_ERROR: u8 = 0b0000_0010;
 pub const SECTOR_DELETED: u8 = 0b0000_0100;
 
 pub const SECTOR_SKIPPED: u8 = 0b0001_0000;
-pub const SECTOR_NO_DATA: u8 = 0b0010_0000;
-pub const SECTOR_NO_ID: u8 = 0b0100_0000;
+pub const SECTOR_NO_DAM: u8 = 0b0010_0000;
+pub const SECTOR_NO_IDAM: u8 = 0b0100_0000;
 
 #[derive(Debug)]
 #[binrw]
@@ -157,14 +157,10 @@ fn td0_crc(data: &[u8], input_crc: u16) -> u16 {
 fn calc_crc<RWS: ReadSeek>(image: &mut RWS, offset: u64, len: usize, input_crc: u16) -> Result<u16, DiskImageError> {
     let mut crc_data = vec![0u8; len];
 
-    let saved_pos = image.stream_position().map_err(|_| DiskImageError::IoError)?;
-    image
-        .seek(std::io::SeekFrom::Start(offset))
-        .map_err(|_| DiskImageError::IoError)?;
-    image.read_exact(&mut crc_data).map_err(|_| DiskImageError::IoError)?;
-    image
-        .seek(std::io::SeekFrom::Start(saved_pos))
-        .map_err(|_| DiskImageError::IoError)?;
+    let saved_pos = image.stream_position()?;
+    image.seek(std::io::SeekFrom::Start(offset))?;
+    image.read_exact(&mut crc_data)?;
+    image.seek(std::io::SeekFrom::Start(saved_pos))?;
     Ok(td0_crc(&crc_data, input_crc))
 }
 
@@ -196,20 +192,17 @@ impl Td0Format {
     }
 
     pub(crate) fn can_write(_image: &DiskImage) -> ParserWriteCompatibility {
-        // TODO: Determine what data representations would lead to data loss for IMD.
-        ParserWriteCompatibility::Ok
+        ParserWriteCompatibility::UnsupportedFormat
     }
 
     pub(crate) fn load_image<RWS: ReadSeek>(mut image: RWS) -> Result<DiskImage, DiskImageError> {
         let mut disk_image = DiskImage::default();
+        disk_image.set_source_format(DiskImageFormat::TeleDisk);
+
         let mut image_data = Vec::new();
 
-        image
-            .seek(std::io::SeekFrom::Start(0))
-            .map_err(|_| DiskImageError::IoError)?;
-        image
-            .read_to_end(&mut image_data)
-            .map_err(|_| DiskImageError::IoError)?;
+        image.seek(std::io::SeekFrom::Start(0))?;
+        image.read_to_end(&mut image_data)?;
 
         if image_data.len() < 12 {
             log::trace!("Image is too small to be a Teledisk image.");
@@ -219,10 +212,8 @@ impl Td0Format {
         // Read first 10 bytes to calculate header CRC.
         let header_crc = td0_crc(&image_data[0..10], 0);
 
-        image
-            .seek(std::io::SeekFrom::Start(0))
-            .map_err(|_| DiskImageError::IoError)?;
-        let file_header = TelediskHeader::read(&mut image).map_err(|_| DiskImageError::IoError)?;
+        image.seek(std::io::SeekFrom::Start(0))?;
+        let file_header = TelediskHeader::read(&mut image)?;
         let detected = file_header.id == "TD".as_bytes() || file_header.id == "td".as_bytes();
 
         if !detected {
@@ -266,13 +257,11 @@ impl Td0Format {
         }
 
         // From this point forward, we are working with the decompressed data.
-        image_data_ref
-            .seek(std::io::SeekFrom::Start(0))
-            .map_err(|_| DiskImageError::IoError)?;
+        image_data_ref.seek(std::io::SeekFrom::Start(0))?;
 
         // Parse comment block if indicated.
         if has_comment_block {
-            let comment_header = CommentHeader::read(&mut image_data_ref).map_err(|_| DiskImageError::IoError)?;
+            let comment_header = CommentHeader::read(&mut image_data_ref)?;
             let calculated_crc = calc_crc(
                 &mut image_data_ref,
                 2,
@@ -295,9 +284,7 @@ impl Td0Format {
             }
 
             let mut comment_data_block = vec![0; comment_header.length as usize];
-            image_data_ref
-                .read_exact(&mut comment_data_block)
-                .map_err(|_| DiskImageError::IoError)?;
+            image_data_ref.read_exact(&mut comment_data_block)?;
 
             // Comment black consists of nul-terminated strings. Convert nul terminators to newlines.
             for char in comment_data_block.iter_mut() {
@@ -306,14 +293,14 @@ impl Td0Format {
                 }
             }
 
-            let comment = String::from_utf8(comment_data_block).map_err(|_| DiskImageError::IoError)?;
+            let comment = String::from_utf8(comment_data_block).map_err(|_| DiskImageError::FormatParseError)?;
             log::trace!("Comment block data: {}", comment);
         }
 
         // Read tracks in
         let mut cylinder_set: FoxHashSet<u16> = FoxHashSet::new();
 
-        let mut track_header_offset = image_data_ref.stream_position().map_err(|_| DiskImageError::IoError)?;
+        let mut track_header_offset = image_data_ref.stream_position()?;
         while let Ok(track_header) = TrackHeader::read(&mut image_data_ref) {
             let calculated_track_header_crc = calc_crc(&mut image_data_ref, track_header_offset, 3, 0)?;
             log::trace!(
@@ -344,8 +331,8 @@ impl Td0Format {
             cylinder_set.insert(track_header.cylinder as u16);
 
             for _s in 0..track_header.sectors {
-                //let sector_header_offset = image_data_ref.stream_position().map_err(|_| DiskImageError::IoError)?;
-                let sector_header = SectorHeader::read(&mut image_data_ref).map_err(|_| DiskImageError::IoError)?;
+                //let sector_header_offset = image_data_ref.stream_position()?;
+                let sector_header = SectorHeader::read(&mut image_data_ref)?;
                 log::trace!(
                     "Read sector header: c:{} h:{} sid:{} size:{} flags:{:02X} crc:{:02X}",
                     sector_header.cylinder,
@@ -361,14 +348,13 @@ impl Td0Format {
                 // sector header or sector data header.
 
                 // A Sector Data Header follows as long as neither of these two flags are not set.
-                let have_sector_data = sector_header.flags & (SECTOR_NO_DATA | SECTOR_SKIPPED) == 0;
+                let have_sector_data = sector_header.flags & (SECTOR_NO_DAM | SECTOR_SKIPPED) == 0;
                 let sector_size_bytes = DiskChsn::n_to_bytes(sector_header.sector_size);
 
                 if have_sector_data {
                     // let sector_data_header_offset =
-                    //     image_data_ref.stream_position().map_err(|_| DiskImageError::IoError)?;
-                    let sector_data_header =
-                        SectorDataHeader::read(&mut image_data_ref).map_err(|_| DiskImageError::IoError)?;
+                    //     image_data_ref.stream_position()?;
+                    let sector_data_header = SectorDataHeader::read(&mut image_data_ref)?;
 
                     log::trace!(
                         "Read sector data header. len:{} encoding:{}",
@@ -382,9 +368,7 @@ impl Td0Format {
                     match sector_data_header.encoding {
                         0 => {
                             // Raw data. 'len' bytes follow.
-                            image_data_ref
-                                .read_exact(&mut sector_data_vec)
-                                .map_err(|_| DiskImageError::IoError)?;
+                            image_data_ref.read_exact(&mut sector_data_vec)?;
                         }
                         1 => {
                             // Repeated two-byte pattern.
@@ -437,7 +421,7 @@ impl Td0Format {
             }
 
             // Update the track header offset for next track header crc calculation.
-            track_header_offset = image_data_ref.stream_position().map_err(|_| DiskImageError::IoError)?;
+            track_header_offset = image_data_ref.stream_position()?;
         }
 
         disk_image.descriptor = DiskDescriptor {
@@ -460,7 +444,7 @@ impl Td0Format {
         let data_len = output.len();
         let mut decoded_len = 0;
         while decoded_len < data_len {
-            let entry = RepeatedDataEntry::read(image).map_err(|_| DiskImageError::IoError)?;
+            let entry = RepeatedDataEntry::read(image)?;
 
             let count = entry.count as usize;
 
@@ -480,34 +464,30 @@ impl Td0Format {
     }
 
     pub fn td0_decompress_rle_data<RWS: ReadSeek>(image: &mut RWS, output: &mut [u8]) -> Result<(), DiskImageError> {
-        let start_pos = image.stream_position().map_err(|_| DiskImageError::IoError)?;
+        let start_pos = image.stream_position()?;
         //log::trace!("RLE data start pos: {:X}", start_pos);
         let data_len = output.len();
         let mut decoded_len = 0;
         let mut encoded_len = 0;
 
         while decoded_len < data_len {
-            let entry_code = image.read_u8().map_err(|_| DiskImageError::IoError)?;
+            let entry_code = image.read_u8()?;
             encoded_len += 1;
 
             if entry_code == 0 {
                 // Literal data block. The next byte encodes a length, and `length` bytes are copied
                 // to the output slice.
-                let block_len = image.read_u8().map_err(|_| DiskImageError::IoError)? as usize;
-                image
-                    .read_exact(&mut output[decoded_len..decoded_len + block_len])
-                    .map_err(|_| DiskImageError::IoError)?;
+                let block_len = image.read_u8()? as usize;
+                image.read_exact(&mut output[decoded_len..decoded_len + block_len])?;
                 decoded_len += block_len;
                 encoded_len += block_len;
             } else {
                 // Run-length encoded block. The entry code byte encodes the length of the data pattern,
 
                 let pattern_length = entry_code as usize * 2;
-                let repeat_ct = image.read_u8().map_err(|_| DiskImageError::IoError)?;
+                let repeat_ct = image.read_u8()?;
                 let mut pattern_block = vec![0; pattern_length];
-                image
-                    .read_exact(&mut pattern_block)
-                    .map_err(|_| DiskImageError::IoError)?;
+                image.read_exact(&mut pattern_block)?;
                 encoded_len += pattern_length + 1;
 
                 for _ in 0..repeat_ct {
@@ -515,7 +495,7 @@ impl Td0Format {
                         output[decoded_len..decoded_len + pattern_length].copy_from_slice(&pattern_block);
                         decoded_len += pattern_length;
                     } else {
-                        let data_pos = image.stream_position().map_err(|_| DiskImageError::IoError)?;
+                        let data_pos = image.stream_position()?;
                         log::trace!(
                             "td0_decompress_rle_data(): Output buffer overrun; input_offset: {} decoded_len: {}",
                             data_pos - start_pos,

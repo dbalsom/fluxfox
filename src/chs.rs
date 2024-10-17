@@ -326,23 +326,19 @@ impl DiskCh {
         self.h = h
     }
 
-    /// Return a new CHS that is the next sector on the disk.
-    /// If the current CHS is the last sector on the disk, the next CHS will be the first sector on the disk.
-    pub fn get_next_track(&self, geom: &DiskChs) -> DiskCh {
-        if self.h < geom.h - 1 {
-            // At last sector, but not at last head, go to next head, same cylinder, sector 1
+    /// Return a new CH that is the next track on disk.
+    pub fn get_next_track(&self, heads: u8) -> DiskCh {
+        if self.h < heads - 1 {
+            // Not at least head, just return next head
             DiskCh::from((self.c, self.h + 1))
-        } else if self.c < geom.c - 1 {
-            // At last sector and last head, go to next cylinder, head 0, sector 1
-            DiskCh::from((self.c + 1, 0))
         } else {
-            // Return start of drive? TODO: Research what does this do on real hardware
-            DiskCh::from((0, 0))
+            // Go to next track, head 0
+            DiskCh::from((self.c + 1, 0))
         }
     }
 
-    pub fn seek_next_track(&mut self, geom: &DiskChs) -> &mut Self {
-        *self = self.get_next_track(geom);
+    pub fn seek_next_track(&mut self, heads: u8) -> &mut Self {
+        *self = self.get_next_track(heads);
         self
     }
 }
