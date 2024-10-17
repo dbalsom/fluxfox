@@ -494,6 +494,8 @@ impl DiskImage {
                     // Create an empty image. We will loop through all the files in the set and
                     // append tracks to them as we go.
                     let mut build_image = DiskImage::default();
+                    // Set the geometry of the disk image to the geometry of the Kryoflux set.
+                    build_image.descriptor.geometry = set_ch;
 
                     for file_path in file_set {
                         let mut file = std::fs::File::open(file_path.clone())?;
@@ -502,8 +504,8 @@ impl DiskImage {
                         build_image = KfxFormat::load_image(&mut buf_reader, Some(build_image))?;
                     }
 
-                    let ch = DiskCh::new(build_image.track_map[0].len() as u16, build_image.track_map.len() as u8);
-                    build_image.descriptor.geometry = ch;
+                    //let ch = DiskCh::new(build_image.track_map[0].len() as u16, build_image.track_map.len() as u8);
+                    //build_image.descriptor.geometry = ch;
 
                     Ok(build_image)
                 } else {
@@ -719,6 +721,9 @@ impl DiskImage {
 
                 let mut data_stream: TrackDataStream = Box::new(codec);
                 let markers = System34Parser::scan_track_markers(&data_stream);
+                if !markers.is_empty() {
+                    log::debug!("First marker found at {}", markers[0].start);
+                }
 
                 System34Parser::create_clock_map(&markers, data_stream.clock_map_mut());
 
@@ -793,9 +798,10 @@ impl DiskImage {
             })
             .collect::<Vec<_>>();
 
-        log::trace!(
-            "add_track_bitstream(): Retrieved {} sector bitstream offsets from metadata.",
-            sector_offsets.len()
+        log::debug!(
+            "add_track_bitstream(): Retrieved {} sector bitstream offsets from {} metadata entries.",
+            sector_offsets.len(),
+            metadata.items.len()
         );
 
         self.track_pool.push(TrackData::BitStream {

@@ -108,7 +108,7 @@ impl DiskStructureMetadata {
 #[derive(Copy, Clone, Debug)]
 pub struct DiskStructureMarkerItem {
     pub(crate) elem_type: DiskStructureMarker,
-    start: usize,
+    pub(crate) start: usize,
 }
 
 /// A DiskStructureMetadataItem represents a single element of a disk structure, such as an

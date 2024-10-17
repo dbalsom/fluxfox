@@ -40,7 +40,7 @@ use crate::fluxstream::flux_stream::RawFluxTrack;
 use crate::fluxstream::pll::{Pll, PllPreset};
 use crate::fluxstream::FluxTransition;
 use crate::io::{ReadBytesExt, ReadSeek, ReadWriteSeek};
-use crate::{io, DiskDataResolution};
+use crate::{io, DiskDataResolution, FoxHashSet};
 use crate::{
     DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat, DiskRpm,
     ParserWriteCompatibility, StandardFormat, DEFAULT_SECTOR_SIZE,
@@ -175,7 +175,6 @@ impl KfxFormat {
     ) -> Result<DiskImage, DiskImageError> {
         let mut disk_image = append_image.unwrap_or_default();
         disk_image.set_resolution(DiskDataResolution::BitStream);
-
         disk_image.set_source_format(DiskImageFormat::KryofluxStream);
 
         let mut kfx_context = KfxFormat::default();
@@ -199,12 +198,6 @@ impl KfxFormat {
             eof = kfx_context.read_index_block(&mut image, &mut index_offsets, &mut index_times)?;
         }
 
-        // We need to have at least two index markers to have a complete revolution.
-        if index_offsets.len() < 2 {
-            log::error!("Stream did not contain a complete revolution.");
-            return Err(DiskImageError::IncompatibleImage);
-        }
-
         kfx_context.current_offset_idx = 0;
 
         // Read the stream again now that we know where the indexes are
@@ -223,9 +216,17 @@ impl KfxFormat {
         // for (si, stream) in streams.iter().enumerate() {
         //     log::debug!("  Rev {}: {} samples", si, stream.len());
         // }
+        let complete_revs = kfx_context.idx_ct - 1;
+
+        // We need to have at least two index markers to have a complete revolution.
+        if complete_revs < 1 || index_offsets.len() < 2 {
+            log::error!("Stream did not contain a complete revolution.");
+            return Err(DiskImageError::IncompatibleImage);
+        }
+
         log::debug!(
             "Found {} complete revolutions in stream, with {} index times",
-            kfx_context.idx_ct - 1,
+            complete_revs,
             index_times.len()
         );
 
@@ -259,9 +260,21 @@ impl KfxFormat {
             pll.reset_clock();
         }
 
-        let rev = 1;
+        let rev: usize = std::cmp::min(1, (complete_revs - 1) as usize);
         let flux_stream = flux_track.revolution_mut(rev).unwrap();
         flux_stream.decode2(&mut pll, true);
+
+        // Get last ch in image.
+        let next_ch = if disk_image.track_ch_iter().count() == 0 {
+            log::debug!("No tracks in image, starting at c:0 h:0");
+            DiskCh::new(0, 0)
+        } else {
+            let mut last_ch = disk_image.track_ch_iter().last().unwrap_or(DiskCh::new(0, 0));
+            log::debug!("Previous track in image: {} heads: {}", last_ch, disk_image.heads());
+
+            last_ch.seek_next_track(disk_image.heads());
+            last_ch
+        };
 
         let rev_density = match flux_stream.guess_density(false) {
             Some(d) => {
@@ -269,7 +282,12 @@ impl KfxFormat {
                 d
             }
             None => {
-                log::error!("Unable to detect track density!");
+                log::error!(
+                    "Unable to detect rev {} track {} density: {}",
+                    rev,
+                    next_ch,
+                    flux_stream.transition_avg()
+                );
                 //return Err(DiskImageError::IncompatibleImage);
                 DiskDensity::Double
             }
@@ -278,18 +296,6 @@ impl KfxFormat {
         let (track_data, track_bits) = flux_track.revolution_mut(rev).unwrap().bitstream_data();
 
         let data_rate = DiskDataRate::from(rev_density);
-
-        // Get last ch in image.
-        let next_ch = if disk_image.track_ch_iter().count() == 0 {
-            log::debug!("No tracks in image, starting at c:0 h:0");
-            DiskCh::new(0, 0)
-        } else {
-            let mut last_ch = disk_image.track_ch_iter().last().unwrap_or(DiskCh::new(0, 0));
-            log::debug!("Previous track in image: {}", last_ch);
-
-            last_ch.seek_next_track(2);
-            last_ch
-        };
 
         if track_bits < 100 {
             log::warn!("Track contains less than 100 bits. Adding empty track.");
@@ -311,7 +317,7 @@ impl KfxFormat {
         log::debug!("Track added.");
 
         disk_image.descriptor = DiskDescriptor {
-            geometry: DiskCh::from((40, 2)),
+            geometry: disk_image.geometry(),
             data_rate,
             density: rev_density,
             data_encoding: DiskDataEncoding::Mfm,
@@ -578,6 +584,11 @@ impl KfxFormat {
         Ok(false)
     }
 
+    /// Resolves a supplied PathBuf into a vector of PathBufs representing a KryoFlux set.
+    /// The set can be resolved from a provided list of PathBufs passed via 'directory', or from the
+    /// base directory of the 'filepath' argument, if 'directory' is None.
+    /// This allows building a set from either a directory listing or a list of files from a ZIP
+    /// archive.
     pub fn expand_kryoflux_set(
         filepath: PathBuf,
         directory: Option<Vec<PathBuf>>,
@@ -588,11 +599,17 @@ impl KfxFormat {
         let base_path = filepath.parent().unwrap_or(Path::new(""));
         let base_name = filepath.file_name().ok_or(DiskImageError::FsError)?;
 
-        // Create a regex for any string that ends in \d{2}\.\d\.raw
-        let re = regex::Regex::new(r"(.*)\d{2}\.\d\.raw").unwrap();
-        // Check if the base name matches the pattern
+        let mut cylinders_seen: FoxHashSet<u32> = FoxHashSet::new();
+        let mut heads_seen: FoxHashSet<u32> = FoxHashSet::new();
+
+        // Create a regex for any filename that ends in two digits, a period, a single digit,
+        // and then the extension '.raw'
+        let re = regex::Regex::new(r"(.*)(\d{2})\.(\d)\.raw").unwrap();
+        // Match the regex against the base name
         let caps = re.captures(base_name.to_str().ok_or(DiskImageError::FsError)?);
 
+        // Use the provided directory listing if Some, otherwise get all directory entries from
+        // the base path.
         let file_listing = match directory {
             Some(d) => d,
             None => std::fs::read_dir(base_path)?
@@ -608,28 +625,42 @@ impl KfxFormat {
             let base_name = c.get(1).ok_or(DiskImageError::FsError)?;
             let ext = ".raw";
 
-            let mut cylinders = 0;
-            let mut heads = 0;
-
             let mut c: u16 = 0;
             let mut h: u8 = 0;
-            let mut found_file = true;
-            while found_file {
-                // Construct a test filename from the base name, cylinder and head number, and extension
-                let test_name = format!("{}{:02}.{}{}", base_name.as_str(), c, h, ext);
 
-                // Check if the test file exists
-                if file_listing.iter().any(|f| *f.file_name().unwrap() == *test_name) {
+            let mut stop_searching = false;
+            let last_expected_cyl = 79;
+            while !stop_searching {
+                // Construct a test filename from the base name, cylinder and head number, and extension
+                let test_name = format!("{}{:02}.{}{}", base_name.as_str().to_ascii_lowercase(), c, h, ext);
+
+                // Check if the test file exists.
+                // The lowercase check here is necessary as some kryoflux sets I have seen have mixed
+                // case filenames. (Track00.0.raw, Track00.1.raw, track01.0.raw)
+                if file_listing
+                    .iter()
+                    .any(|f| *f.file_name().unwrap().to_ascii_lowercase() == *test_name)
+                {
                     log::debug!("Found filename in set: {}", test_name);
 
                     if h > 0 {
                         h = h.wrapping_add(1)
                     }
 
-                    // If it does, add it to the set
-                    set_vec.push(base_path.join(test_name))
+                    // If file exists, add it to the set
+                    set_vec.push(base_path.join(test_name));
+                    // Add cylinder and head to the set of seen values
+                    cylinders_seen.insert(c as u32);
+                    heads_seen.insert(h as u32);
                 } else if h == 0 {
-                    found_file = false;
+                    // We didn't find a file representing side 0 of the next cylinder.
+
+                    // We could just have a set missing tracks. We should not necessarily consider
+                    // this an error - some disk images have blank tracks in the middle. We should
+                    // only stop searching if we're past the last expected cylinder.
+                    if c > last_expected_cyl {
+                        stop_searching = true;
+                    }
                 }
 
                 h += 1;
@@ -639,7 +670,7 @@ impl KfxFormat {
                 }
             }
 
-            set_ch = DiskCh::new(c + 1, h);
+            set_ch = DiskCh::new(cylinders_seen.len() as u16, heads_seen.len() as u8);
         }
 
         Ok((set_vec, set_ch))
