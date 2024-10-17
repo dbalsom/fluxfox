@@ -1,19 +1,86 @@
+/*
+    ffedit
+    https://github.com/dbalsom/fluxfox
+
+    Copyright 2024 Daniel Balsom
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the “Software”),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+    DEALINGS IN THE SOFTWARE.
+
+    --------------------------------------------------------------------------
+*/
+mod cmd_interpreter;
+mod layout;
+mod modal;
+
+use core::fmt;
+use std::fmt::Display;
+use std::io;
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
+
+use bpaf::{construct, short, OptionParser, Parser};
+use crossbeam_channel::{Receiver, Sender};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ratatui::prelude::Line;
+use ratatui::widgets::Gauge;
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
+    prelude::*,
     style::{Color, Style},
-    text::Span,
+    text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
     Terminal,
 };
-use std::io;
-use std::time::{Duration, Instant};
+use tui_popup::{Popup, SizedWrapper};
+
+use crate::cmd_interpreter::CommandInterpreter;
+use crate::modal::ModalState;
+use cmd_interpreter::CommandResult;
+use fluxfox::DiskImage;
+
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+struct CmdParams {
+    in_filename: PathBuf,
+}
+
+/// Set up bpaf argument parsing.
+fn opts() -> OptionParser<CmdParams> {
+    let in_filename = short('i')
+        .long("in_filename")
+        .help("Filename of image to read")
+        .argument::<PathBuf>("IN_FILE");
+
+    construct!(CmdParams { in_filename }).to_options()
+}
+
+// Application state to support different modes
+#[derive(Default)]
+enum ApplicationState {
+    #[default]
+    Normal,
+    Modal(ModalState),
+}
 
 // Define an enum for the history entries
 enum HistoryEntry {
@@ -21,22 +88,98 @@ enum HistoryEntry {
     CommandResponse(String),
 }
 
+#[derive(Default)]
+pub struct DiskSelection {
+    pub level: SelectionLevel,
+    pub head: Option<u8>,
+    pub cylinder: Option<u16>,
+    pub sector: Option<u8>,
+}
+
+impl Display for DiskSelection {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> fmt::Result {
+        match self.level {
+            SelectionLevel::Disk => write!(f, ""),
+            SelectionLevel::Head => write!(f, "[h:{}]", self.head.unwrap_or(0)),
+            SelectionLevel::Track => write!(f, "[h:{} c:{}]", self.head.unwrap_or(0), self.cylinder.unwrap_or(0)),
+            SelectionLevel::Sector => write!(
+                f,
+                "[h:{} c:{} s:{}]",
+                self.head.unwrap_or(0),
+                self.cylinder.unwrap_or(0),
+                self.sector.unwrap_or(0)
+            ),
+        }
+    }
+}
+
+/// Track the selection level
+#[derive(Default)]
+pub enum SelectionLevel {
+    #[default]
+    Disk,
+    Head,
+    Track,
+    Sector,
+}
+
 const MAX_HISTORY: usize = 1000; // Maximum number of history entries
+
+pub enum AppThreadMessage {
+    LoadingStatus(f32),
+    DiskImageLoaded(DiskImage),
+}
+
+// Contain mutable data for App
+// This avoids borrowing issues when passing the mutable context to the command processor
+struct AppContext {
+    selection: DiskSelection,
+    state: ApplicationState,
+    di: Option<DiskImage>,
+    sender: Sender<AppThreadMessage>,
+}
 
 struct App {
     input: String,
+    ci: CommandInterpreter,
     history: Vec<HistoryEntry>, // Store history as Vec<HistoryEntry>
+
+    receiver: Receiver<AppThreadMessage>,
+    ctx: AppContext,
 }
 
 impl App {
     fn new() -> App {
+        let (sender, receiver) = crossbeam_channel::unbounded::<AppThreadMessage>();
+
         App {
             input: String::new(),
+            ci: CommandInterpreter::new(),
             history: Vec::new(),
+            receiver,
+            ctx: AppContext {
+                selection: DiskSelection::default(),
+                state: ApplicationState::Normal,
+                di: None,
+                sender,
+            },
         }
     }
 
-    fn on_key(&mut self, code: KeyCode) {
+    fn on_key(&mut self, code: KeyCode) -> Option<CommandResult> {
+        match &self.ctx.state {
+            ApplicationState::Normal => self.on_key_normal(code),
+            ApplicationState::Modal(modal_state) => {
+                if modal_state.input_enabled() {
+                    self.on_key_normal(code)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    fn on_key_normal(&mut self, code: KeyCode) -> Option<CommandResult> {
         match code {
             KeyCode::Char(c) => self.input.push(c),
             KeyCode::Backspace => {
@@ -47,9 +190,19 @@ impl App {
                     let command = self.input.clone();
                     self.add_command_to_history(&command);
 
-                    // Process the command and get the response
-                    let response = process_command(&command);
-                    self.add_response_to_history(&response);
+                    // Process the command and get the result
+                    let result = self.ci.process_command(&mut self.ctx, &command);
+                    match result {
+                        CommandResult::Success(response) => {
+                            self.add_response_to_history(&response);
+                        }
+                        CommandResult::Error(response) => {
+                            self.add_response_to_history(&response);
+                        }
+                        CommandResult::UserExit => {
+                            return Some(CommandResult::UserExit);
+                        }
+                    }
 
                     // Clear input after processing
                     self.input.clear();
@@ -62,6 +215,7 @@ impl App {
             }
             _ => {}
         }
+        None
     }
 
     fn add_command_to_history(&mut self, command: &str) {
@@ -71,16 +225,14 @@ impl App {
 
     fn add_response_to_history(&mut self, response: &str) {
         // Add the response as a CommandResponse variant to the history
-        self.history.push(HistoryEntry::CommandResponse(response.to_string()));
+        for line in response.lines() {
+            self.history.push(HistoryEntry::CommandResponse(line.to_string()));
+        }
     }
-}
 
-// Command processor stub
-fn process_command(command: &str) -> String {
-    if command == "?" {
-        "help requested".to_string()
-    } else {
-        "command accepted".to_string()
+    // Generate the prompt based on current head, cylinder, and sector selection
+    fn prompt(&self) -> String {
+        self.ctx.selection.to_string()
     }
 }
 
@@ -105,11 +257,10 @@ fn main() -> Result<(), io::Error> {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
                     // Check for key press event only
-                    match key.code {
-                        KeyCode::Esc => {
+                    if let Some(result) = app.on_key(key.code) {
+                        if let CommandResult::UserExit = result {
                             break;
                         }
-                        _ => app.on_key(key.code),
                     }
                 }
             }
@@ -128,13 +279,13 @@ fn main() -> Result<(), io::Error> {
     Ok(())
 }
 
-fn ui(f: &mut ratatui::Frame, app: &App) {
+fn ui(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints(
             [
                 Constraint::Min(1),
-                Constraint::Length(3), // for input box
+                Constraint::Length(1), // for input box
             ]
             .as_ref(),
         )
@@ -167,9 +318,30 @@ fn ui(f: &mut ratatui::Frame, app: &App) {
         Paragraph::new(visible_history).block(Block::default().borders(Borders::ALL).title("History"));
     f.render_widget(history_paragraph, chunks[0]);
 
-    // Input box, with String::from(&app.input)
-    let input = Paragraph::new(String::from(&app.input))
-        .style(Style::default())
-        .block(Block::default().borders(Borders::ALL).title("Input"));
-    f.render_widget(input, chunks[1]);
+    // Display prompt and input on a single line below the history
+    let prompt_with_input = format!("{}>{}", app.prompt(), app.input);
+    let input_line = Line::from(vec![Span::styled(prompt_with_input, Style::default())]);
+    f.render_widget(Paragraph::new(input_line), chunks[1]);
+
+    match &app.ctx.state {
+        ApplicationState::Normal => {}
+        ApplicationState::Modal(modal_state) => {
+            match modal_state {
+                ModalState::ProgressBar(title, progress) => {
+                    // Display a progress bar
+                    let gauge = Gauge::default().ratio(*progress);
+                    let sized = SizedWrapper {
+                        inner: gauge,
+                        width: (f.area().width / 2) as usize,
+                        height: 1,
+                    };
+
+                    let popup = Popup::new(sized)
+                        .title(title.clone())
+                        .style(Style::new().white().on_black());
+                    f.render_widget(&popup, f.area());
+                }
+            }
+        }
+    }
 }
