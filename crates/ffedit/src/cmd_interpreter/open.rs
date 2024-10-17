@@ -24,8 +24,8 @@
 
     --------------------------------------------------------------------------
 */
+use crate::app::AppContext;
 use crate::cmd_interpreter::{Command, CommandResult};
-use crate::AppContext;
 
 pub(crate) struct OpenCommand;
 

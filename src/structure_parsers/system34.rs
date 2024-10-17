@@ -34,7 +34,6 @@ use crate::bitstream::mfm::{MfmCodec, MFM_BYTE_LEN, MFM_MARKER_LEN};
 use crate::bitstream::TrackDataStream;
 use crate::chs::DiskChsn;
 use crate::io::{Read, Seek, SeekFrom};
-use crate::structure_parsers::TrackDataStreamT;
 use crate::structure_parsers::{
     DiskStructureElement, DiskStructureGenericElement, DiskStructureMarker, DiskStructureMarkerItem,
     DiskStructureMetadataItem, DiskStructureParser,
@@ -773,7 +772,7 @@ impl DiskStructureParser for System34Parser {
         #[allow(unused)]
         let mut bit_set = 0;
         for marker in markers {
-            if let DiskStructureMarker::System34(element) = marker.elem_type {
+            if let DiskStructureMarker::System34(_element) = marker.elem_type {
                 let bit_index = marker.start;
 
                 if last_marker_index > 0 {

@@ -33,8 +33,8 @@ use crate::structure_parsers::system34::System34Standard;
 use crate::trackdata::TrackData;
 use crate::util::get_length;
 use crate::{
-    DiskCh, DiskDataEncoding, DiskDataResolution, DiskDensity, DiskImageError, DiskImageFormat, StandardFormat,
-    DEFAULT_SECTOR_SIZE,
+    DiskCh, DiskDataEncoding, DiskDataResolution, DiskDensity, DiskImageError, DiskImageFormat, LoadingCallback,
+    StandardFormat, DEFAULT_SECTOR_SIZE,
 };
 use std::cmp::Ordering;
 
@@ -69,7 +69,10 @@ impl RawFormat {
         }
     }
 
-    pub(crate) fn load_image<RWS: ReadSeek>(mut raw: RWS) -> Result<DiskImage, DiskImageError> {
+    pub(crate) fn load_image<RWS: ReadSeek>(
+        mut raw: RWS,
+        callback: Option<LoadingCallback>,
+    ) -> Result<DiskImage, DiskImageError> {
         let mut disk_image = DiskImage::default();
         disk_image.set_source_format(DiskImageFormat::RawSectorImage);
         disk_image.set_resolution(DiskDataResolution::BitStream);

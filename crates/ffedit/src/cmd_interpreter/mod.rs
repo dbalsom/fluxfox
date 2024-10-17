@@ -26,7 +26,7 @@
 */
 mod open;
 
-use crate::AppContext;
+use crate::app::AppContext;
 use std::collections::HashMap;
 
 use open::OpenCommand;

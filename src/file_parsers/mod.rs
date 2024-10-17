@@ -25,7 +25,7 @@
     --------------------------------------------------------------------------
 */
 use crate::io::{ReadSeek, ReadWriteSeek};
-use crate::{DiskImage, DiskImageError, DiskImageFormat};
+use crate::{DiskImage, DiskImageError, DiskImageFormat, LoadingCallback};
 use bitflags::bitflags;
 
 pub mod compression;
@@ -155,6 +155,7 @@ pub trait ImageParser {
         &self,
         image_buf: RWS,
         append_image: Option<DiskImage>,
+        callback: Option<LoadingCallback>,
     ) -> Result<DiskImage, DiskImageError>;
     /// Return true if the parser can write the specified disk image. Not all formats are writable
     /// at all, and not all DiskImages can be represented in the specified format.
@@ -221,21 +222,22 @@ impl ImageParser for DiskImageFormat {
         &self,
         image_buf: RWS,
         append_image: Option<DiskImage>,
+        callback: Option<LoadingCallback>,
     ) -> Result<DiskImage, DiskImageError> {
         match self {
-            DiskImageFormat::RawSectorImage => raw::RawFormat::load_image(image_buf),
-            DiskImageFormat::ImageDisk => imd::ImdFormat::load_image(image_buf),
-            DiskImageFormat::TeleDisk => td0::Td0Format::load_image(image_buf),
-            DiskImageFormat::PceSectorImage => psi::PsiFormat::load_image(image_buf),
-            DiskImageFormat::PceBitstreamImage => pri::PriFormat::load_image(image_buf),
-            DiskImageFormat::MfmBitstreamImage => mfm::MfmFormat::load_image(image_buf),
-            DiskImageFormat::HfeImage => hfe::HfeFormat::load_image(image_buf),
-            DiskImageFormat::F86Image => f86::F86Format::load_image(image_buf),
-            DiskImageFormat::TransCopyImage => tc::TCFormat::load_image(image_buf),
-            DiskImageFormat::SuperCardPro => scp::ScpFormat::load_image(image_buf),
-            DiskImageFormat::PceFluxImage => pfi::PfiFormat::load_image(image_buf),
-            DiskImageFormat::KryofluxStream => kryoflux::KfxFormat::load_image(image_buf, append_image),
-            DiskImageFormat::MameFloppyImage => mfi::MfiFormat::load_image(image_buf),
+            DiskImageFormat::RawSectorImage => raw::RawFormat::load_image(image_buf, callback),
+            DiskImageFormat::ImageDisk => imd::ImdFormat::load_image(image_buf, callback),
+            DiskImageFormat::TeleDisk => td0::Td0Format::load_image(image_buf, callback),
+            DiskImageFormat::PceSectorImage => psi::PsiFormat::load_image(image_buf, callback),
+            DiskImageFormat::PceBitstreamImage => pri::PriFormat::load_image(image_buf, callback),
+            DiskImageFormat::MfmBitstreamImage => mfm::MfmFormat::load_image(image_buf, callback),
+            DiskImageFormat::HfeImage => hfe::HfeFormat::load_image(image_buf, callback),
+            DiskImageFormat::F86Image => f86::F86Format::load_image(image_buf, callback),
+            DiskImageFormat::TransCopyImage => tc::TCFormat::load_image(image_buf, callback),
+            DiskImageFormat::SuperCardPro => scp::ScpFormat::load_image(image_buf, callback),
+            DiskImageFormat::PceFluxImage => pfi::PfiFormat::load_image(image_buf, callback),
+            DiskImageFormat::KryofluxStream => kryoflux::KfxFormat::load_image(image_buf, append_image, callback),
+            DiskImageFormat::MameFloppyImage => mfi::MfiFormat::load_image(image_buf, callback),
         }
     }
 

@@ -80,6 +80,14 @@ type FoxHashMap<K, V, S = RandomState> = std::collections::HashMap<K, V, S>;
 #[allow(unused)]
 type FoxHashSet<T, S = RandomState> = std::collections::HashSet<T, S>;
 
+pub enum LoadingStatus {
+    Progress(f64),
+    Complete,
+    Error,
+}
+
+type LoadingCallback = Box<dyn Fn(LoadingStatus) + Send + 'static>;
+
 #[derive(Debug, Error)]
 pub enum DiskImageError {
     #[error("An IO error occurred reading or writing the disk image")]

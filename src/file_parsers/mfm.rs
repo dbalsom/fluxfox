@@ -34,7 +34,7 @@ use crate::diskimage::DiskDescriptor;
 use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::{
-    DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat,
+    DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat, LoadingCallback,
     DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, BinRead};
@@ -111,7 +111,10 @@ impl MfmFormat {
         ParserWriteCompatibility::UnsupportedFormat
     }
 
-    pub(crate) fn load_image<RWS: ReadSeek>(mut image: RWS) -> Result<DiskImage, DiskImageError> {
+    pub(crate) fn load_image<RWS: ReadSeek>(
+        mut image: RWS,
+        _callback: Option<LoadingCallback>,
+    ) -> Result<DiskImage, DiskImageError> {
         let mut disk_image = DiskImage::default();
         disk_image.set_source_format(DiskImageFormat::MfmBitstreamImage);
 

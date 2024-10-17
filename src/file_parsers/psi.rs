@@ -42,7 +42,7 @@ use crate::io::{Cursor, ReadSeek, ReadWriteSeek};
 
 use crate::{
     DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat, FoxHashMap, FoxHashSet,
-    DEFAULT_SECTOR_SIZE,
+    LoadingCallback, DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, BinRead};
 
@@ -228,7 +228,10 @@ impl PsiFormat {
         Ok(chunk)
     }
 
-    pub(crate) fn load_image<RWS: ReadSeek>(mut image: RWS) -> Result<DiskImage, DiskImageError> {
+    pub(crate) fn load_image<RWS: ReadSeek>(
+        mut image: RWS,
+        _callback: Option<LoadingCallback>,
+    ) -> Result<DiskImage, DiskImageError> {
         let mut disk_image = DiskImage::default();
         disk_image.set_source_format(DiskImageFormat::PceSectorImage);
 

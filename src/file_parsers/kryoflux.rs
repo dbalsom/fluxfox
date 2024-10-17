@@ -40,7 +40,7 @@ use crate::fluxstream::flux_stream::RawFluxTrack;
 use crate::fluxstream::pll::{Pll, PllPreset};
 use crate::fluxstream::FluxTransition;
 use crate::io::{ReadBytesExt, ReadSeek, ReadWriteSeek};
-use crate::{io, DiskDataResolution, FoxHashSet};
+use crate::{io, DiskDataResolution, FoxHashSet, LoadingCallback};
 use crate::{
     DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat, DiskRpm,
     ParserWriteCompatibility, StandardFormat, DEFAULT_SECTOR_SIZE,
@@ -172,6 +172,7 @@ impl KfxFormat {
     pub(crate) fn load_image<RWS: ReadSeek>(
         mut image: RWS,
         append_image: Option<DiskImage>,
+        _callback: Option<LoadingCallback>,
     ) -> Result<DiskImage, DiskImageError> {
         let mut disk_image = append_image.unwrap_or_default();
         disk_image.set_resolution(DiskDataResolution::BitStream);

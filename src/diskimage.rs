@@ -43,7 +43,7 @@ use crate::structure_parsers::{DiskStructureElement, DiskStructureMetadata, Disk
 use crate::trackdata::TrackData;
 use crate::{
     util, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskImageError, DiskRpm, FoxHashMap,
-    FoxHashSet, TrackConsistency,
+    FoxHashSet, LoadingCallback, LoadingStatus, TrackConsistency,
 };
 use bit_vec::BitVec;
 use bitflags::bitflags;
@@ -449,20 +449,24 @@ impl DiskImage {
         self.consistency.image_caps
     }
 
-    pub fn load_from_file(file_path: PathBuf) -> Result<Self, DiskImageError> {
+    pub fn load_from_file(file_path: PathBuf, callback: Option<LoadingCallback>) -> Result<Self, DiskImageError> {
         let mut file = std::fs::File::open(file_path.clone())?;
         let mut buf_reader = std::io::BufReader::new(&mut file);
-        let image = DiskImage::load(&mut buf_reader, Some(file_path))?;
+        let image = DiskImage::load(&mut buf_reader, Some(file_path), callback)?;
 
         Ok(image)
     }
 
-    pub fn load<RS: ReadSeek>(image_io: &mut RS, image_path: Option<PathBuf>) -> Result<Self, DiskImageError> {
+    pub fn load<RS: ReadSeek>(
+        image_io: &mut RS,
+        image_path: Option<PathBuf>,
+        callback: Option<LoadingCallback>,
+    ) -> Result<Self, DiskImageError> {
         let container = DiskImage::detect_format(image_io)?;
 
         match container {
             DiskImageContainer::Raw(format) => {
-                let mut image = format.load_image(image_io, None)?;
+                let mut image = format.load_image(image_io, None, None)?;
                 image.post_load_process();
                 Ok(image)
             }
@@ -470,8 +474,8 @@ impl DiskImage {
                 #[cfg(feature = "zip")]
                 {
                     let file_vec = extract_first_file(image_io)?;
-                    let file_cursor = std::io::Cursor::new(file_vec);
-                    let mut image = format.load_image(file_cursor, None)?;
+                    let file_cursor = Cursor::new(file_vec);
+                    let mut image = format.load_image(file_cursor, None, callback)?;
                     image.post_load_process();
                     Ok(image)
                 }
@@ -496,16 +500,27 @@ impl DiskImage {
                     // Set the geometry of the disk image to the geometry of the Kryoflux set.
                     build_image.descriptor.geometry = set_ch;
 
-                    for file_path in file_set {
+                    for (fi, file_path) in file_set.iter().enumerate() {
                         let mut file = std::fs::File::open(file_path.clone())?;
                         let mut buf_reader = std::io::BufReader::new(&mut file);
                         log::debug!("load(): Loading Kryoflux stream file: {:?}", file_path);
-                        build_image = KfxFormat::load_image(&mut buf_reader, Some(build_image))?;
+
+                        // We won't give the callback to the kryoflux loader - instead we will call it here ourselves
+                        // updating percentage complete as a fraction of files loaded.
+                        build_image = KfxFormat::load_image(&mut buf_reader, Some(build_image), None)?;
+
+                        if let Some(ref callback_fn) = callback {
+                            let completion = (fi + 1) as f64 / file_set.len() as f64;
+                            callback_fn(LoadingStatus::Progress(completion));
+                        }
                     }
 
                     //let ch = DiskCh::new(build_image.track_map[0].len() as u16, build_image.track_map.len() as u8);
                     //build_image.descriptor.geometry = ch;
 
+                    if let Some(callback_fn) = callback {
+                        callback_fn(LoadingStatus::Complete);
+                    }
                     Ok(build_image)
                 } else {
                     Err(DiskImageError::ParameterError)
