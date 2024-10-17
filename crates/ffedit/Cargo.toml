@@ -1,0 +1,13 @@
+[package]
+name = "ffedit"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords.workspace = true
+repository.workspace = true
+
+[dependencies]
+fluxfox = { path = "../.." }
+crossterm = "0.28.1"
+ratatui = "0.28.1"

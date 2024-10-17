@@ -1,12 +1,18 @@
-[package]
-name = "fluxfox"
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
 authors = ["Daniel Balsom"]
-readme = "README.md"
 keywords = ["emulation", "ibm", "floppy", "disk"]
 repository = "https://github.com/dbalsom/fluxfox"
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[package]
+name = "fluxfox"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords.workspace = true
+repository.workspace = true
 
 [dependencies]
 bit-vec = "0.8"
@@ -39,6 +45,7 @@ members = [
     "examples/imgdump",
     "examples/imgviz",
     "examples/imgconvert",
+    "crates/ffedit",
 ]
 
 [features]
