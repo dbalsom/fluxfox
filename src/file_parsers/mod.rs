@@ -178,7 +178,6 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::PceFluxImage => pfi::PfiFormat::capabilities(),
             DiskImageFormat::KryofluxStream => kryoflux::KfxFormat::capabilities(),
             DiskImageFormat::MameFloppyImage => mfi::MfiFormat::capabilities(),
-            _ => FormatCaps::empty(),
         }
     }
 
@@ -197,7 +196,6 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::PceFluxImage => pfi::PfiFormat::detect(image_buf),
             DiskImageFormat::KryofluxStream => kryoflux::KfxFormat::detect(image_buf),
             DiskImageFormat::MameFloppyImage => mfi::MfiFormat::detect(image_buf),
-            _ => false,
         }
     }
 
@@ -216,7 +214,6 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::PceFluxImage => pfi::PfiFormat::extensions(),
             DiskImageFormat::KryofluxStream => kryoflux::KfxFormat::extensions(),
             DiskImageFormat::MameFloppyImage => mfi::MfiFormat::extensions(),
-            _ => vec![],
         }
     }
 
@@ -239,7 +236,6 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::PceFluxImage => pfi::PfiFormat::load_image(image_buf),
             DiskImageFormat::KryofluxStream => kryoflux::KfxFormat::load_image(image_buf, append_image),
             DiskImageFormat::MameFloppyImage => mfi::MfiFormat::load_image(image_buf),
-            _ => Err(DiskImageError::UnknownFormat),
         }
     }
 
@@ -258,7 +254,6 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::PceFluxImage => pfi::PfiFormat::can_write(image),
             DiskImageFormat::KryofluxStream => kryoflux::KfxFormat::can_write(image),
             DiskImageFormat::MameFloppyImage => mfi::MfiFormat::can_write(image),
-            _ => ParserWriteCompatibility::UnsupportedFormat,
         }
     }
 
@@ -277,7 +272,6 @@ impl ImageParser for DiskImageFormat {
             DiskImageFormat::PceFluxImage => pfi::PfiFormat::save_image(image, image_buf),
             DiskImageFormat::KryofluxStream => kryoflux::KfxFormat::save_image(image, image_buf),
             DiskImageFormat::MameFloppyImage => mfi::MfiFormat::save_image(image, image_buf),
-            _ => Err(DiskImageError::UnknownFormat),
         }
     }
 }

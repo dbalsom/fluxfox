@@ -165,7 +165,7 @@ impl KfxFormat {
         byte == 0x0D
     }
 
-    pub fn can_write(image: &DiskImage) -> ParserWriteCompatibility {
+    pub fn can_write(_image: &DiskImage) -> ParserWriteCompatibility {
         ParserWriteCompatibility::UnsupportedFormat
     }
 
@@ -329,7 +329,7 @@ impl KfxFormat {
         Ok(disk_image)
     }
 
-    pub fn save_image<RWS: ReadWriteSeek>(image: &DiskImage, output: &mut RWS) -> Result<(), DiskImageError> {
+    pub fn save_image<RWS: ReadWriteSeek>(_image: &DiskImage, _output: &mut RWS) -> Result<(), DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 

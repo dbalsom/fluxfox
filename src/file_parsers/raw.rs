@@ -92,7 +92,7 @@ impl RawFormat {
         let rpm = floppy_format.get_rpm();
         let gap3 = floppy_format.get_gap3();
 
-        let mut cursor_chs = DiskChs::default();
+        let cursor_chs = DiskChs::default();
 
         raw.seek(std::io::SeekFrom::Start(0))?;
 

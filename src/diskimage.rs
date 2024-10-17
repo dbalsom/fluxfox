@@ -28,7 +28,7 @@
 use crate::bitstream::mfm::MfmCodec;
 
 use crate::bitstream::fm::FmCodec;
-use crate::bitstream::{TrackDataStream, TrackDataStreamT};
+use crate::bitstream::TrackDataStream;
 use crate::boot_sector::BootSector;
 use crate::chs::{DiskCh, DiskChs, DiskChsn};
 use crate::containers::zip::extract_first_file;
@@ -43,7 +43,7 @@ use crate::structure_parsers::{DiskStructureElement, DiskStructureMetadata, Disk
 use crate::trackdata::TrackData;
 use crate::{
     util, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskImageError, DiskRpm, FoxHashMap,
-    FoxHashSet, TrackConsistency, DEFAULT_SECTOR_SIZE,
+    FoxHashSet, TrackConsistency,
 };
 use bit_vec::BitVec;
 use bitflags::bitflags;
@@ -51,7 +51,6 @@ use sha1_smol::Digest;
 use std::fmt::Display;
 use std::io::Cursor;
 use std::path::PathBuf;
-use std::path::Prefix::Disk;
 
 pub const DEFAULT_BOOT_SECTOR: &[u8] = include_bytes!("../resources/bootsector.bin");
 

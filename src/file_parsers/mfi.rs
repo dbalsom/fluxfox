@@ -38,15 +38,14 @@
 use crate::chs::DiskCh;
 use crate::diskimage::DiskDescriptor;
 use crate::file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility};
-use crate::io::{Cursor, Read, ReadSeek, ReadWriteSeek, Write};
+use crate::io::{ReadSeek, ReadWriteSeek};
 
 use crate::fluxstream::flux_stream::RawFluxTrack;
 use crate::fluxstream::pll::{Pll, PllPreset};
 use crate::{
-    DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskImage, DiskImageError, DiskImageFormat,
-    FoxHashSet, DEFAULT_SECTOR_SIZE,
+    DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat, DEFAULT_SECTOR_SIZE,
 };
-use binrw::{binrw, BinRead, BinWrite};
+use binrw::{binrw, BinRead};
 
 pub const OLD_SIGNATURE: &str = "MESSFLOPPYIMAGE";
 pub const NEW_SIGNATURE: &str = "MAMEFLOPPYIMAGE";
@@ -123,7 +122,7 @@ impl MfiFormat {
     }
 
     /// Return the compatibility of the image with the parser.
-    pub(crate) fn can_write(image: &DiskImage) -> ParserWriteCompatibility {
+    pub(crate) fn can_write(_image: &DiskImage) -> ParserWriteCompatibility {
         ParserWriteCompatibility::UnsupportedFormat
     }
 
@@ -158,8 +157,8 @@ impl MfiFormat {
         }
 
         let mut last_offset: u32 = 0;
-        for c in 0..file_ch.c() - 1 {
-            for h in 0..file_ch.h() {
+        for _c in 0..file_ch.c() - 1 {
+            for _h in 0..file_ch.h() {
                 let track_header = MfiTrackHeader::read(&mut image)?;
                 if track_header.offset < last_offset {
                     log::error!("Invalid MFI file: track offset is less than last offset.");
@@ -391,7 +390,7 @@ impl MfiFormat {
         (flux_type, flux_entry & 0x3FFFFFFF)
     }
 
-    pub fn save_image<RWS: ReadWriteSeek>(image: &DiskImage, output: &mut RWS) -> Result<(), DiskImageError> {
+    pub fn save_image<RWS: ReadWriteSeek>(_image: &DiskImage, _output: &mut RWS) -> Result<(), DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 }

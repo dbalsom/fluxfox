@@ -96,14 +96,12 @@ pub struct RawFluxStream {
 
 impl RawFluxStream {
     pub fn from_f64(deltas: &[f64], data_rate: f64) -> Self {
-        let mut new = RawFluxStream {
+        RawFluxStream {
             data_rate,
             flux_deltas: deltas.to_vec(),
             transitions: Vec::with_capacity(deltas.len()),
             bitstream: BitVec::with_capacity((data_rate as usize) * 2),
-        };
-
-        new
+        }
     }
 
     pub fn from_u16(data: &[u16], data_rate: f64, timebase: f64) -> Self {

@@ -32,7 +32,7 @@
     86f format images are an internal bitstream-level format used by the 86Box emulator.
 
 */
-use crate::bitstream::TrackDataStream;
+
 use crate::diskimage::{DiskDescriptor, DiskImageFlags};
 use crate::file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};

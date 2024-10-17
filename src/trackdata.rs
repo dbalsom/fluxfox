@@ -30,7 +30,7 @@
     and associated methods.
 
 */
-use crate::bitstream::mfm::{MfmCodec, MFM_BYTE_LEN};
+use crate::bitstream::mfm::MFM_BYTE_LEN;
 use crate::bitstream::{EncodingVariant, TrackDataStream};
 use crate::chs::DiskChsn;
 use crate::diskimage::{
@@ -647,14 +647,14 @@ impl TrackData {
         let bit_index = self.get_sector_bit_index(chs, n);
 
         match self {
-            TrackData::BitStream { data: codec, .. } => {
+            TrackData::BitStream { data, .. } => {
                 match bit_index {
                     TrackSectorScanResult::Found {
                         sector_chsn,
                         address_crc_valid,
                         no_dam,
                         ..
-                    } if no_dam == true => {
+                    } if no_dam => {
                         // No DAM found. Return an empty buffer.
                         address_crc_error = !address_crc_valid;
                         return Ok(ScanSectorResult {
