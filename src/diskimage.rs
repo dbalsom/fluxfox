@@ -577,8 +577,8 @@ impl DiskImage {
         self.descriptor.geometry.h()
     }
 
-    pub fn tracks(&self) -> u16 {
-        self.descriptor.geometry.c()
+    pub fn tracks(&self, head: u8) -> u16 {
+        self.track_map[head as usize].len() as u16
     }
 
     pub fn write_ct(&self) -> u64 {
@@ -1402,7 +1402,6 @@ impl DiskImage {
             );
             self.consistency.consistent_track_length = None;
         } else {
-            log::warn!("all_consistency.sector_ct: {}", all_consistency.sector_ct);
             self.consistency.consistent_track_length = Some(all_consistency.sector_ct as u32);
         }
 
