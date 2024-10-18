@@ -24,12 +24,13 @@
 
     --------------------------------------------------------------------------
 */
+mod c;
+mod h;
 mod open;
+mod s;
 
 use crate::app::AppContext;
 use std::collections::HashMap;
-
-use open::OpenCommand;
 
 // Trait for commands
 trait Command {
@@ -114,7 +115,10 @@ impl CommandInterpreter {
 
     // Registering commands with the registry
     fn register_default_commands(&mut self) {
-        self.registry.register_command("open", Box::new(OpenCommand));
+        self.registry.register_command("open", Box::new(open::OpenCommand));
+        self.registry.register_command("h", Box::new(h::HeadCommand));
+        self.registry.register_command("c", Box::new(c::CylinderCommand));
+        self.registry.register_command("s", Box::new(s::SectorCommand));
     }
 
     // Command processor

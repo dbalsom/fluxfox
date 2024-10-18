@@ -24,49 +24,35 @@
 
     --------------------------------------------------------------------------
 */
-mod app;
-mod app_events;
-mod cmd_interpreter;
-mod data_block;
-mod disk_selection;
-mod history;
-mod layout;
-mod logger;
-mod modal;
-mod widget;
+use crate::app::{AppContext, AppEvent};
+use crate::cmd_interpreter::{Command, CommandResult};
+use crate::disk_selection::SelectionLevel;
 
-use bpaf::{construct, short, OptionParser, Parser};
-use std::fmt::Display;
-use std::io;
-use std::io::Write;
-use std::path::PathBuf;
+pub(crate) struct SectorCommand;
 
-use ratatui::prelude::*;
+impl Command for SectorCommand {
+    fn execute(&self, app: &mut AppContext, args: Vec<String>) -> Result<CommandResult, String> {
+        if args.len() != 1 {
+            return Err(format!("Usage: s {}", self.usage()));
+        }
+        let new_sector: u8 = args[0].parse::<u8>().map_err(|_| "Invalid sector number")?;
 
-use app::App;
+        if let Some(di) = &app.di {
+            if new_sector >= di.heads() {
+                return Err(format!("Invalid sector number: {}", new_sector));
+            }
+        }
 
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-struct CmdParams {
-    in_filename: Option<PathBuf>,
-}
+        _ = app.sender.send(AppEvent::DiskSelectionChanged);
 
-/// Set up bpaf argument parsing.
-fn opts() -> OptionParser<CmdParams> {
-    let in_filename = short('i')
-        .long("in_filename")
-        .help("Filename of image to read")
-        .argument::<PathBuf>("IN_FILE")
-        .optional();
+        if app.selection.level < SelectionLevel::Sector {
+            app.selection.level = SelectionLevel::Sector
+        }
+        app.selection.sector = Some(new_sector);
+        Ok(CommandResult::Success(format!("Changed sector to: {}", new_sector)))
+    }
 
-    construct!(CmdParams { in_filename }).to_options()
-}
-
-fn main() -> io::Result<()> {
-    let opts = opts().run();
-    let mut terminal = ratatui::init();
-    let mut app = App::new(opts);
-    let app_result = app.run(&mut terminal);
-    ratatui::restore();
-    app_result
+    fn usage(&self) -> String {
+        "<sector #>".into()
+    }
 }

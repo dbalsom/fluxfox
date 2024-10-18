@@ -24,49 +24,35 @@
 
     --------------------------------------------------------------------------
 */
-mod app;
-mod app_events;
-mod cmd_interpreter;
-mod data_block;
-mod disk_selection;
-mod history;
-mod layout;
-mod logger;
-mod modal;
-mod widget;
+use crate::app::{AppContext, AppEvent};
+use crate::cmd_interpreter::{Command, CommandResult};
+use crate::disk_selection::SelectionLevel;
 
-use bpaf::{construct, short, OptionParser, Parser};
-use std::fmt::Display;
-use std::io;
-use std::io::Write;
-use std::path::PathBuf;
+pub(crate) struct CylinderCommand;
 
-use ratatui::prelude::*;
+impl Command for CylinderCommand {
+    fn execute(&self, app: &mut AppContext, args: Vec<String>) -> Result<CommandResult, String> {
+        if args.len() != 1 {
+            return Err(format!("Usage: c {}", self.usage()));
+        }
+        let new_cylinder: u16 = args[0].parse::<u16>().map_err(|_| "Invalid cylinder number")?;
 
-use app::App;
+        if let Some(di) = &app.di {
+            if new_cylinder >= di.tracks(app.selection.head.unwrap_or(0)) {
+                return Err(format!("Invalid cylinder number: {}", new_cylinder));
+            }
+        }
 
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-struct CmdParams {
-    in_filename: Option<PathBuf>,
-}
+        _ = app.sender.send(AppEvent::DiskSelectionChanged);
 
-/// Set up bpaf argument parsing.
-fn opts() -> OptionParser<CmdParams> {
-    let in_filename = short('i')
-        .long("in_filename")
-        .help("Filename of image to read")
-        .argument::<PathBuf>("IN_FILE")
-        .optional();
+        if app.selection.level < SelectionLevel::Cylinder {
+            app.selection.level = SelectionLevel::Cylinder
+        }
+        app.selection.cylinder = Some(new_cylinder);
+        Ok(CommandResult::Success(format!("Changed cylinder to: {}", new_cylinder)))
+    }
 
-    construct!(CmdParams { in_filename }).to_options()
-}
-
-fn main() -> io::Result<()> {
-    let opts = opts().run();
-    let mut terminal = ratatui::init();
-    let mut app = App::new(opts);
-    let app_result = app.run(&mut terminal);
-    ratatui::restore();
-    app_result
+    fn usage(&self) -> String {
+        "<cylinder #>".into()
+    }
 }

@@ -24,49 +24,10 @@
 
     --------------------------------------------------------------------------
 */
-mod app;
-mod app_events;
-mod cmd_interpreter;
-mod data_block;
-mod disk_selection;
-mod history;
-mod layout;
-mod logger;
-mod modal;
-mod widget;
-
-use bpaf::{construct, short, OptionParser, Parser};
-use std::fmt::Display;
-use std::io;
-use std::io::Write;
-use std::path::PathBuf;
-
 use ratatui::prelude::*;
-
-use app::App;
-
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-struct CmdParams {
-    in_filename: Option<PathBuf>,
+pub trait TabSelectableWidget {
+    fn select(&mut self);
+    fn deselect(&mut self);
 }
 
-/// Set up bpaf argument parsing.
-fn opts() -> OptionParser<CmdParams> {
-    let in_filename = short('i')
-        .long("in_filename")
-        .help("Filename of image to read")
-        .argument::<PathBuf>("IN_FILE")
-        .optional();
-
-    construct!(CmdParams { in_filename }).to_options()
-}
-
-fn main() -> io::Result<()> {
-    let opts = opts().run();
-    let mut terminal = ratatui::init();
-    let mut app = App::new(opts);
-    let app_result = app.run(&mut terminal);
-    ratatui::restore();
-    app_result
-}
+pub trait FoxWidget: Widget + TabSelectableWidget {}

@@ -696,10 +696,13 @@ dependencies = [
 name = "ffedit"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bpaf",
  "crossbeam-channel",
  "crossterm",
  "fluxfox",
+ "log 0.4.22",
+ "once_cell",
  "ratatui",
  "tui-popup",
 ]
