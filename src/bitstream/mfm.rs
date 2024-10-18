@@ -169,7 +169,7 @@ impl TrackCodec for MfmCodec {
 
             if !found_pad {
                 // No padding found
-                log::warn!("set_track_padding(): Unable to determine track padding.");
+                log::debug!("set_track_padding(): Unable to determine track padding",);
                 self.track_padding = 0;
             }
         } else {
