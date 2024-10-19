@@ -30,13 +30,14 @@ use crate::components::metadata_header::{MetaDataHeader, MetaDataType};
 use crate::widget::{FoxWidget, ScrollableWidget, TabSelectableWidget, WidgetState};
 use anyhow::{anyhow, Error};
 use fluxfox::diskimage::RwSectorScope;
-use fluxfox::{DiskImage};
+use fluxfox::DiskImage;
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Scrollbar, ScrollbarOrientation, ScrollbarState, WidgetRef};
 use std::cell::RefCell;
 
 #[derive(Clone, Debug)]
 pub enum DataToken {
+    Padding(u16),
     HexAddress(u16),
     DataByte(u8),
     AddressMarker(u8),
@@ -177,6 +178,10 @@ impl DataBlock {
                     line.spans
                         .push(Span::styled(format!("{:02X} ", byte), Style::default()));
                 }
+                DataToken::Padding(size) => {
+                    line.spans
+                        .push(Span::styled(" ".repeat((*size + 1) as usize), Style::default()));
+                }
                 DataToken::AddressMarker(byte) => {
                     line.spans.push(Span::styled(
                         format!("{:02X}", byte),
@@ -232,6 +237,14 @@ impl DataBlock {
                 // Format data byte
                 let data_byte = DataToken::DataByte(*byte);
                 token_vec.push(data_byte);
+            }
+
+            if chunk.len() < bytes_per_line {
+                // Pad the line with spaces
+                let pad_len = bytes_per_line - chunk.len();
+                for _ in 0..pad_len {
+                    token_vec.push(DataToken::Padding(2));
+                }
             }
 
             self.formatted_lines.push(token_vec);
@@ -307,6 +320,11 @@ impl DataBlock {
             }
         }
 
+        // let scrollbar_height = (visible_rows as f64 / total_rows as f64 * inner.height as f64).ceil() as u16;
+        // let scrollbar_position = ((self.scroll_offset as f64 / total_rows as f64)
+        //     * (inner.height as f64 - scrollbar_height as f64))
+        //     .ceil() as u16;
+
         // Update scrollbar content
         let mut vertical_scroll_state = self
             .vertical_scroll_state
@@ -316,17 +334,13 @@ impl DataBlock {
         // Render a scrollbar if needed
         if total_rows > visible_rows {
             // Calculate scrollbar size and position
-            let scrollbar_height = (visible_rows as f64 / total_rows as f64 * inner.height as f64).ceil() as u16;
-            let scrollbar_position = ((self.scroll_offset as f64 / total_rows as f64)
-                * (inner.height as f64 - scrollbar_height as f64))
-                .ceil() as u16;
 
             // Render a scrollbar using the ScrollBar widget if needed
             if total_rows > visible_rows {
                 // Create a ScrollBar widget
                 let scrollbar = Scrollbar::default()
                     .orientation(ScrollbarOrientation::VerticalRight) // Vertical on the right side
-                    .thumb_symbol("░")
+                    .thumb_symbol("█")
                     .track_symbol(Some("|"));
 
                 // Render the scrollbar
@@ -367,11 +381,11 @@ impl ScrollableWidget for DataBlock {
     fn page_down(&mut self) {
         let state = self.ui_state.borrow();
         self.scroll_offset = (self.scroll_offset + state.visible_rows).min(self.formatted_lines.len() - 1);
-        log::debug!(
-            "page_down(): scroll_offset: {} visible: {}",
-            self.scroll_offset,
-            state.visible_rows
-        );
+        // log::debug!(
+        //     "page_down(): scroll_offset: {} visible: {}",
+        //     self.scroll_offset,
+        //     state.visible_rows
+        // );
     }
 }
 
