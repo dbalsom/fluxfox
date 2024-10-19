@@ -28,9 +28,20 @@ mod c;
 mod h;
 mod open;
 mod s;
+mod up;
 
 use crate::app::AppContext;
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
+
+pub static COMMAND_ALIASES: Lazy<HashMap<String, String>> = Lazy::new(|| {
+    HashMap::from([
+        ("?".to_string(), "help".to_string()),
+        ("q".to_string(), "quit".to_string()),
+        ("o".to_string(), "open".to_string()),
+        ("..".to_string(), "up".to_string()),
+    ])
+});
 
 pub struct CommandArgs {
     pub command: String,
@@ -119,19 +130,24 @@ impl CommandInterpreter {
         self.registry.register_command("h", Box::new(h::HeadCommand));
         self.registry.register_command("c", Box::new(c::CylinderCommand));
         self.registry.register_command("s", Box::new(s::SectorCommand));
+        self.registry.register_command("up", Box::new(up::UpCommand));
     }
 
     // Command processor
     pub(crate) fn process_command(&self, app: &mut AppContext, command: &str) -> CommandResult {
-        if command == "q" {
+        // Resolve command aliases
+        let command_string = command.to_string();
+        let resolved_command = COMMAND_ALIASES.get(command).unwrap_or(&command_string);
+
+        if resolved_command == "q" {
             CommandResult::UserExit
-        } else if command == "?" {
+        } else if resolved_command == "help" {
             // Return help information by calling get_usage on the registry
             let help_message = self.registry.get_usage();
             CommandResult::Success(help_message)
         } else {
             self.registry
-                .dispatch(app, command)
+                .dispatch(app, resolved_command)
                 .unwrap_or_else(|e| CommandResult::Error(format!("Error: {}", e)))
         }
     }

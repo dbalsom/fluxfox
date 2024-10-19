@@ -30,7 +30,7 @@ use fluxfox::{DiskCh, DiskChs};
 use std::fmt::Display;
 
 /// Track the selection level
-#[derive(Default, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub enum SelectionLevel {
     #[default]
     Disk = 0,
@@ -39,6 +39,7 @@ pub enum SelectionLevel {
     Sector = 3,
 }
 
+#[derive(Copy, Clone)]
 pub struct DiskSelection {
     pub level: SelectionLevel,
     pub head: Option<u8>,
