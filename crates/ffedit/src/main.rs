@@ -51,6 +51,7 @@ use app::App;
 #[derive(Debug, Clone)]
 struct CmdParams {
     in_filename: Option<PathBuf>,
+    mouse: bool,
 }
 
 /// Set up bpaf argument parsing.
@@ -61,14 +62,18 @@ fn opts() -> OptionParser<CmdParams> {
         .argument::<PathBuf>("IN_FILE")
         .optional();
 
-    construct!(CmdParams { in_filename }).to_options()
+    let mouse = short('m').long("switch").help("Enable mouse support").switch();
+
+    construct!(CmdParams { in_filename, mouse }).to_options()
 }
 
 fn main() -> io::Result<()> {
     let opts = opts().run();
     let mut terminal = ratatui::init();
 
-    std::io::stdout().execute(crossterm::event::EnableMouseCapture).unwrap();
+    if opts.mouse {
+        std::io::stdout().execute(crossterm::event::EnableMouseCapture).unwrap();
+    }
 
     let mut app = App::new(opts);
     let app_result = app.run(&mut terminal);
