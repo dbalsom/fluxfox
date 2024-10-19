@@ -26,14 +26,13 @@
 */
 use crate::chs::{DiskChs, DiskChsn};
 use crate::detect::chs_from_raw_size;
-use crate::diskimage::{DiskDescriptor, DiskImage, RwSectorScope, SectorDescriptor};
+use crate::diskimage::{DiskDescriptor, DiskImage, RwSectorScope};
 use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::structure_parsers::system34::System34Standard;
-use crate::trackdata::TrackData;
 use crate::util::get_length;
 use crate::{
-    DiskCh, DiskDataEncoding, DiskDataResolution, DiskDensity, DiskImageError, DiskImageFormat, LoadingCallback,
+    DiskCh, DiskDataResolution, DiskDensity, DiskImageError, DiskImageFormat, LoadingCallback,
     StandardFormat, DEFAULT_SECTOR_SIZE,
 };
 use std::cmp::Ordering;

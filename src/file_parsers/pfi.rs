@@ -38,15 +38,13 @@
 use crate::chs::DiskCh;
 use crate::diskimage::DiskDescriptor;
 use crate::file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility};
-use crate::io::{Cursor, ReadSeek, ReadWriteSeek, Write};
+use crate::io::{Cursor, ReadSeek, ReadWriteSeek};
 
-use crate::trackdata::TrackData;
 use crate::{
-    DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskImage, DiskImageError, DiskImageFormat,
+    DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat,
     FoxHashSet, LoadingCallback, DEFAULT_SECTOR_SIZE,
 };
-use binrw::meta::WriteEndian;
-use binrw::{binrw, BinRead, BinWrite};
+use binrw::{binrw, BinRead};
 
 pub struct PfiFormat;
 pub const MAXIMUM_CHUNK_SIZE: usize = 0x100000; // Reasonable 1MB limit for chunk sizes.

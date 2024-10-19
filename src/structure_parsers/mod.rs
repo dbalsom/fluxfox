@@ -40,7 +40,6 @@
 pub mod system34;
 
 use crate::bitstream::TrackDataStream;
-use crate::bitstream::TrackDataStreamT;
 use crate::chs::DiskChsn;
 use crate::structure_parsers::system34::{System34Element, System34Marker};
 use bit_vec::BitVec;

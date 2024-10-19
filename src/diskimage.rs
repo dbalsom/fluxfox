@@ -1016,7 +1016,7 @@ impl DiskImage {
         }
 
         let bitcell_bytes = (bitcells + 7) / 8;
-        let mut new_track_index;
+        let new_track_index;
 
         match self.resolution {
             Some(DiskDataResolution::BitStream) => {

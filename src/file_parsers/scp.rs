@@ -321,7 +321,7 @@ impl ScpFormat {
         };
         log::debug!("Image has {} heads.", disk_heads);
 
-        let capture_resolution = (BASE_CAPTURE_RES + (header.resolution as u32 * BASE_CAPTURE_RES));
+        let capture_resolution = BASE_CAPTURE_RES + (header.resolution as u32 * BASE_CAPTURE_RES);
         let capture_resolution_seconds = capture_resolution as f64 * 1e-9;
         log::debug!(
             "Capture resolution: {}ns ({:.9} seconds)",

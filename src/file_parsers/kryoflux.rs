@@ -42,14 +42,14 @@ use crate::fluxstream::FluxTransition;
 use crate::io::{ReadBytesExt, ReadSeek, ReadWriteSeek};
 use crate::{io, DiskDataResolution, FoxHashSet, LoadingCallback};
 use crate::{
-    DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat, DiskRpm,
-    ParserWriteCompatibility, StandardFormat, DEFAULT_SECTOR_SIZE,
+    DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat,
+    ParserWriteCompatibility, DEFAULT_SECTOR_SIZE,
 };
 use binrw::binrw;
-use binrw::{BinRead, BinReaderExt};
+use binrw::{BinRead};
 use std::path::{Path, PathBuf};
 
-use crate::util::{get_length, read_ascii};
+use crate::util::{read_ascii};
 
 pub const KFX_DEFAULT_MCK: f64 = ((18432000.0 * 73.0) / 14.0) / 2.0;
 pub const KFX_DEFAULT_SCK: f64 = KFX_DEFAULT_MCK / 2.0;

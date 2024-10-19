@@ -138,7 +138,7 @@ impl TrackData {
             TrackData::BitStream {
                 encoding,
                 data_rate,
-                data_clock,
+                
                 data,
                 sector_ids,
                 ..
@@ -703,17 +703,17 @@ impl TrackData {
         let mut address_crc_error = false;
         let mut deleted_mark = false;
         let mut wrong_cylinder = false;
-        let mut bad_cylinder = false;
-        let mut wrong_head = false;
+        let bad_cylinder = false;
+        let wrong_head = false;
 
         // Read index first to avoid borrowing issues in next match.
         let bit_index = self.get_sector_bit_index(chs, n, false);
 
         match self {
-            TrackData::BitStream { data, .. } => {
+            TrackData::BitStream {  .. } => {
                 match bit_index {
                     TrackSectorScanResult::Found {
-                        sector_chsn,
+                        
                         address_crc_valid,
                         no_dam,
                         ..
@@ -732,7 +732,7 @@ impl TrackData {
                         });
                     }
                     TrackSectorScanResult::Found {
-                        sector_chsn,
+                        
                         address_crc_valid,
                         data_crc_valid,
                         deleted,
@@ -835,7 +835,7 @@ impl TrackData {
         let data_len;
         let mut address_crc_error = false;
         let mut wrong_cylinder = false;
-        let mut bad_cylinder = false;
+        let bad_cylinder = false;
         let mut wrong_head = false;
 
         // Read index first to avoid borrowing issues in next match.
