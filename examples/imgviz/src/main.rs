@@ -219,7 +219,7 @@ fn main() {
     let high_res_size = (render_size, render_size); // High-resolution image size
     let final_size = (opts.resolution * heads, opts.resolution);
 
-    println!("Rendering {} heads, {} tracks...", heads, disk.tracks());
+    println!("Rendering {} heads, {} tracks...", heads, disk.tracks(0));
 
     #[rustfmt::skip]
     let pixmap_pool: Vec<Arc<Mutex<Pixmap>>> = vec![
@@ -271,7 +271,7 @@ fn main() {
     let mut rendered_pixmaps = Vec::new();
 
     let image_size = opts.resolution;
-    let track_ct = disk.tracks() as usize;
+    let track_ct = disk.tracks(0) as usize;
     log::trace!("Image has {} tracks.", track_ct);
     let a_disk = Arc::new(Mutex::new(disk));
 
