@@ -26,9 +26,10 @@
 */
 
 use crate::app::{App, AppEvent, ApplicationState};
-use crate::history::HistoryEntry;
+use crate::components::history::HistoryEntry;
 use crate::logger::LogEntry;
 use crate::modal::ModalState;
+use crate::util::strip_path;
 
 impl App {
     pub(crate) fn handle_app_events(&mut self) {
@@ -52,13 +53,16 @@ impl App {
                         history.push(HistoryEntry::Error(msg));
                     }
                 },
+                AppEvent::OpenFileRequest(path) => {
+                    self.ctx.load_disk_image(path);
+                }
                 AppEvent::LoadingStatus(progress) => {
                     self.ctx.state =
                         ApplicationState::Modal(ModalState::ProgressBar("Loading Disk Image".to_string(), progress));
                 }
                 AppEvent::DiskImageLoaded(di, di_name) => {
                     self.ctx.di = Some(di);
-                    self.ctx.di_name = Some(di_name.file_name().unwrap().into());
+                    self.ctx.di_name = Some(strip_path(&di_name));
                     self.ctx.state = ApplicationState::Normal;
 
                     // Reset the selection.

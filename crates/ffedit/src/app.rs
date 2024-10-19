@@ -27,27 +27,27 @@
 
 use std::cell::RefCell;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+pub use crate::app_context::AppContext;
+use crate::cmd_interpreter::{CommandInterpreter, CommandResult};
+use crate::components::data_block::DataBlock;
+use crate::components::history::{HistoryWidget, MAX_HISTORY};
+use crate::disk_selection::DiskSelection;
+use crate::logger::{init_logger, LogEntry};
+use crate::modal::ModalState;
+use crate::widget::{FoxWidget, TabSelectableWidget};
+use crate::CmdParams;
 use crossbeam_channel::{Receiver, Sender};
 use crossterm::event;
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind};
 use fluxfox::DiskImage;
 use ratatui::prelude::*;
-use ratatui::widgets::{Block, Borders, Gauge, Paragraph};
+use ratatui::widgets::{Block, Borders, Gauge, Paragraph, WidgetRef};
 use ratatui::DefaultTerminal;
 use tui_popup::{Popup, SizedWrapper};
-
-use crate::cmd_interpreter::{CommandInterpreter, CommandResult};
-use crate::data_block::DataBlock;
-use crate::disk_selection::DiskSelection;
-use crate::history::{HistoryWidget, MAX_HISTORY};
-use crate::logger::{init_logger, LogEntry};
-use crate::modal::ModalState;
-use crate::widget::{FoxWidget, TabSelectableWidget};
-use crate::CmdParams;
 
 // Application state to support different modes
 #[derive(Default)]
@@ -63,17 +63,7 @@ pub(crate) enum AppEvent {
     DiskImageLoadingFailed(String),
     DiskSelectionChanged,
     Log(LogEntry),
-}
-
-// Contain mutable data for App
-// This avoids borrowing issues when passing the mutable context to the command processor
-pub(crate) struct AppContext {
-    pub selection: DiskSelection,
-    pub state: ApplicationState,
-    pub di: Option<DiskImage>,
-    pub di_name: Option<PathBuf>,
-    pub sender: Sender<AppEvent>,
-    pub db: Rc<RefCell<DataBlock>>,
+    OpenFileRequest(PathBuf),
 }
 
 pub(crate) struct UiContext {
@@ -91,45 +81,6 @@ pub(crate) struct App {
     pub(crate) ctx: AppContext,
     pub(crate) ui_ctx: UiContext,
     pub(crate) selected_widget: usize,
-}
-
-impl AppContext {
-    fn load_disk_image(&mut self, filename: PathBuf) {
-        let outer_sender = self.sender.clone();
-        let inner_filename = filename.clone();
-        std::thread::spawn(move || {
-            let inner_sender = outer_sender.clone();
-
-            match DiskImage::load_from_file(
-                inner_filename,
-                Some(Box::new(move |status| match status {
-                    fluxfox::LoadingStatus::Progress(progress) => {
-                        inner_sender.send(AppEvent::LoadingStatus(progress)).unwrap();
-                    }
-                    fluxfox::LoadingStatus::Error => {
-                        log::error!("load_disk_image()... Error loading disk image");
-                        inner_sender
-                            .send(AppEvent::DiskImageLoadingFailed("Unknown error".to_string()))
-                            .unwrap();
-                    }
-                    _ => {}
-                })),
-            ) {
-                Ok(di) => {
-                    log::debug!("load_disk_image()... Successfully loaded disk image");
-                    outer_sender
-                        .send(AppEvent::DiskImageLoaded(di, filename.clone()))
-                        .unwrap();
-                }
-                Err(e) => {
-                    log::error!("load_disk_image()... Error loading disk image");
-                    outer_sender
-                        .send(AppEvent::DiskImageLoadingFailed(format!("Error: {}", e)))
-                        .unwrap();
-                }
-            }
-        });
-    }
 }
 
 impl App {
@@ -208,18 +159,29 @@ impl App {
 
         let history_height = app_layout[0].height as usize;
 
-        let title_bar = format!(
-            "{}",
-            if let Some(di_name) = &self.ctx.di_name {
-                di_name.to_string_lossy()
-            } else {
-                std::borrow::Cow::Borrowed("No Disk Image")
-            }
-        );
-        let title_line = Line::from(vec![
+        let image_name = if let Some(di_name) = &self.ctx.di_name {
+            format!("{}", di_name.to_string_lossy())
+        } else {
+            "No Disk Image".to_string()
+        };
+
+        let image_resolution = if let Some(di) = &self.ctx.di {
+            format!("{:?}", di.resolution())
+        } else {
+            "".to_string()
+        };
+
+        let mut title_line = Line::from(vec![
             Span::styled("ffedit ", Style::light_blue(Style::default())),
-            Span::styled(title_bar, Style::default()),
+            Span::styled(image_name, Style::default()),
         ]);
+
+        if !image_resolution.is_empty() {
+            title_line.push_span(Span::styled(" [", Style::default()));
+            title_line.push_span(Span::styled(image_resolution, Style::light_blue(Style::default())));
+            title_line.push_span(Span::styled("]", Style::default()));
+        }
+
         f.render_widget(Paragraph::new(title_line), app_layout[0]);
 
         self.draw_history(f, horiz_split[0]);
@@ -366,6 +328,12 @@ impl App {
             KeyCode::BackTab => {
                 self.select_next_widget();
             }
+            KeyCode::PageUp => {
+                self.widgets[self.selected_widget].borrow_mut().page_up();
+            }
+            KeyCode::PageDown => {
+                self.widgets[self.selected_widget].borrow_mut().page_down();
+            }
             _ => {}
         }
         None
@@ -374,6 +342,7 @@ impl App {
     fn on_mouse(&mut self, event: MouseEvent, size: Size) {
         match event.kind {
             MouseEventKind::Down(_) => {
+                log::debug!("mouse down");
                 // Start dragging if mouse is near the split
                 if event.column >= (self.ui_ctx.split_percentage - 2)
                     && event.column <= (self.ui_ctx.split_percentage + 2)
@@ -400,12 +369,12 @@ impl App {
     }
 
     fn draw_history(&self, f: &mut Frame, area: Rect) {
-        f.render_widget(self.history.borrow().clone(), area);
+        f.render_widget_ref(&*self.history.borrow(), area);
     }
 
     fn draw_data_pane(&self, f: &mut Frame, area: Rect) {
         // Display data pane content here
         //let block = Block::default().borders(Borders::ALL).title("Data Pane");
-        f.render_widget(self.ctx.db.borrow().clone(), area);
+        f.render_widget_ref(&*self.ctx.db.borrow(), area);
     }
 }

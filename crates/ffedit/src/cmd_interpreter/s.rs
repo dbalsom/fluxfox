@@ -25,31 +25,44 @@
     --------------------------------------------------------------------------
 */
 use crate::app::{AppContext, AppEvent};
-use crate::cmd_interpreter::{Command, CommandResult};
+use crate::cmd_interpreter::{Command, CommandArgs, CommandResult};
 use crate::disk_selection::SelectionLevel;
+use fluxfox::DiskCh;
 
 pub(crate) struct SectorCommand;
 
 impl Command for SectorCommand {
-    fn execute(&self, app: &mut AppContext, args: Vec<String>) -> Result<CommandResult, String> {
-        if args.len() != 1 {
-            return Err(format!("Usage: s {}", self.usage()));
-        }
-        let new_sector: u8 = args[0].parse::<u8>().map_err(|_| "Invalid sector number")?;
-
-        if let Some(di) = &app.di {
-            if new_sector >= di.heads() {
-                return Err(format!("Invalid sector number: {}", new_sector));
+    fn execute(&self, app: &mut AppContext, args: CommandArgs) -> Result<CommandResult, String> {
+        if let Some(argv) = args.argv {
+            if argv.len() != 1 {
+                return Err(format!("Usage: {}", self.usage()));
             }
-        }
 
-        _ = app.sender.send(AppEvent::DiskSelectionChanged);
+            let new_sector: u8 = argv[0].parse::<u8>().map_err(|_| "Invalid sector number")?;
 
-        if app.selection.level < SelectionLevel::Sector {
-            app.selection.level = SelectionLevel::Sector
+            if let Some(di) = &app.di {
+                let track = di
+                    .track(DiskCh::new(
+                        app.selection.cylinder.unwrap_or(0),
+                        app.selection.head.unwrap_or(0),
+                    ))
+                    .ok_or("Invalid track")?;
+
+                if !track.has_sector_id(new_sector) {
+                    return Err(format!("Invalid sector number: {}", new_sector));
+                }
+            }
+
+            _ = app.sender.send(AppEvent::DiskSelectionChanged);
+
+            if app.selection.level < SelectionLevel::Sector {
+                app.selection.level = SelectionLevel::Sector
+            }
+            app.selection.sector = Some(new_sector);
+            Ok(CommandResult::Success(format!("Changed sector to: {}", new_sector)))
+        } else {
+            Err(format!("Usage: c {}", self.usage()))
         }
-        app.selection.sector = Some(new_sector);
-        Ok(CommandResult::Success(format!("Changed sector to: {}", new_sector)))
     }
 
     fn usage(&self) -> String {

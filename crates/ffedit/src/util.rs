@@ -24,35 +24,20 @@
 
     --------------------------------------------------------------------------
 */
-use crate::app::{AppContext, AppEvent};
-use crate::cmd_interpreter::{Command, CommandArgs, CommandResult};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-pub(crate) struct OpenCommand;
+pub(crate) fn strip_path(path: &Path) -> PathBuf {
+    let mut components = path.components().rev();
 
-impl Command for OpenCommand {
-    fn execute(&self, app: &mut AppContext, args: CommandArgs) -> Result<CommandResult, String> {
-        if let Some(argv) = args.argv {
-            if argv.len() != 1 {
-                return Err(format!("Usage: open {}", self.usage()));
-            }
-            let filename = &argv[0];
-            //app.file_opened = Some(filename.clone());
+    // Get the last component (file name)
+    let file_name = components.next().expect("Path should have at least one component");
 
-            if let Err(e) = app
-                .sender
-                .send(AppEvent::OpenFileRequest(PathBuf::from(filename.clone())))
-            {
-                return Err(format!("Internal error: {}", e));
-            }
-
-            Ok(CommandResult::Success(format!("Opening file: {}...", filename)))
-        } else {
-            Err(format!("Usage: open {}", self.usage()))
-        }
-    }
-
-    fn usage(&self) -> String {
-        "<filename>".into()
+    // Try to get the second-to-last component (immediate parent)
+    if let Some(parent) = components.next() {
+        // Reconstruct the path in reverse order
+        PathBuf::from(parent.as_os_str()).join(file_name.as_os_str())
+    } else {
+        // If no parent is found, fall back to just the file name
+        PathBuf::from(file_name.as_os_str())
     }
 }

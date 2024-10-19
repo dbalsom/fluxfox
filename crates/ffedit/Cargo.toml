@@ -17,4 +17,4 @@ once_cell = "1.8.0"
 anyhow = "1.0"
 crossbeam-channel = "0.5.13"
 bpaf = { version = "0.9", features = ["autocomplete"] }
-
+indexmap = "2.6.0"

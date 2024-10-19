@@ -48,6 +48,13 @@ use crate::{DiskCh, DiskChs, DiskDataEncoding, DiskDataRate, DiskImageError, Fox
 use sha1_smol::Digest;
 use std::io::{Read, Seek, SeekFrom};
 
+pub struct TrackInfo {
+    pub encoding: DiskDataEncoding,
+    pub data_rate: DiskDataRate,
+    pub bit_length: usize,
+    pub sector_ct: usize,
+}
+
 pub enum TrackSectorScanResult {
     Found {
         element_start: usize,
@@ -126,6 +133,38 @@ impl TrackData {
         }
     }
 
+    pub fn info(&self) -> TrackInfo {
+        match self {
+            TrackData::BitStream {
+                encoding,
+                data_rate,
+                data_clock,
+                data,
+                sector_ids,
+                ..
+            } => TrackInfo {
+                encoding: *encoding,
+                data_rate: *data_rate,
+                bit_length: data.len(),
+                sector_ct: sector_ids.len(),
+            },
+            TrackData::ByteStream {
+                encoding,
+                data_rate,
+                cylinder,
+                head,
+                sectors,
+                data,
+                weak_mask,
+            } => TrackInfo {
+                encoding: *encoding,
+                data_rate: *data_rate,
+                bit_length: 0,
+                sector_ct: sectors.len(),
+            },
+        }
+    }
+
     pub(crate) fn metadata(&self) -> Option<&DiskStructureMetadata> {
         match self {
             TrackData::BitStream { metadata, .. } => Some(metadata),
@@ -148,7 +187,7 @@ impl TrackData {
         }
     }
 
-    pub(crate) fn has_sector_id(&self, id: u8) -> bool {
+    pub fn has_sector_id(&self, id: u8) -> bool {
         match self {
             TrackData::ByteStream { sectors, .. } => {
                 for sector in sectors {
@@ -307,7 +346,7 @@ impl TrackData {
     ///
     /// # Panics
     /// This function does not panic.
-    pub(crate) fn get_sector_bit_index(&self, seek_chs: DiskChs, n: Option<u8>) -> TrackSectorScanResult {
+    pub(crate) fn get_sector_bit_index(&self, seek_chs: DiskChs, n: Option<u8>, debug: bool) -> TrackSectorScanResult {
         let mut wrong_cylinder = false;
         let mut bad_cylinder = false;
         let mut wrong_head = false;
@@ -367,8 +406,10 @@ impl TrackData {
                                     matched_h = true;
                                 }
 
-                                // Second stage match - if we matched c, h and n, we set the flag for last idam matched.
-                                if matched_c && matched_h && matched_n {
+                                // Second stage match
+                                // If 'debug' is set, we only match on sector.
+                                // If 'debug' is clear, if we matched c, h and n, we set the flag for last idam matched.
+                                if debug || (matched_c && matched_h && matched_n) {
                                     last_idam_matched = true;
                                 }
                             }
@@ -447,19 +488,22 @@ impl TrackData {
         let mut wrong_head = false;
 
         // Read index first to avoid borrowing issues in next match.
-        let bit_index = self.get_sector_bit_index(chs, n);
+        let bit_index = self.get_sector_bit_index(chs, n, debug);
 
+        let mut id_chsn = None;
         match self {
             TrackData::BitStream { data: codec, .. } => {
                 match bit_index {
                     TrackSectorScanResult::Found {
                         address_crc_valid,
                         no_dam,
+                        sector_chsn,
                         ..
                     } if no_dam == true => {
                         // No DAM found. Return an empty buffer.
                         address_crc_error = !address_crc_valid;
                         return Ok(ReadSectorResult {
+                            id_chsn: Some(sector_chsn),
                             data_idx: 0,
                             data_len: 0,
                             read_buf: Vec::new(),
@@ -482,12 +526,13 @@ impl TrackData {
                         ..
                     } => {
                         address_crc_error = !address_crc_valid;
-
+                        id_chsn = Some(sector_chsn);
                         // If there is a bad address mark we do not read the data unless the debug flag is set.
                         // This allows dumping of sectors with bad address marks for debugging purposes.
                         // So if the debug flag is not set, return our 'failure' now.
                         if address_crc_error && !debug {
                             return Ok(ReadSectorResult {
+                                id_chsn,
                                 not_found: false,
                                 no_dam: false,
                                 deleted_mark: false,
@@ -586,6 +631,8 @@ impl TrackData {
                     RwSectorScope::DataOnly => {}
                 };
 
+                let mut last_idam_matched = false;
+
                 for si in sectors {
                     if si.id_chsn.s() == chs.s() {
                         log::trace!(
@@ -594,8 +641,10 @@ impl TrackData {
                             si.t_idx
                         );
 
-                        data_len = std::cmp::min(si.t_idx + si.len, data.len()) - si.t_idx;
-                        read_vec.extend(data[si.t_idx..si.t_idx + data_len].to_vec());
+                        let mut matched_n = false;
+                        if n.is_some() && si.id_chsn.n() == n.unwrap() {
+                            matched_n = true;
+                        }
 
                         if si.data_crc_error {
                             data_crc_error = true;
@@ -603,15 +652,28 @@ impl TrackData {
                         if si.id_chsn.c() != chs.c() {
                             wrong_cylinder = true;
                         }
+                        let matched_c = !wrong_cylinder;
                         if si.id_chsn.c() == 0xFF {
                             bad_cylinder = true;
                         }
                         if si.id_chsn.h() != chs.h() {
                             wrong_head = true;
                         }
+                        let matched_h = !wrong_head;
                         if si.deleted_mark {
                             deleted_mark = true;
                         }
+
+                        if debug || (matched_c && matched_h && matched_n) {
+                            last_idam_matched = true;
+                        }
+                    }
+
+                    if last_idam_matched {
+                        id_chsn = Some(si.id_chsn);
+                        data_len = std::cmp::min(si.t_idx + si.len, data.len()) - si.t_idx;
+                        read_vec.extend(data[si.t_idx..si.t_idx + data_len].to_vec());
+                        break;
                     }
                 }
             }
@@ -621,6 +683,7 @@ impl TrackData {
         }
 
         Ok(ReadSectorResult {
+            id_chsn,
             data_idx,
             data_len,
             read_buf: read_vec,
@@ -644,7 +707,7 @@ impl TrackData {
         let mut wrong_head = false;
 
         // Read index first to avoid borrowing issues in next match.
-        let bit_index = self.get_sector_bit_index(chs, n);
+        let bit_index = self.get_sector_bit_index(chs, n, false);
 
         match self {
             TrackData::BitStream { data, .. } => {
@@ -776,7 +839,7 @@ impl TrackData {
         let mut wrong_head = false;
 
         // Read index first to avoid borrowing issues in next match.
-        let bit_index = self.get_sector_bit_index(chs, n);
+        let bit_index = self.get_sector_bit_index(chs, n, debug);
 
         match self {
             TrackData::BitStream { data: codec, .. } => {

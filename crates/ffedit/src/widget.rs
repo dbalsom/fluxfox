@@ -24,10 +24,33 @@
 
     --------------------------------------------------------------------------
 */
+use std::collections::BTreeMap;
+
+use crate::components::metadata_header::MetaDataHeader;
 use ratatui::prelude::*;
+use ratatui::widgets::{ScrollbarState, WidgetRef};
+
 pub trait TabSelectableWidget {
+    fn can_select(&self) -> bool;
     fn select(&mut self);
     fn deselect(&mut self);
 }
 
-pub trait FoxWidget: Widget + TabSelectableWidget {}
+pub trait ScrollableWidget {
+    fn scroll_up(&mut self);
+    fn scroll_down(&mut self);
+    fn page_up(&mut self);
+    fn page_down(&mut self);
+}
+
+pub trait HasMetaDataHeader {
+    fn set_header(&mut self, header: MetaDataHeader);
+}
+
+#[derive(Default)]
+pub struct WidgetState {
+    pub visible_rows: usize,
+    pub vertical_scroll_state: ScrollbarState,
+}
+
+pub trait FoxWidget: WidgetRef + TabSelectableWidget + ScrollableWidget {}

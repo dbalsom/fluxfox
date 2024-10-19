@@ -24,35 +24,7 @@
 
     --------------------------------------------------------------------------
 */
-use crate::app::{AppContext, AppEvent};
-use crate::cmd_interpreter::{Command, CommandArgs, CommandResult};
-use std::path::PathBuf;
 
-pub(crate) struct OpenCommand;
-
-impl Command for OpenCommand {
-    fn execute(&self, app: &mut AppContext, args: CommandArgs) -> Result<CommandResult, String> {
-        if let Some(argv) = args.argv {
-            if argv.len() != 1 {
-                return Err(format!("Usage: open {}", self.usage()));
-            }
-            let filename = &argv[0];
-            //app.file_opened = Some(filename.clone());
-
-            if let Err(e) = app
-                .sender
-                .send(AppEvent::OpenFileRequest(PathBuf::from(filename.clone())))
-            {
-                return Err(format!("Internal error: {}", e));
-            }
-
-            Ok(CommandResult::Success(format!("Opening file: {}...", filename)))
-        } else {
-            Err(format!("Usage: open {}", self.usage()))
-        }
-    }
-
-    fn usage(&self) -> String {
-        "<filename>".into()
-    }
-}
+pub mod data_block;
+pub mod history;
+pub mod metadata_header;

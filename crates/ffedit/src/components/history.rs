@@ -25,9 +25,9 @@
     --------------------------------------------------------------------------
 */
 use crate::logger::LogEntry;
-use crate::widget::{FoxWidget, TabSelectableWidget};
+use crate::widget::{FoxWidget, ScrollableWidget, TabSelectableWidget};
 use ratatui::prelude::*;
-use ratatui::widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState};
+use ratatui::widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, WidgetRef};
 use std::cmp;
 use std::collections::VecDeque;
 
@@ -95,21 +95,8 @@ impl HistoryWidget {
             LogEntry::Error(msg) => self.push(HistoryEntry::Error(msg)),
         }
     }
-}
 
-impl FoxWidget for HistoryWidget {}
-
-impl TabSelectableWidget for HistoryWidget {
-    fn select(&mut self) {
-        self.tab_selected = true;
-    }
-    fn deselect(&mut self) {
-        self.tab_selected = false;
-    }
-}
-
-impl Widget for HistoryWidget {
-    fn render(mut self, area: Rect, buf: &mut Buffer) {
+    fn render_ref_internal(&self, area: Rect, buf: &mut Buffer) {
         // Render a border around the widget
         let border_style = if self.tab_selected {
             Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)
@@ -129,7 +116,7 @@ impl Widget for HistoryWidget {
 
         block.title(title).render(area, buf);
 
-        self.vertical_scroll_state = self
+        let mut vertical_scroll_state = self
             .vertical_scroll_state
             .content_length(total_rows)
             .viewport_content_length(1)
@@ -174,8 +161,41 @@ impl Widget for HistoryWidget {
                     .track_symbol(Some("|"));
 
                 // Render the scrollbar
-                scrollbar.render(inner, buf, &mut self.vertical_scroll_state);
+                scrollbar.render(inner, buf, &mut vertical_scroll_state);
             }
         }
+    }
+}
+
+impl FoxWidget for HistoryWidget {}
+
+impl ScrollableWidget for HistoryWidget {
+    fn scroll_up(&mut self) {}
+    fn scroll_down(&mut self) {}
+    fn page_up(&mut self) {}
+    fn page_down(&mut self) {}
+}
+
+impl TabSelectableWidget for HistoryWidget {
+    fn can_select(&self) -> bool {
+        true
+    }
+    fn select(&mut self) {
+        self.tab_selected = true;
+    }
+    fn deselect(&mut self) {
+        self.tab_selected = false;
+    }
+}
+
+impl WidgetRef for &HistoryWidget {
+    fn render_ref(&self, area: Rect, buf: &mut Buffer) {
+        self.render_ref_internal(area, buf);
+    }
+}
+
+impl WidgetRef for HistoryWidget {
+    fn render_ref(&self, area: Rect, buf: &mut Buffer) {
+        self.render_ref_internal(area, buf);
     }
 }

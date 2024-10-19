@@ -25,22 +25,24 @@
     --------------------------------------------------------------------------
 */
 mod app;
+mod app_context;
 mod app_events;
 mod cmd_interpreter;
-mod data_block;
+mod components;
 mod disk_selection;
-mod history;
 mod layout;
 mod logger;
 mod modal;
+mod util;
 mod widget;
 
-use bpaf::{construct, short, OptionParser, Parser};
 use std::fmt::Display;
 use std::io;
 use std::io::Write;
 use std::path::PathBuf;
 
+use bpaf::{construct, short, OptionParser, Parser};
+use crossterm::ExecutableCommand;
 use ratatui::prelude::*;
 
 use app::App;
@@ -65,8 +67,12 @@ fn opts() -> OptionParser<CmdParams> {
 fn main() -> io::Result<()> {
     let opts = opts().run();
     let mut terminal = ratatui::init();
+
+    std::io::stdout().execute(crossterm::event::EnableMouseCapture).unwrap();
+
     let mut app = App::new(opts);
     let app_result = app.run(&mut terminal);
+
     ratatui::restore();
     app_result
 }

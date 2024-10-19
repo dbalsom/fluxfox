@@ -25,31 +25,35 @@
     --------------------------------------------------------------------------
 */
 use crate::app::{AppContext, AppEvent};
-use crate::cmd_interpreter::{Command, CommandResult};
+use crate::cmd_interpreter::{Command, CommandArgs, CommandResult};
 use crate::disk_selection::SelectionLevel;
 
 pub(crate) struct HeadCommand;
 
 impl Command for HeadCommand {
-    fn execute(&self, app: &mut AppContext, args: Vec<String>) -> Result<CommandResult, String> {
-        if args.len() != 1 {
-            return Err(format!("Usage: h {}", self.usage()));
-        }
-        let new_head: u8 = args[0].parse::<u8>().map_err(|_| "Invalid head number")?;
-
-        if let Some(di) = &app.di {
-            if new_head >= di.heads() {
-                return Err(format!("Invalid head number: {}", new_head));
+    fn execute(&self, app: &mut AppContext, args: CommandArgs) -> Result<CommandResult, String> {
+        if let Some(argv) = args.argv {
+            if argv.len() != 1 {
+                return Err(format!("Usage: h {}", self.usage()));
             }
-        }
+            let new_head: u8 = argv[0].parse::<u8>().map_err(|_| "Invalid head number")?;
 
-        _ = app.sender.send(AppEvent::DiskSelectionChanged);
+            if let Some(di) = &app.di {
+                if new_head >= di.heads() {
+                    return Err(format!("Invalid head number: {}", new_head));
+                }
+            }
 
-        if app.selection.level < SelectionLevel::Head {
-            app.selection.level = SelectionLevel::Head
+            _ = app.sender.send(AppEvent::DiskSelectionChanged);
+
+            if app.selection.level < SelectionLevel::Head {
+                app.selection.level = SelectionLevel::Head
+            }
+            app.selection.head = Some(new_head);
+            Ok(CommandResult::Success(format!("Changed head to: {}", new_head)))
+        } else {
+            Err(format!("Usage: h {}", self.usage()))
         }
-        app.selection.head = Some(new_head);
-        Ok(CommandResult::Success(format!("Changed head to: {}", new_head)))
     }
 
     fn usage(&self) -> String {

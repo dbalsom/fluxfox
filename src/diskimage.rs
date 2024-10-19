@@ -264,6 +264,7 @@ pub struct ScanSectorResult {
 
 #[derive(Clone)]
 pub struct ReadSectorResult {
+    pub id_chsn: Option<DiskChsn>,
     pub not_found: bool,
     pub no_dam: bool,
     pub deleted_mark: bool,
@@ -421,11 +422,17 @@ impl DiskImage {
             .map(move |track_idx| self.track_pool[track_idx].ch())
     }
 
-    pub fn get_track(&self, track_idx: usize) -> Option<&TrackData> {
+    pub fn track(&self, ch: DiskCh) -> Option<&TrackData> {
+        self.track_map[ch.h() as usize]
+            .get(ch.c() as usize)
+            .and_then(|&track_idx| self.track_pool.get(track_idx))
+    }
+
+    pub fn track_by_idx(&self, track_idx: usize) -> Option<&TrackData> {
         self.track_pool.get(track_idx)
     }
 
-    pub fn get_track_mut(&mut self, track_idx: usize) -> Option<&mut TrackData> {
+    pub fn track_by_idx_mut(&mut self, track_idx: usize) -> Option<&mut TrackData> {
         self.track_pool.get_mut(track_idx)
     }
 

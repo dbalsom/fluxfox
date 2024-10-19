@@ -32,9 +32,15 @@ mod s;
 use crate::app::AppContext;
 use std::collections::HashMap;
 
+pub struct CommandArgs {
+    pub command: String,
+    pub argv: Option<Vec<String>>,
+    pub raw_args: Option<String>,
+}
+
 // Trait for commands
 trait Command {
-    fn execute(&self, app: &mut AppContext, args: Vec<String>) -> Result<CommandResult, String>;
+    fn execute(&self, app: &mut AppContext, args: CommandArgs) -> Result<CommandResult, String>;
     fn usage(&self) -> String;
 }
 
@@ -56,18 +62,12 @@ impl CommandRegistry {
     }
 
     fn dispatch(&self, app: &mut AppContext, input: &str) -> Result<CommandResult, String> {
-        let parts: Vec<String> = input.split_whitespace().map(String::from).collect();
-        if parts.is_empty() {
-            return Err("No command provided".into());
-        }
+        let cmd_args = parse_input(input);
 
-        let command_name = &parts[0];
-        let args = parts[1..].to_vec();
-
-        if let Some(command) = self.commands.get(command_name) {
-            command.execute(app, args)
+        if let Some(command) = self.commands.get(&cmd_args.command) {
+            command.execute(app, cmd_args)
         } else {
-            Err(format!("Unknown command: {}\nType ? for help", command_name))
+            Err(format!("Unknown command: {}\nType ? for help", &cmd_args.command))
         }
     }
 
@@ -135,4 +135,61 @@ impl CommandInterpreter {
                 .unwrap_or_else(|e| CommandResult::Error(format!("Error: {}", e)))
         }
     }
+}
+
+fn parse_input(input: &str) -> CommandArgs {
+    let parts = split_quoted(input);
+    let command = parts[0].clone();
+    let argv = if parts.len() > 1 {
+        Some(parts[1..].to_vec())
+    } else {
+        None
+    };
+    let raw_args = split_once(input).get(1).map(|s| s.clone());
+
+    CommandArgs {
+        command,
+        argv,
+        raw_args,
+    }
+}
+
+fn split(input: &str) -> Vec<String> {
+    input.split_whitespace().map(String::from).collect()
+}
+
+fn split_once(input: &str) -> Vec<String> {
+    let mut parts = input
+        .splitn(2, char::is_whitespace)
+        .map(String::from)
+        .collect::<Vec<String>>();
+
+    parts
+}
+
+fn split_quoted(input: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    let mut in_quotes = false;
+    let mut current = String::new();
+
+    for c in input.chars() {
+        match c {
+            '"' => {
+                in_quotes = !in_quotes;
+            }
+            ' ' | '\t' | '\n' if !in_quotes => {
+                if !current.is_empty() {
+                    result.push(current.clone());
+                    current.clear();
+                }
+            }
+            _ => current.push(c),
+        }
+    }
+
+    if !current.is_empty() {
+        result.push(current);
+    }
+
+    result
 }

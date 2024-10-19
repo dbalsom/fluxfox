@@ -140,7 +140,7 @@ impl RawFormat {
                 }
 
                 let td = disk_image
-                    .get_track_mut(new_track_idx)
+                    .track_by_idx_mut(new_track_idx)
                     .ok_or(DiskImageError::FormatParseError)?;
 
                 //log::warn!("Raw::load_image(): Track pattern: {:X?}", track_pattern);

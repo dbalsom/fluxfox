@@ -25,31 +25,35 @@
     --------------------------------------------------------------------------
 */
 use crate::app::{AppContext, AppEvent};
-use crate::cmd_interpreter::{Command, CommandResult};
+use crate::cmd_interpreter::{Command, CommandArgs, CommandResult};
 use crate::disk_selection::SelectionLevel;
 
 pub(crate) struct CylinderCommand;
 
 impl Command for CylinderCommand {
-    fn execute(&self, app: &mut AppContext, args: Vec<String>) -> Result<CommandResult, String> {
-        if args.len() != 1 {
-            return Err(format!("Usage: c {}", self.usage()));
-        }
-        let new_cylinder: u16 = args[0].parse::<u16>().map_err(|_| "Invalid cylinder number")?;
-
-        if let Some(di) = &app.di {
-            if new_cylinder >= di.tracks(app.selection.head.unwrap_or(0)) {
-                return Err(format!("Invalid cylinder number: {}", new_cylinder));
+    fn execute(&self, app: &mut AppContext, args: CommandArgs) -> Result<CommandResult, String> {
+        if let Some(argv) = args.argv {
+            if argv.len() != 1 {
+                return Err(format!("Usage: c {}", self.usage()));
             }
-        }
+            let new_cylinder: u16 = argv[0].parse::<u16>().map_err(|_| "Invalid cylinder number")?;
 
-        _ = app.sender.send(AppEvent::DiskSelectionChanged);
+            if let Some(di) = &app.di {
+                if new_cylinder >= di.tracks(app.selection.head.unwrap_or(0)) {
+                    return Err(format!("Invalid cylinder number: {}", new_cylinder));
+                }
+            }
 
-        if app.selection.level < SelectionLevel::Cylinder {
-            app.selection.level = SelectionLevel::Cylinder
+            _ = app.sender.send(AppEvent::DiskSelectionChanged);
+
+            if app.selection.level < SelectionLevel::Cylinder {
+                app.selection.level = SelectionLevel::Cylinder
+            }
+            app.selection.cylinder = Some(new_cylinder);
+            Ok(CommandResult::Success(format!("Changed cylinder to: {}", new_cylinder)))
+        } else {
+            Err(format!("Usage: c {}", self.usage()))
         }
-        app.selection.cylinder = Some(new_cylinder);
-        Ok(CommandResult::Success(format!("Changed cylinder to: {}", new_cylinder)))
     }
 
     fn usage(&self) -> String {

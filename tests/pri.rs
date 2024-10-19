@@ -58,7 +58,7 @@ fn test_pri_sector_reads() {
     // Collect indices to avoid borrowing issues
     let ti_vec: Vec<usize> = pri_image.track_idx_iter().collect();
     for ti in ti_vec {
-        if let Some(td) = pri_image.get_track_mut(ti) {
+        if let Some(td) = pri_image.track_by_idx_mut(ti) {
             let ch = td.ch();
             println!("Reading track {}...", ch);
             let rtr = match td.read_all_sectors(ch, 2, 0) {
