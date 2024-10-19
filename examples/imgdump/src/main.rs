@@ -147,7 +147,7 @@ fn main() {
 
     println!("Detected disk image type: {}", disk_image_type);
 
-    let mut disk = match DiskImage::load(&mut reader, Some(opts.filename.clone())) {
+    let mut disk = match DiskImage::load(&mut reader, Some(opts.filename.clone()), None) {
         Ok(disk) => disk,
         Err(e) => {
             eprintln!("Error loading disk image: {}", e);

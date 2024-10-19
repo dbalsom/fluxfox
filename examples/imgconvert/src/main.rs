@@ -136,7 +136,7 @@ fn main() {
     //std::process::exit(0);
 
     // Load disk image
-    let mut in_disk = match DiskImage::load(&mut reader) {
+    let mut in_disk = match DiskImage::load(&mut reader, Some(opts.in_filename.clone()), None) {
         Ok(disk) => disk,
         Err(e) => {
             eprintln!("Error loading disk image: {}", e);
