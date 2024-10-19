@@ -27,25 +27,25 @@
 
 use std::cell::RefCell;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 pub use crate::app_context::AppContext;
 use crate::cmd_interpreter::{CommandInterpreter, CommandResult};
 use crate::components::data_block::DataBlock;
-use crate::components::history::{HistoryWidget, MAX_HISTORY};
+use crate::components::history::{HistoryWidget};
 use crate::disk_selection::DiskSelection;
 use crate::logger::{init_logger, LogEntry};
 use crate::modal::ModalState;
 use crate::widget::{FoxWidget, TabSelectableWidget};
 use crate::CmdParams;
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::{Receiver};
 use crossterm::event;
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind};
 use fluxfox::DiskImage;
 use ratatui::prelude::*;
-use ratatui::widgets::{Block, Borders, Gauge, Paragraph, WidgetRef};
+use ratatui::widgets::{Gauge, Paragraph};
 use ratatui::DefaultTerminal;
 use tui_popup::{Popup, SizedWrapper};
 

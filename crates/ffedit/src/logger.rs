@@ -26,10 +26,7 @@
 */
 use crate::app::AppEvent;
 use crossbeam_channel::Sender;
-use fluxfox::DiskImageError::ParameterError;
 use log::{Level, Metadata, Record, SetLoggerError};
-use once_cell::sync::Lazy;
-use std::sync::{Arc, Mutex};
 
 pub enum LogEntry {
     Trace(String),

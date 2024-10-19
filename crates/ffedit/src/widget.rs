@@ -24,10 +24,8 @@
 
     --------------------------------------------------------------------------
 */
-use std::collections::BTreeMap;
 
 use crate::components::metadata_header::MetaDataHeader;
-use ratatui::prelude::*;
 use ratatui::widgets::{ScrollbarState, WidgetRef};
 
 pub trait TabSelectableWidget {

@@ -24,19 +24,16 @@
 
     --------------------------------------------------------------------------
 */
-use crate::app::AppContext;
 use crate::disk_selection::{DiskSelection, SelectionLevel};
 
 use crate::components::metadata_header::{MetaDataHeader, MetaDataType};
 use crate::widget::{FoxWidget, ScrollableWidget, TabSelectableWidget, WidgetState};
 use anyhow::{anyhow, Error};
 use fluxfox::diskimage::RwSectorScope;
-use fluxfox::{DiskCh, DiskChs, DiskImage};
+use fluxfox::{DiskImage};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Scrollbar, ScrollbarOrientation, ScrollbarState, WidgetRef};
 use std::cell::RefCell;
-use std::collections::BTreeMap;
-use std::ops::Add;
 
 #[derive(Clone, Debug)]
 pub enum DataToken {
@@ -360,7 +357,7 @@ impl ScrollableWidget for DataBlock {
     fn scroll_down(&mut self) {
         self.scroll_offset += 1;
         if self.scroll_offset >= self.formatted_lines.len() {
-            self.scroll_offset = (self.formatted_lines.len() - 1);
+            self.scroll_offset = self.formatted_lines.len() - 1;
         }
     }
     fn page_up(&mut self) {

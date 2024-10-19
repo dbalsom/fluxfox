@@ -159,7 +159,7 @@ fn split(input: &str) -> Vec<String> {
 }
 
 fn split_once(input: &str) -> Vec<String> {
-    let mut parts = input
+    let parts = input
         .splitn(2, char::is_whitespace)
         .map(String::from)
         .collect::<Vec<String>>();

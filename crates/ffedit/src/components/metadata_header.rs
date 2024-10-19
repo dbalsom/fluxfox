@@ -30,7 +30,6 @@ use ratatui::layout::Rect;
 use ratatui::prelude::*;
 use ratatui::style::Style;
 use ratatui::widgets::{Block, WidgetRef};
-use std::collections::BTreeMap;
 
 #[derive(Default)]
 pub enum MetaDataType {
@@ -51,7 +50,7 @@ pub struct MetaDataHeader {
 
 impl MetaDataHeader {
     pub fn new(dh_type: MetaDataType) -> MetaDataHeader {
-        use MetaDataItem::*;
+        
         match dh_type {
             MetaDataType::Sector => {
                 let mut map = IndexMap::new();
@@ -102,7 +101,7 @@ impl WidgetRef for MetaDataHeader {
 
         for (key, value) in &self.map {
             // Set key style to white text on dark blue background
-            let mut key_style = style;
+            let key_style = style;
 
             let key_pad = self.max_key_len() - key.len();
             let key_str = format!("{}:{:width$}", key, "", width = key_pad);

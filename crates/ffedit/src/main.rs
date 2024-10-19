@@ -36,14 +36,11 @@ mod modal;
 mod util;
 mod widget;
 
-use std::fmt::Display;
 use std::io;
-use std::io::Write;
 use std::path::PathBuf;
 
 use bpaf::{construct, short, OptionParser, Parser};
 use crossterm::ExecutableCommand;
-use ratatui::prelude::*;
 
 use app::App;
 
