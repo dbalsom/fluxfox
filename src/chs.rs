@@ -51,7 +51,7 @@ impl From<(DiskChs, u8)> for DiskChsn {
 
 impl Display for DiskChsn {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[c:{} h:{} s:{} n: {}]", self.c(), self.h(), self.s(), self.n)
+        write!(f, "[c:{} h:{} s:{} n:{}]", self.c(), self.h(), self.s(), self.n)
     }
 }
 
