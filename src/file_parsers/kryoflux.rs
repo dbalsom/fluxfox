@@ -306,7 +306,6 @@ impl KfxFormat {
                 DiskDataEncoding::Mfm,
                 data_rate,
                 next_ch,
-                DiskDataRate::from(rev_density).into(),
                 Some(track_bits),
                 &track_data,
                 None,

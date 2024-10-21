@@ -50,7 +50,6 @@ use std::any::Any;
 pub struct BitStreamTrack {
     pub(crate) encoding: DiskDataEncoding,
     pub(crate) data_rate: DiskDataRate,
-    pub(crate) data_clock: u32,
     pub(crate) ch: DiskCh,
     pub(crate) data: TrackDataStream,
     pub(crate) metadata: DiskStructureMetadata,
@@ -129,15 +128,7 @@ impl Track for BitStreamTrack {
         sector_list
     }
 
-    fn read_exact_at(&mut self, offset: usize, buf: &mut [u8]) -> Result<(), DiskImageError> {
-        self.data
-            .seek(SeekFrom::Start((offset >> 1) as u64))
-            .map_err(|_| DiskImageError::SeekError)?;
-        self.data.read_exact(buf)?;
-        Ok(())
-    }
-
-    fn add_sector(&mut self, sd: &SectorDescriptor) -> Result<(), DiskImageError> {
+    fn add_sector(&mut self, _sd: &SectorDescriptor) -> Result<(), DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 
@@ -315,10 +306,10 @@ impl Track for BitStreamTrack {
     }
 
     fn scan_sector(&self, chs: DiskChs, n: Option<u8>) -> Result<ScanSectorResult, DiskImageError> {
-        let mut data_crc_error = false;
+        let data_crc_error = false;
         let mut address_crc_error = false;
-        let mut deleted_mark = false;
-        let mut wrong_cylinder = false;
+        let deleted_mark = false;
+        let wrong_cylinder = false;
         let bad_cylinder = false;
         let wrong_head = false;
 
@@ -333,16 +324,16 @@ impl Track for BitStreamTrack {
             } if no_dam => {
                 // No DAM found. Return an empty buffer.
                 address_crc_error = !address_crc_valid;
-                return Ok(ScanSectorResult {
+                Ok(ScanSectorResult {
                     deleted_mark: false,
                     not_found: false,
                     no_dam: true,
                     address_crc_error,
                     data_crc_error: false,
-                    wrong_cylinder,
-                    bad_cylinder,
-                    wrong_head,
-                });
+                    wrong_cylinder: false,
+                    bad_cylinder: false,
+                    wrong_head: false,
+                })
             }
             TrackSectorScanResult::Found {
                 address_crc_valid,
@@ -352,7 +343,7 @@ impl Track for BitStreamTrack {
             } => {
                 if !address_crc_valid {
                     // Bad address CRC, return status.
-                    return Ok(ScanSectorResult {
+                    Ok(ScanSectorResult {
                         deleted_mark: false,
                         not_found: false,
                         no_dam: false,
@@ -361,10 +352,19 @@ impl Track for BitStreamTrack {
                         wrong_cylinder,
                         bad_cylinder,
                         wrong_head,
-                    });
+                    })
+                } else {
+                    Ok(ScanSectorResult {
+                        deleted_mark: deleted,
+                        not_found: false,
+                        no_dam: false,
+                        address_crc_error,
+                        data_crc_error: !data_crc_valid,
+                        wrong_cylinder,
+                        bad_cylinder,
+                        wrong_head,
+                    })
                 }
-                deleted_mark = deleted;
-                data_crc_error = !data_crc_valid;
             }
             TrackSectorScanResult::NotFound {
                 wrong_cylinder: wc,
@@ -377,7 +377,7 @@ impl Track for BitStreamTrack {
                     bc,
                     wh
                 );
-                return Ok(ScanSectorResult {
+                Ok(ScanSectorResult {
                     not_found: true,
                     no_dam: false,
                     deleted_mark,
@@ -386,23 +386,12 @@ impl Track for BitStreamTrack {
                     wrong_cylinder: wc,
                     bad_cylinder: bc,
                     wrong_head: wc,
-                });
+                })
             }
             _ => {
                 unreachable!()
             }
         }
-
-        Ok(ScanSectorResult {
-            deleted_mark,
-            not_found: false,
-            no_dam: false,
-            address_crc_error,
-            data_crc_error,
-            wrong_cylinder,
-            bad_cylinder,
-            wrong_head,
-        })
     }
 
     fn write_sector(
@@ -430,14 +419,14 @@ impl Track for BitStreamTrack {
                 ..
             } if no_dam => {
                 // No DAM found. Return an empty buffer.
-                return Ok(WriteSectorResult {
+                Ok(WriteSectorResult {
                     not_found: false,
                     no_dam: true,
                     address_crc_error: !address_crc_valid,
                     wrong_cylinder,
                     bad_cylinder,
                     wrong_head,
-                });
+                })
             }
             TrackSectorScanResult::Found {
                 element_start: sector_offset,
@@ -539,14 +528,14 @@ impl Track for BitStreamTrack {
                 self.data
                     .write_buf(&crc.to_be_bytes(), sector_offset + (4 + data_len) * MFM_BYTE_LEN);
 
-                return Ok(WriteSectorResult {
+                Ok(WriteSectorResult {
                     not_found: false,
                     no_dam: false,
                     address_crc_error: false,
                     wrong_cylinder,
                     bad_cylinder,
                     wrong_head,
-                });
+                })
             }
             TrackSectorScanResult::NotFound {
                 wrong_cylinder: wc,
@@ -560,28 +549,19 @@ impl Track for BitStreamTrack {
                     bc,
                     wh
                 );
-                return Ok(WriteSectorResult {
+                Ok(WriteSectorResult {
                     not_found: true,
                     no_dam: false,
                     address_crc_error: false,
                     wrong_cylinder: wc,
                     bad_cylinder: bc,
                     wrong_head: wh,
-                });
+                })
             }
             _ => {
                 unreachable!()
             }
         }
-
-        Ok(WriteSectorResult {
-            not_found: false,
-            no_dam: false,
-            address_crc_error: false,
-            wrong_cylinder,
-            bad_cylinder,
-            wrong_head,
-        })
     }
 
     fn get_hash(&self) -> Digest {
@@ -829,6 +809,14 @@ impl Track for BitStreamTrack {
 }
 
 impl BitStreamTrack {
+    fn read_exact_at(&mut self, offset: usize, buf: &mut [u8]) -> Result<(), DiskImageError> {
+        self.data
+            .seek(SeekFrom::Start((offset >> 1) as u64))
+            .map_err(|_| DiskImageError::SeekError)?;
+        self.data.read_exact(buf)?;
+        Ok(())
+    }
+
     /// Retrieves the bit index of the first sector in the track data after the specified bit index.
     ///
     /// This function searches the metadata for the first IDAM (Index Address Mark) starting from

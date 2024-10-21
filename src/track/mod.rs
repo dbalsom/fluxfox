@@ -32,7 +32,6 @@
 pub mod bitstream;
 pub mod metasector;
 
-use crate::bitstream::TrackDataStreamT;
 use crate::diskimage::{
     ReadSectorResult, ReadTrackResult, RwSectorScope, ScanSectorResult, SectorDescriptor, WriteSectorResult,
 };
@@ -107,8 +106,6 @@ pub trait Track: Any {
     fn has_sector_id(&self, id: u8, id_chsn: Option<DiskChsn>) -> bool;
 
     fn get_sector_list(&self) -> Vec<SectorMapEntry>;
-
-    fn read_exact_at(&mut self, offset: usize, buf: &mut [u8]) -> Result<(), DiskImageError>;
 
     /// Masters a new sector to a track in the disk image, essentially 'formatting' a new sector,
     /// This function is only valid for tracks with `MetaSector` resolution.

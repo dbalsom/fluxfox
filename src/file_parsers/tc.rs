@@ -356,7 +356,6 @@ impl TCFormat {
                 disk_encoding,
                 disk_data_rate,
                 DiskCh::from((cylinder_n, head_n)),
-                disk_data_rate.into(),
                 None,
                 &track_data_vec,
                 None,

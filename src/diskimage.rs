@@ -41,7 +41,7 @@ use crate::io::ReadSeek;
 use crate::standard_format::StandardFormat;
 use crate::structure_parsers::system34::{System34Element, System34Parser, System34Standard};
 use crate::structure_parsers::{DiskStructureElement, DiskStructureMetadata, DiskStructureParser};
-use crate::track::{DiskTrack, Track};
+use crate::track::DiskTrack;
 
 use crate::track::metasector::MetaSectorTrack;
 use crate::{
@@ -163,7 +163,7 @@ pub enum DiskFormat {
 }
 
 #[derive(Default)]
-pub(crate) struct SectorDescriptor {
+pub struct SectorDescriptor {
     pub id: u8,
     pub cylinder_id: Option<u16>,
     pub head_id: Option<u8>,
@@ -682,7 +682,6 @@ impl DiskImage {
         encoding: DiskDataEncoding,
         data_rate: DiskDataRate,
         ch: DiskCh,
-        data_clock: u32,
         bitcell_ct: Option<usize>,
         data: &[u8],
         weak: Option<&[u8]>,
@@ -833,7 +832,6 @@ impl DiskImage {
             encoding,
             data_rate,
             ch,
-            data_clock,
             data: data_stream,
             metadata,
             sector_ids,
@@ -976,7 +974,6 @@ impl DiskImage {
                     encoding,
                     data_rate,
                     ch,
-                    data_clock: 0,
                     data: stream,
                     metadata: DiskStructureMetadata::default(),
                     sector_ids: Vec::new(),

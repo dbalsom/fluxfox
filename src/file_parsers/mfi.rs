@@ -255,7 +255,6 @@ impl MfiFormat {
                     DiskDataEncoding::Mfm,
                     data_rate,
                     track.ch,
-                    data_rate.into(),
                     Some(stream_bit_ct),
                     &stream_bytes,
                     None,

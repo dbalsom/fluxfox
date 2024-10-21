@@ -498,7 +498,6 @@ impl ScpFormat {
                 DiskDataEncoding::Mfm,
                 DiskDataRate::from(rev_density),
                 DiskCh::new(c, h),
-                DiskDataRate::from(rev_density).into(),
                 Some(track_bits),
                 &track_data,
                 None,

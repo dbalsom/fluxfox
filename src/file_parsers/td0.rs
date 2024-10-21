@@ -40,7 +40,7 @@ use crate::diskimage::{DiskDescriptor, SectorDescriptor};
 use crate::file_parsers::compression::lzhuf::{expand, TD0_READ_OPTIONS};
 use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{Cursor, Read, ReadBytesExt, ReadSeek, ReadWriteSeek, Seek};
-use crate::{DiskCh, DiskChs, DiskDataEncoding, DiskDataRate, DiskDensity, FoxHashSet, LoadingCallback};
+use crate::{DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, FoxHashSet, LoadingCallback};
 use crate::{DiskChsn, DiskImage, DiskImageError, DiskImageFormat};
 use binrw::{binrw, BinRead};
 
@@ -326,7 +326,7 @@ impl Td0Format {
             }
 
             log::trace!("Adding track: c:{} h:{}...", track_header.cylinder, track_header.head);
-            let mut new_track = disk_image.add_track_bytestream(
+            let new_track = disk_image.add_track_bytestream(
                 DiskDataEncoding::Mfm,
                 disk_data_rate,
                 DiskCh::from((track_header.cylinder as u16, track_header.head)),

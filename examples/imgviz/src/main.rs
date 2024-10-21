@@ -153,7 +153,7 @@ fn main() {
         return;
     }
 
-    let render_size = match opts.supersample {
+    match opts.supersample {
         1 => opts.resolution,
         2 => opts.resolution * 2,
         4 => opts.resolution * 4,
@@ -216,9 +216,6 @@ fn main() {
         heads = if disk.heads() > 1 { 2 } else { 1 };
     }
 
-    let high_res_size = (render_size, render_size); // High-resolution image size
-    let final_size = (opts.resolution * heads, opts.resolution);
-
     println!("Rendering {} heads, {} tracks...", heads, disk.tracks(0));
 
     #[rustfmt::skip]
@@ -231,27 +228,27 @@ fn main() {
 
     let null_color = Color::from_rgba8(0, 0, 0, 0);
 
-    let viz_red: Color = Color::from_rgba8(255, 0, 0, 255);
-    let viz_green: Color = Color::from_rgba8(0, 255, 0, 255);
-    let viz_blue: Color = Color::from_rgba8(0, 0, 255, 255);
+    //let viz_red: Color = Color::from_rgba8(255, 0, 0, 255);
+    //let viz_green: Color = Color::from_rgba8(0, 255, 0, 255);
+    //let viz_blue: Color = Color::from_rgba8(0, 0, 255, 255);
 
-    let viz_light_blue: Color = Color::from_rgba8(0, 0, 180, 255);
-    let viz_light_green: Color = Color::from_rgba8(0, 180, 0, 255);
+    //let viz_light_blue: Color = Color::from_rgba8(0, 0, 180, 255);
+    //let viz_light_green: Color = Color::from_rgba8(0, 180, 0, 255);
     let viz_light_red: Color = Color::from_rgba8(180, 0, 0, 255);
 
-    let viz_orange: Color = Color::from_rgba8(255, 100, 0, 255);
+    //let viz_orange: Color = Color::from_rgba8(255, 100, 0, 255);
     let vis_purple: Color = Color::from_rgba8(180, 0, 180, 255);
-    let viz_cyan: Color = Color::from_rgba8(70, 200, 200, 255);
-    let vis_light_purple: Color = Color::from_rgba8(185, 0, 255, 255);
+    //let viz_cyan: Color = Color::from_rgba8(70, 200, 200, 255);
+    //let vis_light_purple: Color = Color::from_rgba8(185, 0, 255, 255);
 
     let pal_medium_green = Color::from_rgba8(0x38, 0xb7, 0x64, 0xff);
     let pal_dark_green = Color::from_rgba8(0x25, 0x71, 0x79, 0xff);
-    let pal_dark_blue = Color::from_rgba8(0x29, 0x36, 0x6f, 0xff);
+    //let pal_dark_blue = Color::from_rgba8(0x29, 0x36, 0x6f, 0xff);
     let pal_medium_blue = Color::from_rgba8(0x3b, 0x5d, 0xc9, 0xff);
     let pal_light_blue = Color::from_rgba8(0x41, 0xa6, 0xf6, 0xff);
-    let pal_dark_purple = Color::from_rgba8(0x5d, 0x27, 0x5d, 0xff);
+    //let pal_dark_purple = Color::from_rgba8(0x5d, 0x27, 0x5d, 0xff);
     let pal_orange = Color::from_rgba8(0xef, 0x7d, 0x57, 0xff);
-    let pal_dark_red = Color::from_rgba8(0xb1, 0x3e, 0x53, 0xff);
+    //let pal_dark_red = Color::from_rgba8(0xb1, 0x3e, 0x53, 0xff);
 
     let pal_weak_bits = PremultipliedColorU8::from_rgba(70, 200, 200, 255).unwrap();
 

@@ -485,7 +485,6 @@ impl PriFormat {
                         DiskDataEncoding::Mfm,
                         DiskDataRate::from(current_bit_clock),
                         current_ch,
-                        current_bit_clock,
                         Some(track_header.bit_length as usize),
                         &chunk.data,
                         None,

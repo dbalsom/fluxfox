@@ -29,21 +29,16 @@
     Implements the MetaSector track type and the Track trait for same.
 
 */
-use super::{Track, TrackConsistency, TrackInfo, TrackSectorScanResult};
-use crate::bitstream::mfm::MFM_BYTE_LEN;
-use crate::bitstream::{EncodingVariant, TrackDataStream};
+use super::{Track, TrackConsistency, TrackInfo};
+
 use crate::diskimage::{
     ReadSectorResult, ReadTrackResult, RwSectorScope, ScanSectorResult, SectorDescriptor, TrackSectorIndex,
     WriteSectorResult,
 };
-use crate::io::SeekFrom;
-use crate::structure_parsers::system34::{
-    System34Element, System34Marker, System34Parser, System34Standard, DAM_MARKER_BYTES, DDAM_MARKER_BYTES,
-};
-use crate::structure_parsers::{
-    DiskStructureElement, DiskStructureMetadata, DiskStructureMetadataItem, DiskStructureParser,
-};
-use crate::util::crc_ibm_3740;
+
+use crate::structure_parsers::system34::System34Standard;
+use crate::structure_parsers::DiskStructureMetadata;
+
 use crate::{DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskImageError, FoxHashSet, SectorMapEntry};
 use sha1_smol::Digest;
 use std::any::Any;
@@ -113,10 +108,6 @@ impl Track for MetaSectorTrack {
             .collect()
     }
 
-    fn read_exact_at(&mut self, _offset: usize, _buf: &mut [u8]) -> Result<(), DiskImageError> {
-        Err(DiskImageError::UnsupportedFormat)
-    }
-
     fn add_sector(&mut self, sd: &SectorDescriptor) -> Result<(), DiskImageError> {
         // Create an empty weak bit mask if none is provided.
         let weak_buf_vec = match &sd.weak {
@@ -159,13 +150,13 @@ impl Track for MetaSectorTrack {
         scope: RwSectorScope,
         debug: bool,
     ) -> Result<ReadSectorResult, DiskImageError> {
-        let mut data_idx = 0;
-        let mut data_len = 0;
+        let data_idx;
+        let mut data_len;
 
         let mut read_vec = Vec::new();
 
         let mut data_crc_error = false;
-        let mut address_crc_error = false;
+        let address_crc_error = false;
         let mut deleted_mark = false;
         let mut wrong_cylinder = false;
         let mut bad_cylinder = false;
@@ -241,7 +232,7 @@ impl Track for MetaSectorTrack {
         })
     }
 
-    fn scan_sector(&self, chs: DiskChs, n: Option<u8>) -> Result<ScanSectorResult, DiskImageError> {
+    fn scan_sector(&self, chs: DiskChs, _n: Option<u8>) -> Result<ScanSectorResult, DiskImageError> {
         let mut data_crc_error = false;
         let mut address_crc_error = false;
         let mut deleted_mark = false;
@@ -466,10 +457,10 @@ impl Track for MetaSectorTrack {
 
     fn format(
         &mut self,
-        standard: System34Standard,
-        format_buffer: Vec<DiskChsn>,
-        fill_pattern: &[u8],
-        gap3: usize,
+        _standard: System34Standard,
+        _format_buffer: Vec<DiskChsn>,
+        _fill_pattern: &[u8],
+        _gap3: usize,
     ) -> Result<(), DiskImageError> {
         // TODO: Implement format for MetaSectorTrack
         Err(DiskImageError::UnsupportedFormat)

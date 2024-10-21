@@ -24,7 +24,7 @@
 
     --------------------------------------------------------------------------
 */
-use crate::chs::{DiskCh, DiskChs, DiskChsn};
+use crate::chs::{DiskCh, DiskChsn};
 use crate::diskimage::{DiskDescriptor, SectorDescriptor};
 use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
@@ -251,7 +251,7 @@ impl ImdFormat {
             }
 
             log::trace!("Adding track: C: {} H: {}", track_header.c, track_header.h);
-            let mut new_track = disk_image.add_track_bytestream(
+            let new_track = disk_image.add_track_bytestream(
                 data_encoding,
                 data_rate,
                 DiskCh::from((track_header.c() as u16, track_header.h())),
@@ -299,7 +299,7 @@ impl ImdFormat {
                 }
             }
 
-            header_offset = image.stream_position().unwrap();
+            header_offset = image.stream_position()?;
 
             if track_header.sector_ct == 0 {
                 continue;

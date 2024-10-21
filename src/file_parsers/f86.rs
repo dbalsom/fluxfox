@@ -417,7 +417,6 @@ impl F86Format {
                 track_encoding,
                 track_data_rate,
                 DiskCh::from((cylinder_n, head_n)),
-                track_data_rate.into(),
                 bitcell_ct,
                 &track_data_vec,
                 None,
