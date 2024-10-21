@@ -59,4 +59,8 @@ impl Command for CylinderCommand {
     fn usage(&self) -> String {
         "<cylinder #>".into()
     }
+
+    fn desc(&self) -> String {
+        "Select a cylinder".into()
+    }
 }

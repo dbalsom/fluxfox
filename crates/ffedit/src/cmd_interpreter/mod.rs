@@ -26,6 +26,7 @@
 */
 mod c;
 mod h;
+mod list;
 mod open;
 mod s;
 mod up;
@@ -40,6 +41,8 @@ pub static COMMAND_ALIASES: Lazy<HashMap<String, String>> = Lazy::new(|| {
         ("q".to_string(), "quit".to_string()),
         ("o".to_string(), "open".to_string()),
         ("..".to_string(), "up".to_string()),
+        ("ls".to_string(), "list".to_string()),
+        ("dir".to_string(), "list".to_string()),
     ])
 });
 
@@ -53,6 +56,7 @@ pub struct CommandArgs {
 trait Command {
     fn execute(&self, app: &mut AppContext, args: CommandArgs) -> Result<CommandResult, String>;
     fn usage(&self) -> String;
+    fn desc(&self) -> String;
 }
 
 // Command registry for managing and dispatching commands
@@ -78,7 +82,7 @@ impl CommandRegistry {
         if let Some(command) = self.commands.get(&cmd_args.command) {
             command.execute(app, cmd_args)
         } else {
-            Err(format!("Unknown command: {}\nType ? for help", &cmd_args.command))
+            Err(format!("Unknown command: {} [Type ? for help]", &cmd_args.command))
         }
     }
 
@@ -90,7 +94,7 @@ impl CommandRegistry {
         let str = self
             .commands
             .iter()
-            .map(|(name, command)| format!("{} - {}", name, command.usage()))
+            .map(|(name, command)| format!("{} - {} - {}", name, command.usage(), command.desc()))
             .collect::<Vec<_>>()
             .join("\n");
 
@@ -131,6 +135,7 @@ impl CommandInterpreter {
         self.registry.register_command("c", Box::new(c::CylinderCommand));
         self.registry.register_command("s", Box::new(s::SectorCommand));
         self.registry.register_command("up", Box::new(up::UpCommand));
+        self.registry.register_command("list", Box::new(list::ListCommand));
     }
 
     // Command processor

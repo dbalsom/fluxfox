@@ -39,6 +39,9 @@ pub trait ScrollableWidget {
     fn scroll_down(&mut self);
     fn page_up(&mut self);
     fn page_down(&mut self);
+
+    fn scroll_to_start(&mut self);
+    fn scroll_to_end(&mut self);
 }
 
 pub trait HasMetaDataHeader {

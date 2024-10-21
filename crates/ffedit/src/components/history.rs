@@ -25,9 +25,10 @@
     --------------------------------------------------------------------------
 */
 use crate::logger::LogEntry;
-use crate::widget::{FoxWidget, ScrollableWidget, TabSelectableWidget};
+use crate::widget::{FoxWidget, ScrollableWidget, TabSelectableWidget, WidgetState};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, WidgetRef};
+use std::cell::RefCell;
 use std::cmp;
 use std::collections::VecDeque;
 
@@ -45,14 +46,13 @@ pub(crate) enum HistoryEntry {
 
 pub(crate) const MAX_HISTORY: usize = 1000; // Maximum number of history entries
 
-#[derive(Clone)]
 pub(crate) struct HistoryWidget {
     pub(crate) max_len: usize,                  // Maximum length of the history
     pub(crate) history: VecDeque<HistoryEntry>, // Store history as Vec<HistoryEntry>
-
+    pub scroll_offset: usize,
     pub vertical_scroll_state: ScrollbarState,
-    pub scroll_pos: usize,
     pub tab_selected: bool,
+    pub ui_state: RefCell<WidgetState>,
 }
 
 impl HistoryWidget {
@@ -60,14 +60,11 @@ impl HistoryWidget {
         HistoryWidget {
             max_len: max_len.unwrap_or(MAX_HISTORY),
             history: VecDeque::with_capacity(max_len.unwrap_or(MAX_HISTORY)),
+            scroll_offset: 0,
             vertical_scroll_state: ScrollbarState::default(),
-            scroll_pos: 0,
             tab_selected: false,
+            ui_state: RefCell::new(WidgetState::default()),
         }
-    }
-
-    pub fn scroll_to_end(&mut self) {
-        self.scroll_pos = self.history.len();
     }
 
     pub fn push(&mut self, entry: HistoryEntry) {
@@ -83,7 +80,10 @@ impl HistoryWidget {
     }
 
     pub fn push_cmd_response(&mut self, response: &str) {
-        self.push(HistoryEntry::CommandResponse(response.to_string()));
+        let response_lines = response.split("\n");
+        for line in response_lines {
+            self.push(HistoryEntry::CommandResponse(line.to_string()));
+        }
     }
 
     pub fn push_log(&mut self, entry: LogEntry) {
@@ -97,6 +97,8 @@ impl HistoryWidget {
     }
 
     fn render_ref_internal(&self, area: Rect, buf: &mut Buffer) {
+        let mut state = self.ui_state.borrow_mut();
+
         // Render a border around the widget
         let border_style = if self.tab_selected {
             Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)
@@ -104,21 +106,21 @@ impl HistoryWidget {
             Style::default()
         };
 
+        // Update scrollbar content
         let block = Block::default().borders(Borders::ALL).border_style(border_style);
-        // Determine the number of visible rows and total rows
+
         let inner = block.inner(area);
+        // Determine the number of visible rows and total rows
         let total_rows = self.history.len();
         let visible_rows = inner.height as usize;
-
-        // Update scrollbar content
-        let scroll_pos = cmp::min(self.scroll_pos, total_rows.saturating_sub(visible_rows));
+        state.visible_rows = visible_rows;
+        let scroll_pos = cmp::min(self.scroll_offset, total_rows.saturating_sub(visible_rows));
         let title = format!("History [{}/{}]", scroll_pos, self.history.len());
-
         block.title(title).render(area, buf);
 
         let mut vertical_scroll_state = self
             .vertical_scroll_state
-            .content_length(total_rows)
+            .content_length(total_rows.saturating_sub(visible_rows))
             .viewport_content_length(1)
             .position(scroll_pos);
 
@@ -157,7 +159,8 @@ impl HistoryWidget {
                 // Create a ScrollBar widget
                 let scrollbar = Scrollbar::default()
                     .orientation(ScrollbarOrientation::VerticalRight) // Vertical on the right side
-                    .thumb_symbol("░")
+                    .thumb_symbol("█")
+                    .track_style(Style::default().fg(Color::Cyan))
                     .track_symbol(Some("|"));
 
                 // Render the scrollbar
@@ -170,10 +173,29 @@ impl HistoryWidget {
 impl FoxWidget for HistoryWidget {}
 
 impl ScrollableWidget for HistoryWidget {
-    fn scroll_up(&mut self) {}
-    fn scroll_down(&mut self) {}
-    fn page_up(&mut self) {}
-    fn page_down(&mut self) {}
+    fn scroll_up(&mut self) {
+        self.scroll_offset = self.scroll_offset.saturating_sub(1);
+    }
+    fn scroll_down(&mut self) {
+        self.scroll_offset += 1;
+        if self.scroll_offset >= self.history.len() {
+            self.scroll_offset = self.history.len() - 1;
+        }
+    }
+    fn page_up(&mut self) {
+        let state = self.ui_state.borrow();
+        self.scroll_offset = self.scroll_offset.saturating_sub(state.visible_rows);
+    }
+    fn page_down(&mut self) {
+        let state = self.ui_state.borrow();
+        self.scroll_offset = (self.scroll_offset + state.visible_rows).min(self.history.len() - 1);
+    }
+    fn scroll_to_start(&mut self) {
+        self.scroll_offset = 0;
+    }
+    fn scroll_to_end(&mut self) {
+        self.scroll_offset = self.history.len();
+    }
 }
 
 impl TabSelectableWidget for HistoryWidget {

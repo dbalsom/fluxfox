@@ -59,4 +59,8 @@ impl Command for HeadCommand {
     fn usage(&self) -> String {
         "<head #>".into()
     }
+
+    fn desc(&self) -> String {
+        "Select a head/side #".into()
+    }
 }

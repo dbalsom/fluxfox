@@ -27,20 +27,20 @@
 
 use std::cell::RefCell;
 use std::io;
-use std::path::{PathBuf};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 pub use crate::app_context::AppContext;
 use crate::cmd_interpreter::{CommandInterpreter, CommandResult};
 use crate::components::data_block::DataBlock;
-use crate::components::history::{HistoryWidget};
+use crate::components::history::HistoryWidget;
 use crate::disk_selection::DiskSelection;
 use crate::logger::{init_logger, LogEntry};
 use crate::modal::ModalState;
 use crate::widget::{FoxWidget, TabSelectableWidget};
 use crate::CmdParams;
-use crossbeam_channel::{Receiver};
+use crossbeam_channel::Receiver;
 use crossterm::event;
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind};
 use fluxfox::DiskImage;
@@ -93,6 +93,9 @@ impl App {
         let db = Rc::new(RefCell::new(DataBlock::default()));
         let history = Rc::new(RefCell::new(HistoryWidget::new(None)));
 
+        // history gets selected by default.
+        history.borrow_mut().select();
+
         let mut widgets = Vec::new();
         widgets.push(history.clone() as Rc<RefCell<dyn FoxWidget>>);
         widgets.push(db.clone() as Rc<RefCell<dyn FoxWidget>>);
@@ -127,7 +130,7 @@ impl App {
     }
 
     fn select_next_widget(&mut self) {
-        log::debug!("select_next_widget()... Selecting next widget");
+        //log::debug!("select_next_widget()... Selecting next widget");
         self.widgets[self.selected_widget].borrow_mut().deselect();
         self.selected_widget = (self.selected_widget + 1) % self.widgets.len();
         self.widgets[self.selected_widget].borrow_mut().select();

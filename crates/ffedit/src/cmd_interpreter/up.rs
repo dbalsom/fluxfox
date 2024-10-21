@@ -41,6 +41,11 @@ impl Command for UpCommand {
             }
             SelectionLevel::Cylinder => {
                 app.selection.cylinder = None;
+                SelectionLevel::Head
+            }
+            SelectionLevel::Head => {
+                app.selection.cylinder = None;
+                app.selection.head = None;
                 SelectionLevel::Disk
             }
             _ => {
@@ -61,5 +66,9 @@ impl Command for UpCommand {
 
     fn usage(&self) -> String {
         "No arguments".into()
+    }
+
+    fn desc(&self) -> String {
+        "Go up a selection".into()
     }
 }

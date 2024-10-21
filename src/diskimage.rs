@@ -286,6 +286,8 @@ pub struct ReadTrackResult {
     pub data_crc_error: bool,
     pub sectors_read: u16,
     pub read_buf: Vec<u8>,
+    pub read_len_bits: usize,
+    pub read_len_bytes: usize,
 }
 
 #[derive(Clone)]
@@ -992,7 +994,7 @@ impl DiskImage {
         track.read_all_sectors(id_ch, n, eot)
     }
 
-    pub fn read_track(&mut self, ch: DiskCh) -> Result<ReadTrackResult, DiskImageError> {
+    pub fn read_track(&mut self, ch: DiskCh, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
         // Check that the head and cylinder are within the bounds of the track map.
         if ch.h() > 1 || ch.c() as usize >= self.track_map[ch.h() as usize].len() {
             return Err(DiskImageError::SeekError);
@@ -1001,7 +1003,7 @@ impl DiskImage {
         let ti = self.track_map[ch.h() as usize][ch.c() as usize];
         let track = &mut self.track_pool[ti];
 
-        track.read_track(ch)
+        track.read_track(overdump)
     }
 
     pub fn add_empty_track(

@@ -138,7 +138,7 @@ impl TrackData {
             TrackData::BitStream {
                 encoding,
                 data_rate,
-                
+
                 data,
                 sector_ids,
                 ..
@@ -635,14 +635,10 @@ impl TrackData {
 
                 for si in sectors {
                     if si.id_chsn.s() == chs.s() {
-                        log::trace!(
-                            "read_sector(): Found sector_id: {} at t_idx: {}",
-                            si.id_chsn.s(),
-                            si.t_idx
-                        );
+                        log::trace!("read_sector(): Found sector_id: {} at t_idx: {}", si.id_chsn, si.t_idx);
 
                         let mut matched_n = false;
-                        if n.is_some() && si.id_chsn.n() == n.unwrap() {
+                        if n.is_none() || si.id_chsn.n() == n.unwrap() {
                             matched_n = true;
                         }
 
@@ -710,10 +706,9 @@ impl TrackData {
         let bit_index = self.get_sector_bit_index(chs, n, false);
 
         match self {
-            TrackData::BitStream {  .. } => {
+            TrackData::BitStream { .. } => {
                 match bit_index {
                     TrackSectorScanResult::Found {
-                        
                         address_crc_valid,
                         no_dam,
                         ..
@@ -732,7 +727,6 @@ impl TrackData {
                         });
                     }
                     TrackSectorScanResult::Found {
-                        
                         address_crc_valid,
                         data_crc_valid,
                         deleted,
@@ -1133,6 +1127,7 @@ impl TrackData {
             bit_index = self.get_first_sector_at_bit_index(element_end);
         }
 
+        let read_len = track_read_vec.len();
         Ok(ReadTrackResult {
             not_found,
             sectors_read,
@@ -1140,6 +1135,8 @@ impl TrackData {
             deleted_mark,
             address_crc_error,
             data_crc_error,
+            read_len_bits: read_len * 16,
+            read_len_bytes: read_len,
         })
     }
 
@@ -1204,7 +1201,7 @@ impl TrackData {
                 }
             }
         }
-
+        let read_len = track_read_vec.len();
         Ok(ReadTrackResult {
             not_found,
             sectors_read,
@@ -1212,13 +1209,15 @@ impl TrackData {
             deleted_mark,
             address_crc_error,
             data_crc_error,
+            read_len_bits: read_len * 16,
+            read_len_bytes: read_len,
         })
     }
 
-    pub(crate) fn read_track(&mut self, ch: DiskCh) -> Result<ReadTrackResult, DiskImageError> {
+    pub(crate) fn read_track(&mut self, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
         match self {
-            TrackData::BitStream { .. } => self.read_track_bitstream(ch),
-            TrackData::ByteStream { .. } => self.read_track_bytestream(ch),
+            TrackData::BitStream { .. } => self.read_track_bitstream(overdump),
+            TrackData::ByteStream { .. } => self.read_track_bytestream(overdump),
         }
     }
 
@@ -1276,10 +1275,14 @@ impl TrackData {
         }
     }
 
-    fn read_track_bitstream(&mut self, _ch: DiskCh) -> Result<ReadTrackResult, DiskImageError> {
+    fn read_track_bitstream(&mut self, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
         if let TrackData::BitStream { data: codec, .. } = self {
+            let extra_bytes = overdump.unwrap_or(0);
+
             let data_size = codec.len() / 16 + if codec.len() % 16 > 0 { 1 } else { 0 };
-            let mut track_read_vec = vec![0u8; data_size];
+            let dump_size = data_size + extra_bytes;
+
+            let mut track_read_vec = vec![0u8; dump_size];
 
             codec.seek(SeekFrom::Start(0)).map_err(|_| DiskImageError::SeekError)?;
             codec
@@ -1293,13 +1296,15 @@ impl TrackData {
                 deleted_mark: false,
                 address_crc_error: false,
                 data_crc_error: false,
+                read_len_bits: codec.len(),
+                read_len_bytes: data_size,
             })
         } else {
             Err(DiskImageError::UnsupportedFormat)
         }
     }
 
-    fn read_track_bytestream(&mut self, _ch: DiskCh) -> Result<ReadTrackResult, DiskImageError> {
+    fn read_track_bytestream(&mut self, _overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 

@@ -55,4 +55,8 @@ impl Command for OpenCommand {
     fn usage(&self) -> String {
         "<filename>".into()
     }
+
+    fn desc(&self) -> String {
+        "Open a disk image file".into()
+    }
 }

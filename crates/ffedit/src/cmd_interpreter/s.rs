@@ -68,4 +68,8 @@ impl Command for SectorCommand {
     fn usage(&self) -> String {
         "<sector #>".into()
     }
+
+    fn desc(&self) -> String {
+        "Select a sector #".into()
+    }
 }

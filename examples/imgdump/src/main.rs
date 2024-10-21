@@ -230,7 +230,7 @@ fn main() {
 
         println!("Dumping track {} in hex format:", ch);
 
-        let rtr = match disk.read_track(ch) {
+        let rtr = match disk.read_track(ch, None) {
             Ok(rtr) => rtr,
             Err(e) => {
                 eprintln!("Error reading track: {}", e);
