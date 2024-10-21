@@ -51,6 +51,7 @@ macro_rules! mfm_offset {
 pub struct MfmCodec {
     bit_vec: BitVec,
     clock_map: BitVec,
+    weak_enabled: bool,
     weak_mask: BitVec,
     initial_phase: usize,
     bit_cursor: usize,
@@ -122,6 +123,10 @@ impl TrackCodec for MfmCodec {
             0 => Some(EncodingPhase::Even),
             _ => Some(EncodingPhase::Odd),
         }
+    }
+
+    fn enable_weak(&mut self, enable: bool) {
+        self.weak_enabled = enable;
     }
 
     fn weak_mask(&self) -> &BitVec {
@@ -197,27 +202,6 @@ impl TrackCodec for MfmCodec {
         Some(byte_val)
     }
 
-    fn read_decoded_byte2(&self, index: usize) -> Option<u8> {
-        if index >= self.bit_vec.len() || index >= self.clock_map.len() {
-            log::error!(
-                "read_decoded_byte(): index out of bounds: {} vec: {} clock_map:{}",
-                index,
-                self.bit_vec.len(),
-                self.clock_map.len()
-            );
-            return None;
-        }
-        let p_off: usize = self.clock_map[index] as usize;
-        let mut byte = 0;
-        for bi in (index..std::cmp::min(index + MFM_BYTE_LEN, self.bit_vec.len()))
-            .skip(p_off)
-            .step_by(2)
-        {
-            byte = (byte << 1) | self.bit_vec[bi] as u8;
-        }
-        Some(byte)
-    }
-
     /// This is essentially a reimplementation of Read + Iterator that avoids mutation.
     /// This allows us to read track data through an immutable reference.
     fn read_decoded_byte(&self, index: usize) -> Option<u8> {
@@ -246,7 +230,7 @@ impl TrackCodec for MfmCodec {
                 return None;
             }
 
-            let decoded_bit = if !self.weak_mask.is_empty() && self.weak_mask[data_idx] {
+            let decoded_bit = if self.weak_enabled && !self.weak_mask.is_empty() && self.weak_mask[data_idx] {
                 // Weak bits return random data
                 rand::random()
             } else {
@@ -262,6 +246,27 @@ impl TrackCodec for MfmCodec {
             }
 
             byte = (byte << 1) | decoded_bit as u8;
+        }
+        Some(byte)
+    }
+
+    fn read_decoded_byte2(&self, index: usize) -> Option<u8> {
+        if index >= self.bit_vec.len() || index >= self.clock_map.len() {
+            log::error!(
+                "read_decoded_byte(): index out of bounds: {} vec: {} clock_map:{}",
+                index,
+                self.bit_vec.len(),
+                self.clock_map.len()
+            );
+            return None;
+        }
+        let p_off: usize = self.clock_map[index] as usize;
+        let mut byte = 0;
+        for bi in (index..std::cmp::min(index + MFM_BYTE_LEN, self.bit_vec.len()))
+            .skip(p_off)
+            .step_by(2)
+        {
+            byte = (byte << 1) | self.bit_vec[bi] as u8;
         }
         Some(byte)
     }
@@ -419,6 +424,7 @@ impl MfmCodec {
         MfmCodec {
             bit_vec,
             clock_map,
+            weak_enabled: true,
             weak_mask,
             initial_phase: sync,
             bit_cursor: sync,
@@ -484,7 +490,7 @@ impl MfmCodec {
 
     #[allow(dead_code)]
     fn read_bit(self) -> Option<bool> {
-        if self.weak_mask[self.bit_cursor] {
+        if self.weak_enabled && self.weak_mask[self.bit_cursor] {
             // Weak bits return random data
             Some(rand::random())
         } else {
@@ -493,7 +499,7 @@ impl MfmCodec {
     }
     #[allow(dead_code)]
     fn read_bit_at(&self, index: usize) -> Option<bool> {
-        if self.weak_mask[self.initial_phase + (index << 1)] {
+        if self.weak_enabled && self.weak_mask[self.initial_phase + (index << 1)] {
             // Weak bits return random data
             Some(rand::random())
         } else {
@@ -503,7 +509,7 @@ impl MfmCodec {
 
     fn ref_bit_at(&self, index: usize) -> &bool {
         let p_off: usize = self.clock_map[index] as usize;
-        if self.weak_mask[p_off + (index << 1)] {
+        if self.weak_enabled && self.weak_mask[p_off + (index << 1)] {
             // Weak bits return random data
             // TODO: precalculate random table and return reference to it.
             &self.bit_vec[p_off + (index << 1)]
@@ -589,7 +595,7 @@ impl Iterator for MfmCodec {
             data_idx = 0;
         }
 
-        let decoded_bit = if self.weak_mask[data_idx] {
+        let decoded_bit = if self.weak_enabled && self.weak_mask[data_idx] {
             // Weak bits return random data
             rand::random()
         } else {

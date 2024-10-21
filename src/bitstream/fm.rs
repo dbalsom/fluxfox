@@ -50,6 +50,7 @@ macro_rules! fm_offset {
 pub struct FmCodec {
     bit_vec: BitVec,
     clock_map: BitVec,
+    weak_enabled: bool,
     weak_mask: BitVec,
     initial_phase: usize,
     bit_cursor: usize,
@@ -126,6 +127,10 @@ impl TrackCodec for FmCodec {
             0 => Some(EncodingPhase::Even),
             _ => Some(EncodingPhase::Odd),
         }
+    }
+
+    fn enable_weak(&mut self, enable: bool) {
+        self.weak_enabled = enable;
     }
 
     fn weak_mask(&self) -> &BitVec {
@@ -396,6 +401,7 @@ impl FmCodec {
         FmCodec {
             bit_vec,
             clock_map,
+            weak_enabled: true,
             weak_mask,
             initial_phase: sync,
             bit_cursor: sync,
@@ -503,7 +509,7 @@ impl FmCodec {
 
     #[allow(dead_code)]
     fn read_bit(self) -> Option<bool> {
-        if self.weak_mask[self.bit_cursor] {
+        if self.weak_enabled && self.weak_mask[self.bit_cursor] {
             // Weak bits return random data
             Some(rand::random())
         } else {
@@ -512,7 +518,7 @@ impl FmCodec {
     }
     #[allow(dead_code)]
     fn read_bit_at(&self, index: usize) -> Option<bool> {
-        if self.weak_mask[self.initial_phase + (index << 1)] {
+        if self.weak_enabled && self.weak_mask[self.initial_phase + (index << 1)] {
             // Weak bits return random data
             Some(rand::random())
         } else {
@@ -522,7 +528,7 @@ impl FmCodec {
 
     fn ref_bit_at(&self, index: usize) -> &bool {
         let p_off: usize = self.clock_map[index] as usize;
-        if self.weak_mask[p_off + (index << 1)] {
+        if self.weak_enabled && self.weak_mask[p_off + (index << 1)] {
             // Weak bits return random data
             // TODO: precalculate random table and return reference to it.
             &self.bit_vec[p_off + (index << 1)]
@@ -607,7 +613,7 @@ impl Iterator for FmCodec {
             data_idx = 0;
         }
 
-        let decoded_bit = if self.weak_mask[data_idx] {
+        let decoded_bit = if self.weak_enabled && self.weak_mask[data_idx] {
             // Weak bits return random data
             rand::random()
         } else {

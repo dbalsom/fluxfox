@@ -37,6 +37,7 @@ pub enum EncodingVariant {
     Data,
     AddressMark,
 }
+
 pub trait TrackCodec {
     fn encoding(&self) -> DiskDataEncoding;
     fn len(&self) -> usize;
@@ -47,6 +48,7 @@ pub trait TrackCodec {
     fn clock_map(&self) -> &BitVec;
     fn clock_map_mut(&mut self) -> &mut BitVec;
     fn get_sync(&self) -> Option<EncodingPhase>;
+    fn enable_weak(&mut self, enable: bool);
     fn weak_mask(&self) -> &BitVec;
     fn has_weak_bits(&self) -> bool;
     fn weak_data(&self) -> Vec<u8>;
