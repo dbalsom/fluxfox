@@ -1368,7 +1368,6 @@ impl DiskImage {
 
         let mut all_consistency: TrackConsistency = Default::default();
         let mut variable_sector_size = false;
-        let mut track_sector_ct = 0;
 
         let mut consistent_size_map: FoxHashSet<u8> = FoxHashSet::new();
 
@@ -1393,7 +1392,6 @@ impl DiskImage {
             // Empty sectors can be dropped in the output format.
             if track_consistency.sector_ct > 0 {
                 spt.insert(track_consistency.sector_ct);
-                track_sector_ct = track_consistency.sector_ct;
                 all_consistency.sector_ct = track_consistency.sector_ct;
                 all_consistency.join(&track_consistency);
             }
@@ -1550,10 +1548,10 @@ impl DiskImage {
         // tracks hanging out in memory. They will be removed when we re-export the image.
     }
 
-    /// Remove empty tracks from the disk image. In some cases, 40 cylinder images are stored or
-    /// encoded as 80 cylinders. These may either encode as empty or duplicate tracks. The former
-    /// can be handled here by re-indexing the track map to remove the empty tracks.
-    pub(crate) fn remove_empty_tracks(&mut self) {
+    /// Remove tracks with no sectors from the image.
+    /// This should be called with caution as sometimes disk images contain empty tracks between
+    /// valid tracks.
+    pub fn remove_empty_tracks(&mut self) {
         let mut empty_tracks = vec![Vec::new(); 2];
         for (head_idx, head) in self.track_map.iter().enumerate() {
             for (track_idx, track) in head.iter().enumerate() {

@@ -151,11 +151,8 @@ impl TrackData {
             TrackData::ByteStream {
                 encoding,
                 data_rate,
-                cylinder,
-                head,
                 sectors,
-                data,
-                weak_mask,
+                ..
             } => TrackInfo {
                 encoding: *encoding,
                 data_rate: *data_rate,
@@ -673,9 +670,6 @@ impl TrackData {
                     }
                 }
             }
-            _ => {
-                return Err(DiskImageError::UnsupportedFormat);
-            }
         }
 
         Ok(ReadSectorResult {
@@ -800,9 +794,6 @@ impl TrackData {
                     }
                 }
             }
-            _ => {
-                return Err(DiskImageError::UnsupportedFormat);
-            }
         }
 
         Ok(ScanSectorResult {
@@ -827,7 +818,7 @@ impl TrackData {
         debug: bool,
     ) -> Result<WriteSectorResult, DiskImageError> {
         let data_len;
-        let mut address_crc_error = false;
+        let address_crc_error;
         let mut wrong_cylinder = false;
         let bad_cylinder = false;
         let mut wrong_head = false;
@@ -1022,9 +1013,6 @@ impl TrackData {
                         break;
                     }
                 }
-            }
-            _ => {
-                return Err(DiskImageError::UnsupportedFormat);
             }
         }
 

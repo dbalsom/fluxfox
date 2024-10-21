@@ -23,40 +23,17 @@
     DEALINGS IN THE SOFTWARE.
 
     --------------------------------------------------------------------------
-
-    src/random.rs
-
-    Provide a simple random bit generator.
 */
 
-#![allow(dead_code)]
+pub mod mfm;
 
-const RANDOM_BITS_SIZE: usize = 2048;
-
-const PSEUDO_RANDOM_BITS: [bool; RANDOM_BITS_SIZE] = generate_pseudo_random_bits(0x57A857FA, RANDOM_BITS_SIZE);
-
-const fn pseudo_random_bit(seed: u32, index: usize) -> bool {
-    // A simple pseudo-random function using bit shifts and XOR
-    let mut value = seed ^ (index as u32);
-    value = value.wrapping_mul(0x45d9f3b);
-    value ^= value >> 16;
-    (value & 1) != 0
-}
-
-const fn generate_pseudo_random_bits(seed: u32, len: usize) -> [bool; RANDOM_BITS_SIZE] {
-    let mut bits = [false; RANDOM_BITS_SIZE];
-    let mut i = 0;
-    while i < len {
-        bits[i] = pseudo_random_bit(seed, i);
-        i += 1;
-    }
-    bits
-}
-
-pub fn random_bit(index: usize) -> bool {
-    PSEUDO_RANDOM_BITS[index & (RANDOM_BITS_SIZE - 1)]
-}
-
-pub fn random_bit_ref(index: usize) -> &'static bool {
-    &PSEUDO_RANDOM_BITS[index & (RANDOM_BITS_SIZE - 1)]
+pub trait StreamDecoder {
+    fn reset(&mut self);
+    fn is_synced(&self) -> bool;
+    fn encoding(&self) -> DiskDataEncoding;
+    fn push_bit(&mut self, bit: bool);
+    fn bits_remaining(&self) -> usize;
+    fn has_nibble(&self) -> bool;
+    fn peek_nibble(&self) -> Option<Nibble>;
+    fn pop_nibble(&mut self) -> Option<Nibble>;
 }

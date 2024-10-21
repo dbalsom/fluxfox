@@ -55,7 +55,6 @@ pub struct FmCodec {
     initial_phase: usize,
     bit_cursor: usize,
     track_padding: usize,
-    random_offset: usize,
 }
 
 pub enum FmEncodingType {
@@ -142,7 +141,7 @@ impl TrackCodec for FmCodec {
     }
 
     fn has_weak_bits(&self) -> bool {
-        !self.detect_weak_bits(6).is_empty()
+        !self.detect_weak_bits(6).0 > 0
     }
 
     fn set_track_padding(&mut self) {
@@ -406,12 +405,7 @@ impl FmCodec {
             initial_phase: sync,
             bit_cursor: sync,
             track_padding: 0,
-            random_offset: 0,
         }
-    }
-
-    pub fn has_weak_bits(&self) -> bool {
-        !self.detect_weak_bits(6).is_empty()
     }
 
     pub fn weak_data(&self) -> Vec<u8> {
@@ -537,11 +531,33 @@ impl FmCodec {
         }
     }
 
-    pub(crate) fn detect_weak_bits(&self, run: usize) -> Vec<TrackRegion> {
-        let mut regions = Vec::new();
-
+    pub(crate) fn detect_weak_bits(&self, run: usize) -> (usize, usize) {
         let mut region_ct = 0;
         let mut weak_bit_ct = 0;
+        let mut zero_ct = 0;
+
+        for bit in self.bit_vec.iter() {
+            if !bit {
+                zero_ct += 1;
+            } else {
+                if zero_ct >= run {
+                    region_ct += 1;
+                }
+                zero_ct = 0;
+            }
+
+            if zero_ct > 3 {
+                weak_bit_ct += 1;
+            }
+        }
+
+        (region_ct, weak_bit_ct)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn detect_weak_regions(&self, run: usize) -> Vec<TrackRegion> {
+        let mut regions = Vec::new();
+
         let mut zero_ct = 0;
         let mut region_start = 0;
         for (i, bit) in self.bit_vec.iter().enumerate() {
@@ -549,8 +565,6 @@ impl FmCodec {
                 zero_ct += 1;
             } else {
                 if zero_ct >= run {
-                    region_ct += 1;
-
                     regions.push(TrackRegion {
                         start: region_start,
                         end: i - 1,
@@ -562,10 +576,6 @@ impl FmCodec {
             if zero_ct == run {
                 region_start = i;
             }
-
-            if zero_ct > 3 {
-                weak_bit_ct += 1;
-            }
         }
 
         regions
@@ -574,6 +584,7 @@ impl FmCodec {
     /// Not every format will have a separate weak bit mask, but that doesn't mean weak bits cannot
     /// be encoded. Formats can encode weak bits as a run of 4 or more zero bits. Here we detect
     /// such runs and extract them into a weak bit mask as a BitVec.
+    #[allow(dead_code)]
     pub(crate) fn create_weak_bit_mask(&self, run: usize) -> BitVec {
         let mut weak_bitvec = BitVec::new();
         let mut zero_ct = 0;

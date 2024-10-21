@@ -1,7 +1,7 @@
 mod common;
 
 use fluxfox::diskimage::RwSectorScope;
-use fluxfox::{DiskCh, DiskChs, DiskImage, DiskImageError, DiskImageFormat, ImageParser};
+use fluxfox::{DiskCh, DiskChs, DiskImage, DiskImageError};
 
 #[test]
 fn test_prolok() {

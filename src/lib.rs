@@ -43,6 +43,7 @@
 //! a disk image file, or by creating a new disk image from scratch.
 //!
 //! It is recommended to use the [`image_builder::ImageBuilder`] interface to load or create a disk image.
+mod bit_ring;
 pub mod bitstream;
 mod boot_sector;
 mod chs;

@@ -44,6 +44,7 @@ pub fn compute_file_hash<P: AsRef<Path>>(path: P) -> String {
     encode(result)
 }
 
+#[allow(dead_code)]
 pub fn compute_slice_hash(slice: &[u8]) -> String {
     let mut hasher = Sha1::new();
     hasher.update(slice);

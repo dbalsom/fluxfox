@@ -117,6 +117,7 @@ impl Pll {
         );
     }
 
+    #[allow(dead_code)]
     pub fn decode_transitions(&mut self, stream: &RawFluxStream) -> Vec<FluxTransition> {
         let mut transitions = Vec::new();
         let mut valid_deltas = 0;
@@ -144,6 +145,7 @@ impl Pll {
         transitions
     }
 
+    #[allow(dead_code)]
     pub fn classify_transition(&self, duration: f64) -> FluxTransition {
         // log::trace!(
         //     "Pll::classify_transition(): Duration: {} short delta: {} medium delta: {} long delta: {}",
@@ -177,7 +179,7 @@ impl Pll {
         let mut phase_accumulator: f64 = 0.0;
 
         let mut last_flux_time = 0.0;
-        let mut next_flux_time = 0.0;
+        let mut next_flux_time;
         // The first entry of the flux stream represents a transition time, so we start off the track
         // at the first actual flux transition. We will assume that this transition is perfectly
         // aligned within the center of the clock period by subtracting half the period from the

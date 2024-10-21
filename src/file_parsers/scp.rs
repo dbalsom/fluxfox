@@ -56,10 +56,10 @@ pub const BASE_CAPTURE_RES: u32 = 25;
 pub const SCP_FLUX_TIME_BASE: u32 = 25;
 
 pub const SCP_TRACK_COUNT: usize = 168;
-pub const MAX_TRACK_NUMBER: usize = SCP_TRACK_COUNT - 1;
+//pub const MAX_TRACK_NUMBER: usize = SCP_TRACK_COUNT - 1;
 
 pub const SCP_FB_INDEX: u8 = 0b0000_0001;
-pub const SCP_FB_TPI: u8 = 0b0000_0010;
+//pub const SCP_FB_TPI: u8 = 0b0000_0010;
 pub const SCP_FB_RPM: u8 = 0b0000_0100;
 pub const SCP_FB_TYPE: u8 = 0b0000_1000;
 pub const SCP_FB_READONLY: u8 = 0b0001_0000;
@@ -191,13 +191,13 @@ impl ScpFormat {
         header.id == "SCP".as_bytes()
     }
 
-    pub fn can_write(image: &DiskImage) -> ParserWriteCompatibility {
+    pub fn can_write(_image: &DiskImage) -> ParserWriteCompatibility {
         ParserWriteCompatibility::UnsupportedFormat
     }
 
     pub(crate) fn load_image<RWS: ReadSeek>(
         mut image: RWS,
-        callback: Option<LoadingCallback>,
+        _callback: Option<LoadingCallback>,
     ) -> Result<DiskImage, DiskImageError> {
         let mut disk_image = DiskImage::default();
         disk_image.set_source_format(DiskImageFormat::SuperCardPro);
@@ -241,8 +241,8 @@ impl ScpFormat {
             }
         }
 
-        let mut disk_major_ver = 0;
-        let mut disk_minor_ver = 0;
+        let disk_major_ver;
+        let disk_minor_ver;
 
         // Handle various flags now.
         if header.flags & SCP_FB_FOOTER != 0 {
@@ -383,7 +383,7 @@ impl ScpFormat {
 
         let mut disk_datarate = None;
 
-        for (ti, offset) in track_offsets.iter().enumerate() {
+        for (_ti, offset) in track_offsets.iter().enumerate() {
             // Seek to the track header.
             image.seek(std::io::SeekFrom::Start(*offset as u64))?;
 
@@ -418,7 +418,6 @@ impl ScpFormat {
             for (ri, rev) in revolutions.iter().enumerate() {
                 // Calculate RPM of revolution.
                 let rev_nanos = (rev.index_time * SCP_FLUX_TIME_BASE) as f64;
-                let rev_seconds = rev_nanos * 1e-9;
                 let rev_rpm = 60.0 / (rev_nanos * 1e-9);
 
                 let clock_adjust;
@@ -528,11 +527,12 @@ impl ScpFormat {
         Ok(disk_image)
     }
 
-    pub fn save_image<RWS: ReadWriteSeek>(image: &DiskImage, output: &mut RWS) -> Result<(), DiskImageError> {
+    pub fn save_image<RWS: ReadWriteSeek>(_image: &DiskImage, _output: &mut RWS) -> Result<(), DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 }
 
+#[allow(dead_code)]
 fn scp_transition_ct_to_bitrate(count: usize) -> Option<DiskDataRate> {
     match count {
         35000..=60000 => Some(DiskDataRate::Rate250Kbps),
@@ -542,6 +542,7 @@ fn scp_transition_ct_to_bitrate(count: usize) -> Option<DiskDataRate> {
     }
 }
 
+#[allow(dead_code)]
 fn print_transitions(transitions: Vec<FluxTransition>) {
     for t in transitions {
         print!("{}", t);
