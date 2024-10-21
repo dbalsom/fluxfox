@@ -1,30 +1,35 @@
 mod common;
 
 use fluxfox::diskimage::RwSectorScope;
-use fluxfox::{DiskChs, DiskImage, DiskImageError, DiskImageFormat, ImageParser};
+use fluxfox::{DiskCh, DiskChs, DiskImage, DiskImageError, DiskImageFormat, ImageParser};
 
 #[test]
 fn test_prolok() {
     use std::io::Cursor;
 
-    let disk_image_buf = std::fs::read(".\\tests\\images\\prolok.tc").unwrap();
+    let disk_image_buf = std::fs::read(".\\tests\\images\\tc\\catprot.tc").unwrap();
     let mut in_buffer = Cursor::new(disk_image_buf);
 
-    let mut tc_image = DiskImage::load(&mut in_buffer).unwrap();
+    let mut tc_image = DiskImage::load(&mut in_buffer, None, None).unwrap();
 
     println!(
         "Loaded TransCopy image of geometry {}...",
         tc_image.image_format().geometry
     );
 
-    let mut read_sector_result =
-        match tc_image.read_sector(DiskChs::from((39, 0, 5)), None, RwSectorScope::DataOnly, false) {
-            Ok(result) => result,
-            Err(DiskImageError::DataError) => {
-                panic!("Data error reading sector.");
-            }
-            Err(e) => panic!("Error reading sector: {:?}", e),
-        };
+    let mut read_sector_result = match tc_image.read_sector(
+        DiskCh::new(39, 0),
+        DiskChs::new(39, 0, 5),
+        None,
+        RwSectorScope::DataOnly,
+        false,
+    ) {
+        Ok(result) => result,
+        Err(DiskImageError::DataError) => {
+            panic!("Data error reading sector.");
+        }
+        Err(e) => panic!("Error reading sector: {:?}", e),
+    };
 
     let sector_data = read_sector_result.read_buf;
     let original_data = sector_data.clone();
@@ -38,7 +43,8 @@ fn test_prolok() {
     assert_eq!(sector_data.len(), 512);
 
     match tc_image.write_sector(
-        DiskChs::from((39, 0, 5)),
+        DiskCh::new(39, 0),
+        DiskChs::new(39, 0, 5),
         None,
         &sector_data,
         RwSectorScope::DataOnly,
@@ -53,7 +59,13 @@ fn test_prolok() {
     };
 
     // Read the sector back. It should have different data.
-    read_sector_result = match tc_image.read_sector(DiskChs::from((39, 0, 5)), None, RwSectorScope::DataOnly, false) {
+    read_sector_result = match tc_image.read_sector(
+        DiskCh::new(39, 0),
+        DiskChs::new(39, 0, 5),
+        None,
+        RwSectorScope::DataOnly,
+        false,
+    ) {
         Ok(result) => result,
         Err(DiskImageError::DataError) => {
             panic!("Data error reading sector.");

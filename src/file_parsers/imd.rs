@@ -31,7 +31,7 @@ use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::util::{get_length, read_ascii};
 use crate::{
     DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat, FoxHashSet,
-    LoadingCallback, DEFAULT_SECTOR_SIZE,
+    LoadingCallback, ASCII_EOF, DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, BinRead, BinReaderExt};
 use regex::Regex;
@@ -124,7 +124,9 @@ impl ImdFormat {
         let mut detected = false;
         _ = image.seek(std::io::SeekFrom::Start(0));
 
-        if let (Some(header_str), _) = read_ascii(&mut image, None) {
+        log::debug!("Detecting IMD header...");
+        if let (Some(header_str), _) = read_ascii(&mut image, Some(ASCII_EOF), None) {
+            log::debug!("Detected header: {}", &header_str);
             if let Some(_caps) = Regex::new(IMD_HEADER_REX).unwrap().captures(&header_str) {
                 detected = true;
             }
@@ -148,7 +150,7 @@ impl ImdFormat {
         let _raw_len = get_length(&mut image).map_err(|_e| DiskImageError::UnknownFormat)? as usize;
         _ = image.seek(std::io::SeekFrom::Start(0));
 
-        if let (Some(header_str), terminator) = read_ascii(&mut image, None) {
+        if let (Some(header_str), terminator) = read_ascii(&mut image, Some(ASCII_EOF), None) {
             if let Some(caps) = Regex::new(IMD_HEADER_REX).unwrap().captures(&header_str) {
                 let v_major = &caps["v_major"];
                 let v_minor = &caps["v_minor"];

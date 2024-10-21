@@ -46,10 +46,10 @@ use crate::{
     ParserWriteCompatibility, DEFAULT_SECTOR_SIZE,
 };
 use binrw::binrw;
-use binrw::{BinRead};
+use binrw::BinRead;
 use std::path::{Path, PathBuf};
 
-use crate::util::{read_ascii};
+use crate::util::read_ascii;
 
 pub const KFX_DEFAULT_MCK: f64 = ((18432000.0 * 73.0) / 14.0) / 2.0;
 pub const KFX_DEFAULT_SCK: f64 = KFX_DEFAULT_MCK / 2.0;
@@ -421,7 +421,7 @@ impl KfxFormat {
                         // Ascii string follows
                         let mut string_end = false;
                         while !string_end {
-                            let (str_opt, terminator) = read_ascii(image, None);
+                            let (str_opt, terminator) = read_ascii(image, None, None);
                             string_end = str_opt.is_none() || terminator == 0;
                         }
                     }
@@ -549,7 +549,7 @@ impl KfxFormat {
                         let mut string_end = false;
                         let mut string = String::new();
                         while !string_end {
-                            let (str_opt, terminator) = read_ascii(image, None);
+                            let (str_opt, terminator) = read_ascii(image, None, None);
                             if let Some(s) = &str_opt {
                                 log::debug!("KfInfo str: {}", s);
                                 let (sck_opt, ick_opt) = kfx_parse_str(s);

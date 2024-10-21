@@ -32,8 +32,8 @@ use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::structure_parsers::system34::System34Standard;
 use crate::util::get_length;
 use crate::{
-    DiskCh, DiskDataResolution, DiskDensity, DiskImageError, DiskImageFormat, LoadingCallback,
-    StandardFormat, DEFAULT_SECTOR_SIZE,
+    DiskCh, DiskDataResolution, DiskDensity, DiskImageError, DiskImageFormat, LoadingCallback, StandardFormat,
+    DEFAULT_SECTOR_SIZE,
 };
 use std::cmp::Ordering;
 
@@ -176,8 +176,8 @@ impl RawFormat {
             }
         };
 
-        let track_sector_size = if let Some(css) = image.consistency.consistent_sector_size {
-            css as usize
+        let track_sector_ct = if let Some(csc) = image.consistency.consistent_track_length {
+            csc as usize
         } else {
             log::warn!("Raw::save_image(): Image has inconsistent sector counts per track. Data will be lost.");
 
@@ -186,21 +186,22 @@ impl RawFormat {
             track.get_sector_ct()
         };
 
-        log::trace!("Raw::save_image(): Using {} sectors per track.", track_sector_size);
+        log::trace!("Raw::save_image(): Using {} sectors per track.", track_sector_ct);
 
         for c in 0..track_ct {
             for h in 0..image.heads() as usize {
                 let ti = image.track_map[h][c];
                 let track = &mut image.track_pool[ti];
 
-                for s in 1..(track_sector_size + 1) {
-                    match track.read_sector(
-                        DiskChs::new(c as u16, h as u8, s as u8),
-                        None,
-                        RwSectorScope::DataOnly,
-                        false,
-                    ) {
+                for s in 1..(track_sector_ct + 1) {
+                    let chs = DiskChs::new(c as u16, h as u8, s as u8);
+                    match track.read_sector(chs, None, RwSectorScope::DataOnly, false) {
                         Ok(read_sector) => {
+                            log::trace!(
+                                "Raw::save_image(): Read {} bytes from sector: {}",
+                                read_sector.read_buf.len(),
+                                chs
+                            );
                             let mut new_buf = read_sector.read_buf.clone();
 
                             match new_buf.len().cmp(&DEFAULT_SECTOR_SIZE) {
@@ -228,6 +229,7 @@ impl RawFormat {
                                 Ordering::Equal => {}
                             }
 
+                            //println!("Raw::save_image(): Writing chs: {}...", chs);
                             output.write_all(new_buf.as_ref())?;
                         }
                         Err(e) => {

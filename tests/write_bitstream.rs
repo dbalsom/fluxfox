@@ -1,7 +1,7 @@
 mod common;
 
 use fluxfox::diskimage::RwSectorScope;
-use fluxfox::{DiskChs, DiskImage, DiskImageError, DiskImageFormat, ImageParser};
+use fluxfox::{DiskCh, DiskChs, DiskImage, DiskImageError, DiskImageFormat, ImageParser};
 
 #[test]
 fn test_bitstream_write() {
@@ -10,18 +10,23 @@ fn test_bitstream_write() {
     let disk_image_buf = std::fs::read(".\\tests\\images\\Transylvania.86f").unwrap();
     let mut in_buffer = Cursor::new(disk_image_buf);
 
-    let mut f86_image = DiskImage::load(&mut in_buffer).unwrap();
+    let mut f86_image = DiskImage::load(&mut in_buffer, None, None).unwrap();
 
     println!("Loaded 86F image of geometry {}...", f86_image.image_format().geometry);
 
-    let mut read_sector_result =
-        match f86_image.read_sector(DiskChs::from((0, 0, 1)), None, RwSectorScope::DataOnly, false) {
-            Ok(result) => result,
-            Err(DiskImageError::DataError) => {
-                panic!("Data error reading sector.");
-            }
-            Err(e) => panic!("Error reading sector: {:?}", e),
-        };
+    let mut read_sector_result = match f86_image.read_sector(
+        DiskCh::new(0, 0),
+        DiskChs::new(0, 0, 1),
+        None,
+        RwSectorScope::DataOnly,
+        false,
+    ) {
+        Ok(result) => result,
+        Err(DiskImageError::DataError) => {
+            panic!("Data error reading sector.");
+        }
+        Err(e) => panic!("Error reading sector: {:?}", e),
+    };
 
     let sector_data = read_sector_result.read_buf;
 
@@ -48,7 +53,8 @@ fn test_bitstream_write() {
     // }
 
     let _write_sector_result = match f86_image.write_sector(
-        DiskChs::from((0, 0, 1)),
+        DiskCh::new(0, 0),
+        DiskChs::new(0, 0, 1),
         None,
         &sector_data,
         RwSectorScope::DataOnly,
@@ -63,7 +69,13 @@ fn test_bitstream_write() {
     };
 
     // Read the sector back. It should be the same data.
-    read_sector_result = match f86_image.read_sector(DiskChs::from((0, 0, 1)), None, RwSectorScope::DataOnly, false) {
+    read_sector_result = match f86_image.read_sector(
+        DiskCh::new(0, 0),
+        DiskChs::new(0, 0, 1),
+        None,
+        RwSectorScope::DataOnly,
+        false,
+    ) {
         Ok(result) => result,
         Err(DiskImageError::DataError) => {
             panic!("Data error reading sector.");

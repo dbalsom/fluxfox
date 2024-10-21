@@ -3,21 +3,32 @@ mod common;
 use common::*;
 use fluxfox::{DiskImage, DiskImageFormat, ImageParser};
 
+fn init() {
+    match env_logger::builder().is_test(true).try_init() {
+        Ok(_) => {
+            println!("Logger initialized. A debug log should follow:");
+            log::debug!("Logger initialized.");
+        }
+        Err(e) => eprintln!("Failed to initialize logger: {}", e),
+    }
+}
+
 #[test]
 fn test_imd() {
+    init();
     use std::io::Cursor;
 
     let disk_image_buf = std::fs::read(".\\tests\\images\\Transylvania.imd").unwrap();
     let mut in_buffer = Cursor::new(disk_image_buf);
 
-    let img_image = DiskImage::load(&mut in_buffer).unwrap();
+    let mut img_image = DiskImage::load(&mut in_buffer, None, None).unwrap();
 
     println!("Loaded IMD image of geometry {}...", img_image.image_format().geometry);
 
     let mut out_buffer = Cursor::new(Vec::new());
 
     let fmt = DiskImageFormat::RawSectorImage;
-    fmt.save_image(&img_image, &mut out_buffer).unwrap();
+    fmt.save_image(&mut img_image, &mut out_buffer).unwrap();
 
     //let in_inner: Vec<u8> = in_buffer.into_inner();
     let out_inner: Vec<u8> = out_buffer.into_inner();

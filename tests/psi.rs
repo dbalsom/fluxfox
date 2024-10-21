@@ -10,14 +10,14 @@ fn test_psi() {
     let disk_image_buf = std::fs::read(".\\tests\\images\\Transylvania.psi").unwrap();
     let mut in_buffer = Cursor::new(disk_image_buf);
 
-    let img_image = DiskImage::load(&mut in_buffer).unwrap();
+    let mut img_image = DiskImage::load(&mut in_buffer, None, None).unwrap();
 
     println!("Loaded PSI image of geometry {}...", img_image.image_format().geometry);
 
     let mut out_buffer = Cursor::new(Vec::new());
 
     let fmt = DiskImageFormat::RawSectorImage;
-    fmt.save_image(&img_image, &mut out_buffer).unwrap();
+    fmt.save_image(&mut img_image, &mut out_buffer).unwrap();
 
     //let in_inner: Vec<u8> = in_buffer.into_inner();
     let out_inner: Vec<u8> = out_buffer.into_inner();

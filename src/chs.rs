@@ -391,9 +391,8 @@ mod tests {
 
     #[test]
     fn diskch_get_next_track_wraps_correctly() {
-        let geom = DiskChs::new(2, 2, 2);
         let ch = DiskCh::new(1, 1);
-        let next_ch = ch.get_next_track(&geom);
-        assert_eq!(next_ch, DiskCh::new(0, 0));
+        let next_ch = ch.get_next_track(2);
+        assert_eq!(next_ch, DiskCh::new(2, 0));
     }
 }

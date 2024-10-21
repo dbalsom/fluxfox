@@ -15,14 +15,14 @@ fn test_86f_write() {
     let disk_image_buf = std::fs::read(".\\tests\\images\\Transylvania.86f").unwrap();
     let mut in_buffer = Cursor::new(disk_image_buf);
 
-    let mut f86_image = DiskImage::load(&mut in_buffer).unwrap();
+    let mut f86_image = DiskImage::load(&mut in_buffer, None, None).unwrap();
 
     println!("Loaded 86F image of geometry {}...", f86_image.image_format().geometry);
 
     let mut out_buffer = Cursor::new(Vec::new());
     let fmt = DiskImageFormat::F86Image;
 
-    match fmt.save_image(&f86_image, &mut out_buffer) {
+    match fmt.save_image(&mut f86_image, &mut out_buffer) {
         Ok(_) => println!("Saved 86F image."),
         Err(e) => panic!("Failed to save 86F image: {}", e),
     }

@@ -16,7 +16,7 @@ fn test_image_builder() {
         .with_resolution(DiskDataResolution::BitStream)
         .with_standard_format(StandardFormat::PcFloppy360)
         .with_creator_tag("MartyPC ".as_bytes())
-        .with_formatted()
+        .with_formatted(true)
         .build()
     {
         Ok(image) => image,
@@ -25,7 +25,7 @@ fn test_image_builder() {
 
     let mut out_buffer = Cursor::new(Vec::new());
     let output_fmt = DiskImageFormat::F86Image;
-    match output_fmt.save_image(&image, &mut out_buffer) {
+    match output_fmt.save_image(&mut image, &mut out_buffer) {
         Ok(_) => println!("Wrote 86F image."),
         Err(e) => panic!("Failed to write 86F image: {}", e),
     };

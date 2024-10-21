@@ -25,7 +25,7 @@
     --------------------------------------------------------------------------
 */
 use crate::io::{Read, Seek, SeekFrom};
-use crate::{DiskImageError, ASCII_EOF};
+use crate::DiskImageError;
 
 pub const CRC_CCITT_INITIAL: u16 = 0xFFFF;
 
@@ -37,19 +37,23 @@ pub(crate) fn get_length<T: Seek>(source: &mut T) -> Result<u64, crate::io::Erro
     Ok(length)
 }
 
-pub(crate) fn read_ascii<T: Read>(source: &mut T, max_len: Option<usize>) -> (Option<String>, u8) {
+pub(crate) fn read_ascii<T: Read>(
+    source: &mut T,
+    terminator: Option<u8>,
+    max_len: Option<usize>,
+) -> (Option<String>, u8) {
     let mut string = String::new();
     let byte_iter = source.bytes();
-
+    let terminator = terminator.unwrap_or(0);
     let mut terminating_byte = 0;
 
     for (i, byte) in byte_iter.enumerate() {
         match byte {
             Ok(b) => {
-                if b < 32 || b == ASCII_EOF || !b.is_ascii() {
+                if b == terminator || b == 0 {
                     terminating_byte = b;
                     break;
-                } else {
+                } else if b >= 32 && b.is_ascii() {
                     string.push(b as char);
                 }
             }
