@@ -26,6 +26,7 @@
 */
 
 use crate::bitstream::mfm::MfmCodec;
+use crate::track::bitstream::BitStreamTrack;
 
 use crate::bitstream::fm::FmCodec;
 use crate::bitstream::TrackDataStream;
@@ -40,7 +41,9 @@ use crate::io::ReadSeek;
 use crate::standard_format::StandardFormat;
 use crate::structure_parsers::system34::{System34Element, System34Parser, System34Standard};
 use crate::structure_parsers::{DiskStructureElement, DiskStructureMetadata, DiskStructureParser};
-use crate::trackdata::TrackData;
+use crate::track::{DiskTrack, Track};
+
+use crate::track::metasector::MetaSectorTrack;
 use crate::{
     util, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskImageError, DiskRpm, FoxHashMap,
     FoxHashSet, LoadingCallback, LoadingStatus, TrackConsistency,
@@ -334,7 +337,7 @@ pub struct DiskImage {
     // An ASCII comment embedded in the disk image, if any.
     pub(crate) comment: Option<String>,
     /// A pool of track data structures, potentially in any order.
-    pub(crate) track_pool: Vec<TrackData>,
+    pub(crate) track_pool: Vec<DiskTrack>,
     /// An array of vectors containing indices into the track pool. The first index is the head
     /// number, the second is the cylinder number.
     pub(crate) track_map: [Vec<usize>; 2],
@@ -395,7 +398,7 @@ impl DiskImage {
         }
     }
 
-    pub fn track_iter(&self) -> impl Iterator<Item = &TrackData> {
+    pub fn track_iter(&self) -> impl Iterator<Item = &DiskTrack> {
         // Find the maximum number of tracks among all heads
         let max_tracks = self.track_map.iter().map(|tracks| tracks.len()).max().unwrap_or(0);
 
@@ -424,17 +427,17 @@ impl DiskImage {
             .map(move |track_idx| self.track_pool[track_idx].ch())
     }
 
-    pub fn track(&self, ch: DiskCh) -> Option<&TrackData> {
+    pub fn track(&self, ch: DiskCh) -> Option<&DiskTrack> {
         self.track_map[ch.h() as usize]
             .get(ch.c() as usize)
             .and_then(|&track_idx| self.track_pool.get(track_idx))
     }
 
-    pub fn track_by_idx(&self, track_idx: usize) -> Option<&TrackData> {
+    pub fn track_by_idx(&self, track_idx: usize) -> Option<&DiskTrack> {
         self.track_pool.get(track_idx)
     }
 
-    pub fn track_by_idx_mut(&mut self, track_idx: usize) -> Option<&mut TrackData> {
+    pub fn track_by_idx_mut(&mut self, track_idx: usize) -> Option<&mut DiskTrack> {
         self.track_pool.get_mut(track_idx)
     }
 
@@ -628,7 +631,7 @@ impl DiskImage {
         encoding: DiskDataEncoding,
         data_rate: DiskDataRate,
         ch: DiskCh,
-    ) -> Result<(), DiskImageError> {
+    ) -> Result<&mut DiskTrack, DiskImageError> {
         if ch.h() >= 2 {
             return Err(DiskImageError::SeekError);
         }
@@ -641,19 +644,18 @@ impl DiskImage {
         }
 
         //self.tracks[ch.h() as usize].push(DiskTrack {
-        self.track_pool.push(TrackData::ByteStream {
+        self.track_pool.push(Box::new(MetaSectorTrack {
             encoding,
             data_rate,
-            cylinder: ch.c(),
-            head: ch.h(),
+            ch,
             sectors: Vec::new(),
             data: Vec::new(),
             weak_mask: Vec::new(),
-        });
+        }));
 
         self.track_map[ch.h() as usize].push(self.track_pool.len() - 1);
 
-        Ok(())
+        Ok(self.track_pool.last_mut().unwrap())
     }
 
     /// Adds a new track to the disk image, of BitStream resolution.
@@ -827,80 +829,17 @@ impl DiskImage {
             metadata.items.len()
         );
 
-        self.track_pool.push(TrackData::BitStream {
+        self.track_pool.push(Box::new(BitStreamTrack {
             encoding,
             data_rate,
-            cylinder: ch.c(),
-            head: ch.h(),
+            ch,
             data_clock,
             data: data_stream,
             metadata,
             sector_ids,
-        });
+        }));
 
         self.track_map[ch.h() as usize].push(self.track_pool.len() - 1);
-
-        Ok(())
-    }
-
-    /// Masters a new sector to a track in the disk image, essentially 'formatting' a new sector,
-    /// This function is only valid for tracks with `ByteStream` resolution.
-    ///
-    /// # Parameters
-    /// - `chs`: The geometry of the sector (cylinder, head, and sector).
-    /// - `sd`: A reference to a `SectorDescriptor` containing the sector data and metadata.
-    ///
-    /// # Returns
-    /// - `Ok(())` if the sector was successfully mastered.
-    /// - `Err(DiskImageError::SeekError)` if the head value in `chs` is greater than 1 or the track map does not contain the specified cylinder.
-    /// - `Err(DiskImageError::UnsupportedFormat)` if the track data is not of `ByteStream` resolution.
-    pub(crate) fn master_sector(&mut self, chs: DiskChs, sd: &SectorDescriptor) -> Result<(), DiskImageError> {
-        if chs.h() > 1 || self.track_map[chs.h() as usize].len() < chs.c() as usize {
-            return Err(DiskImageError::SeekError);
-        }
-
-        if !matches!(self.resolution, Some(DiskDataResolution::ByteStream)) {
-            return Err(DiskImageError::UnsupportedFormat);
-        }
-
-        // Create an empty weak bit mask if none is provided.
-        let weak_buf_vec = match &sd.weak {
-            Some(weak_buf) => weak_buf.to_vec(),
-            None => vec![0; sd.data.len()],
-        };
-
-        let ti = self.track_map[chs.h() as usize][chs.c() as usize];
-        let track = &mut self.track_pool[ti];
-
-        match track {
-            TrackData::ByteStream {
-                ref mut sectors,
-                ref mut data,
-                ref mut weak_mask,
-                ..
-            } => {
-                let id_chsn = DiskChsn::from((
-                    sd.cylinder_id.unwrap_or(chs.c()),
-                    sd.head_id.unwrap_or(chs.h()),
-                    sd.id,
-                    sd.n,
-                ));
-
-                sectors.push(TrackSectorIndex {
-                    id_chsn,
-                    t_idx: data.len(),
-                    len: sd.data.len(),
-                    address_crc_error: sd.address_crc_error,
-                    data_crc_error: sd.data_crc_error,
-                    deleted_mark: sd.deleted_mark,
-                });
-                data.extend(&sd.data);
-                weak_mask.extend(weak_buf_vec);
-            }
-            TrackData::BitStream { .. } => {
-                return Err(DiskImageError::UnsupportedFormat);
-            }
-        }
 
         Ok(())
     }
@@ -1033,16 +972,15 @@ impl DiskImage {
                     _ => return Err(DiskImageError::UnsupportedFormat),
                 };
 
-                self.track_pool.push(TrackData::BitStream {
+                self.track_pool.push(Box::new(BitStreamTrack {
                     encoding,
                     data_rate,
-                    cylinder: ch.c(),
-                    head: ch.h(),
+                    ch,
                     data_clock: 0,
                     data: stream,
                     metadata: DiskStructureMetadata::default(),
                     sector_ids: Vec::new(),
-                });
+                }));
 
                 new_track_index = self.track_pool.len() - 1;
                 self.track_map[ch.h() as usize].push(self.track_pool.len() - 1);
@@ -1053,15 +991,14 @@ impl DiskImage {
                     return Err(DiskImageError::ParameterError);
                 }
 
-                self.track_pool.push(TrackData::ByteStream {
+                self.track_pool.push(Box::new(MetaSectorTrack {
                     encoding,
                     data_rate,
-                    cylinder: ch.c(),
-                    head: ch.h(),
+                    ch,
                     sectors: Vec::new(),
                     data: vec![0; bitcell_bytes],
                     weak_mask: Vec::new(),
-                });
+                }));
 
                 new_track_index = self.track_pool.len() - 1;
                 self.track_map[ch.h() as usize].push(self.track_pool.len() - 1);
@@ -1100,26 +1037,6 @@ impl DiskImage {
         // is accurate.
         self.update_consistency();
         Ok(())
-    }
-
-    pub fn is_id_valid(&self, chs: DiskChs) -> bool {
-        if chs.h() > 1 || chs.c() as usize >= self.track_map[chs.h() as usize].len() {
-            return false;
-        }
-        let ti = self.track_map[chs.h() as usize][chs.c() as usize];
-        let track = &self.track_pool[ti];
-
-        match &track {
-            TrackData::BitStream { .. } => return track.has_sector_id(chs.s()),
-            TrackData::ByteStream { sectors, .. } => {
-                for si in sectors {
-                    if si.id_chsn.s() == chs.s() {
-                        return true;
-                    }
-                }
-            }
-        }
-        false
     }
 
     /// Reset an image to an empty state.
@@ -1584,32 +1501,21 @@ impl DiskImage {
         log::trace!("remap_tracks(): Disk geometry is {}", self.geometry());
         for (head_idx, head) in self.track_map.iter().enumerate() {
             logical_cylinder = 0;
-            for track in head.iter() {
-                match self.track_pool[*track] {
-                    TrackData::ByteStream { ref mut cylinder, .. } => {
-                        if *cylinder != logical_cylinder as u16 {
-                            log::trace!(
-                                "remap_tracks(): Remapping track idx {}, head: {} from c:{} to c:{}",
-                                track,
-                                head_idx,
-                                *cylinder,
-                                logical_cylinder
-                            );
-                        }
-                        *cylinder = logical_cylinder as u16;
-                    }
-                    TrackData::BitStream { ref mut cylinder, .. } => {
-                        if *cylinder != logical_cylinder as u16 {
-                            log::trace!(
-                                "remap_tracks(): Remapping track idx {}, head: {} from c:{} to c:{}",
-                                track,
-                                head_idx,
-                                *cylinder,
-                                logical_cylinder
-                            );
-                        }
-                        *cylinder = logical_cylinder as u16;
-                    }
+            for ti in head.iter() {
+                let track = &mut self.track_pool[*ti];
+                let mut track_ch = track.ch();
+
+                if track_ch.c() != logical_cylinder {
+                    log::trace!(
+                        "remap_tracks(): Remapping track idx {}, head: {} from c:{} to c:{}",
+                        ti,
+                        head_idx,
+                        track_ch.c(),
+                        logical_cylinder
+                    );
+
+                    track_ch.set_c(logical_cylinder);
+                    track.set_ch(track_ch);
                 }
                 logical_cylinder += 1;
             }

@@ -36,7 +36,8 @@
 use crate::diskimage::{DiskDescriptor, DiskImageFlags};
 use crate::file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
-use crate::trackdata::TrackData;
+
+use crate::track::bitstream::BitStreamTrack;
 use crate::{
     DiskCh, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskImage, DiskImageError,
     DiskImageFormat, DiskRpm, LoadingCallback, DEFAULT_SECTOR_SIZE,
@@ -591,12 +592,12 @@ impl F86Format {
 
             let ti = image.track_map[h][c as usize];
 
-            if let TrackData::BitStream { data: codec, .. } = &image.track_pool[ti] {
-                let absolute_bit_count = codec.len();
+            if let Some(track) = image.track_pool[ti].as_any().downcast_ref::<BitStreamTrack>() {
+                let absolute_bit_count = track.data.len();
                 log::error!("Absolute bit count: {}", absolute_bit_count);
 
-                let mut bit_data = codec.data();
-                let mut weak_data = codec.weak_data();
+                let mut bit_data = track.data.data();
+                let mut weak_data = track.data.weak_data();
 
                 if has_surface_description && (bit_data.len() != weak_data.len()) {
                     log::error!("Bitstream and weak data lengths do not match.");
@@ -619,7 +620,10 @@ impl F86Format {
                 }
 
                 if image.has_flag(DiskImageFlags::PROLOK) && c == 39 && h == 0 {
-                    log::debug!("PROLOK: Converting {} weak bits to holes.", codec.weak_data().len());
+                    log::debug!(
+                        "PROLOK: Converting {} weak bits to holes.",
+                        track.data.weak_data().len()
+                    );
                     f86_weak_to_holes(&mut bit_data, &mut weak_data);
                 } else {
                     f86_weak_to_weak(&mut bit_data, &mut weak_data);

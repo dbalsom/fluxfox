@@ -57,12 +57,12 @@ mod random;
 mod sector;
 pub mod standard_format;
 pub mod structure_parsers;
-mod trackdata;
 pub mod util;
 
 mod copy_protection;
 mod fluxstream;
 mod image_writer;
+mod track;
 #[cfg(feature = "viz")]
 pub mod visualization;
 
@@ -380,6 +380,6 @@ pub use crate::file_parsers::{format_from_ext, supported_extensions, ImageParser
 pub use crate::image_builder::ImageBuilder;
 pub use crate::image_writer::ImageWriter;
 pub use crate::standard_format::StandardFormat;
-pub use crate::trackdata::TrackConsistency;
+pub use crate::track::TrackConsistency;
 
 pub type DiskSectorMap = Vec<Vec<Vec<SectorMapEntry>>>;

@@ -251,7 +251,7 @@ impl ImdFormat {
             }
 
             log::trace!("Adding track: C: {} H: {}", track_header.c, track_header.h);
-            disk_image.add_track_bytestream(
+            let mut new_track = disk_image.add_track_bytestream(
                 data_encoding,
                 data_rate,
                 DiskCh::from((track_header.c() as u16, track_header.h())),
@@ -291,10 +291,7 @@ impl ImdFormat {
                             deleted_mark: data.deleted,
                         };
 
-                        disk_image.master_sector(
-                            DiskChs::from((track_header.c() as u16, track_header.h(), sector_numbers[s])),
-                            &sd,
-                        )?;
+                        new_track.add_sector(&sd)?;
                     }
                     _ => {
                         return Err(DiskImageError::FormatParseError);

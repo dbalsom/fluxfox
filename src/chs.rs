@@ -140,6 +140,10 @@ impl DiskChsn {
         self.chs.seek_forward(sectors, geom);
         self
     }
+
+    pub(crate) fn ch(&self) -> DiskCh {
+        DiskCh::new(self.c(), self.h())
+    }
 }
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]

@@ -40,7 +40,7 @@ use crate::diskimage::DiskDescriptor;
 use crate::file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility};
 use crate::io::{Cursor, ReadSeek, ReadWriteSeek, Write};
 
-use crate::trackdata::TrackData;
+use crate::track::bitstream::BitStreamTrack;
 use crate::{
     DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskImage, DiskImageError, DiskImageFormat,
     FoxHashSet, LoadingCallback, DEFAULT_SECTOR_SIZE,
@@ -558,44 +558,33 @@ impl PriFormat {
 
         // Iterate through tracks and write track headers and data.
         for track in image.track_iter() {
-            if let TrackData::BitStream {
-                encoding,
-                data_rate,
-                data_clock,
-                cylinder,
-                head,
-                data,
-                sector_ids,
-                ..
-            } = track
-            {
+            if let Some(track) = track.as_any().downcast_ref::<BitStreamTrack>() {
                 log::trace!(
-                    "Track c:{} h:{} sectors: {} encoding: {:?} data_rate: {:?} bit length: {}",
-                    cylinder,
-                    head,
-                    sector_ids.len(),
-                    encoding,
-                    data_rate,
-                    data.len(),
+                    "Track ch: {} sectors: {} encoding: {:?} data_rate: {:?} bit length: {}",
+                    track.ch,
+                    track.sector_ids.len(),
+                    track.encoding,
+                    track.data_rate,
+                    track.data.len(),
                 );
 
                 // Write the track header.
                 let track_header = PriTrackHeader {
-                    cylinder: *cylinder as u32,
-                    head: *head as u32,
-                    bit_length: data.len() as u32,
-                    clock_rate: *data_clock,
+                    cylinder: track.ch.c() as u32,
+                    head: track.ch.h() as u32,
+                    bit_length: track.data.len() as u32,
+                    clock_rate: track.data_rate.into(),
                 };
                 PriFormat::write_chunk(output, PriChunkType::TrackHeader, &track_header)?;
 
                 // Write the track data.
-                let track_data = data.data();
+                let track_data = track.data.data();
                 PriFormat::write_chunk(output, PriChunkType::TrackData, &track_data)?;
 
                 // Write the weak mask, if any bits are set in the weak bit mask.
-                if data.weak_mask().any() {
+                if track.data.weak_mask().any() {
                     // At least one bit is set in the weak bit mask, so let's export it.
-                    let weak_data = data.weak_data();
+                    let weak_data = track.data.weak_data();
 
                     // Optimization: PRI supports supplying a bit offset for the weak bit mask.
                     // Determine the slice of the weak mask that contains the first and last

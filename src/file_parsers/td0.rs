@@ -326,7 +326,7 @@ impl Td0Format {
             }
 
             log::trace!("Adding track: c:{} h:{}...", track_header.cylinder, track_header.head);
-            disk_image.add_track_bytestream(
+            let mut new_track = disk_image.add_track_bytestream(
                 DiskDataEncoding::Mfm,
                 disk_data_rate,
                 DiskCh::from((track_header.cylinder as u16, track_header.head)),
@@ -412,14 +412,7 @@ impl Td0Format {
                         deleted_mark: sector_header.flags & SECTOR_DELETED != 0,
                     };
 
-                    disk_image.master_sector(
-                        DiskChs::from((
-                            sector_header.cylinder as u16,
-                            sector_header.head,
-                            sector_header.sector_id,
-                        )),
-                        &sd,
-                    )?;
+                    new_track.add_sector(&sd)?;
                 }
             }
 

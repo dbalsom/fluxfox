@@ -33,7 +33,8 @@
 use crate::bitstream::TrackDataStream;
 use crate::structure_parsers::system34::System34Element;
 use crate::structure_parsers::{DiskStructureElement, DiskStructureGenericElement, DiskStructureMetadata};
-use crate::trackdata::TrackData;
+
+use crate::track::bitstream::BitStreamTrack;
 use crate::{DiskImage, DiskImageError, DiskVisualizationError, FoxHashMap};
 use bit_vec::BitVec;
 use std::cmp::min;
@@ -147,9 +148,11 @@ const POPCOUNT_TABLE: [u8; 256] = {
 fn collect_streams(head: u8, disk_image: &DiskImage) -> Vec<&TrackDataStream> {
     disk_image.track_map[head as usize]
         .iter()
-        .filter_map(|track_i| match disk_image.track_pool[*track_i] {
-            TrackData::BitStream { ref data, .. } => Some(data),
-            _ => None,
+        .filter_map(|track_i| {
+            disk_image.track_pool[*track_i]
+                .as_any()
+                .downcast_ref::<BitStreamTrack>()
+                .map(|track| &track.data)
         })
         .collect()
 }
@@ -157,9 +160,11 @@ fn collect_streams(head: u8, disk_image: &DiskImage) -> Vec<&TrackDataStream> {
 fn collect_weak_masks(head: u8, disk_image: &DiskImage) -> Vec<&BitVec> {
     disk_image.track_map[head as usize]
         .iter()
-        .filter_map(|track_i| match disk_image.track_pool[*track_i] {
-            TrackData::BitStream { ref data, .. } => Some(data.weak_mask()),
-            _ => None,
+        .filter_map(|track_i| {
+            disk_image.track_pool[*track_i]
+                .as_any()
+                .downcast_ref::<BitStreamTrack>()
+                .map(|track| track.data.weak_mask())
         })
         .collect()
 }
