@@ -31,6 +31,12 @@ tests/images/*
 /doc/img/visualization*
 !/doc/img/visualization_example.png
 
+# Misc
+/resources/bootsector2.asm
+
+# Test junk
+/test_out.img
+
+
 # Added by cargo
 /target
-/resources/bootsector2.asm
