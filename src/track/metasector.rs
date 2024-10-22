@@ -225,13 +225,6 @@ impl Track for MetaSectorTrack {
     }
 
     fn add_sector(&mut self, sd: &SectorDescriptor, alternate: bool) -> Result<(), DiskImageError> {
-        let id_chsn = DiskChsn::from((
-            sd.cylinder_id.unwrap_or(self.ch.c()),
-            sd.head_id.unwrap_or(self.ch.h()),
-            sd.id,
-            sd.n,
-        ));
-
         // Create an empty weak bit mask if none is provided.
         let weak_mask = match &sd.weak_mask {
             Some(weak_buf) => MetaMask::from(weak_buf),
@@ -244,7 +237,7 @@ impl Track for MetaSectorTrack {
         };
 
         let new_sector = MetaSector {
-            id_chsn,
+            id_chsn: sd.id_chsn,
             address_crc_error: sd.address_crc_error,
             data_crc_error: sd.data_crc_error,
             deleted_mark: sd.deleted_mark,
@@ -256,7 +249,7 @@ impl Track for MetaSectorTrack {
 
         if alternate {
             // Look for existing sector.
-            let existing_sector = self.sectors.iter_mut().find(|s| s.id_chsn == id_chsn);
+            let existing_sector = self.sectors.iter_mut().find(|s| s.id_chsn == sd.id_chsn);
 
             if let Some(es) = existing_sector {
                 // Update the existing sector.

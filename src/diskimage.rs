@@ -164,10 +164,7 @@ pub enum DiskFormat {
 
 #[derive(Default)]
 pub struct SectorDescriptor {
-    pub id: u8,
-    pub cylinder_id: Option<u16>,
-    pub head_id: Option<u8>,
-    pub n: u8,
+    pub id_chsn: DiskChsn,
     pub data: Vec<u8>,
     pub weak_mask: Option<Vec<u8>>,
     pub hole_mask: Option<Vec<u8>>,

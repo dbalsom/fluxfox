@@ -280,10 +280,7 @@ impl ImdFormat {
 
                         // Add this sector to track.
                         let sd = SectorDescriptor {
-                            id: sector_numbers[s],
-                            cylinder_id: Some(cylinder_map[s] as u16),
-                            head_id: Some(head_map[s]),
-                            n: sector_n,
+                            id_chsn: DiskChsn::new(cylinder_map[s] as u16, head_map[s], sector_numbers[s], sector_n),
                             data: data.data,
                             weak_mask: None,
                             hole_mask: None,

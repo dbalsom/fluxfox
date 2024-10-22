@@ -57,6 +57,44 @@ pub const SH_IBM_FLAG_CRC_ERROR_DATA: u8 = 0b0010;
 pub const SH_IBM_DELETED_DATA: u8 = 0b0100;
 pub const SH_IBM_MISSING_DATA: u8 = 0b1000;
 
+#[derive(Default)]
+pub struct SectorContext {
+    phys_chs: Option<DiskChs>,
+    phys_size: usize,
+    data_len: usize,
+    ibm_chsn: Option<DiskChsn>,
+    n: u8,
+    data_crc_error: bool,
+    address_crc_error: bool,
+    deleted: bool,
+    no_dam: bool,
+    alternate: bool,
+    bit_offset: Option<u32>,
+}
+
+impl SectorContext {
+    fn have_context(&self) -> bool {
+        self.phys_chs.is_some()
+    }
+
+    fn reset(&mut self) {
+        *self = SectorContext::default();
+    }
+
+    fn phys_ch(&self) -> DiskCh {
+        DiskCh::from(self.phys_chs.unwrap())
+    }
+
+    fn sid(&self) -> DiskChsn {
+        self.ibm_chsn.unwrap_or(DiskChsn::new(
+            self.phys_chs.unwrap().c(),
+            self.phys_chs.unwrap().h(),
+            self.phys_chs.unwrap().s(),
+            DiskChsn::bytes_to_n(self.phys_size),
+        ))
+    }
+}
+
 #[derive(Debug)]
 #[binrw]
 #[brw(big)]
@@ -89,6 +127,17 @@ pub struct PsiSectorHeader {
     pub size: u16,
     pub flags: u8,
     pub compressed_data: u8,
+}
+
+#[binrw]
+#[brw(big)]
+pub struct PsiIbmSectorHeader {
+    pub cylinder: u8,
+    pub head: u8,
+    pub sector: u8,
+    pub n: u8,
+    pub flags: u8,
+    pub encoding: u8,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -192,7 +241,7 @@ impl PsiFormat {
             b"DATA" => PsiChunkType::SectorData,
             b"WEAK" => PsiChunkType::WeakMask,
             b"IBMF" => PsiChunkType::IbmFmSectorHeader,
-            b"IMFM" => PsiChunkType::IbmMfmSectorHeader,
+            b"IBMM" => PsiChunkType::IbmMfmSectorHeader,
             b"MACG" => PsiChunkType::MacintoshSectorHeader,
             b"OFFS" => PsiChunkType::SectorPositionOffset,
             b"TIME" => PsiChunkType::ClockRateAdjustment,
@@ -250,15 +299,10 @@ impl PsiFormat {
 
         let (default_encoding, disk_density) =
             decode_psi_sector_format(file_header.sector_format).ok_or(DiskImageError::FormatParseError)?;
-        let mut have_sector_context = false;
 
         let mut comment_string = String::new();
-        let mut current_chs = DiskChs::default();
-        let mut current_ibm_chs = DiskChs::default();
-        let mut current_n = 2;
-        let mut current_crc_error = false;
-        let mut current_alternate = false;
 
+        let mut ctx = SectorContext::default();
         let mut track_set: FoxHashSet<DiskCh> = FoxHashSet::new();
         let mut sector_counts: FoxHashMap<u8, u32> = FoxHashMap::new();
         let mut heads_seen: FoxHashSet<u8> = FoxHashSet::new();
@@ -271,8 +315,7 @@ impl PsiFormat {
                 PsiChunkType::FileHeader => {}
                 PsiChunkType::SectorHeader => {
                     //log::trace!("Sector header chunk.");
-                    let sector_header = PsiSectorHeader::read(&mut Cursor::new(&chunk.data))
-                        .map_err(|_| DiskImageError::FormatParseError)?;
+                    let sector_header = PsiSectorHeader::read(&mut Cursor::new(&chunk.data))?;
                     let chs = DiskChs::from((sector_header.cylinder, sector_header.head, sector_header.sector));
                     let ch = DiskCh::from((sector_header.cylinder, sector_header.head));
 
@@ -295,13 +338,14 @@ impl PsiFormat {
 
                     if sector_header.flags & SH_FLAG_ALTERNATE != 0 {
                         log::trace!("Alternate sector data.");
-                        current_alternate = true;
+                        ctx.alternate = true;
                     } else {
-                        current_alternate = false;
+                        ctx.alternate = false;
                     }
 
-                    current_n = DiskChsn::bytes_to_n(sector_header.size as usize);
-                    current_crc_error = sector_header.flags & SH_FLAG_CRC_ERROR != 0;
+                    ctx.phys_chs = Some(chs);
+                    ctx.phys_size = sector_header.size as usize;
+                    ctx.data_crc_error = sector_header.flags & SH_FLAG_CRC_ERROR != 0;
 
                     // Write sector data immediately if compressed data is indicated (no sector data chunk follows)
                     if sector_header.flags & SH_FLAG_COMPRESSED != 0 {
@@ -311,73 +355,71 @@ impl PsiFormat {
                         if let Some(ref mut track) = current_track {
                             // Add this sector to track.
                             let sd = SectorDescriptor {
-                                id: chs.s(),
-                                cylinder_id: None,
-                                head_id: None,
-                                n: current_n,
+                                id_chsn: DiskChsn::from((chs, DiskChsn::bytes_to_n(sector_header.size as usize))),
                                 data: chunk_expand,
                                 weak_mask: None,
                                 hole_mask: None,
-                                address_crc_error: false,
-                                data_crc_error: current_crc_error,
+                                address_crc_error: false, // Compressed data cannot encode address CRC state.
+                                data_crc_error: ctx.data_crc_error,
                                 deleted_mark: false,
                                 missing_data: false,
                             };
 
-                            track.add_sector(&sd, current_alternate)?;
+                            track.add_sector(&sd, ctx.alternate)?;
+                            ctx.reset();
                         } else {
                             log::error!("Tried to add sector without a current track.");
                             return Err(DiskImageError::FormatParseError);
                         }
                     }
 
-                    current_chs = chs;
                     log::trace!(
-                        "Sector ID: {} size: {} crc_error: {}",
-                        DiskChsn::from((chs, current_n)),
+                        "SECT chunk: Sector ID: {} size: {} data_crc_error: {}",
+                        chs,
                         sector_header.size,
-                        current_crc_error
+                        ctx.data_crc_error
                     );
-
-                    // We have a sector context now. This state will be cleared by the next
-                    // SectorData chunk, which will require a new SectorHeader chunk to be read.
-                    have_sector_context = true;
                 }
                 PsiChunkType::SectorData => {
-                    if !have_sector_context {
+                    if !ctx.have_context() {
                         log::error!("Sector data chunk without a preceding sector header.");
                         return Err(DiskImageError::FormatParseError);
                     }
 
-                    log::trace!("Sector data chunk: {} crc_error: {}", current_chs, current_crc_error);
+                    log::trace!(
+                        "DATA chunk: {} crc_error: {}",
+                        ctx.phys_chs.unwrap(),
+                        ctx.data_crc_error
+                    );
 
-                    if current_n != DiskChsn::bytes_to_n(chunk.data.len()) {
-                        log::warn!("Sector data size mismatch.");
+                    if ctx.phys_size != chunk.data.len() {
+                        log::warn!(
+                            "Sector data size mismatch. Header specified: {} SectorData specified: {}",
+                            ctx.phys_size,
+                            chunk.data.len()
+                        );
                     }
 
                     if let Some(ref mut track) = current_track {
                         // Add this sector to track.
                         let sd = SectorDescriptor {
-                            id: current_chs.s(),
-                            cylinder_id: None,
-                            head_id: None,
-                            n: DiskChsn::bytes_to_n(chunk.data.len()),
+                            id_chsn: ctx.sid(),
                             data: chunk.data,
                             weak_mask: None,
                             hole_mask: None,
-                            address_crc_error: false,
-                            data_crc_error: current_crc_error,
+                            address_crc_error: ctx.address_crc_error,
+                            data_crc_error: ctx.data_crc_error,
                             deleted_mark: false,
                             missing_data: false,
                         };
 
-                        track.add_sector(&sd, current_alternate)?;
+                        track.add_sector(&sd, ctx.alternate)?;
                     } else {
                         log::error!("Tried to add sector without a current track.");
                         return Err(DiskImageError::FormatParseError);
                     }
                     sectors_per_track += 1;
-                    have_sector_context = false;
+                    ctx.reset();
                 }
                 PsiChunkType::Text => {
                     // PSI docs:
@@ -385,6 +427,30 @@ impl PsiFormat {
                     if let Ok(text) = std::str::from_utf8(&chunk.data) {
                         comment_string.push_str(text);
                     }
+                }
+                PsiChunkType::SectorPositionOffset => {
+                    let offset = u32::from_be_bytes([chunk.data[0], chunk.data[1], chunk.data[2], chunk.data[3]]);
+                    ctx.bit_offset = Some(offset);
+                    log::trace!("Sector position offset: {}", offset);
+                }
+                PsiChunkType::IbmMfmSectorHeader => {
+                    let ibm_header = PsiIbmSectorHeader::read(&mut Cursor::new(&chunk.data))?;
+
+                    if ctx.ibm_chsn.is_some() {
+                        log::warn!("Duplicate IBM sector header or context not reset");
+                    }
+
+                    ctx.ibm_chsn = Some(DiskChsn::from((
+                        ibm_header.cylinder as u16,
+                        ibm_header.head,
+                        ibm_header.sector,
+                        ibm_header.n,
+                    )));
+
+                    ctx.data_crc_error = ibm_header.flags & SH_IBM_FLAG_CRC_ERROR_DATA != 0;
+                    ctx.address_crc_error = ibm_header.flags & SH_IBM_FLAG_CRC_ERROR_ID != 0;
+                    ctx.deleted = ibm_header.flags & SH_IBM_DELETED_DATA != 0;
+                    ctx.no_dam = ibm_header.flags & SH_IBM_MISSING_DATA != 0;
                 }
                 PsiChunkType::End => {
                     log::trace!("End chunk.");

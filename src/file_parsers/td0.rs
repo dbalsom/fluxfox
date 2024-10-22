@@ -401,10 +401,12 @@ impl Td0Format {
 
                     // Add this sector to track.
                     let sd = SectorDescriptor {
-                        id: sector_header.sector_id,
-                        cylinder_id: Some(sector_header.cylinder as u16),
-                        head_id: Some(sector_header.head),
-                        n: DiskChsn::bytes_to_n(sector_data_vec.len()),
+                        id_chsn: DiskChsn::new(
+                            sector_header.cylinder as u16,
+                            sector_header.head,
+                            sector_header.sector_id,
+                            DiskChsn::bytes_to_n(sector_data_vec.len()),
+                        ),
                         data: sector_data_vec,
                         weak_mask: None,
                         hole_mask: None,
