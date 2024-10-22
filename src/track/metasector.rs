@@ -32,8 +32,7 @@
 use super::{Track, TrackConsistency, TrackInfo};
 
 use crate::diskimage::{
-    ReadSectorResult, ReadTrackResult, RwSectorScope, ScanSectorResult, SectorDescriptor, TrackSectorIndex,
-    WriteSectorResult,
+    ReadSectorResult, ReadTrackResult, RwSectorScope, ScanSectorResult, SectorDescriptor, WriteSectorResult,
 };
 
 use crate::structure_parsers::system34::System34Standard;
@@ -43,13 +42,126 @@ use crate::{DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskImage
 use sha1_smol::Digest;
 use std::any::Any;
 
+struct SectorMatch<'a> {
+    pub(crate) sectors: Vec<&'a MetaSector>,
+    pub(crate) sizes: Vec<u8>,
+    pub(crate) wrong_cylinder: bool,
+    pub(crate) bad_cylinder: bool,
+    pub(crate) wrong_head: bool,
+}
+
+impl SectorMatch<'_> {
+    fn len(&'_ self) -> usize {
+        self.sectors.len()
+    }
+    fn iter(&'_ self) -> std::slice::Iter<&MetaSector> {
+        self.sectors.iter()
+    }
+}
+
+struct SectorMatchMut<'a> {
+    pub(crate) sectors: Vec<&'a mut MetaSector>,
+    pub(crate) sizes: Vec<u8>,
+    pub(crate) wrong_cylinder: bool,
+    pub(crate) bad_cylinder: bool,
+    pub(crate) wrong_head: bool,
+}
+
+impl<'a> SectorMatchMut<'a> {
+    fn len(&'a self) -> usize {
+        self.sectors.len()
+    }
+    fn iter_mut(&'a mut self) -> std::slice::IterMut<&mut MetaSector> {
+        self.sectors.iter_mut()
+    }
+}
+
+#[derive(Default)]
+struct MetaMask {
+    has_bits: bool,
+    mask: Vec<u8>,
+}
+
+impl MetaMask {
+    fn empty(len: usize) -> MetaMask {
+        MetaMask {
+            has_bits: false,
+            mask: vec![0; len],
+        }
+    }
+    fn from(mask: &[u8]) -> MetaMask {
+        let mut m = MetaMask::default();
+        m.set_mask(mask);
+        m
+    }
+    fn set_mask(&mut self, mask: &[u8]) {
+        self.mask = mask.to_vec();
+        self.has_bits = mask.iter().any(|&x| x != 0);
+    }
+    fn or_mask(&mut self, source_mask: &MetaMask) {
+        for (i, &m) in source_mask.iter().enumerate() {
+            self.mask[i] |= m;
+        }
+        self.has_bits = self.mask.iter().any(|&x| x != 0);
+    }
+    fn or_slice(&mut self, source_mask: &[u8]) {
+        for (i, &m) in source_mask.iter().enumerate() {
+            self.mask[i] |= m;
+        }
+        self.has_bits = self.mask.iter().any(|&x| x != 0);
+    }
+    fn clear(&mut self) {
+        self.mask.fill(0);
+        self.has_bits = false;
+    }
+    fn mask(&self) -> &[u8] {
+        &self.mask
+    }
+    fn has_bits(&self) -> bool {
+        self.has_bits
+    }
+    fn iter(&self) -> std::slice::Iter<u8> {
+        self.mask.iter()
+    }
+    fn len(&self) -> usize {
+        self.mask.len()
+    }
+}
+
+pub(crate) struct MetaSector {
+    id_chsn: DiskChsn,
+    address_crc_error: bool,
+    data_crc_error: bool,
+    deleted_mark: bool,
+    missing_data: bool,
+    data: Vec<u8>,
+    weak_mask: MetaMask,
+    hole_mask: MetaMask,
+}
+
+impl MetaSector {
+    pub fn read_data(&self) -> Vec<u8> {
+        if self.missing_data {
+            return Vec::new();
+        }
+        let mut data = self.data.clone();
+        for (i, (weak_byte, hole_byte)) in self.weak_mask.iter().zip(self.hole_mask.iter()).enumerate() {
+            let mask_byte = weak_byte | hole_byte;
+            if mask_byte == 0 {
+                continue;
+            }
+            let rand_byte = rand::random::<u8>();
+            data[i] = data[i] & !mask_byte | rand_byte & mask_byte;
+        }
+        data
+    }
+}
+
 pub struct MetaSectorTrack {
+    pub(crate) ch: DiskCh,
     pub(crate) encoding: DiskDataEncoding,
     pub(crate) data_rate: DiskDataRate,
-    pub(crate) ch: DiskCh,
-    pub(crate) sectors: Vec<TrackSectorIndex>,
-    pub(crate) data: Vec<u8>,
-    pub(crate) weak_mask: Vec<u8>,
+    pub(crate) sectors: Vec<MetaSector>,
 }
 
 impl Track for MetaSectorTrack {
@@ -82,17 +194,21 @@ impl Track for MetaSectorTrack {
         self.sectors.len()
     }
 
-    fn has_sector_id(&self, id: u8, id_chsn: Option<DiskChsn>) -> bool {
-        for sector in &self.sectors {
-            if id_chsn.is_none() && sector.id_chsn.s() == id {
+    fn has_sector_id(&self, sid: u8, id_chsn: Option<DiskChsn>) -> bool {
+        if let Some(_) = &self.sectors.iter().find(|sector| {
+            if id_chsn.is_none() && sector.id_chsn.s() == sid {
                 return true;
             } else if let Some(chsn) = id_chsn {
                 if sector.id_chsn == chsn {
                     return true;
                 }
             }
+            false
+        }) {
+            true
+        } else {
+            false
         }
-        false
     }
 
     fn get_sector_list(&self) -> Vec<SectorMapEntry> {
@@ -108,13 +224,7 @@ impl Track for MetaSectorTrack {
             .collect()
     }
 
-    fn add_sector(&mut self, sd: &SectorDescriptor) -> Result<(), DiskImageError> {
-        // Create an empty weak bit mask if none is provided.
-        let weak_buf_vec = match &sd.weak {
-            Some(weak_buf) => weak_buf.to_vec(),
-            None => vec![0; sd.data.len()],
-        };
-
+    fn add_sector(&mut self, sd: &SectorDescriptor, alternate: bool) -> Result<(), DiskImageError> {
         let id_chsn = DiskChsn::from((
             sd.cylinder_id.unwrap_or(self.ch.c()),
             sd.head_id.unwrap_or(self.ch.h()),
@@ -122,17 +232,49 @@ impl Track for MetaSectorTrack {
             sd.n,
         ));
 
-        self.sectors.push(TrackSectorIndex {
+        // Create an empty weak bit mask if none is provided.
+        let weak_mask = match &sd.weak_mask {
+            Some(weak_buf) => MetaMask::from(weak_buf),
+            None => MetaMask::empty(sd.data.len()),
+        };
+
+        let hole_mask = match &sd.hole_mask {
+            Some(hole_buf) => MetaMask::from(hole_buf),
+            None => MetaMask::empty(sd.data.len()),
+        };
+
+        let new_sector = MetaSector {
             id_chsn,
-            t_idx: self.data.len(),
-            len: sd.data.len(),
             address_crc_error: sd.address_crc_error,
             data_crc_error: sd.data_crc_error,
             deleted_mark: sd.deleted_mark,
-        });
+            missing_data: sd.missing_data,
+            data: sd.data.clone(),
+            weak_mask,
+            hole_mask,
+        };
 
-        self.data.extend(&sd.data);
-        self.weak_mask.extend(weak_buf_vec);
+        if alternate {
+            // Look for existing sector.
+            let existing_sector = self.sectors.iter_mut().find(|s| s.id_chsn == id_chsn);
+
+            if let Some(es) = existing_sector {
+                // Update the existing sector.
+                let mut xor_vec: Vec<u8> = Vec::with_capacity(es.data.len());
+
+                // Calculate a bitmap representing the difference between the new sector data and the
+                // existing sector data.
+                for (i, (ns_byte, es_byte)) in new_sector.data.iter().zip(es.data.iter()).enumerate() {
+                    xor_vec[i] = ns_byte ^ es_byte;
+                }
+
+                // Update the weak bit mask for the existing sector and return.
+                es.weak_mask.or_slice(&xor_vec);
+                return Ok(());
+            }
+        }
+
+        self.sectors.push(new_sector);
 
         Ok(())
     }
@@ -150,132 +292,93 @@ impl Track for MetaSectorTrack {
         scope: RwSectorScope,
         debug: bool,
     ) -> Result<ReadSectorResult, DiskImageError> {
-        let data_idx;
-        let mut data_len;
-
-        let mut read_vec = Vec::new();
-
-        let mut data_crc_error = false;
-        let address_crc_error = false;
-        let mut deleted_mark = false;
-        let mut wrong_cylinder = false;
-        let mut bad_cylinder = false;
-        let mut wrong_head = false;
-
-        let mut id_chsn = None;
-
-        // No address mark for ByteStream data, so data starts immediately.
-        data_idx = 0;
-        data_len = 0;
-
         match scope {
             // Add 4 bytes for address mark and 2 bytes for CRC.
             RwSectorScope::DataBlock => unimplemented!("DataBlock scope not supported for ByteStream"),
             RwSectorScope::DataOnly => {}
         };
 
-        let mut last_idam_matched = false;
+        let sm = self.match_sectors(chs, n, debug);
 
-        for si in &self.sectors {
-            if si.id_chsn.s() == chs.s() {
-                log::trace!("read_sector(): Found sector_id: {} at t_idx: {}", si.id_chsn, si.t_idx);
-
-                let mut matched_n = false;
-                if n.is_none() || si.id_chsn.n() == n.unwrap() {
-                    matched_n = true;
-                }
-
-                if si.data_crc_error {
-                    data_crc_error = true;
-                }
-                if si.id_chsn.c() != chs.c() {
-                    wrong_cylinder = true;
-                }
-                let matched_c = !wrong_cylinder;
-                if si.id_chsn.c() == 0xFF {
-                    bad_cylinder = true;
-                }
-                if si.id_chsn.h() != chs.h() {
-                    wrong_head = true;
-                }
-                let matched_h = !wrong_head;
-                if si.deleted_mark {
-                    deleted_mark = true;
-                }
-
-                if debug || (matched_c && matched_h && matched_n) {
-                    last_idam_matched = true;
-                }
+        if sm.len() == 0 {
+            log::debug!("read_sector(): No sector found for chs: {} n: {:?}", chs, n);
+            Ok(ReadSectorResult {
+                id_chsn: None,
+                data_idx: 0,
+                data_len: 0,
+                read_buf: Vec::new(),
+                deleted_mark: false,
+                not_found: true,
+                no_dam: false,
+                address_crc_error: false,
+                data_crc_error: false,
+                wrong_cylinder: sm.wrong_cylinder,
+                bad_cylinder: sm.bad_cylinder,
+                wrong_head: sm.wrong_head,
+            })
+        } else {
+            if sm.len() > 1 {
+                log::warn!(
+                    "read_sector(): Found {} sector ids matching chs: {} (with {} different sizes). Using first.",
+                    sm.len(),
+                    chs,
+                    sm.sizes.len()
+                );
             }
+            let s = sm.sectors[0];
 
-            if last_idam_matched {
-                id_chsn = Some(si.id_chsn);
-                data_len = std::cmp::min(si.t_idx + si.len, self.data.len()) - si.t_idx;
-                read_vec.extend(self.data[si.t_idx..si.t_idx + data_len].to_vec());
-                break;
-            }
+            Ok(ReadSectorResult {
+                id_chsn: Some(s.id_chsn),
+                data_idx: 0,
+                data_len: s.data.len(),
+                read_buf: s.read_data(), // Calling read_data applies the weak bit and hole masks.
+                deleted_mark: s.deleted_mark,
+                not_found: false,
+                no_dam: false,
+                address_crc_error: s.address_crc_error,
+                data_crc_error: s.data_crc_error,
+                wrong_cylinder: sm.wrong_cylinder,
+                bad_cylinder: sm.bad_cylinder,
+                wrong_head: sm.wrong_head,
+            })
         }
-
-        Ok(ReadSectorResult {
-            id_chsn,
-            data_idx,
-            data_len,
-            read_buf: read_vec,
-            deleted_mark,
-            not_found: false,
-            no_dam: false,
-            address_crc_error,
-            data_crc_error,
-            wrong_cylinder,
-            bad_cylinder,
-            wrong_head,
-        })
     }
 
-    fn scan_sector(&self, chs: DiskChs, _n: Option<u8>) -> Result<ScanSectorResult, DiskImageError> {
-        let mut data_crc_error = false;
-        let mut address_crc_error = false;
-        let mut deleted_mark = false;
-        let mut wrong_cylinder = false;
-        let bad_cylinder = false;
-        let wrong_head = false;
+    fn scan_sector(&self, chs: DiskChs, n: Option<u8>) -> Result<ScanSectorResult, DiskImageError> {
+        let sm = self.match_sectors(chs, n, false);
 
-        for si in &self.sectors {
-            if si.id_chsn.s() == chs.s() {
-                log::trace!(
-                    "scan_sector(): Found sector_id: {} at t_idx: {}",
-                    si.id_chsn.s(),
-                    si.t_idx
-                );
+        if sm.len() == 0 {
+            log::debug!("scan_sector(): No sector found for chs: {} n: {:?}", chs, n);
+            Ok(ScanSectorResult {
+                not_found: true,
+                no_dam: false,
+                deleted_mark: false,
+                address_crc_error: false,
+                data_crc_error: false,
+                wrong_cylinder: sm.wrong_cylinder,
+                bad_cylinder: sm.bad_cylinder,
+                wrong_head: sm.wrong_head,
+            })
+        } else {
+            log::warn!(
+                "read_sector(): Found {} sector ids matching chs: {} (with {} different sizes). Using first.",
+                sm.len(),
+                chs,
+                sm.sizes.len()
+            );
+            let s = sm.sectors[0];
 
-                if si.address_crc_error {
-                    address_crc_error = true;
-                }
-
-                if si.data_crc_error {
-                    data_crc_error = true;
-                }
-
-                if si.id_chsn.c() != chs.c() {
-                    wrong_cylinder = true;
-                }
-
-                if si.deleted_mark {
-                    deleted_mark = true;
-                }
-            }
+            Ok(ScanSectorResult {
+                deleted_mark: s.deleted_mark,
+                not_found: false,
+                no_dam: false,
+                address_crc_error: s.address_crc_error,
+                data_crc_error: s.data_crc_error,
+                wrong_cylinder: sm.wrong_cylinder,
+                bad_cylinder: sm.bad_cylinder,
+                wrong_head: sm.wrong_head,
+            })
         }
-
-        Ok(ScanSectorResult {
-            deleted_mark,
-            not_found: false,
-            no_dam: false,
-            address_crc_error,
-            data_crc_error,
-            wrong_cylinder,
-            bad_cylinder,
-            wrong_head,
-        })
     }
 
     fn write_sector(
@@ -285,61 +388,65 @@ impl Track for MetaSectorTrack {
         write_data: &[u8],
         _scope: RwSectorScope,
         write_deleted: bool,
-        _debug: bool,
+        debug: bool,
     ) -> Result<WriteSectorResult, DiskImageError> {
-        let mut wrong_cylinder = false;
-        let bad_cylinder = false;
-        let mut wrong_head = false;
+        let mut sm = self.match_sectors_mut(chs, n, debug);
 
-        for si in &self.sectors {
-            let mut sector_match;
+        if sm.len() > 1 {
+            log::error!(
+                "write_sector(): Could not identify unique target sector. (Found {} sector ids matching chs: {} n: {:?})",
+                sm.len(),
+                chs,
+                n
+            );
+            return Err(DiskImageError::UniqueIdError);
+        } else if sm.len() == 0 {
+            log::debug!("write_sector(): No sector found for chs: {} n: {:?}", chs, n);
+            return Ok(WriteSectorResult {
+                not_found: false,
+                no_dam: false,
+                address_crc_error: false,
+                wrong_cylinder: sm.wrong_cylinder,
+                bad_cylinder: sm.bad_cylinder,
+                wrong_head: sm.wrong_head,
+            });
+        }
 
-            sector_match = si.id_chsn.s() == chs.s();
+        let write_data_len = write_data.len();
+        if DiskChsn::n_to_bytes(sm.sectors[0].id_chsn.n()) != write_data_len {
+            // Caller didn't provide correct buffer size.
+            log::error!(
+                "write_sector(): Data buffer size mismatch, expected: {} got: {}",
+                DiskChsn::n_to_bytes(sm.sectors[0].id_chsn.n()),
+                write_data_len
+            );
+            return Err(DiskImageError::ParameterError);
+        }
 
-            // Validate n too if provided.
-            if let Some(n) = n {
-                sector_match = sector_match && si.id_chsn.n() == n;
-            }
-
-            if sector_match {
-                // Validate provided data size.
-                let write_data_len = write_data.len();
-                if DiskChsn::n_to_bytes(si.id_chsn.n()) != write_data_len {
-                    // Caller didn't provide correct buffer size.
-                    log::error!(
-                        "write_sector(): Data buffer size mismatch, expected: {} got: {}",
-                        DiskChsn::n_to_bytes(si.id_chsn.n()),
-                        write_data_len
-                    );
-                    return Err(DiskImageError::ParameterError);
-                }
-
-                if si.id_chsn.c() != chs.c() {
-                    wrong_cylinder = true;
-                }
-
-                if si.id_chsn.h() != chs.h() {
-                    wrong_head = true;
-                }
-
-                self.data[si.t_idx..si.t_idx + write_data_len].copy_from_slice(write_data);
-                break;
-            }
+        if sm.sectors[0].missing_data || sm.sectors[0].address_crc_error {
+            log::debug!(
+                "write_sector(): Sector {} is unwritable due to no DAM or bad address CRC.",
+                sm.sectors[0].id_chsn
+            );
+        } else {
+            sm.sectors[0].data.copy_from_slice(write_data);
+            sm.sectors[0].deleted_mark = write_deleted;
         }
 
         Ok(WriteSectorResult {
             not_found: false,
-            no_dam: false,
-            address_crc_error: false,
-            wrong_cylinder,
-            bad_cylinder,
-            wrong_head,
+            no_dam: sm.sectors[0].missing_data,
+            address_crc_error: sm.sectors[0].address_crc_error,
+            wrong_cylinder: sm.wrong_cylinder,
+            bad_cylinder: sm.bad_cylinder,
+            wrong_head: sm.wrong_head,
         })
     }
 
-    fn get_hash(&self) -> Digest {
+    fn get_hash(&mut self) -> Digest {
         let mut hasher = sha1_smol::Sha1::new();
-        hasher.update(&self.data);
+        let rtr = self.read_all_sectors(self.ch, 0xFF, 0xFF).unwrap();
+        hasher.update(&rtr.read_buf);
         hasher.digest()
     }
 
@@ -349,10 +456,10 @@ impl Track for MetaSectorTrack {
     /// Unlike read_sectors, the data returned is only the actual sector data. The address marks and
     /// CRCs are not included in the data.
     /// This function is intended for use in implementing the Read Track FDC command.
-    fn read_all_sectors(&mut self, ch: DiskCh, n: u8, eot: u8) -> Result<ReadTrackResult, DiskImageError> {
-        let eot = eot as u16;
-        let mut track_read_vec = Vec::with_capacity(512 * 9);
+    fn read_all_sectors(&mut self, ch: DiskCh, n: u8, track_len: u8) -> Result<ReadTrackResult, DiskImageError> {
+        let track_len = track_len as u16;
         let sector_data_len = DiskChsn::n_to_bytes(n);
+        let mut track_read_vec = Vec::with_capacity(sector_data_len * self.sectors.len());
         let mut address_crc_error = false;
         let mut data_crc_error = false;
         let mut deleted_mark = false;
@@ -361,50 +468,35 @@ impl Track for MetaSectorTrack {
         let mut not_found = true;
         let mut sectors_read = 0;
 
-        for si in &self.sectors {
-            log::trace!(
-                "read_all_sectors_bytestream(): Found sector_id: {} at t_idx: {}",
-                si.id_chsn.s(),
-                si.t_idx
-            );
+        for s in &self.sectors {
+            log::trace!("read_all_sectors(): Found sector_id: {}", s.id_chsn,);
             not_found = false;
 
-            if sectors_read >= eot {
+            // TODO - do we stop after reading sector ID specified by EOT, or
+            //        or upon reaching it?
+            if sectors_read >= track_len {
                 log::trace!(
-                    "\
-                        read_all_sectors_bytestream(): Reached EOT at sector: {} \
-                        sectors_read: {}, eot: {}",
-                    si.id_chsn.s(),
+                    "read_all_sectors(): Reached track_len at sector: {} \
+                        sectors_read: {}, track_len: {}",
+                    s.id_chsn,
                     sectors_read,
-                    eot
+                    track_len
                 );
                 break;
             }
 
-            if si.t_idx < last_data_end {
-                log::trace!(
-                    "read_all_sectors_bytestream(): Skipping overlapped sector {} at t_idx: {}",
-                    si.id_chsn.s(),
-                    si.t_idx
-                );
-                continue;
-            }
-
+            track_read_vec.extend(&s.read_data());
             sectors_read = sectors_read.saturating_add(1);
 
-            let data_len = std::cmp::min(sector_data_len, self.data.len() - si.t_idx);
-            track_read_vec.extend(self.data[si.t_idx..si.t_idx + data_len].to_vec());
-            last_data_end = si.t_idx + data_len;
-
-            if si.address_crc_error {
+            if s.address_crc_error {
                 address_crc_error |= true;
             }
 
-            if si.data_crc_error {
+            if s.data_crc_error {
                 data_crc_error |= true;
             }
 
-            if si.deleted_mark {
+            if s.deleted_mark {
                 deleted_mark |= true;
             }
         }
@@ -452,7 +544,7 @@ impl Track for MetaSectorTrack {
     }
 
     fn has_weak_bits(&self) -> bool {
-        !self.weak_mask.is_empty() && self.weak_mask.iter().any(|&x| x != 0)
+        self.sectors.iter().map(|s| s.weak_mask.has_bits()).any(|x| x)
     }
 
     fn format(
@@ -500,5 +592,77 @@ impl Track for MetaSectorTrack {
 
         consistency.sector_ct = sector_ct;
         consistency
+    }
+}
+
+impl MetaSectorTrack {
+    fn match_sectors(&self, chs: DiskChs, n: Option<u8>, debug: bool) -> SectorMatch {
+        let mut wrong_cylinder = false;
+        let mut bad_cylinder = false;
+        let mut wrong_head = false;
+
+        let mut sizes = FoxHashSet::new();
+        let matching_sectors: Vec<&MetaSector> = self
+            .sectors
+            .iter()
+            .filter(|s| {
+                let matched_s = s.id_chsn.s() == chs.s();
+                if s.id_chsn.c() != chs.c() {
+                    wrong_cylinder = true;
+                }
+                if s.id_chsn.c() == 0xFF {
+                    bad_cylinder = true;
+                }
+                if s.id_chsn.h() != chs.h() {
+                    wrong_head = true;
+                }
+                sizes.insert(s.id_chsn.n());
+                (debug && matched_s)
+                    || ((DiskChs::from(s.id_chsn) == chs) && (n.is_none() || s.id_chsn.n() == n.unwrap()))
+            })
+            .collect();
+
+        SectorMatch {
+            sectors: matching_sectors,
+            sizes: sizes.iter().cloned().collect(),
+            wrong_cylinder,
+            bad_cylinder,
+            wrong_head,
+        }
+    }
+
+    fn match_sectors_mut(&mut self, chs: DiskChs, n: Option<u8>, debug: bool) -> SectorMatchMut {
+        let mut wrong_cylinder = false;
+        let mut bad_cylinder = false;
+        let mut wrong_head = false;
+
+        let mut sizes = FoxHashSet::new();
+        let matching_sectors: Vec<&mut MetaSector> = self
+            .sectors
+            .iter_mut()
+            .filter(|s| {
+                let matched_s = s.id_chsn.s() == chs.s();
+                if s.id_chsn.c() != chs.c() {
+                    wrong_cylinder = true;
+                }
+                if s.id_chsn.c() == 0xFF {
+                    bad_cylinder = true;
+                }
+                if s.id_chsn.h() != chs.h() {
+                    wrong_head = true;
+                }
+                sizes.insert(s.id_chsn.n());
+                (debug && matched_s)
+                    || ((DiskChs::from(s.id_chsn) == chs) && (n.is_none() || s.id_chsn.n() == n.unwrap()))
+            })
+            .collect();
+
+        SectorMatchMut {
+            sectors: matching_sectors,
+            sizes: sizes.iter().cloned().collect(),
+            wrong_cylinder,
+            bad_cylinder,
+            wrong_head,
+        }
     }
 }

@@ -111,6 +111,8 @@ pub enum DiskImageError {
     BitstreamError,
     #[error("The requested sector ID could not be found")]
     IdError,
+    #[error("The requested operation matched multiple sector IDs")]
+    UniqueIdError,
     #[error("No sectors were found on the current track")]
     DataError,
     #[error("A CRC error was detected in the disk image")]

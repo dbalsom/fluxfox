@@ -112,12 +112,15 @@ pub trait Track: Any {
     ///
     /// # Parameters
     /// - `sd`: A reference to a `SectorDescriptor` containing the sector data and metadata.
+    /// - `alternate`: A boolean flag indicating whether the sector is an alternate sector.
+    ///                Alternate sectors will calculate weak bit masks for the existing sector.
+    ///                If the existing sector does not exist, the alternate flag is ignored.
     ///
     /// # Returns
     /// - `Ok(())` if the sector was successfully mastered.
     /// - `Err(DiskImageError::SeekError)` if the head value in `chs` is greater than 1 or the track map does not contain the specified cylinder.
     /// - `Err(DiskImageError::UnsupportedFormat)` if the track data is not of `MetaSector` resolution.
-    fn add_sector(&mut self, sd: &SectorDescriptor) -> Result<(), DiskImageError>;
+    fn add_sector(&mut self, sd: &SectorDescriptor, alternate: bool) -> Result<(), DiskImageError>;
 
     /// Read the sector data from the sector identified by 'chs'. The data is returned within a
     /// ReadSectorResult struct which also sets some convenience metadata flags where are needed
@@ -145,7 +148,7 @@ pub trait Track: Any {
         debug: bool,
     ) -> Result<WriteSectorResult, DiskImageError>;
 
-    fn get_hash(&self) -> Digest;
+    fn get_hash(&mut self) -> Digest;
 
     /// Read all sectors from the track identified by 'ch'. The data is returned within a
     /// ReadSectorResult struct which also sets some convenience metadata flags which are needed
@@ -153,7 +156,7 @@ pub trait Track: Any {
     /// Unlike read_sectors, the data returned is only the actual sector data. The address marks and
     /// CRCs are not included in the data.
     /// This function is intended for use in implementing the Read Track FDC command.
-    fn read_all_sectors(&mut self, ch: DiskCh, n: u8, eot: u8) -> Result<ReadTrackResult, DiskImageError>;
+    fn read_all_sectors(&mut self, ch: DiskCh, n: u8, track_len: u8) -> Result<ReadTrackResult, DiskImageError>;
     fn get_next_id(&self, chs: DiskChs) -> Option<DiskChsn>;
     fn read_track(&mut self, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError>;
     fn has_weak_bits(&self) -> bool;

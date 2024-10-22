@@ -406,13 +406,15 @@ impl Td0Format {
                         head_id: Some(sector_header.head),
                         n: DiskChsn::bytes_to_n(sector_data_vec.len()),
                         data: sector_data_vec,
-                        weak: None,
+                        weak_mask: None,
+                        hole_mask: None,
                         address_crc_error: false,
                         data_crc_error: sector_header.flags & SECTOR_CRC_ERROR != 0,
                         deleted_mark: sector_header.flags & SECTOR_DELETED != 0,
+                        missing_data: false,
                     };
 
-                    new_track.add_sector(&sd)?;
+                    new_track.add_sector(&sd, false)?;
                 }
             }
 

@@ -128,7 +128,7 @@ impl Track for BitStreamTrack {
         sector_list
     }
 
-    fn add_sector(&mut self, _sd: &SectorDescriptor) -> Result<(), DiskImageError> {
+    fn add_sector(&mut self, _sd: &SectorDescriptor, _alternate: bool) -> Result<(), DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 
@@ -564,7 +564,7 @@ impl Track for BitStreamTrack {
         }
     }
 
-    fn get_hash(&self) -> Digest {
+    fn get_hash(&mut self) -> Digest {
         let mut hasher = sha1_smol::Sha1::new();
 
         hasher.update(&self.data.data());

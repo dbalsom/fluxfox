@@ -285,13 +285,15 @@ impl ImdFormat {
                             head_id: Some(head_map[s]),
                             n: sector_n,
                             data: data.data,
-                            weak: None,
+                            weak_mask: None,
+                            hole_mask: None,
                             address_crc_error: false,
                             data_crc_error: data.error,
                             deleted_mark: data.deleted,
+                            missing_data: false,
                         };
 
-                        new_track.add_sector(&sd)?;
+                        new_track.add_sector(&sd, false)?;
                     }
                     _ => {
                         return Err(DiskImageError::FormatParseError);

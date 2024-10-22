@@ -250,9 +250,14 @@ impl PsiFormat {
 
         let (default_encoding, disk_density) =
             decode_psi_sector_format(file_header.sector_format).ok_or(DiskImageError::FormatParseError)?;
+        let mut have_sector_context = false;
+
         let mut comment_string = String::new();
         let mut current_chs = DiskChs::default();
+        let mut current_ibm_chs = DiskChs::default();
+        let mut current_n = 2;
         let mut current_crc_error = false;
+        let mut current_alternate = false;
 
         let mut track_set: FoxHashSet<DiskCh> = FoxHashSet::new();
         let mut sector_counts: FoxHashMap<u8, u32> = FoxHashMap::new();
@@ -290,14 +295,17 @@ impl PsiFormat {
 
                     if sector_header.flags & SH_FLAG_ALTERNATE != 0 {
                         log::trace!("Alternate sector data.");
+                        current_alternate = true;
+                    } else {
+                        current_alternate = false;
                     }
 
+                    current_n = DiskChsn::bytes_to_n(sector_header.size as usize);
                     current_crc_error = sector_header.flags & SH_FLAG_CRC_ERROR != 0;
 
                     // Write sector data immediately if compressed data is indicated (no sector data chunk follows)
                     if sector_header.flags & SH_FLAG_COMPRESSED != 0 {
                         log::trace!("Compressed sector data: {:02X}", sector_header.compressed_data);
-
                         let chunk_expand = vec![sector_header.compressed_data; sector_header.size as usize];
 
                         if let Some(ref mut track) = current_track {
@@ -306,15 +314,17 @@ impl PsiFormat {
                                 id: chs.s(),
                                 cylinder_id: None,
                                 head_id: None,
-                                n: DiskChsn::bytes_to_n(chunk_expand.len()),
+                                n: current_n,
                                 data: chunk_expand,
-                                weak: None,
+                                weak_mask: None,
+                                hole_mask: None,
                                 address_crc_error: false,
                                 data_crc_error: current_crc_error,
                                 deleted_mark: false,
+                                missing_data: false,
                             };
 
-                            track.add_sector(&sd)?;
+                            track.add_sector(&sd, current_alternate)?;
                         } else {
                             log::error!("Tried to add sector without a current track.");
                             return Err(DiskImageError::FormatParseError);
@@ -323,14 +333,27 @@ impl PsiFormat {
 
                     current_chs = chs;
                     log::trace!(
-                        "Sector CHS: {} size: {} crc_error: {}",
-                        chs,
+                        "Sector ID: {} size: {} crc_error: {}",
+                        DiskChsn::from((chs, current_n)),
                         sector_header.size,
                         current_crc_error
                     );
+
+                    // We have a sector context now. This state will be cleared by the next
+                    // SectorData chunk, which will require a new SectorHeader chunk to be read.
+                    have_sector_context = true;
                 }
                 PsiChunkType::SectorData => {
+                    if !have_sector_context {
+                        log::error!("Sector data chunk without a preceding sector header.");
+                        return Err(DiskImageError::FormatParseError);
+                    }
+
                     log::trace!("Sector data chunk: {} crc_error: {}", current_chs, current_crc_error);
+
+                    if current_n != DiskChsn::bytes_to_n(chunk.data.len()) {
+                        log::warn!("Sector data size mismatch.");
+                    }
 
                     if let Some(ref mut track) = current_track {
                         // Add this sector to track.
@@ -340,18 +363,21 @@ impl PsiFormat {
                             head_id: None,
                             n: DiskChsn::bytes_to_n(chunk.data.len()),
                             data: chunk.data,
-                            weak: None,
+                            weak_mask: None,
+                            hole_mask: None,
                             address_crc_error: false,
                             data_crc_error: current_crc_error,
                             deleted_mark: false,
+                            missing_data: false,
                         };
 
-                        track.add_sector(&sd)?;
+                        track.add_sector(&sd, current_alternate)?;
                     } else {
                         log::error!("Tried to add sector without a current track.");
                         return Err(DiskImageError::FormatParseError);
                     }
                     sectors_per_track += 1;
+                    have_sector_context = false;
                 }
                 PsiChunkType::Text => {
                     // PSI docs:

@@ -169,10 +169,12 @@ pub struct SectorDescriptor {
     pub head_id: Option<u8>,
     pub n: u8,
     pub data: Vec<u8>,
-    pub weak: Option<Vec<u8>>,
+    pub weak_mask: Option<Vec<u8>>,
+    pub hole_mask: Option<Vec<u8>>,
     pub address_crc_error: bool,
     pub data_crc_error: bool,
     pub deleted_mark: bool,
+    pub missing_data: bool,
 }
 
 #[derive(Copy, Clone, Debug, Default)]
@@ -643,14 +645,11 @@ impl DiskImage {
             _ => return Err(DiskImageError::IncompatibleImage),
         }
 
-        //self.tracks[ch.h() as usize].push(DiskTrack {
         self.track_pool.push(Box::new(MetaSectorTrack {
+            ch,
             encoding,
             data_rate,
-            ch,
             sectors: Vec::new(),
-            data: Vec::new(),
-            weak_mask: Vec::new(),
         }));
 
         self.track_map[ch.h() as usize].push(self.track_pool.len() - 1);
@@ -954,7 +953,6 @@ impl DiskImage {
             return Err(DiskImageError::SeekError);
         }
 
-        let bitcell_bytes = (bitcells + 7) / 8;
         let new_track_index;
 
         match self.resolution {
@@ -993,8 +991,6 @@ impl DiskImage {
                     data_rate,
                     ch,
                     sectors: Vec::new(),
-                    data: vec![0; bitcell_bytes],
-                    weak_mask: Vec::new(),
                 }));
 
                 new_track_index = self.track_pool.len() - 1;
