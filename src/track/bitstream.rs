@@ -577,7 +577,7 @@ impl Track for BitStreamTrack {
     /// Unlike read_sectors, the data returned is only the actual sector data. The address marks and
     /// CRCs are not included in the data.
     /// This function is intended for use in implementing the Read Track FDC command.
-    fn read_all_sectors(&mut self, ch: DiskCh, n: u8, eot: u8) -> Result<ReadTrackResult, DiskImageError> {
+    fn read_all_sectors(&mut self, _ch: DiskCh, n: u8, eot: u8) -> Result<ReadTrackResult, DiskImageError> {
         let mut track_read_vec = Vec::with_capacity(512 * 9);
         let sector_data_len = DiskChsn::n_to_bytes(n);
         let mut sector_read_vec = vec![0u8; sector_data_len];

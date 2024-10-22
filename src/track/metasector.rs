@@ -98,6 +98,7 @@ impl MetaMask {
         self.mask = mask.to_vec();
         self.has_bits = mask.iter().any(|&x| x != 0);
     }
+    #[allow(dead_code)]
     fn or_mask(&mut self, source_mask: &MetaMask) {
         for (i, &m) in source_mask.iter().enumerate() {
             self.mask[i] |= m;
@@ -449,14 +450,13 @@ impl Track for MetaSectorTrack {
     /// Unlike read_sectors, the data returned is only the actual sector data. The address marks and
     /// CRCs are not included in the data.
     /// This function is intended for use in implementing the Read Track FDC command.
-    fn read_all_sectors(&mut self, ch: DiskCh, n: u8, track_len: u8) -> Result<ReadTrackResult, DiskImageError> {
+    fn read_all_sectors(&mut self, _ch: DiskCh, n: u8, track_len: u8) -> Result<ReadTrackResult, DiskImageError> {
         let track_len = track_len as u16;
         let sector_data_len = DiskChsn::n_to_bytes(n);
         let mut track_read_vec = Vec::with_capacity(sector_data_len * self.sectors.len());
         let mut address_crc_error = false;
         let mut data_crc_error = false;
         let mut deleted_mark = false;
-        let mut last_data_end = 0;
 
         let mut not_found = true;
         let mut sectors_read = 0;

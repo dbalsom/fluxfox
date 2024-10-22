@@ -61,9 +61,7 @@ pub const SH_IBM_MISSING_DATA: u8 = 0b1000;
 pub struct SectorContext {
     phys_chs: Option<DiskChs>,
     phys_size: usize,
-    data_len: usize,
     ibm_chsn: Option<DiskChsn>,
-    n: u8,
     data_crc_error: bool,
     address_crc_error: bool,
     deleted: bool,
@@ -81,6 +79,7 @@ impl SectorContext {
         *self = SectorContext::default();
     }
 
+    #[allow(dead_code)]
     fn phys_ch(&self) -> DiskCh {
         DiskCh::from(self.phys_chs.unwrap())
     }

@@ -124,9 +124,9 @@ impl ImdFormat {
         let mut detected = false;
         _ = image.seek(std::io::SeekFrom::Start(0));
 
-        log::debug!("Detecting IMD header...");
+        //log::debug!("Detecting IMD header...");
         if let (Some(header_str), _) = read_ascii(&mut image, Some(ASCII_EOF), None) {
-            log::debug!("Detected header: {}", &header_str);
+            //log::debug!("Detected header: {}", &header_str);
             if let Some(_caps) = Regex::new(IMD_HEADER_REX).unwrap().captures(&header_str) {
                 detected = true;
             }

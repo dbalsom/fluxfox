@@ -44,13 +44,15 @@ use crate::{DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, FoxHashSet, Loa
 use crate::{DiskChsn, DiskImage, DiskImageError, DiskImageFormat};
 use binrw::{binrw, BinRead};
 
-pub const SECTOR_DUPLICATED: u8 = 0b0000_0001;
+//pub const SECTOR_DUPLICATED: u8 = 0b0000_0001;
 pub const SECTOR_CRC_ERROR: u8 = 0b0000_0010;
 pub const SECTOR_DELETED: u8 = 0b0000_0100;
 
 pub const SECTOR_SKIPPED: u8 = 0b0001_0000;
 pub const SECTOR_NO_DAM: u8 = 0b0010_0000;
-pub const SECTOR_NO_IDAM: u8 = 0b0100_0000;
+
+// When would we see this set? How would a sector with no IDAM even be seen?
+//pub const SECTOR_NO_IDAM: u8 = 0b0100_0000;
 
 #[derive(Debug)]
 #[binrw]

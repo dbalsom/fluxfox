@@ -63,6 +63,7 @@ pub enum TrackSectorScanResult {
         bad_cylinder: bool,
         wrong_head: bool,
     },
+    #[allow(dead_code)] // use this someday (wrong track encoding?)
     Incompatible,
 }
 
