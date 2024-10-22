@@ -31,16 +31,18 @@
     could be added in the future.
 
 */
-use crate::DiskImageFormat;
+use crate::{DiskCh, DiskImageFormat};
 use std::fmt::{Display, Formatter, Result};
+use std::path::PathBuf;
 
 #[cfg(feature = "zip")]
 pub mod zip;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub enum DiskImageContainer {
     Raw(DiskImageFormat),
     Zip(DiskImageFormat),
+    ZippedKryofluxSet(Vec<PathBuf>, DiskCh),
     KryofluxSet,
 }
 
@@ -49,6 +51,7 @@ impl Display for DiskImageContainer {
         match self {
             DiskImageContainer::Raw(fmt) => write!(f, "{:?}", fmt),
             DiskImageContainer::Zip(fmt) => write!(f, "Zipped {:?}", fmt),
+            DiskImageContainer::ZippedKryofluxSet(_, _) => write!(f, "Zipped Kryoflux Image Set"),
             DiskImageContainer::KryofluxSet => write!(f, "Kryoflux Image Set"),
         }
     }

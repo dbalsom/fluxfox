@@ -32,7 +32,7 @@ use crate::bitstream::fm::FmCodec;
 use crate::bitstream::TrackDataStream;
 use crate::boot_sector::BootSector;
 use crate::chs::{DiskCh, DiskChs, DiskChsn};
-use crate::containers::zip::extract_first_file;
+use crate::containers::zip::{extract_file, extract_first_file};
 use crate::containers::DiskImageContainer;
 use crate::detect::detect_image_format;
 use crate::file_parsers::kryoflux::KfxFormat;
@@ -493,6 +493,35 @@ impl DiskImage {
                 #[cfg(not(feature = "zip"))]
                 {
                     Err(DiskImageError::UnknownFormat);
+                }
+            }
+            DiskImageContainer::ZippedKryofluxSet(file_set, set_ch) => {
+                #[cfg(feature = "zip")]
+                {
+                    // Create an empty image. We will loop through all the files in the set and
+                    // append tracks to them as we go.
+                    let mut build_image = DiskImage::default();
+                    build_image.descriptor.geometry = set_ch;
+
+                    for (fi, file_path) in file_set.iter().enumerate() {
+                        let mut file_vec = extract_file(image_io, &file_path.clone())?;
+                        let mut cursor = Cursor::new(&mut file_vec);
+                        log::debug!("load(): Loading Kryoflux stream file from zip: {:?}", file_path);
+
+                        // We won't give the callback to the kryoflux loader - instead we will call it here ourselves
+                        // updating percentage complete as a fraction of files loaded.
+                        build_image = KfxFormat::load_image(&mut cursor, Some(build_image), None)?;
+
+                        if let Some(ref callback_fn) = callback {
+                            let completion = (fi + 1) as f64 / file_set.len() as f64;
+                            callback_fn(LoadingStatus::Progress(completion));
+                        }
+                    }
+
+                    if let Some(callback_fn) = callback {
+                        callback_fn(LoadingStatus::Complete);
+                    }
+                    Ok(build_image)
                 }
             }
             DiskImageContainer::KryofluxSet => {

@@ -54,7 +54,6 @@ mod file_parsers;
 pub mod image_builder;
 mod io;
 mod random;
-mod sector;
 pub mod standard_format;
 pub mod structure_parsers;
 pub mod util;

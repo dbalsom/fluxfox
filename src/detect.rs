@@ -25,12 +25,14 @@
     --------------------------------------------------------------------------
 */
 use crate::chs::DiskChs;
-use crate::containers::zip::{detect_zip, extract_first_file};
+use crate::containers::zip;
 use crate::containers::DiskImageContainer;
-use crate::file_parsers::{ImageParser, IMAGE_FORMATS};
+use crate::file_parsers::{kryoflux::KfxFormat, ImageParser, IMAGE_FORMATS};
+
 use crate::io::ReadSeek;
 use crate::standard_format::StandardFormat;
 use crate::{DiskImageError, DiskImageFormat};
+use std::path::PathBuf;
 
 /// Attempt to detect the format of a disk image. If the format cannot be determined, UnknownFormat is returned.
 pub fn detect_image_format<T: ReadSeek>(image_io: &mut T) -> Result<DiskImageContainer, DiskImageError> {
@@ -46,30 +48,64 @@ pub fn detect_image_format<T: ReadSeek>(image_io: &mut T) -> Result<DiskImageCon
     // one file. You could override loading by adding a second dummy file.
 
     // The exception to this are Kryoflux images which span multiple files, but these  are easily
-    // differentiated due to their large size and regular naming conventions. When/if support is
-    // added for Kryoflux, Kryoflux images will be treated as zip files themselves, instead of
-    // containers to be examined.
+    // differentiated due to their large size and regular naming conventions.
+
+    // The smallest kryoflux set I have seen is of a 160K disk, 5_741_334 bytes uncompressed.
+    // Therefore, I assume a cutoff point of 5MB for Kryoflux sets.
     #[cfg(feature = "zip")]
     {
         // First of all, is the input file a zip?
-        let (is_zip, file_ct) = detect_zip(image_io);
+        let (is_zip, file_ct, total_size) = zip::detect_zip(image_io);
 
         // If it is a zip, we need to check if it contains a supported image format
-        if is_zip && file_ct == 1 {
-            let file_buf = match extract_first_file(image_io) {
-                Ok(buf) => buf,
-                Err(e) => return Err(e),
-            };
+        if is_zip & (file_ct > 0) {
+            log::debug!("ZIP file detected with {} files, total size: {}", file_ct, total_size);
+            if file_ct == 1 {
+                let file_buf = match zip::extract_first_file(image_io) {
+                    Ok(buf) => buf,
+                    Err(e) => return Err(e),
+                };
 
-            // Wrap buffer in Cursor, and send it through all the format detectors.
-            let mut file_io = std::io::Cursor::new(file_buf);
-            for format in IMAGE_FORMATS.iter() {
-                if format.detect(&mut file_io) {
-                    return Ok(DiskImageContainer::Zip(*format));
+                // Wrap buffer in Cursor, and send it through all the format detectors.
+                let mut file_io = std::io::Cursor::new(file_buf);
+                for format in IMAGE_FORMATS.iter() {
+                    if format.detect(&mut file_io) {
+                        return Ok(DiskImageContainer::Zip(*format));
+                    }
+                }
+
+                return Err(DiskImageError::UnknownFormat);
+            } else if total_size > 5_000_000 {
+                // Multiple files in the zip, of at least 5MB
+                // Get the file listing
+
+                let zip_listing = zip::file_listing(image_io)?;
+                let path_vec: Vec<PathBuf> = zip_listing
+                    .files
+                    .iter()
+                    .map(|entry| PathBuf::from(&entry.name))
+                    .collect();
+
+                // Get the first file in the listing with a 'raw' extension
+                let first_raw = path_vec
+                    .iter()
+                    .find(|&path| path.extension().unwrap_or_default() == "raw");
+
+                if let Some(raw_path) = first_raw {
+                    log::debug!("Found .raw file in zip: {:?}", raw_path);
+                    let kryo_set = KfxFormat::expand_kryoflux_set(raw_path.clone(), Some(path_vec))?;
+                    log::debug!(
+                        "Expanded to kryoflux set of {} files, geometry: {}",
+                        kryo_set.0.len(),
+                        kryo_set.1
+                    );
+
+                    // We could assume we need at least 40 files to be a kryoflux set
+                    if kryo_set.0.len() > 39 {
+                        return Ok(DiskImageContainer::ZippedKryofluxSet(kryo_set.0, kryo_set.1));
+                    }
                 }
             }
-
-            return Err(DiskImageError::UnknownFormat);
         }
     }
 
