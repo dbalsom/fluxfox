@@ -43,6 +43,7 @@
 //! a disk image file, or by creating a new disk image from scratch.
 //!
 //! It is recommended to use the [`image_builder::ImageBuilder`] interface to load or create a disk image.
+mod bit_ring;
 pub mod bitstream;
 mod boot_sector;
 mod chs;
@@ -56,12 +57,12 @@ mod random;
 mod sector;
 pub mod standard_format;
 pub mod structure_parsers;
-mod trackdata;
 pub mod util;
 
 mod copy_protection;
 mod fluxstream;
 mod image_writer;
+mod track;
 #[cfg(feature = "viz")]
 pub mod visualization;
 
@@ -110,6 +111,8 @@ pub enum DiskImageError {
     BitstreamError,
     #[error("The requested sector ID could not be found")]
     IdError,
+    #[error("The requested operation matched multiple sector IDs")]
+    UniqueIdError,
     #[error("No sectors were found on the current track")]
     DataError,
     #[error("A CRC error was detected in the disk image")]
@@ -379,6 +382,6 @@ pub use crate::file_parsers::{format_from_ext, supported_extensions, ImageParser
 pub use crate::image_builder::ImageBuilder;
 pub use crate::image_writer::ImageWriter;
 pub use crate::standard_format::StandardFormat;
-pub use crate::trackdata::TrackConsistency;
+pub use crate::track::TrackConsistency;
 
 pub type DiskSectorMap = Vec<Vec<Vec<SectorMapEntry>>>;

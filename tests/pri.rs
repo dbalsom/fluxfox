@@ -1,7 +1,6 @@
 mod common;
 
-use fluxfox::{DiskCh, DiskImage, DiskImageFormat, ImageParser};
-use log::*;
+use fluxfox::{DiskImage, DiskImageFormat, ImageParser};
 
 fn init() {
     let _ = env_logger::builder().is_test(true).try_init();

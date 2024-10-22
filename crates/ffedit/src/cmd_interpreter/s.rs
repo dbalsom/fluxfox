@@ -48,7 +48,7 @@ impl Command for SectorCommand {
                     ))
                     .ok_or("Invalid track")?;
 
-                if !track.has_sector_id(new_sector) {
+                if !track.has_sector_id(new_sector, None) {
                     return Err(format!("Invalid sector number: {}", new_sector));
                 }
             }

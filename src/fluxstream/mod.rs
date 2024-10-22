@@ -50,6 +50,7 @@ impl Display for FluxTransition {
 }
 
 impl FluxTransition {
+    #[allow(dead_code)]
     pub fn to_bits(&self) -> &[bool] {
         match self {
             FluxTransition::Short => &[true, false],

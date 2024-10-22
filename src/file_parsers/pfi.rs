@@ -41,8 +41,8 @@ use crate::file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility}
 use crate::io::{Cursor, ReadSeek, ReadWriteSeek};
 
 use crate::{
-    DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat,
-    FoxHashSet, LoadingCallback, DEFAULT_SECTOR_SIZE,
+    DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat, FoxHashSet,
+    LoadingCallback, DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, BinRead};
 
@@ -163,7 +163,7 @@ impl PfiFormat {
     }
 
     /// Return the compatibility of the image with the parser.
-    pub(crate) fn can_write(image: &DiskImage) -> ParserWriteCompatibility {
+    pub(crate) fn can_write(_image: &DiskImage) -> ParserWriteCompatibility {
         ParserWriteCompatibility::UnsupportedFormat
     }
 
@@ -221,7 +221,7 @@ impl PfiFormat {
 
     pub(crate) fn load_image<RWS: ReadSeek>(
         mut image: RWS,
-        callback: Option<LoadingCallback>,
+        _callback: Option<LoadingCallback>,
     ) -> Result<DiskImage, DiskImageError> {
         let mut disk_image = DiskImage::default();
         disk_image.set_source_format(DiskImageFormat::PceBitstreamImage);
@@ -248,7 +248,7 @@ impl PfiFormat {
 
         let mut disk_clock_rate = None;
         let mut current_track_clock = 0;
-        let mut track_header = PfiTrackHeader::default();
+        let mut track_header;
 
         let mut index_list: Vec<u32> = Vec::new();
 
@@ -339,7 +339,7 @@ impl PfiFormat {
         Ok(disk_image)
     }
 
-    pub fn save_image<RWS: ReadWriteSeek>(image: &DiskImage, output: &mut RWS) -> Result<(), DiskImageError> {
+    pub fn save_image<RWS: ReadWriteSeek>(_image: &DiskImage, _output: &mut RWS) -> Result<(), DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 }

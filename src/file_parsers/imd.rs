@@ -24,7 +24,7 @@
 
     --------------------------------------------------------------------------
 */
-use crate::chs::{DiskCh, DiskChs, DiskChsn};
+use crate::chs::{DiskCh, DiskChsn};
 use crate::diskimage::{DiskDescriptor, SectorDescriptor};
 use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
@@ -251,7 +251,7 @@ impl ImdFormat {
             }
 
             log::trace!("Adding track: C: {} H: {}", track_header.c, track_header.h);
-            disk_image.add_track_bytestream(
+            let new_track = disk_image.add_track_bytestream(
                 data_encoding,
                 data_rate,
                 DiskCh::from((track_header.c() as u16, track_header.h())),
@@ -280,21 +280,17 @@ impl ImdFormat {
 
                         // Add this sector to track.
                         let sd = SectorDescriptor {
-                            id: sector_numbers[s],
-                            cylinder_id: Some(cylinder_map[s] as u16),
-                            head_id: Some(head_map[s]),
-                            n: sector_n,
+                            id_chsn: DiskChsn::new(cylinder_map[s] as u16, head_map[s], sector_numbers[s], sector_n),
                             data: data.data,
-                            weak: None,
+                            weak_mask: None,
+                            hole_mask: None,
                             address_crc_error: false,
                             data_crc_error: data.error,
                             deleted_mark: data.deleted,
+                            missing_data: false,
                         };
 
-                        disk_image.master_sector(
-                            DiskChs::from((track_header.c() as u16, track_header.h(), sector_numbers[s])),
-                            &sd,
-                        )?;
+                        new_track.add_sector(&sd, false)?;
                     }
                     _ => {
                         return Err(DiskImageError::FormatParseError);
@@ -302,7 +298,7 @@ impl ImdFormat {
                 }
             }
 
-            header_offset = image.stream_position().unwrap();
+            header_offset = image.stream_position()?;
 
             if track_header.sector_ct == 0 {
                 continue;

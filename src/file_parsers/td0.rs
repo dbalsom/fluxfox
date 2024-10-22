@@ -40,7 +40,7 @@ use crate::diskimage::{DiskDescriptor, SectorDescriptor};
 use crate::file_parsers::compression::lzhuf::{expand, TD0_READ_OPTIONS};
 use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{Cursor, Read, ReadBytesExt, ReadSeek, ReadWriteSeek, Seek};
-use crate::{DiskCh, DiskChs, DiskDataEncoding, DiskDataRate, DiskDensity, FoxHashSet, LoadingCallback};
+use crate::{DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, FoxHashSet, LoadingCallback};
 use crate::{DiskChsn, DiskImage, DiskImageError, DiskImageFormat};
 use binrw::{binrw, BinRead};
 
@@ -326,7 +326,7 @@ impl Td0Format {
             }
 
             log::trace!("Adding track: c:{} h:{}...", track_header.cylinder, track_header.head);
-            disk_image.add_track_bytestream(
+            let new_track = disk_image.add_track_bytestream(
                 DiskDataEncoding::Mfm,
                 disk_data_rate,
                 DiskCh::from((track_header.cylinder as u16, track_header.head)),
@@ -401,25 +401,22 @@ impl Td0Format {
 
                     // Add this sector to track.
                     let sd = SectorDescriptor {
-                        id: sector_header.sector_id,
-                        cylinder_id: Some(sector_header.cylinder as u16),
-                        head_id: Some(sector_header.head),
-                        n: DiskChsn::bytes_to_n(sector_data_vec.len()),
-                        data: sector_data_vec,
-                        weak: None,
-                        address_crc_error: false,
-                        data_crc_error: sector_header.flags & SECTOR_CRC_ERROR != 0,
-                        deleted_mark: sector_header.flags & SECTOR_DELETED != 0,
-                    };
-
-                    disk_image.master_sector(
-                        DiskChs::from((
+                        id_chsn: DiskChsn::new(
                             sector_header.cylinder as u16,
                             sector_header.head,
                             sector_header.sector_id,
-                        )),
-                        &sd,
-                    )?;
+                            DiskChsn::bytes_to_n(sector_data_vec.len()),
+                        ),
+                        data: sector_data_vec,
+                        weak_mask: None,
+                        hole_mask: None,
+                        address_crc_error: false,
+                        data_crc_error: sector_header.flags & SECTOR_CRC_ERROR != 0,
+                        deleted_mark: sector_header.flags & SECTOR_DELETED != 0,
+                        missing_data: false,
+                    };
+
+                    new_track.add_sector(&sd, false)?;
                 }
             }
 

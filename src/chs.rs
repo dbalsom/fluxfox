@@ -51,7 +51,7 @@ impl From<(DiskChs, u8)> for DiskChsn {
 
 impl Display for DiskChsn {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[c:{} h:{} s:{} n:{}]", self.c(), self.h(), self.s(), self.n)
+        write!(f, "[c:{:2} h:{} s:{:3} n:{}]", self.c(), self.h(), self.s(), self.n)
     }
 }
 
@@ -139,6 +139,10 @@ impl DiskChsn {
     pub(crate) fn seek_forward(&mut self, sectors: u32, geom: &DiskChs) -> &mut Self {
         self.chs.seek_forward(sectors, geom);
         self
+    }
+
+    pub(crate) fn ch(&self) -> DiskCh {
+        DiskCh::new(self.c(), self.h())
     }
 }
 

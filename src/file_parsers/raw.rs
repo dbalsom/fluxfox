@@ -70,7 +70,7 @@ impl RawFormat {
 
     pub(crate) fn load_image<RWS: ReadSeek>(
         mut raw: RWS,
-        callback: Option<LoadingCallback>,
+        _callback: Option<LoadingCallback>,
     ) -> Result<DiskImage, DiskImageError> {
         let mut disk_image = DiskImage::default();
         disk_image.set_source_format(DiskImageFormat::RawSectorImage);
@@ -93,8 +93,6 @@ impl RawFormat {
         let bitcell_ct = floppy_format.get_bitcell_ct();
         let rpm = floppy_format.get_rpm();
         let gap3 = floppy_format.get_gap3();
-
-        let cursor_chs = DiskChs::default();
 
         raw.seek(std::io::SeekFrom::Start(0))?;
 

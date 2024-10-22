@@ -122,7 +122,6 @@ pub struct EofBlock {
 }
 
 pub struct KfxFormat {
-    mck: f64,
     sck: f64,
     ick: f64,
     last_index_counter: Option<u32>,
@@ -134,7 +133,6 @@ pub struct KfxFormat {
 impl Default for KfxFormat {
     fn default() -> Self {
         KfxFormat {
-            mck: KFX_DEFAULT_MCK,
             sck: KFX_DEFAULT_SCK,
             ick: KFX_DEFAULT_ICK,
             last_index_counter: None,
@@ -308,7 +306,6 @@ impl KfxFormat {
                 DiskDataEncoding::Mfm,
                 data_rate,
                 next_ch,
-                DiskDataRate::from(rev_density).into(),
                 Some(track_bits),
                 &track_data,
                 None,
@@ -376,7 +373,7 @@ impl KfxFormat {
                     OobBlock::Index => {
                         let ib = IndexBlock::read(image)?;
 
-                        let index_time = ib.index_counter as f64 / self.ick;
+                        //let index_time = ib.index_counter as f64 / self.ick;
 
                         if let Some(last_index_counter) = self.last_index_counter {
                             let index_delta = ib.index_counter.wrapping_sub(last_index_counter);
@@ -693,6 +690,7 @@ fn kfx_parse_str(s: &str) -> (Option<f64>, Option<f64>) {
     }
 }
 
+#[allow(dead_code)]
 fn kfx_transition_ct_to_bitrate(count: usize) -> Option<DiskDataRate> {
     match count {
         35000..=60000 => Some(DiskDataRate::Rate250Kbps),
@@ -702,6 +700,7 @@ fn kfx_transition_ct_to_bitrate(count: usize) -> Option<DiskDataRate> {
     }
 }
 
+#[allow(dead_code)]
 fn print_transitions(transitions: Vec<FluxTransition>) {
     for t in transitions {
         print!("{}", t);
