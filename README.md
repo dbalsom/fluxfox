@@ -14,9 +14,13 @@ stable state.**
 
 * fluxfox is intended to serve the needs of a PC emulator that wishes to read various disk image formats.
   It provides an interface by which an emulator can load a disk image, then perform operations on the disk image
-  consistent with typical operations supported by a floppy disk controller such as the NEC μPD765A.
-* fluxfox is not intended to be a general purpose disk image conversion library. There are other tools, (libdisk,
-  SAMdisk, HxC, pri/pfi/psi) which are more appropriate for that purpose.
+  consistent with typical operations supported by a common PC floppy disk controller such as the NEC μPD765A.
+
+### Non-Goals
+
+* fluxfox is not intended to be a general purpose disk image conversion library, although it can write to a few
+  supported formats.
+  There are other tools, (libdisk, SAMdisk, Applesauce, HxC, pri/pfi/psi) which are more appropriate for that purpose.
 
 ## Disk Image Support
 
@@ -27,11 +31,7 @@ IBM PC platform.
 
 At least partial support for the following disk images is under development:
 
-### Sector-Based Disk Images
-
-Sector-based images encode byte data for each sector, typically with metadata about the sector's id markers and
-data CRC status. These images can support many copy-protected titles, but may fail to encode more advanced protections,
-sometimes produce impossible track encodings, and are not ideal for archival purposes or research.
+### Raw Sector Images
 
 * **Raw Sector Image** (IMG, IMA, DSK, etc.)
     * Raw sector images are ubiquitous, easily the most common type of disk image used with PC emulators. These files
@@ -39,9 +39,16 @@ sometimes produce impossible track encodings, and are not ideal for archival pur
       layout of the disk can generally be determined by the file size.
     * The obvious limitation of this format is that any non-standard disk layout cannot be represented. However, these
       images are very convenient and simple if working with non-copy-protected images.
-* **ImageDisk** (IMD)
-    * ImageDisk is a format developed by Dave Dunfield as an open alternative to TeleDisk format images, although it
-      has some limitations.
+    * Fluxfox converts raw sector images into Bitstream images on load.
+
+### Sector-based Disk Images
+
+Sector-based images encode byte data for each sector, typically with metadata about the sector's id markers and CRC
+status.
+These images can support many copy-protected titles, but may fail to encode more advanced protections, sometimes produce
+impossible track encodings, and are not ideal for archival purposes or research. Due to limitations of these formats,
+fluxfox treats them as a special `MetaSector` track type.
+
 * **Teledisk** (TD0)
     * A disk image format used by Sydex TELEDISK, an early commercial disk-copying program.
     * No official documentation exists, however Dave Dunfield published notes on the disk format and the format is
@@ -50,12 +57,13 @@ sometimes produce impossible track encodings, and are not ideal for archival pur
       with LZHUF compression. Version 1.x images may use a custom LZW implementation instead.
     * fluxfox currently only supports Version 2.x Teledisk images. It uses LZHUF decompression code from
       [retrocompressor](https://github.com/dfgordon/retrocompressor) by [dfgordon](https://github.com/dfgordon).
+* **ImageDisk** (IMD)
+    * ImageDisk is a format developed by Dave Dunfield as an open alternative to TeleDisk format images, although it
+      has some encoding limitations.
 * **PCE Sector Image** (PSI)
     * One of several image formats developed by Hampa Hug for use with his emulator,  [PCE](http://www.hampa.ch/pce/).
-      A flexible format based on RIFF-like data chunks.
-
-Eventually, fluxfox should be able to convert sector images to bitstream images, in cases where a
-physically impossible track has not been encoded. Certain parameters such as gap lengths could be configured.
+      A flexible format based on RIFF-like data chunks. Perhaps the most advanced of all sector-based disk images, it
+      has been used to encode a variety of copy-protected titles.
 
 ### Bitstream Disk Images
 
@@ -77,6 +85,10 @@ complex than sector images to manipulate and write back to.
     * A format designed around the internal representation of disks in the 86Box emulator. Bitstream based and flexible
       in terms of per-track parameters, it also allows exact encoding of bitcell length to support track wrapping.
 
+Some Bitstream-level formats, such as MFM and HFE, do not support specifying an absolute bit length. This can cause
+problems when emulating certain copy-protection schemes that involve precise handling of reading across the index
+(track wrapping).
+
 ### Flux-Based Disk Images
 
 These images are created with specialized hardware that records the raw flux transitions reported by a disk drive. This
@@ -87,7 +99,7 @@ Flux images can be divided into two basic types, solved and unsolved flux.
 Unsolved flux images are the most difficult of the three types of format to read and manipulate. Generally a lengthy
 conversion process is required to analyze and combine the 3-5 revolutions of each track that is typically captured with
 a flux capture device. This makes them less than ideal for the purposes of emulation. Unsolved images cannot really be
-written to - nor would you want to.
+written to in a sensible way - nor should you want to.
 
 Solved flux images represent a post-processed flux capture where multiple revolutions have already been analyzed and
 combined. The resulting flux stream should represent a correct, clean read of each track. Metadata may need to be
@@ -95,12 +107,29 @@ provided along with solved flux images as detection of weak bits, etc., is only 
 revolutions which are no longer present in a solved image. Solved flux images can technically be written to - but doing
 so is a complicated process.
 
-Some examples of unsolved flux are KryoFlux (RAW) and SuperCopyPro (SCP).
+### Raw Flux Images
 
-Some examples of solved flux are MAME Floppy Image (MFI) and HxC Stream Image.
+* **SuperCardPro Image** (SCP)
+    * A format designed for the [SuperCardPro](https://www.cbmstuff.com/index.php?route=product/product&product_id=52)
+      flux imaging hardware, this format has become quite popular as a single-file flux container. The format supports
+      several potentially useful metadata fields, but they are so frequently set to garbage values in SCP images in the
+      wild that is impossible to trust them.
+    * SCP images can also contain resolved flux tracks, if desired. Some emulators can write back to SCP, but write a
+      single revolution.
 
-fluxfox currently does not support any flux-based image formats, however support for some sort of solved flux format
-is planned.
+* **KryoFlux Stream Files** (RAW)
+    * Less of an image format, and more of a collection of stream protocol dumps produced by
+      the [Kryoflux](https://kryoflux.com/) flux imaging hardware. These 'images' comprise a set of files with the
+      `.raw` extension, one file per track.
+    * Each track file may contain an arbitrary number of revolutions.
+
+### Resolved Flux Images
+
+* **MAME Flux Image** (MFI)
+    * A resolved flux format designed for the famous MAME emulator (which emulates many kinds of computer, not just
+      arcade machines.)
+    * MFI images contain a single revolution, encoding "zones" of NFA's or surface damage to support various
+      copy-protection methods.
 
 ### Disk Encodings
 
@@ -117,6 +146,13 @@ supported as this library concentrates on support for the IBM PC.
 fluxfox uses [env_logger](https://crates.io/crates/env_logger) for logging output. If your application also uses
 env_logger, you will see fluxfox's messages along with your own. If fluxfox's output is too noisy,
 you can add `fluxfox=error` to your `RUST_LOG` environment variable to limit output to only critical error messages.
+
+## Image Editing
+
+I'm working on a basic disk editor, called ffedit, powered by fluxfox's API.
+ffedit is a TUI application, using [Ratatui](ratatui.rs) for its interface. This editor is in very early stages.
+
+![image](doc/img/ffedit_01.png)
 
 ## Visualization
 
@@ -156,6 +192,8 @@ a lot more memory!
 
 The image will be square with a single disk surface if the image is single-sided. Otherwise, both sides of the disk will
 be rendered side by side.
+
+When working with Kryoflux file sets, any file in a set may be used as an input filename.
 
 Run with the `-h` parameter to see more command-line options.
 
