@@ -712,12 +712,7 @@ impl DiskImage {
     /// data encoding, data rate, geometry, and data clock.
     ///
     /// # Parameters
-    /// - `data_encoding`: The encoding used for the track data.
-    /// - `data_rate`: The data rate of the track.
-    /// - `ch`: The geometry of the track (cylinder and head).
-    /// - `data_clock`: The clock rate of the bit stream data.
-    /// - `data`: A slice containing the bit stream data.
-    /// - `weak`: An optional slice containing the weak bit mask.
+    /// - `params`: A `BitstreamTrackParams` struct describing the track to be added.
     ///
     /// # Returns
     /// - `Ok(())` if the track was successfully added.
@@ -762,24 +757,21 @@ impl DiskImage {
                 let mut codec;
 
                 // If a weak bit mask was provided by the file format, we will honor it.
-                // Otherwise, we will try to detect weak bits from the MFM stream.
+                // Otherwise, if 'detect_weak' is set we will try to detect weak bits from the MFM stream.
                 if weak_bitvec_opt.is_some() {
                     codec = MfmCodec::new(data, params.bitcell_ct, weak_bitvec_opt);
                 } else {
                     codec = MfmCodec::new(data, params.bitcell_ct, None);
-                    // let weak_regions = codec.detect_weak_bits(9);
-                    // log::trace!(
-                    //     "add_track_bitstream(): Detected {} weak bit regions",
-                    //     weak_regions.len()
-                    // );
-                    let weak_bitvec = codec.create_weak_bit_mask(MfmCodec::WEAK_BIT_RUN);
-                    if weak_bitvec.any() {
-                        log::debug!(
-                            "add_track_bitstream(): Detected {} weak bits in MFM bitstream.",
-                            weak_bitvec.count_ones()
-                        );
+                    if params.detect_weak {
+                        let weak_bitvec = codec.create_weak_bit_mask(MfmCodec::WEAK_BIT_RUN);
+                        if weak_bitvec.any() {
+                            log::debug!(
+                                "add_track_bitstream(): Detected {} weak bits in MFM bitstream.",
+                                weak_bitvec.count_ones()
+                            );
+                        }
+                        _ = codec.set_weak_mask(weak_bitvec);
                     }
-                    _ = codec.set_weak_mask(weak_bitvec);
                 }
 
                 let mut data_stream: TrackDataStream = Box::new(codec);
