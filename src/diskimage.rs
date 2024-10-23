@@ -566,13 +566,16 @@ impl DiskImage {
                     build_image.descriptor.geometry = set_ch;
 
                     for (fi, file_path) in file_set.iter().enumerate() {
-                        let mut file = std::fs::File::open(file_path.clone())?;
-                        let mut buf_reader = std::io::BufReader::new(&mut file);
+                        // Reading the entire file in one go and wrapping in a cursor is much faster
+                        // than a BufReader.
+                        let mut file_vec = std::fs::read(file_path.clone())?;
+                        let mut cursor = Cursor::new(&mut file_vec);
+
                         log::debug!("load(): Loading Kryoflux stream file: {:?}", file_path);
 
                         // We won't give the callback to the kryoflux loader - instead we will call it here ourselves
                         // updating percentage complete as a fraction of files loaded.
-                        build_image = KfxFormat::load_image(&mut buf_reader, Some(build_image), None)?;
+                        build_image = KfxFormat::load_image(&mut cursor, Some(build_image), None)?;
 
                         if let Some(ref callback_fn) = callback {
                             let completion = (fi + 1) as f64 / file_set.len() as f64;
