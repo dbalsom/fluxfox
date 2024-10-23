@@ -528,6 +528,8 @@ impl DiskImage {
                     if let Some(callback_fn) = callback {
                         callback_fn(LoadingStatus::Complete);
                     }
+
+                    build_image.post_load_process();
                     Ok(build_image)
                 }
             }
