@@ -521,6 +521,11 @@ impl DiskImage {
                     let mut build_image = DiskImage::default();
                     build_image.descriptor.geometry = set_ch;
 
+                    if let Some(ref callback_fn) = callback {
+                        // Let caller know to show a progress bar
+                        callback_fn(LoadingStatus::ProgressSupport(true));
+                    }
+
                     for (fi, file_path) in file_set.iter().enumerate() {
                         let mut file_vec = extract_file(image_io, &file_path.clone())?;
                         let mut cursor = Cursor::new(&mut file_vec);
@@ -583,6 +588,7 @@ impl DiskImage {
                     }
                     Ok(build_image)
                 } else {
+                    log::error!("Path parameter required when loading Kryoflux set.");
                     Err(DiskImageError::ParameterError)
                 }
             }

@@ -81,6 +81,7 @@ type FoxHashMap<K, V, S = RandomState> = std::collections::HashMap<K, V, S>;
 type FoxHashSet<T, S = RandomState> = std::collections::HashSet<T, S>;
 
 pub enum LoadingStatus {
+    ProgressSupport(bool),
     Progress(f64),
     Complete,
     Error,
