@@ -283,6 +283,7 @@ impl System34Parser {
         gap3: usize,
     ) -> Result<System34FormatResult, DiskImageError> {
         if fill_pattern.is_empty() {
+            log::error!("Fill pattern cannot be empty.");
             return Err(DiskImageError::ParameterError);
         }
 
