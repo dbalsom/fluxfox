@@ -39,7 +39,7 @@
     to calculate the disk parameters ourselves as a result.
 
 */
-use crate::diskimage::DiskDescriptor;
+use crate::diskimage::{BitstreamTrackParams, DiskDescriptor};
 use crate::file_parsers::{bitstream_flags, FormatCaps};
 use crate::fluxstream::flux_stream::RawFluxTrack;
 use crate::fluxstream::pll::{Pll, PllPreset};
@@ -494,14 +494,19 @@ impl ScpFormat {
             // log::trace!("Track density: {:?} bitrate: {:?}", rev_density, rev_bitrate);
 
             let (track_data, track_bits) = flux_track.revolution_mut(rev).unwrap().bitstream_data();
-            disk_image.add_track_bitstream(
-                DiskDataEncoding::Mfm,
-                DiskDataRate::from(rev_density),
-                DiskCh::new(c, h),
-                Some(track_bits),
-                &track_data,
-                None,
-            )?;
+
+            let params = BitstreamTrackParams {
+                encoding: DiskDataEncoding::Mfm,
+                data_rate: DiskDataRate::from(rev_density),
+                ch: DiskCh::new(c, h),
+                bitcell_ct: Some(track_bits),
+                data: &track_data,
+                weak: None,
+                hole: None,
+                detect_weak: false,
+            };
+
+            disk_image.add_track_bitstream(params)?;
 
             // Increment cylinder/head for next track
             h += 1;

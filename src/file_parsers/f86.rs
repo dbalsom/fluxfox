@@ -33,7 +33,7 @@
 
 */
 
-use crate::diskimage::{DiskDescriptor, DiskImageFlags};
+use crate::diskimage::{BitstreamTrackParams, DiskDescriptor, DiskImageFlags};
 use crate::file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
 
@@ -413,14 +413,19 @@ impl F86Format {
                 track_encoding,
                 DiskCh::from((cylinder_n, head_n))
             );
-            disk_image.add_track_bitstream(
-                track_encoding,
-                track_data_rate,
-                DiskCh::from((cylinder_n, head_n)),
+
+            let params = BitstreamTrackParams {
+                encoding: track_encoding,
+                data_rate: track_data_rate,
+                ch: DiskCh::from((cylinder_n, head_n)),
                 bitcell_ct,
-                &track_data_vec,
-                None,
-            )?;
+                data: &track_data_vec,
+                weak: None,
+                hole: None,
+                detect_weak: false,
+            };
+
+            disk_image.add_track_bitstream(params)?;
 
             head_n += 1;
             if head_n == disk_sides {

@@ -36,7 +36,7 @@
 */
 
 use crate::chs::DiskCh;
-use crate::diskimage::DiskDescriptor;
+use crate::diskimage::{BitstreamTrackParams, DiskDescriptor};
 use crate::file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility};
 use crate::io::{Cursor, ReadSeek, ReadWriteSeek, Write};
 
@@ -481,14 +481,17 @@ impl PriFormat {
                         disk_data_rate = Some(DiskDataRate::from(current_bit_clock));
                     }
 
-                    disk_image.add_track_bitstream(
-                        DiskDataEncoding::Mfm,
-                        DiskDataRate::from(current_bit_clock),
-                        current_ch,
-                        Some(track_header.bit_length as usize),
-                        &chunk.data,
-                        None,
-                    )?;
+                    let params = BitstreamTrackParams {
+                        encoding: DiskDataEncoding::Mfm,
+                        data_rate: DiskDataRate::from(current_bit_clock),
+                        ch: current_ch,
+                        bitcell_ct: Some(track_header.bit_length as usize),
+                        data: &chunk.data,
+                        weak: None,
+                        hole: None,
+                        detect_weak: false,
+                    };
+                    disk_image.add_track_bitstream(params)?;
                 }
                 PriChunkType::WeakMask => {
                     let weak_mask = PriWeakMask::read(&mut Cursor::new(&chunk.data))

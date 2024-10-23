@@ -31,7 +31,7 @@
     HFE format images are an internal bitstream-level format used by the HxC disk emulator.
 
 */
-use crate::diskimage::DiskDescriptor;
+use crate::diskimage::{BitstreamTrackParams, DiskDescriptor};
 use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::{
@@ -345,14 +345,18 @@ impl HfeFormat {
                 track_data[0].len() * 8
             );
 
-            disk_image.add_track_bitstream(
-                DiskDataEncoding::Mfm,
-                DiskDataRate::from(file_header.bit_rate as u32 * 100),
-                DiskCh::from((ti as u16, 0)),
-                None,
-                &track_data[0],
-                None,
-            )?;
+            let params = BitstreamTrackParams {
+                encoding: DiskDataEncoding::Mfm,
+                data_rate: DiskDataRate::from(file_header.bit_rate as u32 * 100),
+                ch: DiskCh::from((ti as u16, 0)),
+                bitcell_ct: None,
+                data: &track_data[0],
+                weak: None,
+                hole: None,
+                detect_weak: false,
+            };
+
+            disk_image.add_track_bitstream(params)?;
 
             // And the track data for head 1.
             log::trace!(
@@ -361,14 +365,19 @@ impl HfeFormat {
                 0,
                 track_data[0].len() * 8
             );
-            disk_image.add_track_bitstream(
-                DiskDataEncoding::Mfm,
-                DiskDataRate::from(file_header.bit_rate as u32 * 100),
-                DiskCh::from((ti as u16, 1)),
-                None,
-                &track_data[1],
-                None,
-            )?;
+
+            let params = BitstreamTrackParams {
+                encoding: DiskDataEncoding::Mfm,
+                data_rate: DiskDataRate::from(file_header.bit_rate as u32 * 100),
+                ch: DiskCh::from((ti as u16, 1)),
+                bitcell_ct: None,
+                data: &track_data[1],
+                weak: None,
+                hole: None,
+                detect_weak: false,
+            };
+
+            disk_image.add_track_bitstream(params)?;
         }
 
         disk_image.descriptor = DiskDescriptor {

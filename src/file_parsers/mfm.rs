@@ -30,7 +30,7 @@
 
     MFM format images are bitstream images produced by the HxC disk emulator software.
 */
-use crate::diskimage::DiskDescriptor;
+use crate::diskimage::{BitstreamTrackParams, DiskDescriptor};
 use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::{
@@ -242,15 +242,18 @@ impl MfmFormat {
                 }
             }
 
-            // TODO: Handle advanced track headers
-            disk_image.add_track_bitstream(
-                DiskDataEncoding::Mfm,
-                DiskDataRate::from(data_rate),
-                DiskCh::from((cylinder as u16, head)),
+            let params = BitstreamTrackParams {
+                encoding: DiskDataEncoding::Mfm,
+                data_rate: DiskDataRate::from(data_rate),
+                ch: DiskCh::from((cylinder as u16, head)),
                 bitcell_ct,
-                &track_data,
-                None,
-            )?;
+                data: &track_data,
+                weak: None,
+                hole: None,
+                detect_weak: false,
+            };
+
+            disk_image.add_track_bitstream(params)?;
         }
 
         disk_image.descriptor = DiskDescriptor {

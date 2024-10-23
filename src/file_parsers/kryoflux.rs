@@ -34,7 +34,7 @@
 
 
 */
-use crate::diskimage::DiskDescriptor;
+use crate::diskimage::{BitstreamTrackParams, DiskDescriptor};
 use crate::file_parsers::{bitstream_flags, FormatCaps};
 use crate::fluxstream::flux_stream::RawFluxTrack;
 use crate::fluxstream::pll::{Pll, PllPreset};
@@ -302,14 +302,17 @@ impl KfxFormat {
         } else {
             log::debug!("Adding track {} containing {} bits to image...", next_ch, track_bits);
 
-            disk_image.add_track_bitstream(
-                DiskDataEncoding::Mfm,
+            let params = BitstreamTrackParams {
+                encoding: DiskDataEncoding::Mfm,
                 data_rate,
-                next_ch,
-                Some(track_bits),
-                &track_data,
-                None,
-            )?;
+                ch: next_ch,
+                bitcell_ct: Some(track_bits),
+                data: &track_data,
+                weak: None,
+                hole: None,
+                detect_weak: false,
+            };
+            disk_image.add_track_bitstream(params)?;
         }
 
         log::debug!("Track added.");

@@ -308,6 +308,17 @@ pub struct TrackRegion {
     pub end: usize,
 }
 
+pub struct BitstreamTrackParams<'a> {
+    pub encoding: DiskDataEncoding,
+    pub data_rate: DiskDataRate,
+    pub ch: DiskCh,
+    pub bitcell_ct: Option<usize>,
+    pub data: &'a [u8],
+    pub weak: Option<&'a [u8]>,
+    pub hole: Option<&'a [u8]>,
+    pub detect_weak: bool,
+}
+
 #[derive(Default)]
 pub struct SharedDiskContext {
     /// The number of write operations (WriteData or FormatTrack) operations performed on the disk image.
@@ -713,23 +724,15 @@ impl DiskImage {
     /// - `Err(DiskImageError::SeekError)` if the head value in `ch` is greater than or equal to 2.
     /// - `Err(DiskImageError::ParameterError)` if the length of `data` and `weak` do not match.
     /// - `Err(DiskImageError::IncompatibleImage)` if the disk image is not compatible with `BitStream` resolution.
-    pub fn add_track_bitstream(
-        &mut self,
-        encoding: DiskDataEncoding,
-        data_rate: DiskDataRate,
-        ch: DiskCh,
-        bitcell_ct: Option<usize>,
-        data: &[u8],
-        weak: Option<&[u8]>,
-    ) -> Result<(), DiskImageError> {
-        if ch.h() >= 2 {
+    pub fn add_track_bitstream(&mut self, params: BitstreamTrackParams) -> Result<(), DiskImageError> {
+        if params.ch.h() >= 2 {
             return Err(DiskImageError::SeekError);
         }
-        if data.is_empty() {
+        if params.data.is_empty() {
             log::error!("add_track_bitstream(): Data is empty.");
             return Err(DiskImageError::ParameterError);
         }
-        if weak.is_some() && (data.len() != weak.unwrap().len()) {
+        if params.weak.is_some() && (params.data.len() != params.weak.unwrap().len()) {
             log::error!("add_track_bitstream(): Data and weak bit mask lengths do not match.");
             return Err(DiskImageError::ParameterError);
         }
@@ -746,24 +749,24 @@ impl DiskImage {
 
         log::debug!(
             "add_track_bitstream(): adding {:?} track {}, {} bits",
-            encoding,
-            ch,
-            bitcell_ct.unwrap_or(data.len() * 8)
+            params.encoding,
+            params.ch,
+            params.bitcell_ct.unwrap_or(params.data.len() * 8)
         );
 
-        let data = BitVec::from_bytes(data);
-        let weak_bitvec_opt = weak.map(BitVec::from_bytes);
+        let data = BitVec::from_bytes(&params.data);
+        let weak_bitvec_opt = params.weak.as_deref().map(BitVec::from_bytes);
 
-        let (mut data_stream, markers) = match encoding {
+        let (mut data_stream, markers) = match params.encoding {
             DiskDataEncoding::Mfm => {
                 let mut codec;
 
                 // If a weak bit mask was provided by the file format, we will honor it.
                 // Otherwise, we will try to detect weak bits from the MFM stream.
                 if weak_bitvec_opt.is_some() {
-                    codec = MfmCodec::new(data, bitcell_ct, weak_bitvec_opt);
+                    codec = MfmCodec::new(data, params.bitcell_ct, weak_bitvec_opt);
                 } else {
-                    codec = MfmCodec::new(data, bitcell_ct, None);
+                    codec = MfmCodec::new(data, params.bitcell_ct, None);
                     // let weak_regions = codec.detect_weak_bits(9);
                     // log::trace!(
                     //     "add_track_bitstream(): Detected {} weak bit regions",
@@ -797,9 +800,9 @@ impl DiskImage {
                 // If a weak bit mask was provided by the file format, we will honor it.
                 // Otherwise, we will try to detect weak bits from the MFM stream.
                 if weak_bitvec_opt.is_some() {
-                    codec = MfmCodec::new(data, bitcell_ct, weak_bitvec_opt);
+                    codec = MfmCodec::new(data, params.bitcell_ct, weak_bitvec_opt);
                 } else {
-                    codec = MfmCodec::new(data, bitcell_ct, None);
+                    codec = MfmCodec::new(data, params.bitcell_ct, None);
                     // let weak_regions = codec.detect_weak_bits(9);
                     // log::trace!(
                     //     "add_track_bitstream(): Detected {} weak bit regions",
@@ -825,7 +828,10 @@ impl DiskImage {
                 (data_stream, markers)
             }
             _ => {
-                log::error!("add_track_bitstream(): Unsupported data encoding: {:?}", encoding);
+                log::error!(
+                    "add_track_bitstream(): Unsupported data encoding: {:?}",
+                    params.encoding
+                );
                 return Err(DiskImageError::UnsupportedFormat);
             }
         };
@@ -841,7 +847,7 @@ impl DiskImage {
         if sector_ids.is_empty() {
             log::warn!(
                 "add_track_bitstream(): No sector ids found in track {} metadata.",
-                ch.c()
+                params.ch.c()
             );
         }
 
@@ -865,16 +871,16 @@ impl DiskImage {
         );
 
         self.track_pool.push(Box::new(BitStreamTrack {
-            encoding,
-            data_rate,
-            ch,
+            encoding: params.encoding,
+            data_rate: params.data_rate,
+            ch: params.ch,
             data: data_stream,
             metadata,
             sector_ids,
             shared: self.shared.clone(),
         }));
 
-        self.track_map[ch.h() as usize].push(self.track_pool.len() - 1);
+        self.track_map[params.ch.h() as usize].push(self.track_pool.len() - 1);
 
         // Consider adding a track to an image to be a single 'write' operation.
         self.incr_writes();

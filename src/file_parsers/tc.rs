@@ -50,7 +50,7 @@
 use crate::file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
 
-use crate::diskimage::DiskDescriptor;
+use crate::diskimage::{BitstreamTrackParams, DiskDescriptor};
 use crate::{
     DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat, DiskRpm,
     LoadingCallback, DEFAULT_SECTOR_SIZE,
@@ -352,14 +352,17 @@ impl TCFormat {
                 DiskCh::from((cylinder_n, head_n))
             );
 
-            disk_image.add_track_bitstream(
-                disk_encoding,
-                disk_data_rate,
-                DiskCh::from((cylinder_n, head_n)),
-                None,
-                &track_data_vec,
-                None,
-            )?;
+            let params = BitstreamTrackParams {
+                encoding: disk_encoding,
+                data_rate: disk_data_rate,
+                ch: DiskCh::new(cylinder_n, head_n),
+                bitcell_ct: None,
+                data: &track_data_vec,
+                weak: None,
+                hole: None,
+                detect_weak: true, // flux2tc encodes weak bits as runs of MFM 0 bits
+            };
+            disk_image.add_track_bitstream(params)?;
 
             head_n += 1;
             if head_n == disk_info.num_sides {

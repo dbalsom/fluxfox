@@ -36,7 +36,7 @@
 */
 
 use crate::chs::DiskCh;
-use crate::diskimage::DiskDescriptor;
+use crate::diskimage::{BitstreamTrackParams, DiskDescriptor};
 use crate::file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
 
@@ -251,14 +251,17 @@ impl MfiFormat {
                     stream_bit_ct
                 );
 
-                disk_image.add_track_bitstream(
-                    DiskDataEncoding::Mfm,
+                let params = BitstreamTrackParams {
+                    encoding: DiskDataEncoding::Mfm,
                     data_rate,
-                    track.ch,
-                    Some(stream_bit_ct),
-                    &stream_bytes,
-                    None,
-                )?;
+                    ch: track.ch,
+                    bitcell_ct: Some(stream_bit_ct),
+                    data: &stream_bytes,
+                    weak: None,
+                    hole: None,
+                    detect_weak: false,
+                };
+                disk_image.add_track_bitstream(params)?;
             }
         }
 
