@@ -34,16 +34,16 @@
 use crate::io::ReadSeek;
 use crate::DiskImageError;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 //const ZIP_SIGNATURE: &[u8; 4] = b"PK\x03\x04";
 
 /// Return true if the provided image is a ZIP file.
-
+#[allow(dead_code)]
 pub struct ZipFileEntry {
     pub name: String,
     pub size: u64,
 }
-
+#[allow(dead_code)]
 pub struct ZipFileListing {
     pub files: Vec<ZipFileEntry>,
     pub total_size: u64,

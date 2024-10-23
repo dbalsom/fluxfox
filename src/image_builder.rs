@@ -94,7 +94,7 @@ impl ImageBuilder {
         if self.standard_format.is_some() {
             match self.resolution {
                 Some(DiskDataResolution::BitStream) => self.build_bitstream(),
-                None | Some(DiskDataResolution::ByteStream) => self.build_bytestream(),
+                None | Some(DiskDataResolution::MetaSector) => self.build_bytestream(),
                 _ => Err(DiskImageError::UnsupportedFormat),
             }
         } else {
@@ -134,7 +134,7 @@ impl ImageBuilder {
 
     fn build_bytestream(self) -> Result<DiskImage, DiskImageError> {
         let mut disk_image = DiskImage::create(self.standard_format.unwrap());
-        disk_image.set_resolution(DiskDataResolution::ByteStream);
+        disk_image.set_resolution(DiskDataResolution::MetaSector);
 
         // Do post-load processing as normal
         disk_image.post_load_process();

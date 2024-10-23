@@ -323,7 +323,7 @@ impl PsiFormat {
                     if !track_set.contains(&ch) {
                         log::trace!("Adding track...");
                         let new_track =
-                            disk_image.add_track_bytestream(default_encoding, DiskDataRate::from(disk_density), ch)?;
+                            disk_image.add_track_metasector(default_encoding, DiskDataRate::from(disk_density), ch)?;
 
                         current_track = Some(new_track);
                         track_set.insert(ch);

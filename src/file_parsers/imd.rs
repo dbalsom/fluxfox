@@ -251,7 +251,7 @@ impl ImdFormat {
             }
 
             log::trace!("Adding track: C: {} H: {}", track_header.c, track_header.h);
-            let new_track = disk_image.add_track_bytestream(
+            let new_track = disk_image.add_track_metasector(
                 data_encoding,
                 data_rate,
                 DiskCh::from((track_header.c() as u16, track_header.h())),

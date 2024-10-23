@@ -328,7 +328,7 @@ impl Td0Format {
             }
 
             log::trace!("Adding track: c:{} h:{}...", track_header.cylinder, track_header.head);
-            let new_track = disk_image.add_track_bytestream(
+            let new_track = disk_image.add_track_metasector(
                 DiskDataEncoding::Mfm,
                 disk_data_rate,
                 DiskCh::from((track_header.cylinder as u16, track_header.head)),

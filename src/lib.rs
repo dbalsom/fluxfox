@@ -150,7 +150,7 @@ pub enum DiskVisualizationError {
 #[derive(Copy, Clone, Default, Debug, PartialEq, Eq, Hash)]
 pub enum DiskDataResolution {
     #[default]
-    ByteStream = 0,
+    MetaSector = 0,
     BitStream = 1,
     FluxStream = 2,
 }

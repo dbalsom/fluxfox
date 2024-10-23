@@ -54,6 +54,7 @@ use sha1_smol::Digest;
 use std::fmt::Display;
 use std::io::Cursor;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 pub const DEFAULT_BOOT_SECTOR: &[u8] = include_bytes!("../resources/bootsector.bin");
 
@@ -117,12 +118,12 @@ impl DiskImageFormat {
 
     pub fn resolution(self) -> DiskDataResolution {
         match self {
-            DiskImageFormat::RawSectorImage => DiskDataResolution::ByteStream,
-            DiskImageFormat::ImageDisk => DiskDataResolution::ByteStream,
-            DiskImageFormat::PceSectorImage => DiskDataResolution::ByteStream,
+            DiskImageFormat::RawSectorImage => DiskDataResolution::MetaSector,
+            DiskImageFormat::ImageDisk => DiskDataResolution::MetaSector,
+            DiskImageFormat::PceSectorImage => DiskDataResolution::MetaSector,
             DiskImageFormat::PceBitstreamImage => DiskDataResolution::BitStream,
             DiskImageFormat::MfmBitstreamImage => DiskDataResolution::BitStream,
-            DiskImageFormat::TeleDisk => DiskDataResolution::ByteStream,
+            DiskImageFormat::TeleDisk => DiskDataResolution::MetaSector,
             DiskImageFormat::KryofluxStream => DiskDataResolution::FluxStream,
             DiskImageFormat::HfeImage => DiskDataResolution::BitStream,
             DiskImageFormat::F86Image => DiskDataResolution::BitStream,
@@ -307,6 +308,13 @@ pub struct TrackRegion {
     pub end: usize,
 }
 
+#[derive(Default)]
+pub struct SharedDiskContext {
+    /// The number of write operations (WriteData or FormatTrack) operations performed on the disk image.
+    /// This can be used to determine if the disk image has been modified since the last save.
+    pub(crate) writes: u64,
+}
+
 /// A [`DiskImage`] represents the structure of a floppy disk. It contains a pool of track data
 /// structures, which are indexed by a head vector which contains cylinder vectors.
 ///
@@ -315,7 +323,6 @@ pub struct TrackRegion {
 /// A [`DiskImage`] may be of two [`DiskDataResolution`] levels: ByteStream or BitStream. ByteStream images
 /// are sourced from sector-based disk image formats, while BitStream images are sourced from
 /// bitstream-based disk image formats.
-#[derive(Default)]
 pub struct DiskImage {
     // Flags that can be applied to a disk image.
     pub(crate) flags: DiskImageFlags,
@@ -340,28 +347,28 @@ pub struct DiskImage {
     /// An array of vectors containing indices into the track pool. The first index is the head
     /// number, the second is the cylinder number.
     pub(crate) track_map: [Vec<usize>; 2],
-    /// The number of write operations (WriteData or FormatTrack) operations performed on the disk image.
-    /// This can be used to determine if the disk image has been modified since the last save.
-    pub(crate) writes: u64,
+    /// A shared context for the disk image, accessible by Tracks.
+    pub(crate) shared: Arc<Mutex<SharedDiskContext>>,
 }
 
-// impl Default for DiskImage {
-//     fn default() -> Self {
-//         Self {
-//             standard_format: None,
-//             descriptor: DiskDescriptor::default(),
-//             source_format: None,
-//             resolution: Default::default(),
-//             consistency: Default::default(),
-//             boot_sector: None,
-//             volume_name: None,
-//             comment: None,
-//             track_pool: Vec::new(),
-//             track_map: [Vec::new(), Vec::new()],
-//             sector_map: [Vec::new(), Vec::new()],
-//         }
-//     }
-// }
+impl Default for DiskImage {
+    fn default() -> Self {
+        Self {
+            flags: DiskImageFlags::empty(),
+            standard_format: None,
+            source_format: None,
+            resolution: Default::default(),
+            descriptor: DiskDescriptor::default(),
+            consistency: Default::default(),
+            boot_sector: None,
+            volume_name: None,
+            comment: None,
+            track_pool: Vec::new(),
+            track_map: [Vec::new(), Vec::new()],
+            shared: Arc::new(Mutex::new(SharedDiskContext::default())),
+        }
+    }
+}
 
 impl DiskImage {
     pub fn detect_format<RS: ReadSeek>(mut image: &mut RS) -> Result<DiskImageContainer, DiskImageError> {
@@ -393,7 +400,7 @@ impl DiskImage {
             comment: None,
             track_pool: Vec::new(),
             track_map: [Vec::new(), Vec::new()],
-            writes: 0,
+            shared: Arc::new(Mutex::new(SharedDiskContext::default())),
         }
     }
 
@@ -622,8 +629,7 @@ impl DiskImage {
     }
 
     pub fn write_ct(&self) -> u64 {
-        //log::trace!("write_ct(): writes: {}", self.writes);
-        self.writes
+        self.shared.lock().unwrap().writes
     }
 
     pub fn source_format(&self) -> Option<DiskImageFormat> {
@@ -636,7 +642,7 @@ impl DiskImage {
 
     /// Return the resolution of the disk image, either ByteStream or BitStream.
     pub fn resolution(&self) -> DiskDataResolution {
-        self.resolution.unwrap_or(DiskDataResolution::ByteStream)
+        self.resolution.unwrap_or(DiskDataResolution::MetaSector)
     }
 
     /// Adds a new track to the disk image, of ByteStream resolution.
@@ -654,7 +660,7 @@ impl DiskImage {
     /// - `Ok(())` if the track was successfully added.
     /// - `Err(DiskImageError::SeekError)` if the head value in `ch` is greater than or equal to 2.
     /// - `Err(DiskImageError::IncompatibleImage)` if the disk image is not compatible with `ByteStream` resolution.
-    pub fn add_track_bytestream(
+    pub fn add_track_metasector(
         &mut self,
         encoding: DiskDataEncoding,
         data_rate: DiskDataRate,
@@ -666,8 +672,8 @@ impl DiskImage {
 
         // Lock the disk image to ByteStream resolution.
         match self.resolution {
-            None => self.resolution = Some(DiskDataResolution::ByteStream),
-            Some(DiskDataResolution::ByteStream) => {}
+            None => self.resolution = Some(DiskDataResolution::MetaSector),
+            Some(DiskDataResolution::MetaSector) => {}
             _ => return Err(DiskImageError::IncompatibleImage),
         }
 
@@ -676,9 +682,12 @@ impl DiskImage {
             encoding,
             data_rate,
             sectors: Vec::new(),
+            shared: self.shared.clone(),
         }));
-
         self.track_map[ch.h() as usize].push(self.track_pool.len() - 1);
+
+        // Consider adding a track to an image to be a single 'write' operation.
+        self.incr_writes();
 
         Ok(self.track_pool.last_mut().unwrap())
     }
@@ -860,9 +869,13 @@ impl DiskImage {
             data: data_stream,
             metadata,
             sector_ids,
+            shared: self.shared.clone(),
         }));
 
         self.track_map[ch.h() as usize].push(self.track_pool.len() - 1);
+
+        // Consider adding a track to an image to be a single 'write' operation.
+        self.incr_writes();
 
         Ok(())
     }
@@ -927,8 +940,6 @@ impl DiskImage {
 
         let ti = self.track_map[phys_ch.h() as usize][phys_ch.c() as usize];
         let track = &mut self.track_pool[ti];
-
-        self.writes = self.writes.wrapping_add(1);
         track.write_sector(id_chs, n, data, scope, deleted, debug)
     }
 
@@ -1001,12 +1012,13 @@ impl DiskImage {
                     data: stream,
                     metadata: DiskStructureMetadata::default(),
                     sector_ids: Vec::new(),
+                    shared: self.shared.clone(),
                 }));
 
                 new_track_index = self.track_pool.len() - 1;
                 self.track_map[ch.h() as usize].push(self.track_pool.len() - 1);
             }
-            Some(DiskDataResolution::ByteStream) => {
+            Some(DiskDataResolution::MetaSector) => {
                 if self.track_map[ch.h() as usize].len() != ch.c() as usize {
                     log::error!("add_empty_track(): Can't create sparse track map.");
                     return Err(DiskImageError::ParameterError);
@@ -1017,6 +1029,7 @@ impl DiskImage {
                     data_rate,
                     ch,
                     sectors: Vec::new(),
+                    shared: self.shared.clone(),
                 }));
 
                 new_track_index = self.track_pool.len() - 1;
@@ -1051,7 +1064,6 @@ impl DiskImage {
         // TODO: How would we support other structures here?
         track.format(System34Standard::Iso, format_buffer, fill_pattern, sector_gap)?;
 
-        self.writes = self.writes.wrapping_add(1);
         // Formatting can change disk layout. Update image consistency to ensure export support
         // is accurate.
         self.update_consistency();
@@ -1127,7 +1139,6 @@ impl DiskImage {
 
         // Write the boot sector to the disk image
         self.write_boot_sector(bootsector.as_bytes())?;
-        self.writes = self.writes.wrapping_add(1);
         Ok(())
     }
 
@@ -1194,7 +1205,7 @@ impl DiskImage {
     /// Called after loading a disk image to perform any post-load operations.
     pub(crate) fn post_load_process(&mut self) {
         // Set writes to 1.
-        self.writes = 1;
+        self.shared.lock().unwrap().writes = 1;
 
         // Normalize the disk image
         self.normalize();
@@ -1703,5 +1714,9 @@ impl DiskImage {
         formats.sort_by(|a, b| b.0.priority().cmp(&a.0.priority()));
 
         formats
+    }
+
+    pub fn incr_writes(&mut self) {
+        self.shared.lock().unwrap().writes += 1;
     }
 }

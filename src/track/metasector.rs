@@ -32,7 +32,8 @@
 use super::{Track, TrackConsistency, TrackInfo};
 
 use crate::diskimage::{
-    ReadSectorResult, ReadTrackResult, RwSectorScope, ScanSectorResult, SectorDescriptor, WriteSectorResult,
+    ReadSectorResult, ReadTrackResult, RwSectorScope, ScanSectorResult, SectorDescriptor, SharedDiskContext,
+    WriteSectorResult,
 };
 
 use crate::structure_parsers::system34::System34Standard;
@@ -41,6 +42,7 @@ use crate::structure_parsers::DiskStructureMetadata;
 use crate::{DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskImageError, FoxHashSet, SectorMapEntry};
 use sha1_smol::Digest;
 use std::any::Any;
+use std::sync::{Arc, Mutex};
 
 struct SectorMatch<'a> {
     pub(crate) sectors: Vec<&'a MetaSector>,
@@ -65,6 +67,7 @@ struct SectorMatchMut<'a> {
     pub(crate) wrong_cylinder: bool,
     pub(crate) bad_cylinder: bool,
     pub(crate) wrong_head: bool,
+    pub(crate) shared: Arc<Mutex<SharedDiskContext>>,
 }
 
 impl<'a> SectorMatchMut<'a> {
@@ -163,6 +166,7 @@ pub struct MetaSectorTrack {
     pub(crate) encoding: DiskDataEncoding,
     pub(crate) data_rate: DiskDataRate,
     pub(crate) sectors: Vec<MetaSector>,
+    pub(crate) shared: Arc<Mutex<SharedDiskContext>>,
 }
 
 impl Track for MetaSectorTrack {
@@ -427,6 +431,8 @@ impl Track for MetaSectorTrack {
             sm.sectors[0].deleted_mark = write_deleted;
         }
 
+        sm.shared.lock().unwrap().writes += 1;
+
         Ok(WriteSectorResult {
             not_found: false,
             no_dam: sm.sectors[0].missing_data,
@@ -552,11 +558,8 @@ impl Track for MetaSectorTrack {
     }
 
     fn get_track_consistency(&self) -> TrackConsistency {
-        let sector_ct;
-
+        let sector_ct = self.sectors.len();
         let mut consistency = TrackConsistency::default();
-
-        sector_ct = self.sectors.len();
 
         let mut n_set: FoxHashSet<u8> = FoxHashSet::new();
         let mut last_n = 0;
@@ -589,6 +592,12 @@ impl Track for MetaSectorTrack {
 }
 
 impl MetaSectorTrack {
+    fn add_write(&mut self, _bytes: usize) {
+        let mut write_count = self.shared.lock().unwrap().writes;
+        write_count += 1;
+        self.shared.lock().unwrap().writes = write_count;
+    }
+
     fn match_sectors(&self, chs: DiskChs, n: Option<u8>, debug: bool) -> SectorMatch {
         let mut wrong_cylinder = false;
         let mut bad_cylinder = false;
@@ -656,6 +665,7 @@ impl MetaSectorTrack {
             wrong_cylinder,
             bad_cylinder,
             wrong_head,
+            shared: self.shared.clone(),
         }
     }
 }

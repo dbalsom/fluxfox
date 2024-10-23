@@ -33,7 +33,8 @@ use super::{Track, TrackConsistency, TrackInfo, TrackSectorScanResult};
 use crate::bitstream::mfm::MFM_BYTE_LEN;
 use crate::bitstream::{EncodingVariant, TrackDataStream};
 use crate::diskimage::{
-    ReadSectorResult, ReadTrackResult, RwSectorScope, ScanSectorResult, SectorDescriptor, WriteSectorResult,
+    ReadSectorResult, ReadTrackResult, RwSectorScope, ScanSectorResult, SectorDescriptor, SharedDiskContext,
+    WriteSectorResult,
 };
 use crate::io::SeekFrom;
 use crate::structure_parsers::system34::{
@@ -46,6 +47,7 @@ use crate::util::crc_ibm_3740;
 use crate::{DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskImageError, FoxHashSet, SectorMapEntry};
 use sha1_smol::Digest;
 use std::any::Any;
+use std::sync::{Arc, Mutex};
 
 pub struct BitStreamTrack {
     pub(crate) encoding: DiskDataEncoding,
@@ -54,6 +56,7 @@ pub struct BitStreamTrack {
     pub(crate) data: TrackDataStream,
     pub(crate) metadata: DiskStructureMetadata,
     pub(crate) sector_ids: Vec<DiskChsn>,
+    pub(crate) shared: Arc<Mutex<SharedDiskContext>>,
 }
 
 impl Track for BitStreamTrack {
@@ -528,6 +531,8 @@ impl Track for BitStreamTrack {
                 self.data
                     .write_buf(&crc.to_be_bytes(), sector_offset + (4 + data_len) * MFM_BYTE_LEN);
 
+                self.add_write(data_len);
+
                 Ok(WriteSectorResult {
                     not_found: false,
                     no_dam: false,
@@ -652,6 +657,31 @@ impl Track for BitStreamTrack {
         })
     }
 
+    fn get_next_id(&self, chs: DiskChs) -> Option<DiskChsn> {
+        if self.sector_ids.is_empty() {
+            log::warn!("get_next_id(): No sector_id vector for track!");
+        }
+        let first_sector = *self.sector_ids.first()?;
+        let mut sector_matched = false;
+        for sid in &self.sector_ids {
+            if sector_matched {
+                return Some(*sid);
+            }
+            if sid.s() == chs.s() {
+                // Have matching sector id
+                sector_matched = true;
+            }
+        }
+        // If we reached here, we matched the last sector in the list, so return the first
+        // sector as we wrap around the track.
+        if sector_matched {
+            Some(first_sector)
+        } else {
+            log::warn!("get_next_id(): Sector not found: {:?}", chs);
+            None
+        }
+    }
+
     fn read_track(&mut self, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
         let extra_bytes = overdump.unwrap_or(0);
 
@@ -679,31 +709,6 @@ impl Track for BitStreamTrack {
         })
     }
 
-    fn get_next_id(&self, chs: DiskChs) -> Option<DiskChsn> {
-        if self.sector_ids.is_empty() {
-            log::warn!("get_next_id(): No sector_id vector for track!");
-        }
-        let first_sector = *self.sector_ids.first()?;
-        let mut sector_matched = false;
-        for sid in &self.sector_ids {
-            if sector_matched {
-                return Some(*sid);
-            }
-            if sid.s() == chs.s() {
-                // Have matching sector id
-                sector_matched = true;
-            }
-        }
-        // If we reached here, we matched the last sector in the list, so return the first
-        // sector as we wrap around the track.
-        if sector_matched {
-            Some(first_sector)
-        } else {
-            log::warn!("get_next_id(): Sector not found: {:?}", chs);
-            None
-        }
-    }
-
     fn has_weak_bits(&self) -> bool {
         self.data.has_weak_bits()
     }
@@ -716,12 +721,10 @@ impl Track for BitStreamTrack {
         gap3: usize,
     ) -> Result<(), DiskImageError> {
         let bitcell_ct = self.data.len();
-        let new_bit_vec;
-
         let format_result =
             System34Parser::format_track_as_bytes(standard, bitcell_ct, format_buffer, fill_pattern, gap3)?;
 
-        new_bit_vec = self
+        let new_bit_vec = self
             .data
             .encode(&format_result.track_bytes, false, EncodingVariant::Data);
         log::trace!(
@@ -761,13 +764,11 @@ impl Track for BitStreamTrack {
     }
 
     fn get_track_consistency(&self) -> TrackConsistency {
-        let sector_ct;
-
+        let sector_ct = self.sector_ids.len();
         let mut consistency = TrackConsistency::default();
-
         let mut n_set: FoxHashSet<u8> = FoxHashSet::new();
         let mut last_n = 0;
-        sector_ct = self.sector_ids.len();
+
         for (si, sector_id) in self.sector_ids.iter().enumerate() {
             if sector_id.s() != si as u8 + 1 {
                 consistency.nonconsecutive_sectors = true;
@@ -809,6 +810,12 @@ impl Track for BitStreamTrack {
 }
 
 impl BitStreamTrack {
+    fn add_write(&mut self, _bytes: usize) {
+        let mut write_count = self.shared.lock().unwrap().writes;
+        write_count += 1;
+        self.shared.lock().unwrap().writes = write_count;
+    }
+
     fn read_exact_at(&mut self, offset: usize, buf: &mut [u8]) -> Result<(), DiskImageError> {
         self.data
             .seek(SeekFrom::Start((offset >> 1) as u64))
