@@ -30,7 +30,7 @@
 
     MFM format images are bitstream images produced by the HxC disk emulator software.
 */
-use crate::diskimage::{BitstreamTrackParams, DiskDescriptor};
+use crate::diskimage::{BitStreamTrackParams, DiskDescriptor};
 use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::{
@@ -112,16 +112,16 @@ impl MfmFormat {
     }
 
     pub(crate) fn load_image<RWS: ReadSeek>(
-        mut image: RWS,
+        mut read_buf: RWS,
+        disk_image: &mut DiskImage,
         _callback: Option<LoadingCallback>,
-    ) -> Result<DiskImage, DiskImageError> {
-        let mut disk_image = DiskImage::default();
+    ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFormat::MfmBitstreamImage);
 
-        image.seek(std::io::SeekFrom::Start(0))?;
+        read_buf.seek(std::io::SeekFrom::Start(0))?;
 
         let mut file_header = Default::default();
-        if let Ok(file_header_inner) = MfmFileHeader::read_le(&mut image) {
+        if let Ok(file_header_inner) = MfmFileHeader::read_le(&mut read_buf) {
             file_header = file_header_inner;
             if file_header.id != "HXCMFM".as_bytes() {
                 log::trace!("load_image(): File header ID not detected.");
@@ -149,12 +149,12 @@ impl MfmFormat {
         // If the advanced header flag is set, a table of 'total_tracks' advanced track headers follows the file header.
         // Otherwise, a table of 'total_tracks' standard track headers follows the file header.
 
-        image.seek(std::io::SeekFrom::Start(file_header.track_list_offset as u64))?;
+        read_buf.seek(std::io::SeekFrom::Start(file_header.track_list_offset as u64))?;
 
         for _t in 0..total_tracks {
             match advanced_tracks {
                 true => {
-                    let track_header = MfmAdvancedTrackHeader::read_le(&mut image);
+                    let track_header = MfmAdvancedTrackHeader::read_le(&mut read_buf);
                     match track_header {
                         Ok(track_header) => {
                             let track_no = track_header.track_no as usize;
@@ -181,7 +181,7 @@ impl MfmFormat {
                     }
                 }
                 false => {
-                    let track_header = MfmTrackHeader::read_le(&mut image);
+                    let track_header = MfmTrackHeader::read_le(&mut read_buf);
                     match track_header {
                         Ok(track_header) => {
                             let track_no = track_header.track_no as usize;
@@ -221,7 +221,7 @@ impl MfmFormat {
                     let track_data_size = s_header.track_size;
                     log::debug!("Reading {} bytes of track data", track_data_size);
                     track_data = MfmFormat::read_track_data(
-                        &mut image,
+                        &mut read_buf,
                         s_header.track_offset as u64,
                         s_header.track_size as usize,
                     )?;
@@ -235,14 +235,15 @@ impl MfmFormat {
                     bitcell_ct = Some(a_header.track_size as usize);
                     let track_data_size = (a_header.track_size as usize + 7) / 8;
                     log::debug!("Reading {} bytes of advanced track data", track_data_size);
-                    track_data = MfmFormat::read_track_data(&mut image, a_header.track_offset as u64, track_data_size)?;
+                    track_data =
+                        MfmFormat::read_track_data(&mut read_buf, a_header.track_offset as u64, track_data_size)?;
                     head = a_header.side_no;
                     cylinder = a_header.track_no as u8;
                     data_rate = a_header.bit_rate as u32 * 100;
                 }
             }
 
-            let params = BitstreamTrackParams {
+            let params = BitStreamTrackParams {
                 encoding: DiskDataEncoding::Mfm,
                 data_rate: DiskDataRate::from(data_rate),
                 ch: DiskCh::from((cylinder as u16, head)),
@@ -266,14 +267,14 @@ impl MfmFormat {
             write_protect: None,
         };
 
-        Ok(disk_image)
+        Ok(())
     }
 
-    fn read_track_data<RWS: ReadSeek>(image: &mut RWS, offset: u64, size: usize) -> Result<Vec<u8>, DiskImageError> {
+    fn read_track_data<RWS: ReadSeek>(read_buf: &mut RWS, offset: u64, size: usize) -> Result<Vec<u8>, DiskImageError> {
         let mut track_data = vec![0u8; size];
 
-        image.seek(std::io::SeekFrom::Start(offset))?;
-        image.read_exact(&mut track_data)?;
+        read_buf.seek(std::io::SeekFrom::Start(offset))?;
+        read_buf.read_exact(&mut track_data)?;
 
         Ok(track_data)
     }

@@ -53,7 +53,8 @@ pub(crate) fn read_ascii<T: Read>(
                 if b == terminator || b == 0 {
                     terminating_byte = b;
                     break;
-                } else if b >= 32 && b.is_ascii() {
+                }
+                else if b >= 32 && b.is_ascii() {
                     string.push(b as char);
                 }
             }
@@ -67,7 +68,8 @@ pub(crate) fn read_ascii<T: Read>(
 
     if string.is_empty() {
         (None, terminating_byte)
-    } else {
+    }
+    else {
         (Some(string), terminating_byte)
     }
 }
@@ -84,7 +86,8 @@ pub fn crc_ibm_3740(data: &[u8], start: Option<u16>) -> u16 {
         for _ in 0..8 {
             if (crc & 0x8000) != 0 {
                 crc = (crc << 1) ^ POLY;
-            } else {
+            }
+            else {
                 crc <<= 1;
             }
         }
@@ -103,7 +106,8 @@ pub fn crc_ibm_3740_byte(byte: u8, crc: u16) -> u16 {
     for _ in 0..8 {
         if (crc & 0x8000) != 0 {
             crc = (crc << 1) ^ POLY;
-        } else {
+        }
+        else {
             crc <<= 1;
         }
     }
@@ -147,7 +151,8 @@ pub fn dump_slice<W: crate::io::Write>(
             if b < last_row_size {
                 out.write_fmt(format_args!("{:02X} ", data_slice[rows * bytes_per_row + b]))
                     .unwrap();
-            } else {
+            }
+            else {
                 out.write_fmt(format_args!("   ")).unwrap();
             }
         }
@@ -160,7 +165,8 @@ pub fn dump_slice<W: crate::io::Write>(
                     if (40..=126).contains(&byte) { byte as char } else { '.' }
                 ))
                 .unwrap();
-            } else {
+            }
+            else {
                 out.write_fmt(format_args!(" ")).unwrap();
             }
         }
@@ -168,4 +174,12 @@ pub fn dump_slice<W: crate::io::Write>(
     }
 
     Ok(())
+}
+
+pub fn dump_string(data_slice: &[u8]) -> String {
+    let mut out = String::new();
+    for &byte in data_slice {
+        out.push(if (40..=126).contains(&byte) { byte as char } else { '.' });
+    }
+    out
 }

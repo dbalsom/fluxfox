@@ -33,7 +33,7 @@
 use bpaf::*;
 use fluxfox::diskimage::RwSectorScope;
 use fluxfox::{DiskCh, DiskChs, DiskChsn, DiskImage};
-use std::io::{BufWriter, Write};
+use std::io::{BufWriter, Cursor, Write};
 use std::path::PathBuf;
 
 #[allow(dead_code)]
@@ -41,25 +41,33 @@ use std::path::PathBuf;
 struct Out {
     debug: bool,
     filename: PathBuf,
-    cylinder: u16,
+    cylinder: Option<u16>,
     phys_cylinder: Option<u16>,
-    head: u8,
+    head: Option<u8>,
     phys_head: Option<u8>,
     sector: Option<u8>,
     n: Option<u8>,
     row_size: usize,
     structure: bool,
     find: Option<String>,
+    dump_dupe_mark: bool,
+    silent: bool,
 }
 
 /// Set up bpaf argument parsing.
 fn opts() -> OptionParser<Out> {
     let debug = short('d').long("debug").help("Print debug messages").switch();
 
+    let silent = long("silent")
+        .help("Suppress all output except errors and requested data")
+        .switch();
+
     let filename = short('i')
         .long("filename")
         .help("Filename of image to read")
         .argument::<PathBuf>("FILE");
+
+    let dump_dupe_mark = long("dump_dupe_mark").help("Dump Duplication mark if present").switch();
 
     let phys_cylinder = long("phys_c")
         .help("Physical cylinder")
@@ -69,9 +77,14 @@ fn opts() -> OptionParser<Out> {
     let cylinder = short('c')
         .long("cylinder")
         .help("Target cylinder")
-        .argument::<u16>("CYLINDER");
+        .argument::<u16>("CYLINDER")
+        .optional();
 
-    let head = short('h').long("head").help("Target head").argument::<u8>("HEAD");
+    let head = short('h')
+        .long("head")
+        .help("Target head")
+        .argument::<u8>("HEAD")
+        .optional();
 
     let phys_head = long("phys_h")
         .help("Physical cylinder")
@@ -117,6 +130,8 @@ fn opts() -> OptionParser<Out> {
         row_size,
         structure,
         find,
+        dump_dupe_mark,
+        silent
     })
     .to_options()
     .descr("imginfo: display info about disk image")
@@ -127,17 +142,16 @@ fn main() {
 
     // Get the command line options.
     let opts = opts().run();
-    let disk_image = match std::fs::File::open(&opts.filename) {
-        Ok(file) => file,
+    let mut file_vec = match std::fs::read(&opts.filename.clone()) {
+        Ok(file_vec) => file_vec,
         Err(e) => {
-            eprintln!("Error opening file: {}", e);
+            eprintln!("Error reading file: {}", e);
             std::process::exit(1);
         }
     };
+    let mut cursor = Cursor::new(&mut file_vec);
 
-    let mut reader = std::io::BufReader::new(disk_image);
-
-    let disk_image_type = match DiskImage::detect_format(&mut reader) {
+    let disk_image_type = match DiskImage::detect_format(&mut cursor) {
         Ok(disk_image_type) => disk_image_type,
         Err(e) => {
             eprintln!("Error detecting disk image type: {}", e);
@@ -145,9 +159,11 @@ fn main() {
         }
     };
 
-    println!("Detected disk image type: {}", disk_image_type);
+    if !opts.silent {
+        println!("Detected disk image type: {}", disk_image_type);
+    }
 
-    let mut disk = match DiskImage::load(&mut reader, Some(opts.filename.clone()), None) {
+    let mut disk = match DiskImage::load(&mut cursor, Some(opts.filename.clone()), None) {
         Ok(disk) => disk,
         Err(e) => {
             eprintln!("Error loading disk image: {}", e);
@@ -158,9 +174,41 @@ fn main() {
     let handle = std::io::stdout();
     let mut buf = BufWriter::new(handle);
 
+    if opts.dump_dupe_mark {
+        if let Some((dupe_ch, dupe_chsn)) = disk.find_duplication_mark() {
+            let rsr = match disk.read_sector(dupe_ch, DiskChs::from(dupe_chsn), None, RwSectorScope::DataOnly, true) {
+                Ok(rsr) => rsr,
+                Err(e) => {
+                    eprintln!("Error reading sector: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            let dump_string = match disk.dump_sector_string(dupe_ch, DiskChs::from(dupe_chsn), None) {
+                Ok(dump_string) => dump_string,
+                Err(e) => {
+                    eprintln!("Error dumping sector: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            //println!("Duplication mark found at {} with ID {}", dupe_ch, dupe_chsn);
+            println!("{}", dump_string);
+            std::process::exit(0);
+        }
+        else {
+            println!("No duplication mark found.");
+        }
+    }
+
+    if opts.cylinder.is_none() || opts.head.is_none() {
+        eprintln!("Cylinder and head must be specified.");
+        std::process::exit(1);
+    }
+
     // Specify the physical cylinder and head. If these are not explicitly provided, we assume
     // that the physical cylinder and head are the same as the target cylinder and head.
-    let mut phys_ch = DiskCh::new(opts.cylinder, opts.head);
+    let mut phys_ch = DiskCh::new(opts.cylinder.unwrap(), opts.head.unwrap());
     if let Some(phys_cylinder) = opts.phys_cylinder {
         phys_ch.set_c(phys_cylinder);
     }
@@ -173,7 +221,7 @@ fn main() {
     if let Some(sector) = opts.sector {
         // Dump the specified sector in hex format to stdout.
 
-        let id_chs = DiskChs::new(opts.cylinder, opts.head, sector);
+        let id_chs = DiskChs::new(opts.cylinder.unwrap(), opts.head.unwrap(), sector);
 
         let (scope, calc_crc) = match opts.structure {
             true => (RwSectorScope::DataBlock, true),
@@ -208,7 +256,8 @@ fn main() {
             if !found {
                 _ = writeln!(&mut buf, "Did not find search string.");
             }
-        } else {
+        }
+        else {
             println!(
                 "Dumping sector from {} with id {} in hex format, with scope {:?}:",
                 phys_ch,
@@ -223,10 +272,11 @@ fn main() {
                 _ = writeln!(&mut buf, "Calculated CRC: {:04X}", calculated_crc);
             }
         }
-    } else {
+    }
+    else {
         // No sector was provided, dump the whole track.
 
-        let ch = DiskCh::new(opts.cylinder, opts.head);
+        let ch = DiskCh::new(opts.cylinder.unwrap(), opts.head.unwrap());
 
         println!("Dumping track {} in hex format:", ch);
 

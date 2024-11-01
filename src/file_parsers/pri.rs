@@ -36,7 +36,7 @@
 */
 
 use crate::chs::DiskCh;
-use crate::diskimage::{BitstreamTrackParams, DiskDescriptor};
+use crate::diskimage::{BitStreamTrackParams, DiskDescriptor};
 use crate::file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility};
 use crate::io::{Cursor, ReadSeek, ReadWriteSeek, Write};
 
@@ -143,7 +143,8 @@ pub(crate) fn pri_crc(buf: &[u8]) -> u32 {
         for _j in 0..8 {
             if crc & 0x80000000 != 0 {
                 crc = (crc << 1) ^ 0x1edc6f41;
-            } else {
+            }
+            else {
                 crc <<= 1;
             }
         }
@@ -206,13 +207,15 @@ impl PriFormat {
             if !matches!(resolution, DiskDataResolution::BitStream) {
                 return ParserWriteCompatibility::Incompatible;
             }
-        } else {
+        }
+        else {
             return ParserWriteCompatibility::Incompatible;
         }
 
         if PriFormat::capabilities().contains(image.required_caps()) {
             ParserWriteCompatibility::Ok
-        } else {
+        }
+        else {
             ParserWriteCompatibility::DataLoss
         }
     }
@@ -225,7 +228,8 @@ impl PriFormat {
 
         if let Ok(id) = std::str::from_utf8(&chunk_header.id) {
             log::trace!("Chunk ID: {} Size: {}", id, chunk_header.size);
-        } else {
+        }
+        else {
             log::trace!("Chunk ID: {:?} Size: {}", chunk_header.id, chunk_header.size);
         }
 
@@ -394,16 +398,16 @@ impl PriFormat {
     }
 
     pub(crate) fn load_image<RWS: ReadSeek>(
-        mut image: RWS,
+        mut read_buf: RWS,
+        disk_image: &mut DiskImage,
         _callback: Option<LoadingCallback>,
-    ) -> Result<DiskImage, DiskImageError> {
-        let mut disk_image = DiskImage::default();
+    ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFormat::PceBitstreamImage);
 
-        // Seek to start of image.
-        image.seek(std::io::SeekFrom::Start(0))?;
+        // Seek to start of read_buf.
+        read_buf.seek(std::io::SeekFrom::Start(0))?;
 
-        let mut chunk = PriFormat::read_chunk(&mut image)?;
+        let mut chunk = PriFormat::read_chunk(&mut read_buf)?;
         // File header must be first chunk.
         if chunk.chunk_type != PriChunkType::FileHeader {
             return Err(DiskImageError::UnknownFormat);
@@ -455,7 +459,8 @@ impl PriFormat {
 
                     if alt_clock.new_clock == 0 {
                         current_bit_clock = default_bit_clock;
-                    } else {
+                    }
+                    else {
                         let new_bit_clock =
                             ((alt_clock.new_clock as f64 / u16::MAX as f64) * default_bit_clock as f64) as u32;
 
@@ -481,7 +486,7 @@ impl PriFormat {
                         disk_data_rate = Some(DiskDataRate::from(current_bit_clock));
                     }
 
-                    let params = BitstreamTrackParams {
+                    let params = BitStreamTrackParams {
                         encoding: DiskDataEncoding::Mfm,
                         data_rate: DiskDataRate::from(current_bit_clock),
                         ch: current_ch,
@@ -518,7 +523,7 @@ impl PriFormat {
                 }
             }
 
-            chunk = PriFormat::read_chunk(&mut image)?;
+            chunk = PriFormat::read_chunk(&mut read_buf)?;
         }
 
         log::trace!("Comment: {}", comment_string);
@@ -535,13 +540,14 @@ impl PriFormat {
             write_protect: None,
         };
 
-        Ok(disk_image)
+        Ok(())
     }
 
     pub fn save_image<RWS: ReadWriteSeek>(image: &DiskImage, output: &mut RWS) -> Result<(), DiskImageError> {
         if matches!(image.resolution(), DiskDataResolution::BitStream) {
             log::trace!("Saving PRI image...");
-        } else {
+        }
+        else {
             log::error!("Unsupported image resolution.");
             return Err(DiskImageError::UnsupportedFormat);
         }
@@ -607,7 +613,8 @@ impl PriFormat {
 
                     PriFormat::write_chunk_raw(output, PriChunkType::WeakMask, weak_buffer.get_ref())?;
                 }
-            } else {
+            }
+            else {
                 unreachable!("Expected only BitStream variants");
             }
         }

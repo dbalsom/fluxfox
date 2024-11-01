@@ -30,11 +30,12 @@
 
 */
 use super::{Track, TrackConsistency, TrackInfo, TrackSectorScanResult};
-use crate::bitstream::mfm::MFM_BYTE_LEN;
+use crate::bitstream::fm::FmCodec;
+use crate::bitstream::mfm::{MfmCodec, MFM_BYTE_LEN};
 use crate::bitstream::{EncodingVariant, TrackDataStream};
 use crate::diskimage::{
-    ReadSectorResult, ReadTrackResult, RwSectorScope, ScanSectorResult, SectorDescriptor, SharedDiskContext,
-    WriteSectorResult,
+    BitStreamTrackParams, ReadSectorResult, ReadTrackResult, RwSectorScope, ScanSectorResult, SectorDescriptor,
+    SharedDiskContext, WriteSectorResult,
 };
 use crate::io::SeekFrom;
 use crate::structure_parsers::system34::{
@@ -45,6 +46,7 @@ use crate::structure_parsers::{
 };
 use crate::util::crc_ibm_3740;
 use crate::{DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskImageError, FoxHashSet, SectorMapEntry};
+use bit_vec::BitVec;
 use sha1_smol::Digest;
 use std::any::Any;
 use std::sync::{Arc, Mutex};
@@ -70,6 +72,10 @@ impl Track for BitStreamTrack {
 
     fn set_ch(&mut self, new_ch: DiskCh) {
         self.ch = new_ch;
+    }
+
+    fn encoding(&self) -> DiskDataEncoding {
+        self.encoding
     }
 
     fn info(&self) -> TrackInfo {
@@ -239,7 +245,8 @@ impl Track for BitStreamTrack {
                 if let Some(n_value) = n {
                     if debug {
                         data_len = DiskChsn::n_to_bytes(n_value);
-                    } else {
+                    }
+                    else {
                         if sector_chsn.n() != n_value {
                             log::error!(
                                 "read_sector(): Sector size mismatch, expected: {} got: {}",
@@ -250,7 +257,8 @@ impl Track for BitStreamTrack {
                         }
                         data_len = sector_chsn.n_size();
                     }
-                } else {
+                }
+                else {
                     data_len = sector_chsn.n_size();
                 }
                 data_idx = scope_data_off;
@@ -356,7 +364,8 @@ impl Track for BitStreamTrack {
                         bad_cylinder,
                         wrong_head,
                     })
-                } else {
+                }
+                else {
                     Ok(ScanSectorResult {
                         deleted_mark: deleted,
                         not_found: false,
@@ -477,7 +486,8 @@ impl Track for BitStreamTrack {
                     if debug {
                         // Try to use provided n, but limit to the size of the write buffer.
                         data_len = std::cmp::min(write_data.len(), DiskChsn::n_to_bytes(n_value));
-                    } else {
+                    }
+                    else {
                         if sector_chsn.n() != n_value {
                             log::error!(
                                 "write_sector(): Sector size mismatch, expected: {} got: {}",
@@ -497,7 +507,8 @@ impl Track for BitStreamTrack {
                             return Err(DiskImageError::ParameterError);
                         }
                     }
-                } else {
+                }
+                else {
                     if DiskChsn::n_to_bytes(sector_chsn.n()) != write_data.len() {
                         log::error!(
                             "write_sector(): Data buffer size mismatch, expected: {} got: {}",
@@ -676,7 +687,8 @@ impl Track for BitStreamTrack {
         // sector as we wrap around the track.
         if sector_matched {
             Some(first_sector)
-        } else {
+        }
+        else {
             log::warn!("get_next_id(): Sector not found: {:?}", chs);
             None
         }
@@ -740,7 +752,8 @@ impl Track for BitStreamTrack {
         let markers = System34Parser::scan_track_markers(&self.data);
         if markers.is_empty() {
             log::error!("TrackData::format(): No markers found in track data post-format.");
-        } else {
+        }
+        else {
             log::trace!("TrackData::format(): Found {} markers in track data.", markers.len());
         }
         System34Parser::create_clock_map(&markers, self.data.clock_map_mut());
@@ -763,7 +776,7 @@ impl Track for BitStreamTrack {
         Ok(())
     }
 
-    fn get_track_consistency(&self) -> TrackConsistency {
+    fn get_track_consistency(&self) -> Result<TrackConsistency, DiskImageError> {
         let sector_ct = self.sector_ids.len();
         let mut consistency = TrackConsistency::default();
         let mut n_set: FoxHashSet<u8> = FoxHashSet::new();
@@ -780,7 +793,8 @@ impl Track for BitStreamTrack {
         if n_set.len() > 1 {
             //log::warn!("get_track_consistency(): Variable sector sizes detected: {:?}", n_set);
             consistency.consistent_sector_size = None;
-        } else {
+        }
+        else {
             //log::warn!("get_track_consistency(): Consistent sector size: {}", last_n);
             consistency.consistent_sector_size = Some(last_n);
         }
@@ -805,12 +819,163 @@ impl Track for BitStreamTrack {
         }
 
         consistency.sector_ct = sector_ct;
-        consistency
+        Ok(consistency)
+    }
+
+    fn get_track_stream(&self) -> Option<&TrackDataStream> {
+        Some(&self.data)
     }
 }
 
 impl BitStreamTrack {
-    fn add_write(&mut self, _bytes: usize) {
+    pub fn new(
+        params: BitStreamTrackParams,
+        shared: Arc<Mutex<SharedDiskContext>>,
+    ) -> Result<BitStreamTrack, DiskImageError> {
+        if params.data.is_empty() {
+            log::error!("add_track_bitstream(): Data is empty.");
+            return Err(DiskImageError::ParameterError);
+        }
+        if params.weak.is_some() && (params.data.len() != params.weak.unwrap().len()) {
+            log::error!("add_track_bitstream(): Data and weak bit mask lengths do not match.");
+            return Err(DiskImageError::ParameterError);
+        }
+
+        log::debug!(
+            "BitStreamTrack::new(): {} track {}, {} bits",
+            params.encoding,
+            params.ch,
+            params.bitcell_ct.unwrap_or(params.data.len() * 8)
+        );
+
+        let data = BitVec::from_bytes(&params.data);
+        let weak_bitvec_opt = params.weak.as_deref().map(BitVec::from_bytes);
+
+        let (mut data_stream, markers) = match params.encoding {
+            DiskDataEncoding::Mfm => {
+                let mut codec;
+
+                // If a weak bit mask was provided by the file format, we will honor it.
+                // Otherwise, if 'detect_weak' is set we will try to detect weak bits from the MFM stream.
+                if weak_bitvec_opt.is_some() {
+                    codec = MfmCodec::new(data, params.bitcell_ct, weak_bitvec_opt);
+                }
+                else {
+                    codec = MfmCodec::new(data, params.bitcell_ct, None);
+                    if params.detect_weak {
+                        let weak_bitvec = codec.create_weak_bit_mask(MfmCodec::WEAK_BIT_RUN);
+                        if weak_bitvec.any() {
+                            log::debug!(
+                                "add_track_bitstream(): Detected {} weak bits in MFM bitstream.",
+                                weak_bitvec.count_ones()
+                            );
+                        }
+                        _ = codec.set_weak_mask(weak_bitvec);
+                    }
+                }
+
+                let mut data_stream: TrackDataStream = Box::new(codec);
+                let markers = System34Parser::scan_track_markers(&data_stream);
+                if !markers.is_empty() {
+                    log::debug!("First marker found at {}", markers[0].start);
+                }
+
+                System34Parser::create_clock_map(&markers, data_stream.clock_map_mut());
+
+                data_stream.set_track_padding();
+
+                (data_stream, markers)
+            }
+            DiskDataEncoding::Fm => {
+                let mut codec;
+
+                // If a weak bit mask was provided by the file format, we will honor it.
+                // Otherwise, we will try to detect weak bits from the MFM stream.
+                if weak_bitvec_opt.is_some() {
+                    codec = FmCodec::new(data, params.bitcell_ct, weak_bitvec_opt);
+                }
+                else {
+                    codec = FmCodec::new(data, params.bitcell_ct, None);
+                    // let weak_regions = codec.detect_weak_bits(9);
+                    // log::trace!(
+                    //     "add_track_bitstream(): Detected {} weak bit regions",
+                    //     weak_regions.len()
+                    // );
+                    let weak_bitvec = codec.create_weak_bit_mask(FmCodec::WEAK_BIT_RUN);
+                    if weak_bitvec.any() {
+                        log::trace!(
+                            "add_track_bitstream(): Detected {} weak bits in FM bitstream.",
+                            weak_bitvec.count_ones()
+                        );
+                    }
+                    _ = codec.set_weak_mask(weak_bitvec);
+                }
+
+                let mut data_stream: TrackDataStream = Box::new(codec);
+                let markers = System34Parser::scan_track_markers(&data_stream);
+
+                System34Parser::create_clock_map(&markers, data_stream.clock_map_mut());
+
+                data_stream.set_track_padding();
+
+                (data_stream, markers)
+            }
+            _ => {
+                log::error!(
+                    "add_track_bitstream(): Unsupported data encoding: {:?}",
+                    params.encoding
+                );
+                return Err(DiskImageError::UnsupportedFormat);
+            }
+        };
+
+        // let format = TrackFormat {
+        //     data_encoding,
+        //     data_sync: data_stream.get_sync(),
+        //     data_rate,
+        // };
+
+        let metadata = DiskStructureMetadata::new(System34Parser::scan_track_metadata(&mut data_stream, markers));
+        let sector_ids = metadata.get_sector_ids();
+        if sector_ids.is_empty() {
+            log::warn!(
+                "add_track_bitstream(): No sector ids found in track {} metadata.",
+                params.ch.c()
+            );
+        }
+
+        let sector_offsets = metadata
+            .items
+            .iter()
+            .filter_map(|i| {
+                if let DiskStructureElement::System34(System34Element::Data { .. }) = i.elem_type {
+                    //log::trace!("Got Data element, returning start address: {}", i.start);
+                    Some(i.start)
+                }
+                else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        log::debug!(
+            "add_track_bitstream(): Retrieved {} sector bitstream offsets from {} metadata entries.",
+            sector_offsets.len(),
+            metadata.items.len()
+        );
+
+        Ok(BitStreamTrack {
+            encoding: params.encoding,
+            data_rate: params.data_rate,
+            ch: params.ch,
+            data: data_stream,
+            metadata,
+            sector_ids,
+            shared,
+        })
+    }
+
+    pub(crate) fn add_write(&mut self, _bytes: usize) {
         let mut write_count = self.shared.lock().unwrap().writes;
         write_count += 1;
         self.shared.lock().unwrap().writes = write_count;
@@ -948,13 +1113,15 @@ impl BitStreamTrack {
                         // If c differs, we set the flag for wrong cylinder.
                         if chsn.c() != seek_chs.c() {
                             wrong_cylinder = true;
-                        } else {
+                        }
+                        else {
                             matched_c = true;
                         }
                         // If h differs, we set the flag for wrong head.
                         if chsn.h() != seek_chs.h() {
                             wrong_head = true;
-                        } else {
+                        }
+                        else {
                             matched_h = true;
                         }
 
@@ -1006,5 +1173,22 @@ impl BitStreamTrack {
             bad_cylinder,
             wrong_head,
         }
+    }
+
+    pub fn calc_quality_score(&self) -> i32 {
+        let mut score = 0;
+        for s in self.get_sector_list() {
+            // Weight having a sector heavily, so that missing sectors are heavily penalized.
+            score += 5;
+            if !s.address_crc_valid {
+                // Bad address CRC is unusual, most likely track error.
+                score -= 5;
+            }
+            if !s.data_crc_valid {
+                // Bad data CRC is more common. Weight it less relative to other issues.
+                score -= 1;
+            }
+        }
+        score
     }
 }

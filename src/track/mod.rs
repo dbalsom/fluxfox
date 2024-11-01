@@ -30,8 +30,10 @@
 
 */
 pub mod bitstream;
+pub mod fluxstream;
 pub mod metasector;
 
+use crate::bitstream::TrackDataStream;
 use crate::diskimage::{
     ReadSectorResult, ReadTrackResult, RwSectorScope, ScanSectorResult, SectorDescriptor, WriteSectorResult,
 };
@@ -98,6 +100,7 @@ pub trait Track: Any {
 
     fn set_ch(&mut self, ch: DiskCh);
 
+    fn encoding(&self) -> DiskDataEncoding;
     fn info(&self) -> TrackInfo;
 
     fn metadata(&self) -> Option<&DiskStructureMetadata>;
@@ -169,7 +172,9 @@ pub trait Track: Any {
         gap3: usize,
     ) -> Result<(), DiskImageError>;
 
-    fn get_track_consistency(&self) -> TrackConsistency;
+    fn get_track_consistency(&self) -> Result<TrackConsistency, DiskImageError>;
+
+    fn get_track_stream(&self) -> Option<&TrackDataStream>;
 }
 
 pub type DiskTrack = Box<dyn Track + Send + Sync>;

@@ -34,12 +34,13 @@
 
 
 */
-use crate::diskimage::{BitstreamTrackParams, DiskDescriptor};
+use crate::diskimage::DiskDescriptor;
 use crate::file_parsers::{bitstream_flags, FormatCaps};
-use crate::fluxstream::flux_stream::RawFluxTrack;
-use crate::fluxstream::pll::{Pll, PllPreset};
-use crate::fluxstream::FluxTransition;
+use crate::flux::pll::{Pll, PllPreset};
+use crate::flux::FluxTransition;
 use crate::io::{ReadBytesExt, ReadSeek, ReadWriteSeek};
+use crate::track::fluxstream::FluxStreamTrack;
+use crate::util::read_ascii;
 use crate::{io, DiskDataResolution, FoxHashSet, LoadingCallback};
 use crate::{
     DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat,
@@ -48,8 +49,6 @@ use crate::{
 use binrw::binrw;
 use binrw::BinRead;
 use std::path::{Path, PathBuf};
-
-use crate::util::read_ascii;
 
 pub const KFX_DEFAULT_MCK: f64 = ((18432000.0 * 73.0) / 14.0) / 2.0;
 pub const KFX_DEFAULT_SCK: f64 = KFX_DEFAULT_MCK / 2.0;
@@ -169,11 +168,10 @@ impl KfxFormat {
 
     pub(crate) fn load_image<RWS: ReadSeek>(
         mut image: RWS,
-        append_image: Option<DiskImage>,
+        disk_image: &mut DiskImage,
         _callback: Option<LoadingCallback>,
-    ) -> Result<DiskImage, DiskImageError> {
-        let mut disk_image = append_image.unwrap_or_default();
-        disk_image.set_resolution(DiskDataResolution::BitStream);
+    ) -> Result<(), DiskImageError> {
+        disk_image.set_resolution(DiskDataResolution::FluxStream);
         disk_image.set_source_format(DiskImageFormat::KryofluxStream);
 
         let mut kfx_context = KfxFormat::default();
@@ -209,13 +207,13 @@ impl KfxFormat {
 
         let mut pll = Pll::from_preset(PllPreset::Aggressive);
         //pll.set_clock(2e-6, None);
-        let mut flux_track = RawFluxTrack::new(1.0 / 2e-6);
+        let mut flux_track = FluxStreamTrack::new();
 
         // log::debug!("Found {} partial revolutions in stream", streams.len());
         // for (si, stream) in streams.iter().enumerate() {
         //     log::debug!("  Rev {}: {} samples", si, stream.len());
         // }
-        let complete_revs = kfx_context.idx_ct - 1;
+        let complete_revs = (kfx_context.idx_ct - 1) as usize;
 
         // We need to have at least two index markers to have a complete revolution.
         if complete_revs < 1 || index_offsets.len() < 2 {
@@ -229,45 +227,12 @@ impl KfxFormat {
             index_times.len()
         );
 
-        for ((ri, rev), index_time) in streams.iter().enumerate().skip(1).zip(index_times.iter()) {
-            log::debug!("  Rev {}: {} samples index_time: {}", ri, rev.len(), index_time);
-
-            let rev_rpm = 60.0 / index_time;
-
-            let clock_adjust;
-            if (280.0..=380.0).contains(&rev_rpm) {
-                clock_adjust = rev_rpm / 300.0;
-
-                log::warn!(
-                    "Revolution {} RPM is {:.2}, adjusting clock to {:.2}%",
-                    ri,
-                    rev_rpm,
-                    clock_adjust * 100.0
-                );
-            } else {
-                log::error!("Revolution {} RPM is {:.2}, out of range.", ri, rev_rpm);
-                return Err(DiskImageError::IncompatibleImage);
-            }
-
-            log::debug!(
-                "Adding revolution {} containing {} bitcells to RawFluxTrack",
-                ri,
-                rev.len()
-            );
-            pll.adjust_clock(clock_adjust);
-            flux_track.add_revolution(rev, pll.get_clock());
-            pll.reset_clock();
-        }
-
-        let rev: usize = std::cmp::min(1, (complete_revs - 1) as usize);
-        let flux_stream = flux_track.revolution_mut(rev).unwrap();
-        flux_stream.decode2(&mut pll, true);
-
         // Get last ch in image.
         let next_ch = if disk_image.track_ch_iter().count() == 0 {
             log::debug!("No tracks in image, starting at c:0 h:0");
             DiskCh::new(0, 0)
-        } else {
+        }
+        else {
             let mut last_ch = disk_image.track_ch_iter().last().unwrap_or(DiskCh::new(0, 0));
             log::debug!("Previous track in image: {} heads: {}", last_ch, disk_image.heads());
 
@@ -275,59 +240,204 @@ impl KfxFormat {
             last_ch
         };
 
-        let rev_density = match flux_stream.guess_density(false) {
-            Some(d) => {
-                log::debug!("Revolution {} density: {:?}", rev, d);
-                d
-            }
-            None => {
-                log::error!(
-                    "Unable to detect rev {} track {} density: {}",
-                    rev,
-                    next_ch,
-                    flux_stream.transition_avg()
-                );
-                //return Err(DiskImageError::IncompatibleImage);
-                DiskDensity::Double
-            }
-        };
-
-        let (track_data, track_bits) = flux_track.revolution_mut(rev).unwrap().bitstream_data();
-
-        let data_rate = DiskDataRate::from(rev_density);
-
-        if track_bits < 100 {
-            log::warn!("Track contains less than 100 bits. Adding empty track.");
-            disk_image.add_empty_track(next_ch, DiskDataEncoding::Mfm, data_rate, 100_000)?;
-        } else {
-            log::debug!("Adding track {} containing {} bits to image...", next_ch, track_bits);
-
-            let params = BitstreamTrackParams {
-                encoding: DiskDataEncoding::Mfm,
-                data_rate,
-                ch: next_ch,
-                bitcell_ct: Some(track_bits),
-                data: &track_data,
-                weak: None,
-                hole: None,
-                detect_weak: false,
-            };
-            disk_image.add_track_bitstream(params)?;
+        for ((_ri, rev), index_time) in streams
+            .iter()
+            .enumerate()
+            .skip(1)
+            .take(complete_revs)
+            .zip(index_times.iter())
+        {
+            flux_track.add_revolution(next_ch, rev, pll.get_clock(), *index_time);
         }
+
+        #[cfg(feature = "plot")]
+        {
+            let plot_rev: usize = std::cmp::min(0, complete_revs - 1);
+            let flux_rev = flux_track.revolution_mut(plot_rev).unwrap();
+
+            let plot_stats = flux_rev.pll_stats();
+
+            let x: Vec<f64> = plot_stats.iter().map(|point| point.time).collect();
+            let len: Vec<f64> = plot_stats.iter().map(|point| point.len).collect();
+            let predicted: Vec<f64> = plot_stats.iter().map(|point| point.predicted).collect();
+            let clk_samples: Vec<f64> = plot_stats.iter().map(|point| point.clk).collect();
+            let win_min: Vec<f64> = plot_stats.iter().map(|point| point.window_min).collect();
+            let win_max: Vec<f64> = plot_stats.iter().map(|point| point.window_max).collect();
+            let phase_err: Vec<f64> = plot_stats.iter().map(|point| point.phase_err).collect();
+            let phase_err_i: Vec<f64> = plot_stats.iter().map(|point| point.phase_err_i).collect();
+
+            use plotly::common::{Line, Marker, Mode};
+            use plotly::layout::Axis;
+            use plotly::*;
+            let mut plot = Plot::new();
+            let flux_times = Scatter::new(x.clone(), len.clone())
+                .mode(Mode::Markers)
+                .name("FT length")
+                .marker(Marker::new().size(2).color(Rgba::new(0, 128, 0, 1.0)));
+            let predicted_times = Scatter::new(x.clone(), predicted)
+                .mode(Mode::Markers)
+                .name("FT length")
+                .marker(Marker::new().size(2).color(Rgba::new(0, 255, 0, 0.5)));
+            let clock_trace = Scatter::new(x.clone(), clk_samples)
+                .mode(Mode::Lines)
+                .name("PLL Clock")
+                .line(Line::new().color(Rgba::new(128, 0, 0, 1.0)));
+
+            let window_trace = Scatter::new(
+                x.iter().flat_map(|&x| vec![x, x]).collect::<Vec<_>>(), // Duplicate each x for the start and end points
+                win_min
+                    .iter()
+                    .zip(&win_max)
+                    .flat_map(|(&start, &end)| vec![start, end])
+                    .collect::<Vec<_>>(), // Flatten each pair of y1, y2
+            )
+            .mode(Mode::Lines) // Use lines to draw each segment
+            .name("PLL Window");
+
+            let win_min_trace = Scatter::new(x.clone(), win_min.clone())
+                .mode(Mode::Markers)
+                .name("Window min")
+                .marker(Marker::new().size(3).color(Rgba::new(128, 128, 0, 0.6)));
+            let win_max_trace = Scatter::new(x.clone(), win_max.clone())
+                .mode(Mode::Markers)
+                .name("Window max")
+                .marker(Marker::new().size(3).color(Rgba::new(0, 128, 128, 0.6)));
+
+            let error_trace = Scatter::new(x.clone(), phase_err.clone())
+                .mode(Mode::Lines)
+                .name("Phase Error")
+                .line(Line::new().color(Rgba::new(0, 0, 128, 1.0)));
+
+            let error_i_trace = Scatter::new(x.clone(), phase_err_i.clone())
+                .mode(Mode::Lines)
+                .name("Integrated error")
+                .line(Line::new().color(Rgba::new(255, 255, 0, 1.0)));
+
+            //let candle_trace = Candlestick::new(x.clone(), win_min.clone(), win_max.clone(), win_min.clone(), win_max.clone());
+
+            let mut path = PathBuf::from("plots");
+            if !path.exists() {
+                std::fs::create_dir(path.clone())?;
+            }
+            let filename = format!("pll_{}_{}.html", next_ch.c(), next_ch.h());
+
+            // let flux_filename = format!("flux_{}_{}.csv", next_ch.c(), next_ch.h());
+            // let flux_path = path.join(flux_filename);
+            //
+            // use std::io::Write;
+            // let mut flux_file = std::fs::File::create(flux_path)?;
+            // for (x, y) in x.iter().zip(len.clone().iter()) {
+            //     writeln!(flux_file, "{},{}", x, y)?;
+            // }
+
+            path.push(filename);
+            //plot.add_trace(candle_trace);
+
+            plot.add_trace(error_trace);
+            plot.add_trace(error_i_trace);
+            plot.add_trace(win_min_trace);
+            plot.add_trace(win_max_trace);
+            //plot.add_trace(window_trace);
+            plot.add_trace(predicted_times);
+            plot.add_trace(flux_times);
+
+            use plotly::color::Rgba;
+            use plotly::layout::{Shape, ShapeLayer, ShapeLine, ShapeType};
+
+            // // Create a list of shapes representing each PLL window
+            // let shapes: Vec<Shape> = x
+            //     .iter()
+            //     .enumerate()
+            //     .map(|(i, &start)| {
+            //         let x0 = start;
+            //         let x1 = if i + 1 < x.len() { x[i + 1] } else { x0 };
+            //         let min = win_min[i];
+            //         let max = win_max[i];
+            //
+            //         Shape::new()
+            //             .shape_type(ShapeType::Rect)
+            //             .x0(x0)
+            //             .x1(x1)
+            //             .y0(min)
+            //             .y1(max)
+            //             .layer(ShapeLayer::Below)
+            //             .line(ShapeLine::new().width(0.0))
+            //             .fill_color(Rgba::new(128, 128, 128, 0.3))
+            //     })
+            //     .collect();
+            //
+            // log::warn!("Plotting {} shapes", shapes.len());
+            let mut layout = Layout::new().y_axis(Axis::new().range(vec![-1.0e-6, 10.0e-6]));
+            // layout = layout.shapes(shapes);
+
+            plot.add_trace(clock_trace);
+            plot.set_layout(layout);
+            plot.write_html(path);
+        }
+
+        // let rev_encoding = flux_rev.encoding();
+        // let rev_density = match rev_stats.detect_density(false) {
+        //     Some(d) => {
+        //         log::debug!("Revolution {} density: {:?}", rev, d);
+        //         d
+        //     }
+        //     None => {
+        //         log::error!(
+        //             "Unable to detect rev {} track {} density: {}",
+        //             rev,
+        //             next_ch,
+        //             flux_rev.transition_avg()
+        //         );
+        //         //return Err(DiskImageError::IncompatibleImage);
+        //         DiskDensity::Double
+        //     }
+        // };
+
+        // let (track_data, track_bits) = flux_track.revolution_mut(rev).unwrap().bitstream_data();
+        //
+        // let data_rate = DiskDataRate::from(rev_density);
+        //
+        // if track_bits < 1000 {
+        //     log::warn!("Track contains less than 1000 bits. Adding empty track.");
+        //     disk_image.add_empty_track(next_ch, DiskDataEncoding::Mfm, data_rate, 100_000)?;
+        // }
+        // else {
+        //     log::debug!(
+        //         "Adding {:?} track {} containing {} bits to image...",
+        //         rev_encoding,
+        //         next_ch,
+        //         track_bits
+        //     );
+        //
+        //     let params = BitStreamTrackParams {
+        //         encoding: rev_encoding,
+        //         data_rate,
+        //         ch: next_ch,
+        //         bitcell_ct: Some(track_bits),
+        //         data: &track_data,
+        //         weak: None,
+        //         hole: None,
+        //         detect_weak: false,
+        //     };
+        //     disk_image.add_track_bitstream(params)?;
+        // }
+
+        let data_rate = disk_image.data_rate();
+        disk_image.add_track_fluxstream(next_ch, flux_track)?;
 
         log::debug!("Track added.");
 
         disk_image.descriptor = DiskDescriptor {
             geometry: disk_image.geometry(),
             data_rate,
-            density: rev_density,
+            density: DiskDensity::from(data_rate),
             data_encoding: DiskDataEncoding::Mfm,
             default_sector_size: DEFAULT_SECTOR_SIZE,
             rpm: None,
             write_protect: Some(true),
         };
 
-        Ok(disk_image)
+        Ok(())
     }
 
     pub fn save_image<RWS: ReadWriteSeek>(_image: &DiskImage, _output: &mut RWS) -> Result<(), DiskImageError> {
@@ -400,7 +510,8 @@ impl KfxFormat {
                             if (ib.stream_pos as u64) < current_pos {
                                 log::warn!("Stream pos is behind current position.");
                             }
-                        } else {
+                        }
+                        else {
                             log::debug!(
                                 "Index block: current_pos: {} pos: {} sample_ct: {} index_ct: {}",
                                 current_pos,
@@ -563,7 +674,7 @@ impl KfxFormat {
                                 }
                                 string.push_str(s);
                             }
-                            log::warn!("terminator: {:02X}", terminator);
+                            //log::warn!("terminator: {:02X}", terminator);
                             string_end = str_opt.is_none() || terminator == 0;
                         }
                     }
@@ -653,7 +764,8 @@ impl KfxFormat {
                     // Add cylinder and head to the set of seen values
                     cylinders_seen.insert(c as u32);
                     heads_seen.insert(h as u32);
-                } else if h == 0 {
+                }
+                else if h == 0 {
                     // We didn't find a file representing side 0 of the next cylinder.
 
                     // We could just have a set missing tracks. We should not necessarily consider
@@ -688,7 +800,8 @@ fn kfx_parse_str(s: &str) -> (Option<f64>, Option<f64>) {
         let sck = c.get(1).and_then(|m| m.as_str().parse::<f64>().ok());
         let ick = c.get(2).and_then(|m| m.as_str().parse::<f64>().ok());
         (sck, ick)
-    } else {
+    }
+    else {
         (None, None)
     }
 }

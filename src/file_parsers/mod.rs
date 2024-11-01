@@ -150,13 +150,14 @@ pub trait ImageParser {
     fn detect<RWS: ReadSeek>(&self, image_buf: RWS) -> bool;
     /// Return a list of file extensions associated with the parser.
     fn extensions(&self) -> Vec<&'static str>;
-    /// Create a DiskImage from the specified image buffer, or DiskImageError if the format is not supported.
+    /// Load a disk image file into an empty (default) DiskImage, or append a disk image file to an
+    /// existing DiskImage.
     fn load_image<RWS: ReadSeek>(
         &self,
-        image_buf: RWS,
-        append_image: Option<DiskImage>,
+        read_buf: RWS,
+        image: &mut DiskImage,
         callback: Option<LoadingCallback>,
-    ) -> Result<DiskImage, DiskImageError>;
+    ) -> Result<(), DiskImageError>;
     /// Return true if the parser can write the specified disk image. Not all formats are writable
     /// at all, and not all DiskImages can be represented in the specified format.
     fn can_write(&self, image: &DiskImage) -> ParserWriteCompatibility;
@@ -220,24 +221,24 @@ impl ImageParser for DiskImageFormat {
 
     fn load_image<RWS: ReadSeek>(
         &self,
-        image_buf: RWS,
-        append_image: Option<DiskImage>,
+        read_buf: RWS,
+        image: &mut DiskImage,
         callback: Option<LoadingCallback>,
-    ) -> Result<DiskImage, DiskImageError> {
+    ) -> Result<(), DiskImageError> {
         match self {
-            DiskImageFormat::RawSectorImage => raw::RawFormat::load_image(image_buf, callback),
-            DiskImageFormat::ImageDisk => imd::ImdFormat::load_image(image_buf, callback),
-            DiskImageFormat::TeleDisk => td0::Td0Format::load_image(image_buf, callback),
-            DiskImageFormat::PceSectorImage => psi::PsiFormat::load_image(image_buf, callback),
-            DiskImageFormat::PceBitstreamImage => pri::PriFormat::load_image(image_buf, callback),
-            DiskImageFormat::MfmBitstreamImage => mfm::MfmFormat::load_image(image_buf, callback),
-            DiskImageFormat::HfeImage => hfe::HfeFormat::load_image(image_buf, callback),
-            DiskImageFormat::F86Image => f86::F86Format::load_image(image_buf, callback),
-            DiskImageFormat::TransCopyImage => tc::TCFormat::load_image(image_buf, callback),
-            DiskImageFormat::SuperCardPro => scp::ScpFormat::load_image(image_buf, callback),
-            DiskImageFormat::PceFluxImage => pfi::PfiFormat::load_image(image_buf, callback),
-            DiskImageFormat::KryofluxStream => kryoflux::KfxFormat::load_image(image_buf, append_image, callback),
-            DiskImageFormat::MameFloppyImage => mfi::MfiFormat::load_image(image_buf, callback),
+            DiskImageFormat::RawSectorImage => raw::RawFormat::load_image(read_buf, image, callback),
+            DiskImageFormat::ImageDisk => imd::ImdFormat::load_image(read_buf, image, callback),
+            DiskImageFormat::TeleDisk => td0::Td0Format::load_image(read_buf, image, callback),
+            DiskImageFormat::PceSectorImage => psi::PsiFormat::load_image(read_buf, image, callback),
+            DiskImageFormat::PceBitstreamImage => pri::PriFormat::load_image(read_buf, image, callback),
+            DiskImageFormat::MfmBitstreamImage => mfm::MfmFormat::load_image(read_buf, image, callback),
+            DiskImageFormat::HfeImage => hfe::HfeFormat::load_image(read_buf, image, callback),
+            DiskImageFormat::F86Image => f86::F86Format::load_image(read_buf, image, callback),
+            DiskImageFormat::TransCopyImage => tc::TCFormat::load_image(read_buf, image, callback),
+            DiskImageFormat::SuperCardPro => scp::ScpFormat::load_image(read_buf, image, callback),
+            DiskImageFormat::PceFluxImage => pfi::PfiFormat::load_image(read_buf, image, callback),
+            DiskImageFormat::KryofluxStream => kryoflux::KfxFormat::load_image(read_buf, image, callback),
+            DiskImageFormat::MameFloppyImage => mfi::MfiFormat::load_image(read_buf, image, callback),
         }
     }
 
@@ -259,21 +260,21 @@ impl ImageParser for DiskImageFormat {
         }
     }
 
-    fn save_image<RWS: ReadWriteSeek>(self, image: &mut DiskImage, image_buf: &mut RWS) -> Result<(), DiskImageError> {
+    fn save_image<RWS: ReadWriteSeek>(self, image: &mut DiskImage, write_buf: &mut RWS) -> Result<(), DiskImageError> {
         match self {
-            DiskImageFormat::RawSectorImage => raw::RawFormat::save_image(image, image_buf),
-            DiskImageFormat::ImageDisk => imd::ImdFormat::save_image(image, image_buf),
-            DiskImageFormat::TeleDisk => td0::Td0Format::save_image(image, image_buf),
-            DiskImageFormat::PceSectorImage => psi::PsiFormat::save_image(image, image_buf),
-            DiskImageFormat::PceBitstreamImage => pri::PriFormat::save_image(image, image_buf),
-            DiskImageFormat::MfmBitstreamImage => mfm::MfmFormat::save_image(image, image_buf),
-            DiskImageFormat::HfeImage => hfe::HfeFormat::save_image(image, image_buf),
-            DiskImageFormat::F86Image => f86::F86Format::save_image(image, image_buf),
-            DiskImageFormat::TransCopyImage => tc::TCFormat::save_image(image, image_buf),
-            DiskImageFormat::SuperCardPro => scp::ScpFormat::save_image(image, image_buf),
-            DiskImageFormat::PceFluxImage => pfi::PfiFormat::save_image(image, image_buf),
-            DiskImageFormat::KryofluxStream => kryoflux::KfxFormat::save_image(image, image_buf),
-            DiskImageFormat::MameFloppyImage => mfi::MfiFormat::save_image(image, image_buf),
+            DiskImageFormat::RawSectorImage => raw::RawFormat::save_image(image, write_buf),
+            DiskImageFormat::ImageDisk => imd::ImdFormat::save_image(image, write_buf),
+            DiskImageFormat::TeleDisk => td0::Td0Format::save_image(image, write_buf),
+            DiskImageFormat::PceSectorImage => psi::PsiFormat::save_image(image, write_buf),
+            DiskImageFormat::PceBitstreamImage => pri::PriFormat::save_image(image, write_buf),
+            DiskImageFormat::MfmBitstreamImage => mfm::MfmFormat::save_image(image, write_buf),
+            DiskImageFormat::HfeImage => hfe::HfeFormat::save_image(image, write_buf),
+            DiskImageFormat::F86Image => f86::F86Format::save_image(image, write_buf),
+            DiskImageFormat::TransCopyImage => tc::TCFormat::save_image(image, write_buf),
+            DiskImageFormat::SuperCardPro => scp::ScpFormat::save_image(image, write_buf),
+            DiskImageFormat::PceFluxImage => pfi::PfiFormat::save_image(image, write_buf),
+            DiskImageFormat::KryofluxStream => kryoflux::KfxFormat::save_image(image, write_buf),
+            DiskImageFormat::MameFloppyImage => mfi::MfiFormat::save_image(image, write_buf),
         }
     }
 }

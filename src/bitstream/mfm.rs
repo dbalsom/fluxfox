@@ -63,7 +63,8 @@ pub fn get_mfm_sync_offset(track: &BitVec) -> Option<EncodingPhase> {
         Some(offset) => {
             if offset % 2 == 0 {
                 Some(EncodingPhase::Even)
-            } else {
+            }
+            else {
                 Some(EncodingPhase::Odd)
             }
         }
@@ -176,7 +177,8 @@ impl TrackCodec for MfmCodec {
                 log::debug!("set_track_padding(): Unable to determine track padding",);
                 self.track_padding = 0;
             }
-        } else {
+        }
+        else {
             // Track length is not an even multiple of 8 - the only explanation is that there is no
             // track padding.
             self.track_padding = 0;
@@ -188,17 +190,11 @@ impl TrackCodec for MfmCodec {
             return None;
         }
 
-        let mut byte_val = 0;
-        for i in 0..8 {
-            byte_val = (byte_val << 1)
-                //| if self.bit_vec[self.sync + ((index + i) << 1)] {
-                | if *self.ref_bit_at(index + i) {
-                1
-            } else {
-                0
-            };
+        let mut byte = 0;
+        for bi in index..std::cmp::min(index + 8, self.bit_vec.len()) {
+            byte = (byte << 1) | self.bit_vec[bi] as u8;
         }
-        Some(byte_val)
+        Some(byte)
     }
 
     /// This is essentially a reimplementation of Read + Iterator that avoids mutation.
@@ -232,7 +228,8 @@ impl TrackCodec for MfmCodec {
             let decoded_bit = if self.weak_enabled && !self.weak_mask.is_empty() && self.weak_mask[data_idx] {
                 // Weak bits return random data
                 rand::random()
-            } else {
+            }
+            else {
                 self.bit_vec[data_idx]
             };
 
@@ -240,7 +237,8 @@ impl TrackCodec for MfmCodec {
             if new_cursor >= (self.bit_vec.len() - self.track_padding) {
                 // Wrap around to the beginning of the track
                 cursor = 0;
-            } else {
+            }
+            else {
                 cursor = new_cursor;
             }
 
@@ -319,17 +317,20 @@ impl TrackCodec for MfmCodec {
                     // 1 is encoded as 01
                     bitvec.push(false);
                     bitvec.push(true);
-                } else {
+                }
+                else {
                     // 0 is encoded as 10 if previous bit was 0, otherwise 00
                     let previous_bit = if bitvec.is_empty() {
                         prev_bit
-                    } else {
+                    }
+                    else {
                         bitvec[bitvec.len() - 1]
                     };
 
                     if previous_bit {
                         bitvec.push(false);
-                    } else {
+                    }
+                    else {
                         bitvec.push(true);
                     }
                     bitvec.push(false);
@@ -354,6 +355,7 @@ impl TrackCodec for MfmCodec {
     }
 
     fn find_marker(&self, marker: u64, mask: Option<u64>, start: usize, limit: Option<usize>) -> Option<(usize, u16)> {
+        //log::debug!("Mfm::find_marker(): Searching for marker: {:016X}", marker);
         if self.bit_vec.is_empty() {
             return None;
         }
@@ -365,7 +367,8 @@ impl TrackCodec for MfmCodec {
 
         let search_limit = if let Some(provided_limit) = limit {
             std::cmp::min(provided_limit, self.bit_vec.len())
-        } else {
+        }
+        else {
             self.bit_vec.len()
         };
 
@@ -472,11 +475,13 @@ impl MfmCodec {
                 if bit {
                     // 1 is encoded as 01
                     accum = (accum << 2) | 0b01;
-                } else {
+                }
+                else {
                     // 0 is encoded as 10 if previous bit was 0, otherwise 00
                     if !previous_bit {
                         accum = (accum << 2) | 0b10;
-                    } else {
+                    }
+                    else {
                         accum <<= 2;
                     }
                 }
@@ -491,7 +496,8 @@ impl MfmCodec {
         if self.weak_enabled && self.weak_mask[self.bit_cursor] {
             // Weak bits return random data
             Some(rand::random())
-        } else {
+        }
+        else {
             Some(self.bit_vec[self.bit_cursor])
         }
     }
@@ -500,7 +506,8 @@ impl MfmCodec {
         if self.weak_enabled && self.weak_mask[self.initial_phase + (index << 1)] {
             // Weak bits return random data
             Some(rand::random())
-        } else {
+        }
+        else {
             Some(self.bit_vec[self.initial_phase + (index << 1)])
         }
     }
@@ -511,7 +518,8 @@ impl MfmCodec {
             // Weak bits return random data
             // TODO: precalculate random table and return reference to it.
             &self.bit_vec[p_off + (index << 1)]
-        } else {
+        }
+        else {
             &self.bit_vec[p_off + (index << 1)]
         }
     }
@@ -524,7 +532,8 @@ impl MfmCodec {
         for bit in self.bit_vec.iter() {
             if !bit {
                 zero_ct += 1;
-            } else {
+            }
+            else {
                 if zero_ct >= run {
                     region_ct += 1;
                 }
@@ -548,7 +557,8 @@ impl MfmCodec {
         for (i, bit) in self.bit_vec.iter().enumerate() {
             if !bit {
                 zero_ct += 1;
-            } else {
+            }
+            else {
                 if zero_ct >= run {
                     regions.push(TrackRegion {
                         start: region_start,
@@ -575,13 +585,15 @@ impl MfmCodec {
         for bit in self.bit_vec.iter() {
             if !bit {
                 zero_ct += 1;
-            } else {
+            }
+            else {
                 zero_ct = 0;
             }
 
             if zero_ct > run {
                 weak_bitvec.push(true);
-            } else {
+            }
+            else {
                 weak_bitvec.push(false);
             }
         }
@@ -612,7 +624,8 @@ impl Iterator for MfmCodec {
         let decoded_bit = if self.weak_enabled && self.weak_mask[data_idx] {
             // Weak bits return random data
             rand::random()
-        } else {
+        }
+        else {
             self.bit_vec[data_idx]
         };
 
@@ -620,7 +633,8 @@ impl Iterator for MfmCodec {
         if new_cursor >= (self.bit_vec.len() - self.track_padding) {
             // Wrap around to the beginning of the track
             self.bit_cursor = 0;
-        } else {
+        }
+        else {
             self.bit_cursor = new_cursor;
         }
 
@@ -685,7 +699,8 @@ impl Read for MfmCodec {
             for _ in 0..8 {
                 if let Some(bit) = self.next() {
                     byte_val = (byte_val << 1) | bit as u8;
-                } else {
+                }
+                else {
                     break;
                 }
             }

@@ -50,7 +50,7 @@
 use crate::file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
 
-use crate::diskimage::{BitstreamTrackParams, DiskDescriptor};
+use crate::diskimage::{BitStreamTrackParams, DiskDescriptor};
 use crate::{
     DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat, DiskRpm,
     LoadingCallback, DEFAULT_SECTOR_SIZE,
@@ -159,7 +159,8 @@ impl TCFormat {
         }
         let header = if let Ok(header) = TCFileHeader::read(&mut image) {
             header
-        } else {
+        }
+        else {
             return false;
         };
 
@@ -171,19 +172,20 @@ impl TCFormat {
     }
 
     pub(crate) fn load_image<RWS: ReadSeek>(
-        mut image: RWS,
+        mut read_buf: RWS,
+        disk_image: &mut DiskImage,
         _callback: Option<LoadingCallback>,
-    ) -> Result<DiskImage, DiskImageError> {
-        let mut disk_image = DiskImage::default();
+    ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFormat::TransCopyImage);
 
-        let disk_image_size = image.seek(std::io::SeekFrom::End(0)).unwrap();
+        let disk_image_size = read_buf.seek(std::io::SeekFrom::End(0)).unwrap();
 
-        image.seek(std::io::SeekFrom::Start(0))?;
+        read_buf.seek(std::io::SeekFrom::Start(0))?;
 
-        let header = if let Ok(header) = TCFileHeader::read(&mut image) {
+        let header = if let Ok(header) = TCFileHeader::read(&mut read_buf) {
             header
-        } else {
+        }
+        else {
             return Err(DiskImageError::UnsupportedFormat);
         };
 
@@ -192,7 +194,7 @@ impl TCFormat {
             return Err(DiskImageError::UnsupportedFormat);
         }
 
-        log::trace!("load_image(): Got TransCopy image.");
+        log::trace!("load_image(): Got TransCopy read_buf.");
 
         // Read comment arrays, and turn into a string with newlines.
         let comment0_string = tc_read_comment(&header.comment0);
@@ -201,9 +203,10 @@ impl TCFormat {
         let comment_string = format!("{}\n{}", comment0_string, comment1_string);
         log::trace!("Read comment: {}", comment_string);
 
-        let disk_info = if let Ok(di) = TCDiskInfo::read(&mut image) {
+        let disk_info = if let Ok(di) = TCDiskInfo::read(&mut read_buf) {
             di
-        } else {
+        }
+        else {
             return Err(DiskImageError::FormatParseError);
         };
 
@@ -282,7 +285,8 @@ impl TCFormat {
 
             let adj_track_size = if track_size % 256 == 0 {
                 track_size
-            } else {
+            }
+            else {
                 ((track_size >> 8) + 1) << 8
             };
 
@@ -292,7 +296,7 @@ impl TCFormat {
             }
 
             if track_offset + track_size > disk_image_size {
-                log::error!("Track data extends beyond end of image");
+                log::error!("Track data extends beyond end of read_buf");
                 return Err(DiskImageError::IncompatibleImage);
             }
 
@@ -343,8 +347,8 @@ impl TCFormat {
             let track_size = disk_info.track_sizes[i] as u64;
 
             let mut track_data_vec = vec![0; track_size as usize];
-            image.seek(std::io::SeekFrom::Start(track_offset)).unwrap();
-            image.read_exact(&mut track_data_vec).unwrap();
+            read_buf.seek(std::io::SeekFrom::Start(track_offset)).unwrap();
+            read_buf.read_exact(&mut track_data_vec).unwrap();
 
             log::trace!(
                 "Adding {:?} encoded track: {}",
@@ -352,7 +356,7 @@ impl TCFormat {
                 DiskCh::from((cylinder_n, head_n))
             );
 
-            let params = BitstreamTrackParams {
+            let params = BitStreamTrackParams {
                 encoding: disk_encoding,
                 data_rate: disk_data_rate,
                 ch: DiskCh::new(cylinder_n, head_n),
@@ -383,7 +387,7 @@ impl TCFormat {
             write_protect: None,
         };
 
-        Ok(disk_image)
+        Ok(())
     }
 
     pub fn save_image<RWS: ReadWriteSeek>(_image: &DiskImage, _output: &mut RWS) -> Result<(), DiskImageError> {

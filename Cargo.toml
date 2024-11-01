@@ -34,6 +34,8 @@ tiny-skia = { version = "0.11", optional = true }
 zip = { version = "2.1.3", default-features = false, features = ["bzip2", "deflate", "deflate64", "lzma", "time", "zstd"], optional = true }
 # Match version of flate2 used by zip
 flate2 = { version = "^1.0.30", optional = true }
+histogram = "0.11"
+plotly = { version = "0.10", optional = true }
 
 [dev-dependencies]
 sha1 = "0.10.6"
@@ -53,6 +55,7 @@ default = ["viz", "zip", "mfi"]
 viz = ["dep:tiny-skia", "dep:image"]
 zip = ["dep:zip"]
 mfi = ["dep:flate2"]
+plot = ["dep:plotly"]
 
 [lints.clippy]
 too-many-arguments = "allow"

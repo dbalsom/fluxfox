@@ -31,7 +31,7 @@
     HFE format images are an internal bitstream-level format used by the HxC disk emulator.
 
 */
-use crate::diskimage::{BitstreamTrackParams, DiskDescriptor};
+use crate::diskimage::{BitStreamTrackParams, DiskDescriptor};
 use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::{
@@ -218,17 +218,17 @@ impl HfeFormat {
     }
 
     pub(crate) fn load_image<RWS: ReadSeek>(
-        mut image: RWS,
+        mut read_buf: RWS,
+        disk_image: &mut DiskImage,
         _callback: Option<LoadingCallback>,
-    ) -> Result<DiskImage, DiskImageError> {
-        let mut disk_image = DiskImage::default();
+    ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFormat::HfeImage);
 
-        let image_len = image.seek(std::io::SeekFrom::End(0))?;
+        let image_len = read_buf.seek(std::io::SeekFrom::End(0))?;
 
-        image.seek(std::io::SeekFrom::Start(0))?;
+        read_buf.seek(std::io::SeekFrom::Start(0))?;
 
-        let file_header = HfeFileHeader::read(&mut image)?;
+        let file_header = HfeFileHeader::read(&mut read_buf)?;
         if file_header.signature != "HXCPICFE".as_bytes() {
             return Err(DiskImageError::UnknownFormat);
         }
@@ -243,11 +243,11 @@ impl HfeFormat {
             hfe_track_encoding
         );
         let track_list_offset = file_header.rack_list_offset as u64 * HFE_TRACK_OFFSET_BLOCK;
-        image.seek(std::io::SeekFrom::Start(track_list_offset))?;
+        read_buf.seek(std::io::SeekFrom::Start(track_list_offset))?;
 
         let mut track_index_vec = Vec::new();
         for ti in 0..file_header.number_of_tracks {
-            let track_index = HfeTrackIndexEntry::read(&mut image)?;
+            let track_index = HfeTrackIndexEntry::read(&mut read_buf)?;
             log::trace!("Track index: {:?}", track_index);
             if track_index.len & 1 != 0 {
                 log::error!("Track {} length cannot be odd, due to head interleave.", ti);
@@ -259,7 +259,7 @@ impl HfeFormat {
         for (ti, track) in track_index_vec.iter().enumerate() {
             let mut track_data: [Vec<u8>; 2] = [Vec::with_capacity(50 * 512), Vec::with_capacity(50 * 512)];
             let track_data_offset = track.offset as u64 * HFE_TRACK_OFFSET_BLOCK;
-            image.seek(std::io::SeekFrom::Start(track_data_offset))?;
+            read_buf.seek(std::io::SeekFrom::Start(track_data_offset))?;
 
             // Use either the offset of the next data block od the end of the file to determine the
             // length of the current data block.
@@ -277,7 +277,8 @@ impl HfeFormat {
                     ti,
                     track.len
                 );
-            } else {
+            }
+            else {
                 log::trace!(
                     "Cylinder {} data length {} contains {} 512 byte blocks.",
                     ti,
@@ -295,7 +296,8 @@ impl HfeFormat {
 
                 let block_data_size: usize = if bytes_remaining >= 512 {
                     256
-                } else {
+                }
+                else {
                     last_block = true;
                     bytes_remaining / 2
                 };
@@ -310,7 +312,7 @@ impl HfeFormat {
                     );
                     // Read 256 bytes for the current head...
                     let mut track_block_data = vec![0; block_data_size];
-                    image.read_exact(&mut track_block_data)?;
+                    read_buf.read_exact(&mut track_block_data)?;
 
                     // Reverse all the bits in each byte read.
                     for byte in track_block_data.iter_mut() {
@@ -345,7 +347,7 @@ impl HfeFormat {
                 track_data[0].len() * 8
             );
 
-            let params = BitstreamTrackParams {
+            let params = BitStreamTrackParams {
                 encoding: DiskDataEncoding::Mfm,
                 data_rate: DiskDataRate::from(file_header.bit_rate as u32 * 100),
                 ch: DiskCh::from((ti as u16, 0)),
@@ -366,7 +368,7 @@ impl HfeFormat {
                 track_data[0].len() * 8
             );
 
-            let params = BitstreamTrackParams {
+            let params = BitStreamTrackParams {
                 encoding: DiskDataEncoding::Mfm,
                 data_rate: DiskDataRate::from(file_header.bit_rate as u32 * 100),
                 ch: DiskCh::from((ti as u16, 1)),
@@ -390,7 +392,7 @@ impl HfeFormat {
             write_protect: Some(file_header.write_allowed == 0),
         };
 
-        Ok(disk_image)
+        Ok(())
     }
 
     pub fn save_image<RWS: ReadWriteSeek>(_image: &DiskImage, _output: &mut RWS) -> Result<(), DiskImageError> {

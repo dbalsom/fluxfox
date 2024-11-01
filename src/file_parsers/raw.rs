@@ -63,16 +63,17 @@ impl RawFormat {
             // RAW sector images support no capability flags.
             log::warn!("RAW sector images do not support capability flags.");
             ParserWriteCompatibility::DataLoss
-        } else {
+        }
+        else {
             ParserWriteCompatibility::Ok
         }
     }
 
     pub(crate) fn load_image<RWS: ReadSeek>(
         mut raw: RWS,
+        disk_image: &mut DiskImage,
         _callback: Option<LoadingCallback>,
-    ) -> Result<DiskImage, DiskImageError> {
-        let mut disk_image = DiskImage::default();
+    ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFormat::RawSectorImage);
         disk_image.set_resolution(DiskDataResolution::BitStream);
 
@@ -82,7 +83,8 @@ impl RawFormat {
         let floppy_format = StandardFormat::from(raw_len);
         if floppy_format == StandardFormat::Invalid {
             return Err(DiskImageError::UnknownFormat);
-        } else {
+        }
+        else {
             log::trace!("Raw::load_image(): Detected format {}", floppy_format);
         }
 
@@ -156,7 +158,7 @@ impl RawFormat {
             write_protect: None,
         };
 
-        Ok(disk_image)
+        Ok(())
     }
 
     pub fn save_image<RWS: ReadWriteSeek>(image: &mut DiskImage, output: &mut RWS) -> Result<(), DiskImageError> {
@@ -176,7 +178,8 @@ impl RawFormat {
 
         let track_sector_ct = if let Some(csc) = image.consistency.consistent_track_length {
             csc as usize
-        } else {
+        }
+        else {
             log::warn!("Raw::save_image(): Image has inconsistent sector counts per track. Data will be lost.");
 
             let track_idx = image.track_map[0][0];

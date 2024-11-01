@@ -36,12 +36,12 @@
 */
 
 use crate::chs::DiskCh;
-use crate::diskimage::{BitstreamTrackParams, DiskDescriptor};
+use crate::diskimage::{BitStreamTrackParams, DiskDescriptor};
 use crate::file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility};
 use crate::io::{ReadSeek, ReadWriteSeek};
+use crate::track::fluxstream::FluxStreamTrack;
 
-use crate::fluxstream::flux_stream::RawFluxTrack;
-use crate::fluxstream::pll::{Pll, PllPreset};
+use crate::flux::pll::{Pll, PllPreset};
 use crate::{
     DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat, LoadingCallback,
     DEFAULT_SECTOR_SIZE,
@@ -128,18 +128,18 @@ impl MfiFormat {
     }
 
     pub(crate) fn load_image<RWS: ReadSeek>(
-        mut image: RWS,
+        mut read_buf: RWS,
+        disk_image: &mut DiskImage,
         _callback: Option<LoadingCallback>,
-    ) -> Result<DiskImage, DiskImageError> {
-        let mut disk_image = DiskImage::default();
+    ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFormat::MameFloppyImage);
 
-        let disk_len = image.seek(std::io::SeekFrom::End(0))?;
+        let disk_len = read_buf.seek(std::io::SeekFrom::End(0))?;
 
         // Seek to start of image.
-        image.seek(std::io::SeekFrom::Start(0))?;
+        read_buf.seek(std::io::SeekFrom::Start(0))?;
 
-        let file_header = MfiFileHeader::read(&mut image)?;
+        let file_header = MfiFileHeader::read(&mut read_buf)?;
 
         if file_header.id[0..15] != *NEW_SIGNATURE.as_bytes() {
             log::error!(
@@ -163,7 +163,7 @@ impl MfiFormat {
         let mut last_offset: u32 = 0;
         for _c in 0..file_ch.c() - 1 {
             for _h in 0..file_ch.h() {
-                let track_header = MfiTrackHeader::read(&mut image)?;
+                let track_header = MfiTrackHeader::read(&mut read_buf)?;
                 if track_header.offset < last_offset {
                     log::error!("Invalid MFI file: track offset is less than last offset.");
                     return Err(DiskImageError::ImageCorruptError);
@@ -195,8 +195,8 @@ impl MfiFormat {
 
             // Read in compressed track data.
             let mut track_data = vec![0u8; entry.compressed_size as usize];
-            image.seek(std::io::SeekFrom::Start(entry.offset as u64))?;
-            image.read_exact(&mut track_data)?;
+            read_buf.seek(std::io::SeekFrom::Start(entry.offset as u64))?;
+            read_buf.read_exact(&mut track_data)?;
 
             // Decompress track data.
             let mut decompressed_data = vec![0u8; entry.uncompressed_size as usize];
@@ -242,7 +242,8 @@ impl MfiFormat {
             if flux_track.is_empty() {
                 log::warn!("Track contains less than 100 bits. Adding empty track.");
                 disk_image.add_empty_track(track.ch, DiskDataEncoding::Mfm, data_rate, 100_000)?;
-            } else {
+            }
+            else {
                 let stream = flux_track.revolution(0).unwrap();
                 let (stream_bytes, stream_bit_ct) = stream.bitstream_data();
                 log::debug!(
@@ -251,7 +252,7 @@ impl MfiFormat {
                     stream_bit_ct
                 );
 
-                let params = BitstreamTrackParams {
+                let params = BitStreamTrackParams {
                     encoding: DiskDataEncoding::Mfm,
                     data_rate,
                     ch: track.ch,
@@ -275,10 +276,10 @@ impl MfiFormat {
             write_protect: Some(true),
         };
 
-        Ok(disk_image)
+        Ok(())
     }
 
-    pub fn process_track_data_new(track: &MfiTrackData) -> Result<RawFluxTrack, DiskImageError> {
+    pub fn process_track_data_new(track: &MfiTrackData) -> Result<FluxStreamTrack, DiskImageError> {
         let mut fluxes = Vec::with_capacity(track.data.len() / 4);
         let mut total_flux_time = 0.0;
         let mut nfa_zones = Vec::new();
@@ -309,7 +310,8 @@ impl MfiFormat {
                         if current_hole_zone.is_some() {
                             log::error!("HOLE entry found while already in NFA zone.");
                         }
-                    } else {
+                    }
+                    else {
                         // Start NFA zone
                         current_nfa_zone = Some(MfiTrackZone {
                             start: flux_delta,
@@ -324,7 +326,8 @@ impl MfiFormat {
                         if current_nfa_zone.is_some() {
                             log::error!("NFA entry found while already in HOLE zone.");
                         }
-                    } else {
+                    }
+                    else {
                         // Start HOLE zone
                         current_hole_zone = Some(MfiTrackZone {
                             start: flux_delta,
@@ -338,11 +341,13 @@ impl MfiFormat {
                         // End NFA zone
                         current_nfa_zone.as_mut().unwrap().end = flux_delta;
                         nfa_zones.push(current_nfa_zone.take().unwrap());
-                    } else if current_hole_zone.is_some() {
+                    }
+                    else if current_hole_zone.is_some() {
                         // End HOLE zone
                         current_hole_zone.as_mut().unwrap().end = flux_delta;
                         hole_zones.push(current_hole_zone.take().unwrap());
-                    } else {
+                    }
+                    else {
                         log::warn!("END ZONE entry found without an active zone.");
                     }
                 }
@@ -360,13 +365,15 @@ impl MfiFormat {
 
         let mut pll = Pll::from_preset(PllPreset::Aggressive);
         pll.set_clock(1_000_000.0, None);
-        let mut flux_track = RawFluxTrack::new(1.0 / 2e-6);
+        //let mut flux_track = FluxStreamTrack::new(1.0 / 2e-6);
+        let mut flux_track = FluxStreamTrack::new();
 
-        flux_track.add_revolution(&fluxes, pll.get_clock());
+        flux_track.add_revolution(track.ch, &fluxes, pll.get_clock(), 0.2); // 200ms
         let flux_stream = flux_track.revolution_mut(0).unwrap();
-        flux_stream.decode2(&mut pll, true);
+        let rev_stats = flux_stream.decode_direct(&mut pll, true);
 
-        let rev_density = match flux_stream.guess_density(true) {
+        let rev_encoding = flux_stream.encoding();
+        let rev_density = match rev_stats.detect_density(true) {
             Some(d) => {
                 log::debug!("Revolution {} density: {:?}", 0, d);
                 d

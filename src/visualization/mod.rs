@@ -148,14 +148,21 @@ const POPCOUNT_TABLE: [u8; 256] = {
 fn collect_streams(head: u8, disk_image: &DiskImage) -> Vec<&TrackDataStream> {
     disk_image.track_map[head as usize]
         .iter()
-        .filter_map(|track_i| {
-            disk_image.track_pool[*track_i]
-                .as_any()
-                .downcast_ref::<BitStreamTrack>()
-                .map(|track| &track.data)
-        })
+        .filter_map(|track_i| disk_image.track_pool[*track_i].get_track_stream())
         .collect()
 }
+
+// fn collect_streams(head: u8, disk_image: &DiskImage) -> Vec<&TrackDataStream> {
+//     disk_image.track_map[head as usize]
+//         .iter()
+//         .filter_map(|track_i| {
+//             disk_image.track_pool[*track_i]
+//                 .as_any()
+//                 .downcast_ref::<BitStreamTrack>()
+//                 .map(|track| &track.data)
+//         })
+//         .collect()
+// }
 
 fn collect_weak_masks(head: u8, disk_image: &DiskImage) -> Vec<&BitVec> {
     disk_image.track_map[head as usize]
@@ -258,7 +265,8 @@ pub fn render_track_data(
                         ResolutionType::Bit => {
                             if rtracks[track_index][bit_index] {
                                 color_white
-                            } else {
+                            }
+                            else {
                                 color_black
                             }
                         }
@@ -283,7 +291,8 @@ pub fn render_track_data(
 
                     pix_buf[((y + y_offset) * span + (x + x_offset)) as usize] = color;
                 }
-            } else {
+            }
+            else {
                 pix_buf[((y + y_offset) * span + (x + x_offset)) as usize] = color_trans;
             }
         }
@@ -372,7 +381,8 @@ pub fn render_track_weak_bits(
                             build_word <<= 1;
                         }
                         build_word
-                    } else {
+                    }
+                    else {
                         0
                     };
 
@@ -407,7 +417,8 @@ pub fn render_track_weak_bits(
                     //     }
                     // };
                 }
-            } else {
+            }
+            else {
                 pix_buf[((y + y_offset) * span + (x + x_offset)) as usize] = color_trans;
             }
         }
@@ -503,7 +514,8 @@ pub fn render_track_metadata_quadrant(
         if let Some(element_type) = element_type {
             let generic_elem = DiskStructureGenericElement::from(element_type);
             color = palette.get(&generic_elem).unwrap_or(&null_color);
-        } else {
+        }
+        else {
             color = &Color::BLACK;
         }
 
@@ -529,7 +541,8 @@ pub fn render_track_metadata_quadrant(
                     if !*draw_markers {
                         continue;
                     }
-                } else if *draw_markers {
+                }
+                else if *draw_markers {
                     continue;
                 }
 

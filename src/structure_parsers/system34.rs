@@ -138,8 +138,8 @@ impl TryInto<System34Marker> for u16 {
 
     fn try_into(self) -> Result<System34Marker, Self::Error> {
         match self {
-            0x5554 => Ok(System34Marker::Idam),
-            0x5545 => Ok(System34Marker::Dam),
+            0x5554 | 0xF57E => Ok(System34Marker::Idam),
+            0x5545 | 0xF56F => Ok(System34Marker::Dam),
             0x554A => Ok(System34Marker::Ddam),
             _ => {
                 log::error!("Invalid System34 marker: {:04X}", self);
@@ -301,7 +301,8 @@ impl System34Parser {
             track_bytes.extend_from_slice(&[GAP_BYTE; IBM_GAP4A]); // GAP0
             track_bytes.extend_from_slice(&[SYNC_BYTE; SYNC_LEN]); // Sync
             markers.push((System34Marker::Iam, track_bytes.len()));
-        } else {
+        }
+        else {
             // Just write Gap1 for ISO standard, there is no IAM marker.
             track_bytes.extend_from_slice(&[GAP_BYTE; ISO_GAP1]);
         }
@@ -339,13 +340,15 @@ impl System34Parser {
             // Write sector data using provided pattern buffer.
             if fill_pattern.len() == 1 {
                 track_bytes.extend_from_slice(&vec![fill_pattern[0]; sector.n_size()]);
-            } else {
+            }
+            else {
                 let mut sector_buffer = Vec::with_capacity(sector.n_size());
                 while sector_buffer.len() < sector.n_size() {
                     let remain = sector.n_size() - sector_buffer.len();
                     let copy_pat = if pat_cursor + remain <= fill_pattern.len() {
                         &fill_pattern[pat_cursor..pat_cursor + remain]
-                    } else {
+                    }
+                    else {
                         &fill_pattern[pat_cursor..]
                     };
 

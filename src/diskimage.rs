@@ -39,10 +39,11 @@ use crate::file_parsers::kryoflux::KfxFormat;
 use crate::file_parsers::{filter_writable, formats_from_caps, FormatCaps, ImageParser};
 use crate::io::ReadSeek;
 use crate::standard_format::StandardFormat;
-use crate::structure_parsers::system34::{System34Element, System34Parser, System34Standard};
-use crate::structure_parsers::{DiskStructureElement, DiskStructureMetadata, DiskStructureParser};
-use crate::track::DiskTrack;
+use crate::structure_parsers::system34::{System34Parser, System34Standard};
+use crate::structure_parsers::{DiskStructureMetadata, DiskStructureParser};
+use crate::track::{DiskTrack, Track};
 
+use crate::track::fluxstream::FluxStreamTrack;
 use crate::track::metasector::MetaSectorTrack;
 use crate::{
     util, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskImageError, DiskRpm, FoxHashMap,
@@ -308,7 +309,7 @@ pub struct TrackRegion {
     pub end: usize,
 }
 
-pub struct BitstreamTrackParams<'a> {
+pub struct BitStreamTrackParams<'a> {
     pub encoding: DiskDataEncoding,
     pub data_rate: DiskDataRate,
     pub ch: DiskCh,
@@ -479,9 +480,9 @@ impl DiskImage {
     }
 
     pub fn load_from_file(file_path: PathBuf, callback: Option<LoadingCallback>) -> Result<Self, DiskImageError> {
-        let mut file = std::fs::File::open(file_path.clone())?;
-        let mut buf_reader = std::io::BufReader::new(&mut file);
-        let image = DiskImage::load(&mut buf_reader, Some(file_path), callback)?;
+        let mut file_vec = std::fs::read(file_path.clone())?;
+        let mut cursor = Cursor::new(&mut file_vec);
+        let image = DiskImage::load(&mut cursor, Some(file_path), callback)?;
 
         Ok(image)
     }
@@ -495,7 +496,8 @@ impl DiskImage {
 
         match container {
             DiskImageContainer::Raw(format) => {
-                let mut image = format.load_image(image_io, None, None)?;
+                let mut image = DiskImage::default();
+                format.load_image(image_io, &mut image, None)?;
                 image.post_load_process();
                 Ok(image)
             }
@@ -504,7 +506,8 @@ impl DiskImage {
                 {
                     let file_vec = extract_first_file(image_io)?;
                     let file_cursor = Cursor::new(file_vec);
-                    let mut image = format.load_image(file_cursor, None, callback)?;
+                    let mut image = DiskImage::default();
+                    format.load_image(file_cursor, &mut image, callback)?;
                     image.post_load_process();
                     Ok(image)
                 }
@@ -518,8 +521,8 @@ impl DiskImage {
                 {
                     // Create an empty image. We will loop through all the files in the set and
                     // append tracks to them as we go.
-                    let mut build_image = DiskImage::default();
-                    build_image.descriptor.geometry = set_ch;
+                    let mut image = DiskImage::default();
+                    image.descriptor.geometry = set_ch;
 
                     if let Some(ref callback_fn) = callback {
                         // Let caller know to show a progress bar
@@ -533,7 +536,15 @@ impl DiskImage {
 
                         // We won't give the callback to the kryoflux loader - instead we will call it here ourselves
                         // updating percentage complete as a fraction of files loaded.
-                        build_image = KfxFormat::load_image(&mut cursor, Some(build_image), None)?;
+                        match KfxFormat::load_image(&mut cursor, &mut image, None) {
+                            Ok(_) => {}
+                            Err(e) => {
+                                // It's okay to fail if we have already added the standard number of tracks to an image.
+                                log::error!("load(): Error loading Kryoflux stream file: {:?}", e);
+                                //return Err(e);
+                                break;
+                            }
+                        }
 
                         if let Some(ref callback_fn) = callback {
                             let completion = (fi + 1) as f64 / file_set.len() as f64;
@@ -545,8 +556,8 @@ impl DiskImage {
                         callback_fn(LoadingStatus::Complete);
                     }
 
-                    build_image.post_load_process();
-                    Ok(build_image)
+                    image.post_load_process();
+                    Ok(image)
                 }
             }
             DiskImageContainer::KryofluxSet => {
@@ -561,9 +572,9 @@ impl DiskImage {
 
                     // Create an empty image. We will loop through all the files in the set and
                     // append tracks to them as we go.
-                    let mut build_image = DiskImage::default();
+                    let mut image = DiskImage::default();
                     // Set the geometry of the disk image to the geometry of the Kryoflux set.
-                    build_image.descriptor.geometry = set_ch;
+                    image.descriptor.geometry = set_ch;
 
                     for (fi, file_path) in file_set.iter().enumerate() {
                         // Reading the entire file in one go and wrapping in a cursor is much faster
@@ -575,7 +586,15 @@ impl DiskImage {
 
                         // We won't give the callback to the kryoflux loader - instead we will call it here ourselves
                         // updating percentage complete as a fraction of files loaded.
-                        build_image = KfxFormat::load_image(&mut cursor, Some(build_image), None)?;
+                        match KfxFormat::load_image(&mut cursor, &mut image, None) {
+                            Ok(_) => {}
+                            Err(e) => {
+                                // It's okay to fail if we have already added the standard number of tracks to an image.
+                                log::error!("load(): Error loading Kryoflux stream file: {:?}", e);
+                                //return Err(e);
+                                break;
+                            }
+                        }
 
                         if let Some(ref callback_fn) = callback {
                             let completion = (fi + 1) as f64 / file_set.len() as f64;
@@ -589,8 +608,9 @@ impl DiskImage {
                     if let Some(callback_fn) = callback {
                         callback_fn(LoadingStatus::Complete);
                     }
-                    Ok(build_image)
-                } else {
+                    Ok(image)
+                }
+                else {
                     log::error!("Path parameter required when loading Kryoflux set.");
                     Err(DiskImageError::ParameterError)
                 }
@@ -667,6 +687,113 @@ impl DiskImage {
         self.resolution.unwrap_or(DiskDataResolution::MetaSector)
     }
 
+    /// Adds a new track to the disk image, of FluxStream resolution.
+    /// Data of this resolution is sourced from FluxStream images such as Kryoflux, SCP or MFI.
+    ///
+    /// This function locks the disk image to `FluxStream` resolution and adds a new track with the specified
+    /// data encoding, data rate, geometry, and data clock.
+    ///
+    /// # Parameters
+    /// - `track`: A `FluxStreamTrack` the track to add. Unlike adding a bitstream or metasector track,
+    ///            we must construct a FluxStreamTrack first before adding it.
+    ///
+    /// # Returns
+    /// - `Ok(())` if the track was successfully added.
+    /// - `Err(DiskImageError::SeekError)` if the head value in `ch` is greater than or equal to 2.
+    /// - `Err(DiskImageError::ParameterError)` if the length of `data` and `weak` do not match.
+    /// - `Err(DiskImageError::IncompatibleImage)` if the disk image is not compatible with `BitStream` resolution.
+    pub fn add_track_fluxstream(&mut self, ch: DiskCh, mut track: FluxStreamTrack) -> Result<(), DiskImageError> {
+        let head = ch.h() as usize;
+        if head >= 2 {
+            return Err(DiskImageError::SeekError);
+        }
+
+        // Lock the disk image to BitStream resolution.
+        match self.resolution {
+            None => {
+                self.resolution = Some(DiskDataResolution::FluxStream);
+                log::debug!("add_track_fluxstream(): Disk resolution is now: {:?}", self.resolution);
+            }
+            Some(DiskDataResolution::FluxStream) => {}
+            _ => {
+                return {
+                    log::error!(
+                        "add_track_fluxstream(): Disk resolution is incompatible with FluxStream: {:?}",
+                        self.resolution
+                    );
+                    Err(DiskImageError::IncompatibleImage)
+                }
+            }
+        }
+
+        track.set_ch(ch);
+        track.set_shared(self.shared.clone());
+        track.decode_revolutions()?;
+        track.analyze_revolutions();
+
+        log::debug!(
+            "add_track_fluxstream(): adding {:?} track {}",
+            track.encoding(),
+            track.ch(),
+        );
+
+        self.track_pool.push(Box::new(track));
+        self.track_map[head].push(self.track_pool.len() - 1);
+
+        // Consider adding a track to an image to be a single 'write' operation.
+        self.incr_writes();
+
+        Ok(())
+    }
+
+    /// Adds a new track to the disk image, of BitStream resolution.
+    /// Data of this resolution is sourced from BitStream images such as MFM, HFE or 86F.
+    ///
+    /// This function locks the disk image to `BitStream` resolution and adds a new track with the specified
+    /// data encoding, data rate, geometry, and data clock.
+    ///
+    /// # Parameters
+    /// - `params`: A `BitstreamTrackParams` struct describing the track to be added.
+    ///
+    /// # Returns
+    /// - `Ok(())` if the track was successfully added.
+    /// - `Err(DiskImageError::SeekError)` if the head value in `ch` is greater than or equal to 2.
+    /// - `Err(DiskImageError::ParameterError)` if the length of `data` and `weak` do not match.
+    /// - `Err(DiskImageError::IncompatibleImage)` if the disk image is not compatible with `BitStream` resolution.
+    pub fn add_track_bitstream(&mut self, params: BitStreamTrackParams) -> Result<(), DiskImageError> {
+        if params.ch.h() >= 2 {
+            return Err(DiskImageError::SeekError);
+        }
+
+        // Lock the disk image to BitStream resolution.
+        match self.resolution {
+            None => {
+                self.resolution = Some(DiskDataResolution::BitStream);
+                log::debug!("add_track_bitstream(): Disk resolution is now: {:?}", self.resolution);
+            }
+            Some(DiskDataResolution::BitStream) => {}
+            _ => return Err(DiskImageError::IncompatibleImage),
+        }
+
+        log::debug!(
+            "add_track_bitstream(): adding {:?} track {}, {} bits",
+            params.encoding,
+            params.ch,
+            params.bitcell_ct.unwrap_or(params.data.len() * 8)
+        );
+
+        let head = params.ch.h() as usize;
+        let new_track = BitStreamTrack::new(params, self.shared.clone())?;
+
+        self.track_pool.push(Box::new(new_track));
+        self.track_map[head].push(self.track_pool.len() - 1);
+
+        // Consider adding a track to an image to be a single 'write' operation.
+        self.incr_writes();
+
+        Ok(())
+    }
+
     /// Adds a new track to the disk image, of ByteStream resolution.
     /// Data of this resolution is typically sourced from sector-based image formats.
     ///
@@ -714,181 +841,6 @@ impl DiskImage {
         Ok(self.track_pool.last_mut().unwrap())
     }
 
-    /// Adds a new track to the disk image, of BitStream resolution.
-    /// Data of this resolution is sourced from BitStream images such as MFM, HFE or 86F.
-    ///
-    /// This function locks the disk image to `BitStream` resolution and adds a new track with the specified
-    /// data encoding, data rate, geometry, and data clock.
-    ///
-    /// # Parameters
-    /// - `params`: A `BitstreamTrackParams` struct describing the track to be added.
-    ///
-    /// # Returns
-    /// - `Ok(())` if the track was successfully added.
-    /// - `Err(DiskImageError::SeekError)` if the head value in `ch` is greater than or equal to 2.
-    /// - `Err(DiskImageError::ParameterError)` if the length of `data` and `weak` do not match.
-    /// - `Err(DiskImageError::IncompatibleImage)` if the disk image is not compatible with `BitStream` resolution.
-    pub fn add_track_bitstream(&mut self, params: BitstreamTrackParams) -> Result<(), DiskImageError> {
-        if params.ch.h() >= 2 {
-            return Err(DiskImageError::SeekError);
-        }
-        if params.data.is_empty() {
-            log::error!("add_track_bitstream(): Data is empty.");
-            return Err(DiskImageError::ParameterError);
-        }
-        if params.weak.is_some() && (params.data.len() != params.weak.unwrap().len()) {
-            log::error!("add_track_bitstream(): Data and weak bit mask lengths do not match.");
-            return Err(DiskImageError::ParameterError);
-        }
-
-        // Lock the disk image to BitStream resolution.
-        match self.resolution {
-            None => {
-                self.resolution = Some(DiskDataResolution::BitStream);
-                log::debug!("add_track_bitstream(): Disk resolution is now: {:?}", self.resolution);
-            }
-            Some(DiskDataResolution::BitStream) => {}
-            _ => return Err(DiskImageError::IncompatibleImage),
-        }
-
-        log::debug!(
-            "add_track_bitstream(): adding {:?} track {}, {} bits",
-            params.encoding,
-            params.ch,
-            params.bitcell_ct.unwrap_or(params.data.len() * 8)
-        );
-
-        let data = BitVec::from_bytes(&params.data);
-        let weak_bitvec_opt = params.weak.as_deref().map(BitVec::from_bytes);
-
-        let (mut data_stream, markers) = match params.encoding {
-            DiskDataEncoding::Mfm => {
-                let mut codec;
-
-                // If a weak bit mask was provided by the file format, we will honor it.
-                // Otherwise, if 'detect_weak' is set we will try to detect weak bits from the MFM stream.
-                if weak_bitvec_opt.is_some() {
-                    codec = MfmCodec::new(data, params.bitcell_ct, weak_bitvec_opt);
-                } else {
-                    codec = MfmCodec::new(data, params.bitcell_ct, None);
-                    if params.detect_weak {
-                        let weak_bitvec = codec.create_weak_bit_mask(MfmCodec::WEAK_BIT_RUN);
-                        if weak_bitvec.any() {
-                            log::debug!(
-                                "add_track_bitstream(): Detected {} weak bits in MFM bitstream.",
-                                weak_bitvec.count_ones()
-                            );
-                        }
-                        _ = codec.set_weak_mask(weak_bitvec);
-                    }
-                }
-
-                let mut data_stream: TrackDataStream = Box::new(codec);
-                let markers = System34Parser::scan_track_markers(&data_stream);
-                if !markers.is_empty() {
-                    log::debug!("First marker found at {}", markers[0].start);
-                }
-
-                System34Parser::create_clock_map(&markers, data_stream.clock_map_mut());
-
-                data_stream.set_track_padding();
-
-                (data_stream, markers)
-            }
-            DiskDataEncoding::Fm => {
-                let mut codec;
-
-                // If a weak bit mask was provided by the file format, we will honor it.
-                // Otherwise, we will try to detect weak bits from the MFM stream.
-                if weak_bitvec_opt.is_some() {
-                    codec = MfmCodec::new(data, params.bitcell_ct, weak_bitvec_opt);
-                } else {
-                    codec = MfmCodec::new(data, params.bitcell_ct, None);
-                    // let weak_regions = codec.detect_weak_bits(9);
-                    // log::trace!(
-                    //     "add_track_bitstream(): Detected {} weak bit regions",
-                    //     weak_regions.len()
-                    // );
-                    let weak_bitvec = codec.create_weak_bit_mask(MfmCodec::WEAK_BIT_RUN);
-                    if weak_bitvec.any() {
-                        log::trace!(
-                            "add_track_bitstream(): Detected {} weak bits in FM bitstream.",
-                            weak_bitvec.count_ones()
-                        );
-                    }
-                    _ = codec.set_weak_mask(weak_bitvec);
-                }
-
-                let mut data_stream: TrackDataStream = Box::new(codec);
-                let markers = System34Parser::scan_track_markers(&data_stream);
-
-                System34Parser::create_clock_map(&markers, data_stream.clock_map_mut());
-
-                data_stream.set_track_padding();
-
-                (data_stream, markers)
-            }
-            _ => {
-                log::error!(
-                    "add_track_bitstream(): Unsupported data encoding: {:?}",
-                    params.encoding
-                );
-                return Err(DiskImageError::UnsupportedFormat);
-            }
-        };
-
-        // let format = TrackFormat {
-        //     data_encoding,
-        //     data_sync: data_stream.get_sync(),
-        //     data_rate,
-        // };
-
-        let metadata = DiskStructureMetadata::new(System34Parser::scan_track_metadata(&mut data_stream, markers));
-        let sector_ids = metadata.get_sector_ids();
-        if sector_ids.is_empty() {
-            log::warn!(
-                "add_track_bitstream(): No sector ids found in track {} metadata.",
-                params.ch.c()
-            );
-        }
-
-        let sector_offsets = metadata
-            .items
-            .iter()
-            .filter_map(|i| {
-                if let DiskStructureElement::System34(System34Element::Data { .. }) = i.elem_type {
-                    //log::trace!("Got Data element, returning start address: {}", i.start);
-                    Some(i.start)
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-
-        log::debug!(
-            "add_track_bitstream(): Retrieved {} sector bitstream offsets from {} metadata entries.",
-            sector_offsets.len(),
-            metadata.items.len()
-        );
-
-        self.track_pool.push(Box::new(BitStreamTrack {
-            encoding: params.encoding,
-            data_rate: params.data_rate,
-            ch: params.ch,
-            data: data_stream,
-            metadata,
-            sector_ids,
-            shared: self.shared.clone(),
-        }));
-
-        self.track_map[params.ch.h() as usize].push(self.track_pool.len() - 1);
-
-        // Consider adding a track to an image to be a single 'write' operation.
-        self.incr_writes();
-
-        Ok(())
-    }
-
     // TODO: Fix this, it doesn't handle nonconsecutive sectors
     pub fn next_sector_on_track(&self, chs: DiskChs) -> Option<DiskChs> {
         let ti = self.track_map[chs.h() as usize][chs.c() as usize];
@@ -902,7 +854,8 @@ impl DiskImage {
         // Return the next sector as long as it is on the same track.
         if next_sector.c() == chs.c() {
             Some(next_sector)
-        } else {
+        }
+        else {
             None
         }
     }
@@ -1203,7 +1156,8 @@ impl DiskImage {
                     bpb.write_bpb_to_buffer(&mut cursor)?;
                     self.write_boot_sector(cursor.into_inner())?;
                 }
-            } else {
+            }
+            else {
                 log::warn!("update_standard_boot_sector(): Failed to examine boot sector.");
             }
         }
@@ -1241,7 +1195,8 @@ impl DiskImage {
 
                 if self.standard_format.is_none() {
                     self.standard_format = Some(format);
-                } else if self.standard_format != Some(format) {
+                }
+                else if self.standard_format != Some(format) {
                     log::warn!("post_load_process(): Boot sector format does not match image format.");
                 }
             }
@@ -1270,9 +1225,11 @@ impl DiskImage {
         fn normalize_cylinders(c: usize) -> usize {
             if c > 80 {
                 80
-            } else if c > 40 {
+            }
+            else if c > 40 {
                 40
-            } else {
+            }
+            else {
                 c
             }
         }
@@ -1331,26 +1288,32 @@ impl DiskImage {
 
         for track_idx in self.track_idx_iter() {
             let td = &self.track_pool[track_idx];
-            let track_consistency = td.get_track_consistency();
+            match td.get_track_consistency() {
+                Ok(track_consistency) => {
+                    match track_consistency.consistent_sector_size {
+                        None => {
+                            variable_sector_size = true;
+                        }
+                        Some(size) if size > 0 => {
+                            last_track_sector_size = size;
+                            consistent_size_map.insert(size);
+                        }
+                        _ => {}
+                    }
 
-            match track_consistency.consistent_sector_size {
-                None => {
-                    variable_sector_size = true;
+                    // Don't count tracks with no sectors for purposes of sectors-per-track consistency.
+                    // Empty sectors can be dropped in the output format.
+                    if track_consistency.sector_ct > 0 {
+                        spt.insert(track_consistency.sector_ct);
+                        all_consistency.sector_ct = track_consistency.sector_ct;
+                        all_consistency.join(&track_consistency);
+                    }
                 }
-                Some(size) if size > 0 => {
-                    last_track_sector_size = size;
-                    consistent_size_map.insert(size);
+                Err(_) => {
+                    log::warn!("update_consistency(): Track {} has no consistency data.", track_idx);
+                    continue;
                 }
-                _ => {}
-            }
-
-            // Don't count tracks with no sectors for purposes of sectors-per-track consistency.
-            // Empty sectors can be dropped in the output format.
-            if track_consistency.sector_ct > 0 {
-                spt.insert(track_consistency.sector_ct);
-                all_consistency.sector_ct = track_consistency.sector_ct;
-                all_consistency.join(&track_consistency);
-            }
+            };
         }
 
         self.consistency.set_track_consistency(&all_consistency);
@@ -1364,14 +1327,16 @@ impl DiskImage {
                 spt
             );
             self.consistency.consistent_track_length = None;
-        } else {
+        }
+        else {
             self.consistency.consistent_track_length = Some(all_consistency.sector_ct as u32);
         }
 
         if variable_sector_size {
             log::debug!("update_consistency(): Variable sector sizes detected in tracks.");
             self.consistency.consistent_sector_size = None;
-        } else {
+        }
+        else {
             self.consistency.consistent_sector_size = Some(last_track_sector_size);
         }
 
@@ -1473,7 +1438,8 @@ impl DiskImage {
                 let track_entry_opt = track_hashes.get(&self.track_pool[*track].get_hash());
                 if track_entry_opt.is_some() {
                     duplicate_tracks[head_idx].push(track_idx);
-                } else {
+                }
+                else {
                     track_hashes.insert(self.track_pool[*track].get_hash(), 1);
                 }
             }
@@ -1578,31 +1544,36 @@ impl DiskImage {
     pub fn dump_consistency<W: crate::io::Write>(&mut self, mut out: W) -> Result<(), crate::io::Error> {
         if self.consistency.bad_data_crc {
             out.write_fmt(format_args!("Disk contains sectors with bad data CRCs\n"))?;
-        } else {
+        }
+        else {
             out.write_fmt(format_args!("No sectors on disk have bad data CRCs\n"))?;
         }
 
         if self.consistency.bad_address_crc {
             out.write_fmt(format_args!("Disk contains sectors with bad address CRCs\n"))?;
-        } else {
+        }
+        else {
             out.write_fmt(format_args!("No sectors on disk have bad address CRCs\n"))?;
         }
 
         if self.consistency.deleted_data {
             out.write_fmt(format_args!("Disk contains sectors marked as deleted\n"))?;
-        } else {
+        }
+        else {
             out.write_fmt(format_args!("No sectors on disk are marked as deleted\n"))?;
         }
 
         if self.consistency.overlapped {
             out.write_fmt(format_args!("Disk contains sectors with overlapping data\n"))?;
-        } else {
+        }
+        else {
             out.write_fmt(format_args!("No sectors on disk have overlapping data\n"))?;
         }
 
         if self.consistency.weak {
             out.write_fmt(format_args!("Disk contains tracks with weak bits\n"))?;
-        } else {
+        }
+        else {
             out.write_fmt(format_args!("No tracks on disk have weak bits\n"))?;
         }
 
@@ -1650,6 +1621,24 @@ impl DiskImage {
         head_map
     }
 
+    pub fn find_duplication_mark(&self) -> Option<(DiskCh, DiskChsn)> {
+        for track in self.track_iter() {
+            if let DiskDataEncoding::Fm = track.encoding() {
+                //log::debug!("find_duplication_mark(): Found FM track at {}", track.ch());
+                if let Some(sector) = track.get_sector_list().iter().take(1).next() {
+                    log::debug!(
+                        "find_duplication_mark(): first sector of FM track {}: {}",
+                        track.ch(),
+                        sector.chsn
+                    );
+                    return Some((track.ch(), sector.chsn));
+                }
+            }
+        }
+
+        None
+    }
+
     pub fn dump_sector_map<W: crate::io::Write>(&self, mut out: W) -> Result<(), crate::io::Error> {
         let head_map = self.get_sector_map();
 
@@ -1686,6 +1675,17 @@ impl DiskImage {
         };
 
         util::dump_slice(data_slice, 0, bytes_per_row, &mut out)
+    }
+
+    pub fn dump_sector_string(
+        &mut self,
+        phys_ch: DiskCh,
+        id_chs: DiskChs,
+        n: Option<u8>,
+    ) -> Result<String, DiskImageError> {
+        let rsr = self.read_sector(phys_ch, id_chs, n, RwSectorScope::DataOnly, true)?;
+
+        Ok(util::dump_string(&rsr.read_buf))
     }
 
     pub fn has_weak_bits(&self) -> bool {

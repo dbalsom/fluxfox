@@ -1,0 +1,289 @@
+/*
+    FluxFox
+    https://github.com/dbalsom/fluxfox
+
+    Copyright 2024 Daniel Balsom
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the “Software”),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+    DEALINGS IN THE SOFTWARE.
+
+    --------------------------------------------------------------------------
+*/
+
+use crate::flux::pll::{Pll, PllDecodeStatEntry};
+use crate::flux::{FluxStats, FluxTransition};
+use crate::{DiskCh, DiskDataEncoding};
+use bit_vec::BitVec;
+use histogram::{Bucket, Histogram};
+
+pub struct FluxRevolution {
+    pub ch: DiskCh,
+    pub data_rate: f64,
+    pub index_time: f64,
+    pub flux_deltas: Vec<f64>,
+    pub transitions: Vec<FluxTransition>,
+    pub bitstream: BitVec,
+    pub biterrors: BitVec,
+    pub encoding: DiskDataEncoding,
+    pub pll_stats: Vec<PllDecodeStatEntry>,
+}
+
+impl FluxRevolution {
+    pub fn encoding(&self) -> DiskDataEncoding {
+        self.encoding
+    }
+
+    pub fn from_f64(ch: DiskCh, deltas: &[f64], data_rate: f64, index_time: f64) -> Self {
+        FluxRevolution {
+            ch,
+            data_rate,
+            index_time,
+            flux_deltas: deltas.to_vec(),
+            transitions: Vec::with_capacity(deltas.len()),
+            bitstream: BitVec::with_capacity((data_rate as usize) * 2),
+            biterrors: BitVec::with_capacity((data_rate as usize) * 2),
+            encoding: DiskDataEncoding::Mfm,
+            pll_stats: Vec::new(),
+        }
+    }
+
+    pub fn from_u16(ch: DiskCh, data: &[u16], data_rate: f64, index_time: f64, timebase: f64) -> Self {
+        log::debug!("FluxRevolution::from_u16(): Using timebase of {:.3}ns", timebase * 1e9);
+        let mut new = FluxRevolution {
+            ch,
+            data_rate,
+            index_time,
+            flux_deltas: Vec::with_capacity(data.len()),
+            transitions: Vec::with_capacity(data.len()),
+            bitstream: BitVec::with_capacity((data_rate as usize) * 2),
+            biterrors: BitVec::with_capacity((data_rate as usize) * 2),
+            encoding: DiskDataEncoding::Mfm,
+            pll_stats: Vec::new(),
+        };
+        let mut nfa_count = 0;
+        for cell in data {
+            if *cell == 0 {
+                nfa_count += 1;
+                continue;
+            }
+
+            // Convert to float seconds
+            let seconds = *cell as f64 * timebase;
+            new.flux_deltas.push(seconds);
+        }
+
+        log::warn!("FluxRevolution::from_u16(): {} NFA cells found", nfa_count);
+        new
+    }
+
+    pub(crate) fn ft_ct(&self) -> usize {
+        self.flux_deltas.len()
+    }
+
+    pub(crate) fn pll_stats(&self) -> &Vec<PllDecodeStatEntry> {
+        &self.pll_stats
+    }
+
+    fn find_local_maxima(hist: &Histogram) -> Vec<(u64, std::ops::RangeInclusive<u64>)> {
+        let mut peaks = vec![];
+        let mut previous_bucket: Option<Bucket> = None;
+        let mut current_bucket: Option<Bucket> = None;
+
+        // Calculate total count for threshold
+        let total_count: u64 = hist.into_iter().map(|bucket| bucket.count()).sum();
+        let threshold = (total_count as f64 * 0.005).round() as u64;
+
+        for bucket in hist.into_iter() {
+            if let (Some(prev), Some(curr)) = (previous_bucket.as_ref(), current_bucket.as_ref()) {
+                // Identify local maximum and apply threshold check
+                if curr.count() >= prev.count() && curr.count() > bucket.count() && curr.count() >= threshold {
+                    peaks.push((curr.count(), curr.start()..=curr.end()));
+                }
+            }
+            // Update previous and current buckets
+            previous_bucket = current_bucket.take();
+            current_bucket = Some(bucket.clone());
+        }
+
+        peaks
+    }
+
+    pub fn base_transition_time(&self, hist: &Histogram) -> Option<f64> {
+        let peaks = Self::find_local_maxima(hist);
+
+        if peaks.len() < 2 {
+            log::warn!("FluxRevolution::base_transition_time(): Not enough peaks found");
+            return None;
+        }
+
+        let first_peak = &peaks[0].1;
+
+        let range_median = (first_peak.start() + first_peak.end()) / 2;
+        // Convert back to seconds
+        Some(range_median as f64 / 1_000_000_000.0)
+    }
+
+    pub fn histogram(&self, percent: f32) -> Histogram {
+        // from docs:
+        // grouping_power should be set such that 2^(-1 * grouping_power) is an acceptable relative error.
+        // Rephrased, we can plug in the acceptable relative error into grouping_power = ceil(log2(1/e)).
+        // For example, if we want to limit the error to 0.1% (0.001) we should set grouping_power = 7.
+
+        // Max value power of 2^14 = 16384 (16us)
+        // Grouping power of 3 produces sharp spikes without false maxima
+        let mut hist = Histogram::new(3, 14).unwrap();
+
+        let take_count = (self.flux_deltas.len() as f32 * percent).round() as usize;
+        log::debug!("FluxRevolution::histogram(): Taking {} flux deltas", take_count);
+        for delta_ns in self
+            .flux_deltas
+            .iter()
+            .take(take_count)
+            .map(|d| (*d * 1_000_000_000.0) as u64)
+        {
+            _ = hist.increment(delta_ns);
+        }
+
+        let peaks = Self::find_local_maxima(&hist);
+
+        for peak in peaks {
+            log::debug!(
+                "FluxRevolution::histogram(): Peak at range: {:?} ct: {}",
+                peak.1,
+                peak.0
+            );
+        }
+
+        //Self::print_horizontal_histogram_with_labels(&hist, 16);
+
+        hist
+    }
+
+    fn print_horizontal_histogram_with_labels(hist: &Histogram, height: usize) {
+        let mut max_count = 0;
+        let mut buckets = vec![];
+
+        // Step 1: Collect buckets and find max count for scaling
+        for bucket in hist.into_iter() {
+            max_count = max_count.max(bucket.count());
+            buckets.push(bucket);
+        }
+
+        // Step 2: Initialize 2D array for histogram, filled with spaces
+        let width = buckets.len();
+        let mut graph = vec![vec![' '; width]; height];
+
+        // Step 3: Plot each bucket count as a column of asterisks
+        for (i, bucket) in buckets.iter().enumerate() {
+            let bar_height = if max_count > 0 {
+                (bucket.count() as f64 / max_count as f64 * height as f64).round() as usize
+            }
+            else {
+                0
+            };
+            for row in (height - bar_height)..height {
+                graph[row][i] = '*';
+            }
+        }
+
+        // Step 4: Print the graph row by row
+        for row in &graph {
+            println!("{}", row.iter().collect::<String>());
+        }
+
+        // Step 5: Print bucket start values vertically
+        let max_label_len = buckets.iter().map(|b| b.start().to_string().len()).max().unwrap_or(0);
+        for i in 0..max_label_len {
+            let row: String = buckets
+                .iter()
+                .map(|b| {
+                    let label = b.start().to_string();
+                    label.chars().nth(i).unwrap_or(' ')
+                })
+                .collect();
+            println!("{}", row);
+        }
+    }
+
+    pub fn transition_ct(&self) -> usize {
+        self.transitions.len()
+    }
+
+    pub fn transition_avg(&self) -> f64 {
+        let mut t_sum = 0.0;
+        let mut t_ct = 0;
+        for t in self.flux_deltas.iter() {
+            if *t > 0.0 {
+                t_ct += 1;
+                t_sum += *t;
+            }
+        }
+        t_sum / t_ct as f64
+    }
+
+    pub fn bitstream_data(&self) -> (Vec<u8>, usize) {
+        (self.bitstream.to_bytes(), self.bitstream.len())
+    }
+
+    pub fn decode(&mut self, pll: &mut Pll) {
+        self.transitions = pll.decode_transitions(self);
+        //self.decode_bitstream();
+        log::trace!(
+            "FluxRevolution::decode(): Decoded {} transitions into {} bits, ratio: {}",
+            self.transitions.len(),
+            self.bitstream.len(),
+            self.bitstream.len() as f64 / self.transitions.len() as f64
+        );
+    }
+
+    pub fn decode_direct(&mut self, pll: &mut Pll, set_rate: bool) -> FluxStats {
+        if set_rate {
+            log::trace!("FluxRevolution::decode(): Setting PLL rate to {}", self.data_rate);
+            pll.set_clock(self.data_rate, None);
+        }
+
+        let mut decode_result = pll.decode(self, DiskDataEncoding::Mfm);
+        let encoding = decode_result
+            .flux_stats
+            .detect_encoding()
+            .unwrap_or(DiskDataEncoding::Mfm);
+        if matches!(encoding, DiskDataEncoding::Fm) {
+            // If we detected FM encoding, decode again as FM
+            log::warn!("FluxRevolution::decode(): Track is actually FM encoding? Re-decoding...");
+            self.encoding = DiskDataEncoding::Fm;
+            decode_result = pll.decode(self, DiskDataEncoding::Fm);
+        }
+
+        self.bitstream = decode_result.bits;
+
+        log::trace!(
+            "FluxRevolution::decode(): Decoded {} transitions into {} bits with {} encoding, ratio: {}",
+            self.flux_deltas.len(),
+            self.bitstream.len(),
+            self.encoding,
+            self.bitstream.len() as f64 / self.flux_deltas.len() as f64
+        );
+
+        self.pll_stats = decode_result.pll_stats;
+        decode_result.flux_stats
+    }
+
+    pub fn delta_iter(&self) -> std::slice::Iter<f64> {
+        self.flux_deltas.iter()
+    }
+}

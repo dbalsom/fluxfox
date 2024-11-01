@@ -168,7 +168,8 @@ pub(crate) fn psi_crc(buf: &[u8]) -> u32 {
         for _j in 0..8 {
             if crc & 0x80000000 != 0 {
                 crc = (crc << 1) ^ 0x1edc6f41;
-            } else {
+            }
+            else {
                 crc <<= 1;
             }
         }
@@ -228,7 +229,8 @@ impl PsiFormat {
 
         if let Ok(id) = std::str::from_utf8(&chunk_header.id) {
             log::trace!("Chunk ID: {} Size: {}", id, chunk_header.size);
-        } else {
+        }
+        else {
             log::trace!("Chunk ID: {:?} Size: {}", chunk_header.id, chunk_header.size);
         }
 
@@ -277,16 +279,16 @@ impl PsiFormat {
     }
 
     pub(crate) fn load_image<RWS: ReadSeek>(
-        mut image: RWS,
+        mut read_buf: RWS,
+        disk_image: &mut DiskImage,
         _callback: Option<LoadingCallback>,
-    ) -> Result<DiskImage, DiskImageError> {
-        let mut disk_image = DiskImage::default();
+    ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFormat::PceSectorImage);
 
-        // Seek to start of image.
-        image.seek(std::io::SeekFrom::Start(0))?;
+        // Seek to start of read_buf.
+        read_buf.seek(std::io::SeekFrom::Start(0))?;
 
-        let mut chunk = PsiFormat::read_chunk(&mut image)?;
+        let mut chunk = PsiFormat::read_chunk(&mut read_buf)?;
         // File header must be first chunk.
         if chunk.chunk_type != PsiChunkType::FileHeader {
             return Err(DiskImageError::UnknownFormat);
@@ -338,7 +340,8 @@ impl PsiFormat {
                     if sector_header.flags & SH_FLAG_ALTERNATE != 0 {
                         log::trace!("Alternate sector data.");
                         ctx.alternate = true;
-                    } else {
+                    }
+                    else {
                         ctx.alternate = false;
                     }
 
@@ -366,7 +369,8 @@ impl PsiFormat {
 
                             track.add_sector(&sd, ctx.alternate)?;
                             ctx.reset();
-                        } else {
+                        }
+                        else {
                             log::error!("Tried to add sector without a current track.");
                             return Err(DiskImageError::FormatParseError);
                         }
@@ -413,7 +417,8 @@ impl PsiFormat {
                         };
 
                         track.add_sector(&sd, ctx.alternate)?;
-                    } else {
+                    }
+                    else {
                         log::error!("Tried to add sector without a current track.");
                         return Err(DiskImageError::FormatParseError);
                     }
@@ -460,7 +465,7 @@ impl PsiFormat {
                 }
             }
 
-            chunk = PsiFormat::read_chunk(&mut image)?;
+            chunk = PsiFormat::read_chunk(&mut read_buf)?;
         }
 
         let head_ct = heads_seen.len() as u8;
@@ -475,7 +480,7 @@ impl PsiFormat {
             write_protect: None,
         };
 
-        Ok(disk_image)
+        Ok(())
     }
 
     pub fn save_image<RWS: ReadWriteSeek>(_image: &DiskImage, _output: &mut RWS) -> Result<(), DiskImageError> {

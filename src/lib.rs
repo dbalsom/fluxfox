@@ -43,6 +43,9 @@
 //! a disk image file, or by creating a new disk image from scratch.
 //!
 //! It is recommended to use the [`image_builder::ImageBuilder`] interface to load or create a disk image.
+
+extern crate core;
+
 mod bit_ring;
 pub mod bitstream;
 mod boot_sector;
@@ -59,7 +62,7 @@ pub mod structure_parsers;
 pub mod util;
 
 mod copy_protection;
-mod fluxstream;
+mod flux;
 mod image_writer;
 mod track;
 #[cfg(feature = "viz")]
@@ -121,6 +124,8 @@ pub enum DiskImageError {
     ParameterError,
     #[error("Write-protect status prevents writing to the disk image")]
     WriteProtectError,
+    #[error("Flux track has not been resolved")]
+    ResolveError,
 }
 
 // Manually implement `From<io::Error>` for `DiskImageError`
@@ -365,6 +370,15 @@ pub enum DiskRpm {
     #[default]
     Rpm300,
     Rpm360,
+}
+
+impl From<DiskRpm> for f64 {
+    fn from(rpm: DiskRpm) -> Self {
+        match rpm {
+            DiskRpm::Rpm300 => 300.0,
+            DiskRpm::Rpm360 => 360.0,
+        }
+    }
 }
 
 impl Display for DiskRpm {

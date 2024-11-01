@@ -140,17 +140,17 @@ impl ImdFormat {
     }
 
     pub(crate) fn load_image<RWS: ReadSeek>(
-        mut image: RWS,
+        mut read_buf: RWS,
+        disk_image: &mut DiskImage,
         _callback: Option<LoadingCallback>,
-    ) -> Result<DiskImage, DiskImageError> {
-        let mut disk_image = DiskImage::default();
+    ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFormat::ImageDisk);
 
         // Assign the disk geometry or return error.
-        let _raw_len = get_length(&mut image).map_err(|_e| DiskImageError::UnknownFormat)? as usize;
-        _ = image.seek(std::io::SeekFrom::Start(0));
+        let _raw_len = get_length(&mut read_buf).map_err(|_e| DiskImageError::UnknownFormat)? as usize;
+        _ = read_buf.seek(std::io::SeekFrom::Start(0));
 
-        if let (Some(header_str), terminator) = read_ascii(&mut image, Some(ASCII_EOF), None) {
+        if let (Some(header_str), terminator) = read_ascii(&mut read_buf, Some(ASCII_EOF), None) {
             if let Some(caps) = Regex::new(IMD_HEADER_REX).unwrap().captures(&header_str) {
                 let v_major = &caps["v_major"];
                 let v_minor = &caps["v_minor"];
@@ -169,7 +169,7 @@ impl ImdFormat {
             }
         }
 
-        let mut header_offset = image.stream_position().unwrap();
+        let mut header_offset = read_buf.stream_position().unwrap();
         let mut heads_seen: FoxHashSet<u8> = FoxHashSet::new();
 
         let mut rate_opt = None;
@@ -177,7 +177,7 @@ impl ImdFormat {
 
         let mut track_ct = 0;
 
-        while let Ok(track_header) = ImdTrack::read_le(&mut image) {
+        while let Ok(track_header) = ImdTrack::read_le(&mut read_buf) {
             log::trace!("from_image: Track header: {:?} @ {:X}", &track_header, header_offset);
             log::trace!("from_image: Track header valid: {}", &track_header.is_valid());
             if !track_header.is_valid() {
@@ -209,20 +209,20 @@ impl ImdFormat {
             // Keep a set of heads seen.
             heads_seen.insert(track_header.h());
 
-            image.read_exact(&mut sector_numbers)?;
+            read_buf.read_exact(&mut sector_numbers)?;
 
             if track_header.has_cylinder_map() {
-                image.read_exact(&mut cylinder_map)?;
+                read_buf.read_exact(&mut cylinder_map)?;
             }
 
             if track_header.has_head_map() {
-                image.read_exact(&mut head_map)?;
+                read_buf.read_exact(&mut head_map)?;
             }
 
             // Note: This is listed as a 'proposed extension' in the IMD docs but apparently there
             // are images like this in the wild. 86box supports this extension.
             if track_header.has_sector_size_map() {
-                image.read_exact(&mut sector_size_map_u8)?;
+                read_buf.read_exact(&mut sector_size_map_u8)?;
 
                 // Convert raw u8 to u16 values, little-endian.
                 for (i, s) in sector_size_map_u8.chunks_exact(2).enumerate() {
@@ -237,7 +237,7 @@ impl ImdFormat {
                 &head_map
             );
 
-            // Add track to image.
+            // Add track to read_buf.
             let (data_rate, data_encoding) = match imd_mode_to_rate(track_header.mode) {
                 Some((rate, encoding)) => (rate, encoding),
                 None => return Err(DiskImageError::FormatParseError),
@@ -260,13 +260,13 @@ impl ImdFormat {
             // Read all sectors for this track.
             for s in 0..sector_numbers.len() {
                 // Read data byte marker.
-                let data_marker: u8 = image.read_le()?;
+                let data_marker: u8 = read_buf.read_le()?;
                 let sector_size = sector_size_map[s] as usize;
                 let sector_n = DiskChsn::bytes_to_n(sector_size);
 
                 match data_marker {
                     0x00..=0x08 => {
-                        let data = ImdFormat::read_data(data_marker, sector_size, &mut image)?;
+                        let data = ImdFormat::read_data(data_marker, sector_size, &mut read_buf)?;
 
                         log::trace!(
                             "from_image: Sector {}: Data Marker: {:02X} Data ({}): {:02X?} Deleted: {} Error: {}",
@@ -298,7 +298,7 @@ impl ImdFormat {
                 }
             }
 
-            header_offset = image.stream_position()?;
+            header_offset = read_buf.stream_position()?;
 
             if track_header.sector_ct == 0 {
                 continue;
@@ -318,13 +318,13 @@ impl ImdFormat {
             write_protect: None,
         };
 
-        Ok(disk_image)
+        Ok(())
     }
 
     fn read_data<RWS: ReadSeek>(
         data_marker: u8,
         sector_size: usize,
-        image: &mut RWS,
+        read_buf: &mut RWS,
     ) -> Result<ImdSectorData, DiskImageError> {
         match data_marker {
             0x00 => {
@@ -338,7 +338,7 @@ impl ImdFormat {
             0x01 => {
                 // Normal data - sector_size bytes follow.
                 let mut data = vec![0; sector_size];
-                image.read_exact(&mut data)?;
+                read_buf.read_exact(&mut data)?;
                 Ok(ImdSectorData {
                     data,
                     deleted: false,
@@ -347,7 +347,7 @@ impl ImdFormat {
             }
             0x02 => {
                 // Compressed data: A single byte follows, repeated sector_size times.
-                let data_byte = image.read_le()?;
+                let data_byte = read_buf.read_le()?;
                 let data = vec![data_byte; sector_size];
                 Ok(ImdSectorData {
                     data,
@@ -358,7 +358,7 @@ impl ImdFormat {
             0x03 => {
                 // Normal data with 'deleted' address-mark.
                 let mut data = vec![0; sector_size];
-                image.read_exact(&mut data)?;
+                read_buf.read_exact(&mut data)?;
                 Ok(ImdSectorData {
                     data,
                     deleted: true,
@@ -368,7 +368,7 @@ impl ImdFormat {
             0x04 => {
                 // Compressed data with 'deleted' address-mark.
                 // A single byte follows, repeated sector_size times.
-                let data_byte = image.read_le()?;
+                let data_byte = read_buf.read_le()?;
                 let data = vec![data_byte; sector_size];
                 Ok(ImdSectorData {
                     data,
@@ -379,7 +379,7 @@ impl ImdFormat {
             0x05 => {
                 // Normal data with 'error' indicator.
                 let mut data = vec![0; sector_size];
-                image.read_exact(&mut data)?;
+                read_buf.read_exact(&mut data)?;
                 Ok(ImdSectorData {
                     data,
                     deleted: false,
@@ -388,7 +388,7 @@ impl ImdFormat {
             }
             0x06 => {
                 // Compressed data with 'error' indicator.
-                let data_byte = image.read_le()?;
+                let data_byte = read_buf.read_le()?;
                 let data = vec![data_byte; sector_size];
                 Ok(ImdSectorData {
                     data,

@@ -39,12 +39,12 @@
     to calculate the disk parameters ourselves as a result.
 
 */
-use crate::diskimage::{BitstreamTrackParams, DiskDescriptor};
+use crate::diskimage::{BitStreamTrackParams, DiskDescriptor};
 use crate::file_parsers::{bitstream_flags, FormatCaps};
-use crate::fluxstream::flux_stream::RawFluxTrack;
-use crate::fluxstream::pll::{Pll, PllPreset};
-use crate::fluxstream::FluxTransition;
+use crate::flux::pll::{Pll, PllPreset};
+use crate::flux::FluxTransition;
 use crate::io::{ReadSeek, ReadWriteSeek};
+use crate::track::fluxstream::FluxStreamTrack;
 use crate::{
     DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat, DiskRpm,
     LoadingCallback, ParserWriteCompatibility, StandardFormat, DEFAULT_SECTOR_SIZE,
@@ -184,7 +184,8 @@ impl ScpFormat {
         }
         let header = if let Ok(header) = ScpFileHeader::read(&mut image) {
             header
-        } else {
+        }
+        else {
             return false;
         };
 
@@ -196,17 +197,17 @@ impl ScpFormat {
     }
 
     pub(crate) fn load_image<RWS: ReadSeek>(
-        mut image: RWS,
+        mut read_buf: RWS,
+        disk_image: &mut DiskImage,
         _callback: Option<LoadingCallback>,
-    ) -> Result<DiskImage, DiskImageError> {
-        let mut disk_image = DiskImage::default();
+    ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFormat::SuperCardPro);
 
-        let disk_image_size = image.seek(std::io::SeekFrom::End(0))?;
+        let disk_image_size = read_buf.seek(std::io::SeekFrom::End(0))?;
 
-        image.seek(std::io::SeekFrom::Start(0))?;
+        read_buf.seek(std::io::SeekFrom::Start(0))?;
 
-        let header = ScpFileHeader::read(&mut image)?;
+        let header = ScpFileHeader::read(&mut read_buf)?;
         if header.id != "SCP".as_bytes() {
             return Err(DiskImageError::UnsupportedFormat);
         }
@@ -247,7 +248,8 @@ impl ScpFormat {
         // Handle various flags now.
         if header.flags & SCP_FB_FOOTER != 0 {
             log::debug!("Extension footer is present.");
-        } else {
+        }
+        else {
             log::debug!("Extension footer is NOT present.");
             (disk_major_ver, disk_minor_ver) = scp_parse_version(header.version);
             log::debug!(
@@ -260,7 +262,8 @@ impl ScpFormat {
 
         let disk_rpm = if header.flags & SCP_FB_RPM != 0 {
             DiskRpm::Rpm300
-        } else {
+        }
+        else {
             DiskRpm::Rpm360
         };
         log::debug!("Reported Disk RPM: {:?} (*unreliable)", disk_rpm);
@@ -270,7 +273,8 @@ impl ScpFormat {
 
         if header.flags & SCP_FB_INDEX != 0 {
             log::debug!("Tracks aligned at index mark.");
-        } else {
+        }
+        else {
             log::debug!("Tracks not aligned at index mark.");
         }
 
@@ -284,7 +288,8 @@ impl ScpFormat {
 
         if header.flags & SCP_NON_SCP_CAPTURE == 0 {
             log::debug!("SCP image was created by SuperCardPro device.");
-        } else {
+        }
+        else {
             log::debug!("SCP image was not created by SuperCardPro device.");
         }
 
@@ -298,7 +303,8 @@ impl ScpFormat {
             "Bit cell width: {}",
             if header.bit_cell_width == 0 {
                 16
-            } else {
+            }
+            else {
                 header.bit_cell_width
             }
         );
@@ -331,7 +337,8 @@ impl ScpFormat {
 
         if header.checksum == 0 {
             log::debug!("Image has CRC==0. Skipping CRC verification.");
-        } else {
+        }
+        else {
             log::debug!("Image CRC: {:08X}", header.checksum);
             log::debug!("Image CRC not verified.");
         }
@@ -342,7 +349,7 @@ impl ScpFormat {
         // Read int the first track offset. Its value establishes a lower bound for the size of the
         // track offset table. SCP files SHOULD contain 'SCP_TRACK_COUNT' track offsets, but some
         // are observed to contain fewer.
-        let track_offset: u32 = image.read_le()?;
+        let track_offset: u32 = read_buf.read_le()?;
         log::trace!("Track offset table entry {} : {:08X}", 0, track_offset);
         if track_offset < 0x10 {
             log::error!("Invalid track offset table.");
@@ -361,17 +368,19 @@ impl ScpFormat {
         let mut last_offset = track_offset;
         // Loop through the rest of the offset table entries.
         for to in 0..max_table_size - 1 {
-            let track_offset: u32 = image.read_le()?;
+            let track_offset: u32 = read_buf.read_le()?;
 
             if track_offset > 0 {
                 if (track_offset <= last_offset) || (track_offset as u64 >= disk_image_size) {
                     log::error!("Bad track offset: {:08X} at entry {}", track_offset, to);
                     return Err(DiskImageError::FormatParseError);
-                } else if track_offset > 0 {
+                }
+                else if track_offset > 0 {
                     log::trace!("Track offset table entry {} : {:08X}", to, track_offset);
                     track_offsets.push(track_offset);
                 }
-            } else {
+            }
+            else {
                 break;
             }
             last_offset = track_offset;
@@ -385,10 +394,10 @@ impl ScpFormat {
 
         for (_ti, offset) in track_offsets.iter().enumerate() {
             // Seek to the track header.
-            image.seek(std::io::SeekFrom::Start(*offset as u64))?;
+            read_buf.seek(std::io::SeekFrom::Start(*offset as u64))?;
 
             // Read the track header.
-            let track_header = ScpTrackHeader::read(&mut image)?;
+            let track_header = ScpTrackHeader::read(&mut read_buf)?;
             log::debug!(
                 "Track number: {} c:{} h:{} offset: {:08X}",
                 track_header.track_number,
@@ -406,19 +415,21 @@ impl ScpFormat {
             // Read in revolutions.
             let mut revolutions = Vec::new();
             for _ in 0..header.revolutions {
-                let revolution = ScpTrackRevolution::read(&mut image)?;
+                let revolution = ScpTrackRevolution::read(&mut read_buf)?;
                 revolutions.push(revolution);
             }
 
             let mut pll = Pll::from_preset(PllPreset::Aggressive);
             //pll.set_clock(2e-6, None);
-            let mut flux_track = RawFluxTrack::new(1.0 / capture_resolution_seconds);
+            //let mut flux_track = RawFluxTrack::new(1.0 / capture_resolution_seconds);
+            let mut flux_track = FluxStreamTrack::new();
 
             #[allow(clippy::never_loop)]
             for (ri, rev) in revolutions.iter().enumerate() {
                 // Calculate RPM of revolution.
                 let rev_nanos = (rev.index_time * SCP_FLUX_TIME_BASE) as f64;
-                let rev_rpm = 60.0 / (rev_nanos * 1e-9);
+                let rev_seconds = rev_nanos * 1e-9;
+                let rev_rpm = 60.0 / rev_seconds;
 
                 let clock_adjust;
                 if (280.0..=380.0).contains(&rev_rpm) {
@@ -430,7 +441,8 @@ impl ScpFormat {
                         rev_rpm,
                         clock_adjust * 100.0
                     );
-                } else {
+                }
+                else {
                     log::error!("Revolution {} RPM is {:.2}, out of range.", ri, rev_rpm);
                     return Err(DiskImageError::IncompatibleImage);
                 }
@@ -448,10 +460,10 @@ impl ScpFormat {
 
                 // Read flux data for this revolution.
                 let mut data = vec![0u16; rev.length as usize];
-                image.seek(std::io::SeekFrom::Start(*offset as u64 + rev.data_offset as u64))?;
+                read_buf.seek(std::io::SeekFrom::Start(*offset as u64 + rev.data_offset as u64))?;
 
                 for d in &mut data {
-                    *d = image.read_be()?;
+                    *d = read_buf.read_be()?;
                 }
 
                 log::trace!(
@@ -459,20 +471,27 @@ impl ScpFormat {
                     ri,
                     data.len()
                 );
-                flux_track.add_revolution_from_u16(&data, pll.get_clock(), capture_resolution_seconds);
+                flux_track.add_revolution_from_u16(
+                    DiskCh::new(c, h),
+                    &data,
+                    pll.get_clock(),
+                    rev_seconds,
+                    capture_resolution_seconds,
+                );
                 pll.reset_clock();
             }
 
             let rev = 0;
             let flux_stream = flux_track.revolution_mut(rev).unwrap();
-            flux_stream.decode2(&mut pll, true);
+            flux_stream.decode_direct(&mut pll, true);
 
             let rev = 1;
             let flux_stream = flux_track.revolution_mut(rev).unwrap();
-            flux_stream.decode2(&mut pll, false);
+            let rev_stats = flux_stream.decode_direct(&mut pll, false);
 
             //let flux_ct = flux_stream.transition_ct();
-            let rev_density = match flux_stream.guess_density(false) {
+            let rev_encoding = flux_stream.encoding();
+            let rev_density = match rev_stats.detect_density(false) {
                 Some(d) => d,
                 None => {
                     log::error!("Unable to detect track density, skipping track");
@@ -495,7 +514,7 @@ impl ScpFormat {
 
             let (track_data, track_bits) = flux_track.revolution_mut(rev).unwrap().bitstream_data();
 
-            let params = BitstreamTrackParams {
+            let params = BitStreamTrackParams {
                 encoding: DiskDataEncoding::Mfm,
                 data_rate: DiskDataRate::from(rev_density),
                 ch: DiskCh::new(c, h),
@@ -528,7 +547,7 @@ impl ScpFormat {
             write_protect: Some(disk_readonly),
         };
 
-        Ok(disk_image)
+        Ok(())
     }
 
     pub fn save_image<RWS: ReadWriteSeek>(_image: &DiskImage, _output: &mut RWS) -> Result<(), DiskImageError> {

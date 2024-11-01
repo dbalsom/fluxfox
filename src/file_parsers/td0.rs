@@ -198,27 +198,27 @@ impl Td0Format {
     }
 
     pub(crate) fn load_image<RWS: ReadSeek>(
-        mut image: RWS,
+        mut read_buf: RWS,
+        disk_image: &mut DiskImage,
         _callback: Option<LoadingCallback>,
-    ) -> Result<DiskImage, DiskImageError> {
-        let mut disk_image = DiskImage::default();
+    ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFormat::TeleDisk);
 
         let mut image_data = Vec::new();
 
-        image.seek(std::io::SeekFrom::Start(0))?;
-        image.read_to_end(&mut image_data)?;
+        read_buf.seek(std::io::SeekFrom::Start(0))?;
+        read_buf.read_to_end(&mut image_data)?;
 
         if image_data.len() < 12 {
-            log::trace!("Image is too small to be a Teledisk image.");
+            log::trace!("Image is too small to be a Teledisk read_buf.");
             return Err(DiskImageError::UnknownFormat);
         }
 
         // Read first 10 bytes to calculate header CRC.
         let header_crc = td0_crc(&image_data[0..10], 0);
 
-        image.seek(std::io::SeekFrom::Start(0))?;
-        let file_header = TelediskHeader::read(&mut image)?;
+        read_buf.seek(std::io::SeekFrom::Start(0))?;
+        let file_header = TelediskHeader::read(&mut read_buf)?;
         let detected = file_header.id == "TD".as_bytes() || file_header.id == "td".as_bytes();
 
         if !detected {
@@ -245,7 +245,7 @@ impl Td0Format {
             return Err(DiskImageError::ImageCorruptError);
         }
 
-        // Decompress the image data if necessary.
+        // Decompress the read_buf data if necessary.
         let mut compressed_data = Cursor::new(image_data.to_vec());
         let mut image_data_ref = &mut compressed_data;
         let mut decompression_buffer = Cursor::new(Vec::with_capacity(image_data.len() * 2));
@@ -436,17 +436,17 @@ impl Td0Format {
             write_protect: None,
         };
 
-        Ok(disk_image)
+        Ok(())
     }
 
     pub fn td0_decompress_repeated_data<RWS: ReadSeek>(
-        image: &mut RWS,
+        read_buf: &mut RWS,
         output: &mut [u8],
     ) -> Result<(), DiskImageError> {
         let data_len = output.len();
         let mut decoded_len = 0;
         while decoded_len < data_len {
-            let entry = RepeatedDataEntry::read(image)?;
+            let entry = RepeatedDataEntry::read(read_buf)?;
 
             let count = entry.count as usize;
 
@@ -455,7 +455,8 @@ impl Td0Format {
                     output[decoded_len + 1] = entry.data[0];
                     output[decoded_len] = entry.data[1];
                     decoded_len += 2;
-                } else {
+                }
+                else {
                     return Err(DiskImageError::FormatParseError);
                 }
             }
@@ -465,39 +466,41 @@ impl Td0Format {
         Ok(())
     }
 
-    pub fn td0_decompress_rle_data<RWS: ReadSeek>(image: &mut RWS, output: &mut [u8]) -> Result<(), DiskImageError> {
-        let start_pos = image.stream_position()?;
+    pub fn td0_decompress_rle_data<RWS: ReadSeek>(read_buf: &mut RWS, output: &mut [u8]) -> Result<(), DiskImageError> {
+        let start_pos = read_buf.stream_position()?;
         //log::trace!("RLE data start pos: {:X}", start_pos);
         let data_len = output.len();
         let mut decoded_len = 0;
         let mut encoded_len = 0;
 
         while decoded_len < data_len {
-            let entry_code = image.read_u8()?;
+            let entry_code = read_buf.read_u8()?;
             encoded_len += 1;
 
             if entry_code == 0 {
                 // Literal data block. The next byte encodes a length, and `length` bytes are copied
                 // to the output slice.
-                let block_len = image.read_u8()? as usize;
-                image.read_exact(&mut output[decoded_len..decoded_len + block_len])?;
+                let block_len = read_buf.read_u8()? as usize;
+                read_buf.read_exact(&mut output[decoded_len..decoded_len + block_len])?;
                 decoded_len += block_len;
                 encoded_len += block_len;
-            } else {
+            }
+            else {
                 // Run-length encoded block. The entry code byte encodes the length of the data pattern,
 
                 let pattern_length = entry_code as usize * 2;
-                let repeat_ct = image.read_u8()?;
+                let repeat_ct = read_buf.read_u8()?;
                 let mut pattern_block = vec![0; pattern_length];
-                image.read_exact(&mut pattern_block)?;
+                read_buf.read_exact(&mut pattern_block)?;
                 encoded_len += pattern_length + 1;
 
                 for _ in 0..repeat_ct {
                     if decoded_len < data_len {
                         output[decoded_len..decoded_len + pattern_length].copy_from_slice(&pattern_block);
                         decoded_len += pattern_length;
-                    } else {
-                        let data_pos = image.stream_position()?;
+                    }
+                    else {
+                        let data_pos = read_buf.stream_position()?;
                         log::trace!(
                             "td0_decompress_rle_data(): Output buffer overrun; input_offset: {} decoded_len: {}",
                             data_pos - start_pos,
