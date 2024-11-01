@@ -95,6 +95,7 @@ impl FluxRevolution {
         self.flux_deltas.len()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn pll_stats(&self) -> &Vec<PllDecodeStatEntry> {
         &self.pll_stats
     }
@@ -174,6 +175,8 @@ impl FluxRevolution {
         hist
     }
 
+    /// Debugging function to print a historgram in ASCII.
+    #[allow(dead_code)]
     fn print_horizontal_histogram_with_labels(hist: &Histogram, height: usize) {
         let mut max_count = 0;
         let mut buckets = vec![];

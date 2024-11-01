@@ -29,9 +29,8 @@
     Implements the Fluxstream track type and the Track trait for same.
 
 */
-use super::{Track, TrackConsistency, TrackInfo, TrackSectorScanResult};
-use crate::bitstream::mfm::MFM_BYTE_LEN;
-use crate::bitstream::{EncodingVariant, TrackDataStream};
+use super::{Track, TrackConsistency, TrackInfo};
+use crate::bitstream::TrackDataStream;
 use crate::diskimage::{
     BitStreamTrackParams, ReadSectorResult, ReadTrackResult, RwSectorScope, ScanSectorResult, SectorDescriptor,
     SharedDiskContext, WriteSectorResult,
@@ -39,18 +38,13 @@ use crate::diskimage::{
 use crate::flux::flux_revolution::FluxRevolution;
 use crate::flux::pll::{Pll, PllPreset};
 use crate::flux::AVERAGE_FLUX_DENSITY;
-use crate::io::SeekFrom;
-use crate::structure_parsers::system34::{
-    System34Element, System34Marker, System34Parser, System34Standard, DAM_MARKER_BYTES, DDAM_MARKER_BYTES,
-};
-use crate::structure_parsers::{
-    DiskStructureElement, DiskStructureMetadata, DiskStructureMetadataItem, DiskStructureParser,
-};
+
+use crate::structure_parsers::system34::System34Standard;
+use crate::structure_parsers::DiskStructureMetadata;
 use crate::track::bitstream::BitStreamTrack;
-use crate::util::crc_ibm_3740;
 use crate::{
     format_us, DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskDensity, DiskImageError, DiskRpm,
-    FoxHashSet, SectorMapEntry,
+    SectorMapEntry,
 };
 use sha1_smol::Digest;
 use std::any::Any;
@@ -318,7 +312,7 @@ impl FluxStreamTrack {
         for (i, revolution) in self.revolutions.iter_mut().enumerate() {
             let ft_ct = revolution.ft_ct();
 
-            let mut base_clock = 1e-6; // 1μs base clock
+            let mut base_clock; // 1μs base clock
             let base_rpm;
             // Estimate bitstream length based on flux transition count.
             let bitcell_estimate = ((ft_ct as f64) * AVERAGE_FLUX_DENSITY) as usize;

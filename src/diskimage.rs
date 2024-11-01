@@ -39,8 +39,8 @@ use crate::file_parsers::kryoflux::KfxFormat;
 use crate::file_parsers::{filter_writable, formats_from_caps, FormatCaps, ImageParser};
 use crate::io::ReadSeek;
 use crate::standard_format::StandardFormat;
-use crate::structure_parsers::system34::{System34Parser, System34Standard};
-use crate::structure_parsers::{DiskStructureMetadata, DiskStructureParser};
+use crate::structure_parsers::system34::System34Standard;
+use crate::structure_parsers::DiskStructureMetadata;
 use crate::track::{DiskTrack, Track};
 
 use crate::track::fluxstream::FluxStreamTrack;

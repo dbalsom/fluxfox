@@ -490,7 +490,7 @@ impl ScpFormat {
             let rev_stats = flux_stream.decode_direct(&mut pll, false);
 
             //let flux_ct = flux_stream.transition_ct();
-            let rev_encoding = flux_stream.encoding();
+            //let rev_encoding = flux_stream.encoding();
             let rev_density = match rev_stats.detect_density(false) {
                 Some(d) => d,
                 None => {

@@ -89,6 +89,7 @@ pub enum FluxEntryType {
     End = 3,
 }
 
+#[allow(dead_code)]
 pub struct MfiTrackZone {
     start: u32,
     end: u32,
@@ -372,7 +373,7 @@ impl MfiFormat {
         let flux_stream = flux_track.revolution_mut(0).unwrap();
         let rev_stats = flux_stream.decode_direct(&mut pll, true);
 
-        let rev_encoding = flux_stream.encoding();
+        //let rev_encoding = flux_stream.encoding();
         let rev_density = match rev_stats.detect_density(true) {
             Some(d) => {
                 log::debug!("Revolution {} density: {:?}", 0, d);

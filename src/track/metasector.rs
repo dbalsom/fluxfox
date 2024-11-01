@@ -75,7 +75,7 @@ impl<'a> SectorMatchMut<'a> {
     fn len(&'a self) -> usize {
         self.sectors.len()
     }
-    fn iter_mut(&'a mut self) -> std::slice::IterMut<&mut MetaSector> {
+    fn iter_mut(&'a mut self) -> std::slice::IterMut<'a, &'a mut MetaSector> {
         self.sectors.iter_mut()
     }
 }

@@ -193,10 +193,10 @@ fn main() {
         }
     };
 
-    let direction = match &opts.cc {
-        true => RotationDirection::CounterClockwise,
-        false => RotationDirection::Clockwise,
-    };
+    // let direction = match &opts.cc {
+    //     true => RotationDirection::CounterClockwise,
+    //     false => RotationDirection::Clockwise,
+    // };
 
     let resolution = ResolutionType::Byte; // Change to Bit if needed
     let min_radius_fraction = opts.hole_ratio; // Minimum radius as a fraction of the image size
@@ -212,7 +212,8 @@ fn main() {
         }
         heads = 1;
         head = side as u32;
-    } else {
+    }
+    else {
         heads = if disk.heads() > 1 { 2 } else { 1 };
     }
 
@@ -297,7 +298,8 @@ fn main() {
                     std::process::exit(1);
                 }
             }
-        } else {
+        }
+        else {
             Pixmap::new(image_size, image_size).unwrap()
         };
 
@@ -421,7 +423,8 @@ fn main() {
 
         println!("Saving final image as {}", opts.out_filename.display());
         final_image
-    } else {
+    }
+    else {
         println!("Saving final image as {}", opts.out_filename.display());
         rendered_pixmaps.pop().unwrap()
     };

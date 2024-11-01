@@ -29,8 +29,6 @@ use crate::flux::{FluxStats, FluxTransition};
 use crate::{format_ms, format_us};
 use crate::{DiskDataEncoding, DiskDataRate};
 use bit_vec::BitVec;
-use std::fmt;
-use std::fmt::{Display, Formatter};
 use std::io::Write;
 
 const BASE_CLOCK: f64 = 2e-6; // Represents the default clock for a 300RPM, 250Kbps disk.
