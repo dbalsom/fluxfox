@@ -73,7 +73,8 @@ impl DiskStructureMetadata {
 
         if ref_stack.is_empty() {
             None
-        } else {
+        }
+        else {
             // Sort by smallest element to allow address markers to have highest
             // priority.
             ref_stack.sort_by(|a, b| a.start.cmp(&b.start));
@@ -101,6 +102,18 @@ impl DiskStructureMetadata {
         }
 
         sector_ids
+    }
+
+    pub fn data_ranges(&self) -> Vec<(usize, usize)> {
+        let mut data_ranges = Vec::new();
+
+        for item in &self.items {
+            if let DiskStructureElement::System34(System34Element::Data { .. }) = item.elem_type {
+                data_ranges.push((item.start, item.end));
+            }
+        }
+
+        data_ranges
     }
 }
 

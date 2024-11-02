@@ -29,24 +29,31 @@
     This is a simple example of how to use FluxFox to produce a graphical
     visualization of a disk image.
 */
+mod args;
+mod render;
+mod text;
 
-use anyhow::bail;
-use bpaf::*;
-use crossbeam::channel;
-use fast_image_resize::images::Image as FirImage;
-use fast_image_resize::{FilterType, PixelType, ResizeAlg, Resizer};
-use fluxfox::structure_parsers::DiskStructureGenericElement;
-use fluxfox::visualization::RotationDirection;
-use fluxfox::visualization::{render_track_data, render_track_metadata_quadrant};
-use fluxfox::visualization::{render_track_weak_bits, ResolutionType};
-use fluxfox::DiskImage;
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
-use tiny_skia::{BlendMode, Color, FilterQuality, IntSize, Pixmap, PixmapPaint, PremultipliedColorU8, Transform};
+
+use bpaf::*;
+use crossbeam::channel;
+
+use tiny_skia::{BlendMode, Color, FilterQuality, Pixmap, PixmapPaint, PremultipliedColorU8, Transform};
+
+use fluxfox::structure_parsers::DiskStructureGenericElement;
+use fluxfox::visualization::render_track_metadata_quadrant;
+use fluxfox::visualization::ResolutionType;
+use fluxfox::visualization::RotationDirection;
+use fluxfox::DiskImage;
+
+use crate::args::{parse_color, substitute_title};
+use crate::render::render_side;
+use crate::text::{calculate_scaled_font_size, create_font, measure_text, render_text, Justification};
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -56,6 +63,7 @@ struct Out {
     out_filename: PathBuf,
     resolution: u32,
     side: Option<u8>,
+    sides: Option<u8>,
     hole_ratio: f32,
     angle: f32,
     data: bool,
@@ -65,6 +73,9 @@ struct Out {
     decode: bool,
     cc: bool,
     supersample: u32,
+    img_bg_color: Option<Color>,
+    track_bg_color: Option<Color>,
+    title: Option<String>,
 }
 
 /// Set up bpaf argument parsing.
@@ -91,6 +102,12 @@ fn opts() -> OptionParser<Out> {
         .help("Side to render. Omit to render both sides")
         .argument::<u8>("SIDE")
         .guard(|side| *side < 2, "Side must be 0 or 1")
+        .optional();
+
+    let sides = long("sides")
+        .help("Override number of sides to render. Only useful for rendering single-sided disks as double-wide images.")
+        .argument::<u8>("SIDES")
+        .guard(|sides| *sides > 0 && *sides < 3, "Sides must be 1 or 2")
         .optional();
 
     let hole_ratio = short('h')
@@ -122,12 +139,31 @@ fn opts() -> OptionParser<Out> {
 
     let cc = long("cc").help("Wrap data counter-clockwise").switch();
 
+    let img_bg_color = long("img_bg_color")
+        .help("Specify the image background color as #RRGGBBAA, #RRGGBB, or R,G,B,A")
+        .argument::<String>("IMAGE_BACKGROUND_COLOR")
+        .parse(|input: String| parse_color(&input))
+        .optional();
+
+    let track_bg_color = long("track_bg_color")
+        .help("Specify the track background color as #RRGGBBAA, #RRGGBB, or R,G,B,A")
+        .argument::<String>("TRACK_BACKGROUND_COLOR")
+        .parse(|input: String| parse_color(&input))
+        .optional();
+
+    // Title argument with substitution
+    let title = long("title")
+        .help("Specify the title string, or ${IN_FILE} to use the input filename.")
+        .argument::<String>("TITLE")
+        .optional();
+
     construct!(Out {
         debug,
         in_filename,
         out_filename,
         resolution,
         side,
+        sides,
         hole_ratio,
         angle,
         data,
@@ -136,17 +172,35 @@ fn opts() -> OptionParser<Out> {
         index_hole,
         decode,
         cc,
-        supersample
+        supersample,
+        img_bg_color,
+        track_bg_color,
+        title,
     })
     .to_options()
     .descr("imgviz: generate a graphical visualization of a disk image")
 }
 
 fn main() {
+    let mut legend_height = None;
+
     env_logger::init();
 
     // Get the command line options.
     let opts = opts().run();
+
+    // Perform argument substitution.
+    let title = substitute_title(opts.title, &opts.in_filename);
+
+    // Load font.
+    let font_data = include_bytes!("../../../resources/PTN57F.ttf");
+    let font = match create_font(font_data) {
+        Ok(font) => font,
+        Err(e) => {
+            eprintln!("Error loading font: {}", e);
+            std::process::exit(1);
+        }
+    };
 
     if !is_power_of_two(opts.resolution) {
         eprintln!("Image size must be a power of two");
@@ -204,6 +258,7 @@ fn main() {
     let render_track_gap = 0.10; // Fraction of the track width to leave transparent as a gap between tracks (0.0-1.0)
 
     let heads;
+    let sides;
     let mut head: u32 = 0;
     if let Some(side) = opts.side {
         if disk.heads() < side {
@@ -211,10 +266,12 @@ fn main() {
             std::process::exit(1);
         }
         heads = 1;
+        sides = opts.sides.unwrap_or(1) as u32;
         head = side as u32;
     }
     else {
         heads = if disk.heads() > 1 { 2 } else { 1 };
+        sides = opts.sides.unwrap_or(if disk.heads() > 1 { 2 } else { 1 }) as u32;
     }
 
     println!("Rendering {} heads, {} tracks...", heads, disk.tracks(0));
@@ -273,25 +330,38 @@ fn main() {
     log::trace!("Image has {} tracks.", track_ct);
     let a_disk = Arc::new(Mutex::new(disk));
 
+    // Determine size of legend. Currently, we only have a title.
+    let font_h;
+    let mut font_size = 0.0;
+    if let Some(title_string) = title.clone() {
+        font_size = calculate_scaled_font_size(40.0, image_size, 1024);
+        (_, font_h) = measure_text(&font, &title_string, font_size);
+        legend_height = Some(font_h * 3); // 3 lines of text. Title will be centered within.
+        log::debug!("Using title: {}", title_string);
+    }
+
     for side in head..heads {
         let disk = Arc::clone(&a_disk);
 
         // Render data if data flag was passed.
         let mut pixmap = if opts.data {
-            match render_side(
-                &disk.lock().unwrap(),
-                image_size,
-                opts.supersample as u8,
+            let params = render::RenderParams {
+                bg_color: opts.img_bg_color,
+                track_bg_color: Some(Color::from_rgba8(0, 0, 0, 255)),
+                render_size: image_size,
+                supersample: opts.supersample as u8,
                 side,
-                min_radius_fraction,
-                opts.angle,
-                track_ct,
-                render_track_gap,
-                opts.decode,
-                opts.weak,
-                pal_weak_bits,
-                resolution,
-            ) {
+                min_radius: min_radius_fraction,
+                angle: opts.angle,
+                track_limit: track_ct,
+                track_gap: render_track_gap,
+                decode: opts.decode,
+                weak: opts.weak,
+                weak_color: pal_weak_bits,
+                resolution_type: resolution,
+            };
+
+            match render_side(&disk.lock().unwrap(), params) {
                 Ok(pixmap) => pixmap,
                 Err(e) => {
                     eprintln!("Error rendering side: {}", e);
@@ -404,10 +474,17 @@ fn main() {
 
     let horiz_gap = 0;
 
-    let mut composited_image = if rendered_pixmaps.len() > 0 {
-        let final_size = (image_size * heads + horiz_gap * (heads - 1), image_size);
+    // Combine both sides into a single image, if we have two sides.
+    let (mut composited_image, composited_width) = if (rendered_pixmaps.len() > 1) || (sides == 2) {
+        let final_size = (
+            image_size * sides + horiz_gap * (sides - 1),
+            image_size + legend_height.unwrap_or(0) as u32,
+        );
 
         let mut final_image = Pixmap::new(final_size.0, final_size.1).unwrap();
+        if let Some(color) = opts.img_bg_color {
+            final_image.fill(color);
+        }
 
         for (i, pixmap) in rendered_pixmaps.iter().enumerate() {
             //println!("Compositing pixmap #{}", i);
@@ -422,11 +499,33 @@ fn main() {
         }
 
         println!("Saving final image as {}", opts.out_filename.display());
-        final_image
+        (final_image, final_size.0)
+    }
+    else if let Some(height) = legend_height {
+        // Just one side, but we have a legend.
+        let final_size = (image_size, image_size + height as u32);
+
+        let mut final_image = Pixmap::new(final_size.0, final_size.1).unwrap();
+        if let Some(color) = opts.img_bg_color {
+            final_image.fill(color);
+        }
+
+        final_image.draw_pixmap(
+            0,
+            0,
+            rendered_pixmaps.pop().unwrap().as_ref(),
+            &PixmapPaint::default(),
+            Transform::identity(),
+            None,
+        );
+
+        println!("Saving final image as {}", opts.out_filename.display());
+        (final_image, image_size)
     }
     else {
+        // Just one side, and no legend. Nothing to composite.
         println!("Saving final image as {}", opts.out_filename.display());
-        rendered_pixmaps.pop().unwrap()
+        (rendered_pixmaps.pop().unwrap(), image_size)
     };
 
     // Render index hole if requested.
@@ -442,6 +541,28 @@ fn main() {
         );
     }
 
+    // Render text if requested.
+    if let Some(title_string) = title.clone() {
+        let (_, font_h) = measure_text(&font, &title_string, font_size);
+
+        let legend_height = legend_height.unwrap_or(0);
+        let x = (composited_width / 2) as i32;
+        let y = image_size as i32 + legend_height - font_h; // Draw text one 'line' up from bottom of image.
+
+        log::debug!("Rendering text at ({}, {})", x, y);
+        let font_color = Color::from_rgba8(255, 255, 255, 255);
+        render_text(
+            &mut composited_image,
+            &font,
+            font_size,
+            &title_string,
+            x,
+            y,
+            Justification::Center,
+            font_color,
+        );
+    }
+
     // Save image to disk.
     composited_image.save_png(opts.out_filename.clone()).unwrap();
 
@@ -451,138 +572,6 @@ fn main() {
     //println!("Total render time: {:?}", total_render_duration);
 
     //colorize_image.save_png(opts.out_filename.clone()).unwrap();
-}
-
-fn render_side(
-    disk: &DiskImage,
-    render_size: u32,
-    supersample: u8,
-    side: u32,
-    min_radius: f32,
-    angle: f32,
-    track_limit: usize,
-    track_gap: f32,
-    decode: bool,
-    weak: bool,
-    weak_color: PremultipliedColorU8,
-    resolution_type: ResolutionType,
-) -> Result<Pixmap, anyhow::Error> {
-    let direction = match side {
-        0 => RotationDirection::Clockwise,
-        1 => RotationDirection::CounterClockwise,
-        _ => {
-            bail!("Invalid side: {}", side);
-        }
-    };
-
-    let supersample_size = match supersample {
-        1 => render_size,
-        2 => render_size * 2,
-        4 => render_size * 4,
-        8 => render_size * 8,
-        _ => {
-            bail!("Invalid supersample factor: {}", supersample);
-        }
-    };
-
-    let mut rendered_image = Pixmap::new(supersample_size, supersample_size).unwrap();
-    let data_render_start_time = Instant::now();
-    match render_track_data(
-        &disk,
-        &mut rendered_image,
-        side as u8,
-        (supersample_size, supersample_size),
-        (0, 0),
-        min_radius,
-        angle,
-        track_limit,
-        track_gap,
-        direction,
-        decode,
-        resolution_type,
-    ) {
-        Ok(_) => {
-            println!("Rendered data layer in {:?}", data_render_start_time.elapsed());
-        }
-        Err(e) => {
-            eprintln!("Error rendering tracks: {}", e);
-            std::process::exit(1);
-        }
-    };
-
-    // Render weak bits on composited image if requested.
-    if weak {
-        let weak_render_start_time = Instant::now();
-        println!("Rendering weak bits layer...");
-        match render_track_weak_bits(
-            &disk,
-            &mut rendered_image,
-            side as u8,
-            (supersample_size, supersample_size),
-            (0, 0),
-            min_radius,
-            angle,
-            track_limit,
-            track_gap,
-            direction,
-            weak_color,
-        ) {
-            Ok(_) => {
-                println!("Rendered weak bits layer in {:?}", weak_render_start_time.elapsed());
-            }
-            Err(e) => {
-                eprintln!("Error rendering tracks: {}", e);
-                std::process::exit(1);
-            }
-        };
-    }
-
-    let resampled_image = match supersample {
-        1 => rendered_image,
-        _ => {
-            let resample_start_time = Instant::now();
-
-            let mut src_image = match FirImage::from_slice_u8(
-                rendered_image.width(),
-                rendered_image.height(),
-                rendered_image.data_mut(),
-                PixelType::U8x4,
-            ) {
-                Ok(image) => image,
-                Err(e) => {
-                    eprintln!("Error converting image: {}", e);
-                    std::process::exit(1);
-                }
-            };
-            let mut dst_image = FirImage::new(render_size, render_size, PixelType::U8x4);
-
-            let mut resizer = Resizer::new();
-            let resize_opts =
-                fast_image_resize::ResizeOptions::new().resize_alg(ResizeAlg::Convolution(FilterType::CatmullRom));
-
-            println!("Resampling output image...");
-            match resizer.resize(&mut src_image, &mut dst_image, &resize_opts) {
-                Ok(_) => {
-                    println!(
-                        "Resampled image to {} in {:?}",
-                        render_size,
-                        resample_start_time.elapsed()
-                    );
-                    Pixmap::from_vec(
-                        dst_image.into_vec(),
-                        IntSize::from_wh(render_size, render_size).unwrap(),
-                    )
-                    .unwrap()
-                }
-                Err(e) => {
-                    eprintln!("Error resizing image: {}", e);
-                    std::process::exit(1);
-                }
-            }
-        }
-    };
-
-    Ok(resampled_image)
 }
 
 fn is_power_of_two(n: u32) -> bool {

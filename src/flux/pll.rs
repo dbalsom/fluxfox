@@ -60,6 +60,7 @@ pub struct PllDecodeResult {
     pub bits: BitVec,
     pub flux_stats: FluxStats,
     pub pll_stats: Vec<PllDecodeStatEntry>,
+    pub markers: Vec<usize>,
 }
 
 pub struct Pll {
@@ -214,7 +215,6 @@ impl Pll {
         let mut pll_stats = Vec::with_capacity(stream.flux_deltas.len());
         let mut phase_error: f64 = 0.0;
         let mut phase_adjust: f64 = 0.0;
-        let mut integrated_phase_error: f64 = 0.0;
 
         let mut transitions = Vec::new();
         let mut this_flux_time;
@@ -226,7 +226,8 @@ impl Pll {
         let mut last_flux_time = 0.0;
         let mut clock_ticks: u64 = 0;
         let mut clock_ticks_since_flux: u64 = 0;
-
+        let mut shift_reg: u64 = 0;
+        let mut markers = Vec::new();
         let mut zero_ct = 0;
 
         let min_clock = self.working_period - (self.working_period * self.max_adjust);
@@ -240,6 +241,7 @@ impl Pll {
             ..FluxStats::default()
         };
 
+        let mut last_bit = false;
         let mut adjust_gate: i32 = 0;
 
         // Each delta time represents the time in seconds between two flux transitions.
@@ -250,7 +252,7 @@ impl Pll {
             if flux_ct == 0 {
                 flux_stats.shortest_flux = delta_time;
                 log::warn!(
-                    "first flux transition: {} @({})",
+                    "decode_mfm(): first flux transition: {} @({})",
                     format_us!(delta_time),
                     format_ms!(time)
                 );
@@ -285,7 +287,7 @@ impl Pll {
             }
 
             let flux_length = clock_ticks_since_flux;
-            log::trace!("flux length: {}", flux_length);
+            //log::trace!("decode_mfm(): flux length: {}", flux_length);
 
             // Emit 0's and 1's based on the number of clock ticks since last flux transition.
             if flux_length < 2 {
@@ -294,7 +296,7 @@ impl Pll {
             }
             else if flux_length > 4 {
                 log::trace!(
-                    "Too slow flux detected: #{} @({}), dt: {}, clocks: {}",
+                    "decode_mfm(): Too slow flux detected: #{} @({}), dt: {}, clocks: {}",
                     flux_ct,
                     format_ms!(time),
                     delta_time,
@@ -326,6 +328,8 @@ impl Pll {
                 for _ in 0..flux_length - 1 {
                     zero_ct += 1;
                     output_bits.push(false);
+                    last_bit = false;
+                    shift_reg <<= 1;
                     // More than 3 0's in a row is an MFM error.
                     error_bits.push(zero_ct > 3);
                 }
@@ -333,12 +337,25 @@ impl Pll {
                 // Emit a 1 since we had a transition...
                 zero_ct = 0;
                 // Two 1's in a row is an MFM error.
-                error_bits.push(output_bits[output_bits.len() - 1]);
+                error_bits.push(last_bit);
                 output_bits.push(true);
+                last_bit = true;
+                shift_reg <<= 1;
+                shift_reg |= 1;
+            }
+
+            // Look for marker.
+            if shift_reg & 0xFFFF_FFFF_FFFF_0000 == 0x4489_4489_4489_0000 {
+                log::trace!(
+                    "decode_mfm(): Marker detected at {}, bitcell: {}",
+                    format_ms!(time),
+                    flux_ct - 64
+                );
+                markers.push(output_bits.len() - 64);
             }
 
             if zero_ct > 16 {
-                log::warn!("NFA zone @ {}??", format_ms!(time));
+                log::warn!("decode_mfm(): NFA zone @ {}??", format_ms!(time));
             }
 
             // Transition should be somewhere within our last clock period, ideally in the center of it.
@@ -431,7 +448,11 @@ impl Pll {
             phase_adjust = 0.65 * min_phase_error;
 
             if flux_ct == 0 {
-                log::warn!("first phase error: {} @({:.9})", format_us!(phase_error), time);
+                log::warn!(
+                    "decode_mfm(): first phase error: {} @({:.9})",
+                    format_us!(phase_error),
+                    time
+                );
             }
 
             // Calculate the proportional frequency adjustment.
@@ -465,8 +486,9 @@ impl Pll {
         _ = std::io::stdout().flush();
 
         log::debug!(
-            "Completed decoding of MFM flux stream. Total clocks: {} FT stats: {}",
+            "decode_mfm(): Completed decoding of MFM flux stream. Total clocks: {} markers: {} FT stats: {}",
             clock_ticks,
+            markers.len(),
             flux_stats
         );
 
@@ -475,12 +497,13 @@ impl Pll {
             bits: output_bits,
             flux_stats,
             pll_stats,
+            markers,
         }
     }
 
     fn decode_fm(&mut self, stream: &FluxRevolution) -> PllDecodeResult {
         let mut output_bits = BitVec::with_capacity(stream.flux_deltas.len() * 3);
-        let mut pll_stats = Vec::with_capacity(stream.flux_deltas.len());
+        let pll_stats = Vec::with_capacity(stream.flux_deltas.len());
 
         let mut phase_accumulator: f64 = 0.0;
 
@@ -497,6 +520,9 @@ impl Pll {
         let mut time = -self.working_period / 2.0;
         let mut clock_ticks: u64 = 0;
         let mut clock_ticks_since_flux: u64 = 0;
+
+        let mut shift_reg: u64 = 0;
+        let mut markers = Vec::new();
 
         log::debug!(
             "decode_fm(): normal period: {} working period: {} min: {} max: {}",
@@ -586,9 +612,22 @@ impl Pll {
             else {
                 for _ in 0..flux_length.saturating_sub(1) {
                     output_bits.push(false);
+                    shift_reg <<= 1;
                 }
                 // Emit a 1 since we had a transition...
                 output_bits.push(true);
+                shift_reg <<= 1;
+                shift_reg |= 1;
+            }
+
+            // Look for FM marker.
+            if shift_reg & 0xAAAA_AAAA_AAAA_AAAA == 0xAAAA_AAAA_AAAA_A02A {
+                log::debug!(
+                    "decode_fm(): Marker detected at {}, bitcell: {}",
+                    format_ms!(time),
+                    flux_ct - 16
+                );
+                markers.push(output_bits.len() - 16);
             }
 
             // Transition should be somewhere within our last clock period, ideally in the center of it.
@@ -639,6 +678,7 @@ impl Pll {
             bits: output_bits,
             flux_stats,
             pll_stats,
+            markers,
         }
     }
 }

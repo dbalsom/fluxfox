@@ -57,6 +57,7 @@ impl SectorMatch<'_> {
     fn len(&'_ self) -> usize {
         self.sectors.len()
     }
+    #[allow(dead_code)]
     fn iter(&'_ self) -> std::slice::Iter<&MetaSector> {
         self.sectors.iter()
     }
@@ -75,6 +76,7 @@ impl<'a> SectorMatchMut<'a> {
     fn len(&'a self) -> usize {
         self.sectors.len()
     }
+    #[allow(dead_code)]
     fn iter_mut(&'a mut self) -> std::slice::IterMut<'a, &'a mut MetaSector> {
         self.sectors.iter_mut()
     }
@@ -115,10 +117,12 @@ impl MetaMask {
         }
         self.has_bits = self.mask.iter().any(|&x| x != 0);
     }
+    #[allow(dead_code)]
     fn clear(&mut self) {
         self.mask.fill(0);
         self.has_bits = false;
     }
+    #[allow(dead_code)]
     fn mask(&self) -> &[u8] {
         &self.mask
     }
@@ -128,6 +132,7 @@ impl MetaMask {
     fn iter(&self) -> std::slice::Iter<u8> {
         self.mask.iter()
     }
+    #[allow(dead_code)]
     fn len(&self) -> usize {
         self.mask.len()
     }
@@ -609,10 +614,9 @@ impl Track for MetaSectorTrack {
 }
 
 impl MetaSectorTrack {
+    #[allow(dead_code)]
     fn add_write(&mut self, _bytes: usize) {
-        let mut write_count = self.shared.lock().unwrap().writes;
-        write_count += 1;
-        self.shared.lock().unwrap().writes = write_count;
+        self.shared.lock().unwrap().writes += 1;
     }
 
     fn match_sectors(&self, chs: DiskChs, n: Option<u8>, debug: bool) -> SectorMatch {

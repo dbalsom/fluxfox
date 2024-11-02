@@ -265,11 +265,21 @@ impl FluxRevolution {
             .flux_stats
             .detect_encoding()
             .unwrap_or(DiskDataEncoding::Mfm);
-        if matches!(encoding, DiskDataEncoding::Fm) {
+
+        if decode_result.markers.is_empty() && matches!(encoding, DiskDataEncoding::Fm) {
             // If we detected FM encoding, decode again as FM
-            log::warn!("FluxRevolution::decode(): Track is actually FM encoding? Re-decoding...");
-            self.encoding = DiskDataEncoding::Fm;
-            decode_result = pll.decode(self, DiskDataEncoding::Fm);
+            log::warn!("FluxRevolution::decode(): No markers found. Track might be FM encoded? Re-decoding...");
+
+            let fm_result = pll.decode(self, DiskDataEncoding::Fm);
+            if fm_result.markers.is_empty() {
+                log::warn!("FluxRevolution::decode(): No markers found in FM decode. Keeping MFM.");
+                self.encoding = DiskDataEncoding::Mfm;
+            }
+            else {
+                log::debug!("FluxRevolution::decode(): Found FM marker! Setting track to FM encoding.");
+                self.encoding = DiskDataEncoding::Fm;
+                decode_result = fm_result;
+            }
         }
 
         self.bitstream = decode_result.bits;

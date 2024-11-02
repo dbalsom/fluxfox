@@ -760,6 +760,11 @@ impl Track for BitStreamTrack {
 
         let new_metadata = DiskStructureMetadata::new(System34Parser::scan_track_metadata(&mut self.data, markers));
 
+        let data_ranges = new_metadata.data_ranges();
+        if !data_ranges.is_empty() {
+            self.data.set_data_ranges(data_ranges);
+        }
+
         // log::trace!(
         //     "TrackData::format(): Found {} metadata items in track data.",
         //     new_metadata.items.len()
@@ -942,6 +947,10 @@ impl BitStreamTrack {
                 "add_track_bitstream(): No sector ids found in track {} metadata.",
                 params.ch.c()
             );
+        }
+        let data_ranges = metadata.data_ranges();
+        if !data_ranges.is_empty() {
+            data_stream.set_data_ranges(data_ranges);
         }
 
         let sector_offsets = metadata

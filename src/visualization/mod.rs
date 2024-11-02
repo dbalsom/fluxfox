@@ -187,6 +187,7 @@ fn collect_metadata(head: u8, disk_image: &DiskImage) -> Vec<&DiskStructureMetad
 /// Used as a base for other visualization functions.
 pub fn render_track_data(
     disk_image: &DiskImage,
+    bg_color: Option<Color>,
     pixmap: &mut Pixmap,
     head: u8,
     image_size: (u32, u32),
@@ -211,7 +212,7 @@ pub fn render_track_data(
     let _min_radius_sq = min_radius * min_radius;
 
     let rtracks = collect_streams(head, disk_image);
-    //let rmetadata = collect_metadata(head, disk_image);
+    let rmetadata = collect_metadata(head, disk_image);
     let num_tracks = min(rtracks.len(), track_limit);
 
     log::trace!("collected {} track references.", num_tracks);
@@ -229,7 +230,16 @@ pub fn render_track_data(
 
     let color_black = PremultipliedColorU8::from_rgba(0, 0, 0, 255).unwrap();
     let color_white = PremultipliedColorU8::from_rgba(255, 255, 255, 255).unwrap();
-    let color_trans: PremultipliedColorU8 = PremultipliedColorU8::from_rgba(0, 0, 0, 0).unwrap();
+    let color_bg: PremultipliedColorU8 = match bg_color {
+        Some(color) => PremultipliedColorU8::from_rgba(
+            (color.red() * 255.0) as u8,
+            (color.green() * 255.0) as u8,
+            (color.blue() * 255.0) as u8,
+            (color.alpha() * 255.0) as u8,
+        )
+        .unwrap(),
+        None => PremultipliedColorU8::from_rgba(0, 0, 0, 0).unwrap(),
+    };
 
     // Draw the tracks
     for y in 0..height {
@@ -272,11 +282,17 @@ pub fn render_track_data(
                         }
                         ResolutionType::Byte => {
                             // Calculate the byte value
-                            let byte_value = match decode {
+
+                            // Don't decode empty tracks - there's no data to decode!
+                            let decoded_bit_idx = (bit_index) & !0xF;
+                            let decode_override = decode
+                                && !rmetadata[track_index].items.is_empty()
+                                && rtracks[track_index].is_data(decoded_bit_idx);
+
+                            let byte_value = match decode_override {
                                 false => rtracks[track_index].read_raw_byte(bit_index).unwrap_or_default(),
                                 true => {
                                     // Only render bits in 16-bit steps.
-                                    let decoded_bit_idx = (bit_index) & !0xF;
                                     rtracks[track_index]
                                         .read_decoded_byte2(decoded_bit_idx)
                                         .unwrap_or_default()
@@ -293,7 +309,7 @@ pub fn render_track_data(
                 }
             }
             else {
-                pix_buf[((y + y_offset) * span + (x + x_offset)) as usize] = color_trans;
+                pix_buf[((y + y_offset) * span + (x + x_offset)) as usize] = color_bg;
             }
         }
     }
@@ -330,6 +346,11 @@ pub fn render_track_weak_bits(
     let rtracks = collect_weak_masks(head, disk_image);
     let num_tracks = min(rtracks.len(), track_limit);
 
+    let normalized_track_ct: usize = match num_tracks {
+        0..50 => 40,
+        50.. => 80,
+    };
+
     log::trace!("collected {} track references.", num_tracks);
     for (ti, track) in rtracks.iter().enumerate() {
         log::trace!("track {} length: {}", ti, track.len());
@@ -358,7 +379,7 @@ pub fn render_track_weak_bits(
                     continue;
                 }
 
-                let track_index = (num_tracks - 1).saturating_sub(track_offset.floor() as usize);
+                let track_index = (normalized_track_ct - 1).saturating_sub(track_offset.floor() as usize);
 
                 if track_index < num_tracks {
                     // Adjust angle for clockwise or counter-clockwise

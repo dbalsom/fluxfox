@@ -32,6 +32,7 @@
 use crate::bitstream::{EncodingVariant, TrackCodec, TrackDataStreamT};
 use crate::diskimage::TrackRegion;
 use crate::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom};
+use crate::range_check::RangeChecker;
 use crate::{DiskDataEncoding, EncodingPhase};
 use bit_vec::BitVec;
 use std::ops::Index;
@@ -47,7 +48,6 @@ macro_rules! mfm_offset {
     };
 }
 
-#[derive(Debug)]
 pub struct MfmCodec {
     bit_vec: BitVec,
     clock_map: BitVec,
@@ -56,6 +56,7 @@ pub struct MfmCodec {
     initial_phase: usize,
     bit_cursor: usize,
     track_padding: usize,
+    data_ranges: RangeChecker,
 }
 
 pub fn get_mfm_sync_offset(track: &BitVec) -> Option<EncodingPhase> {
@@ -383,6 +384,14 @@ impl TrackCodec for MfmCodec {
         None
     }
 
+    fn set_data_ranges(&mut self, ranges: Vec<(usize, usize)>) {
+        self.data_ranges = RangeChecker::new(ranges);
+    }
+
+    fn is_data(&self, index: usize) -> bool {
+        self.data_ranges.contains(index)
+    }
+
     fn debug_marker(&self, index: usize) -> String {
         let mut shift_reg: u64 = 0;
         for bi in index..std::cmp::min(index + 64, self.bit_vec.len()) {
@@ -431,6 +440,7 @@ impl MfmCodec {
             initial_phase: sync,
             bit_cursor: sync,
             track_padding: 0,
+            data_ranges: Default::default(),
         }
     }
 
