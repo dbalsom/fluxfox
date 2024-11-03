@@ -63,7 +63,7 @@ pub(crate) fn run(global: &GlobalOptions, params: args::DumpParams) -> Result<()
 
     if params.dupe_mark {
         if let Some((dupe_ch, dupe_chsn)) = disk.find_duplication_mark() {
-            let rsr = match disk.read_sector(dupe_ch, DiskChs::from(dupe_chsn), None, RwSectorScope::DataOnly, true) {
+            let _rsr = match disk.read_sector(dupe_ch, DiskChs::from(dupe_chsn), None, RwSectorScope::DataOnly, true) {
                 Ok(rsr) => rsr,
                 Err(e) => {
                     eprintln!("Error reading sector: {}", e);

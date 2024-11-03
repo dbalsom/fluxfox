@@ -26,12 +26,12 @@
 */
 use crate::args::GlobalOptions;
 use crate::read_file;
-use anyhow::{anyhow, bail, Error};
+use anyhow::{bail, Error};
 use fluxfox::DiskImage;
 
 pub mod args;
 
-pub(crate) fn run(global: &GlobalOptions, params: args::InfoParams) -> Result<(), Error> {
+pub(crate) fn run(_global: &GlobalOptions, params: args::InfoParams) -> Result<(), Error> {
     let mut reader = read_file(&params.in_file)?;
 
     let disk_image_type = match DiskImage::detect_format(&mut reader) {

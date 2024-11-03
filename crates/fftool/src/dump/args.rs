@@ -25,7 +25,7 @@
     --------------------------------------------------------------------------
 */
 use crate::args::*;
-use bpaf::{construct, long, positional, Parser};
+use bpaf::{construct, long, Parser};
 use std::path::PathBuf;
 
 #[derive(Clone, Debug)]
@@ -37,6 +37,7 @@ pub(crate) struct DumpParams {
     pub(crate) n: Option<u8>,
     pub(crate) phys_head: Option<u8>,
     pub(crate) phys_cylinder: Option<u16>,
+    #[allow(dead_code)]
     pub(crate) format: Option<DumpFormat>,
     pub(crate) dupe_mark: bool,
     pub(crate) row_size: Option<u8>,

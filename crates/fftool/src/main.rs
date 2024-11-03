@@ -52,7 +52,6 @@ fn main() -> Result<(), Error> {
 }
 
 pub(crate) fn read_file(path: &Path) -> Result<Cursor<Vec<u8>>, Error> {
-    use std::io::Read;
     let buffer = std::fs::read(path)?;
     Ok(Cursor::new(buffer))
 }

@@ -52,14 +52,14 @@ impl FromStr for DumpFormat {
 }
 
 #[derive(Clone, Debug)]
-pub enum Command {
+pub(crate) enum Command {
     Version,
     Dump(DumpParams),
     Info(InfoParams),
 }
 
 #[derive(Debug)]
-pub struct AppParams {
+pub(crate) struct AppParams {
     pub global: GlobalOptions,
     pub command: Command,
 }
