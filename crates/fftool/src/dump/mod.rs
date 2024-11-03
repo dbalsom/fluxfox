@@ -26,7 +26,7 @@
 */
 pub(crate) mod args;
 
-use anyhow::Error;
+use anyhow::{bail, Error};
 use std::io::BufWriter;
 use std::io::Write;
 
@@ -66,16 +66,14 @@ pub(crate) fn run(global: &GlobalOptions, params: args::DumpParams) -> Result<()
             let _rsr = match disk.read_sector(dupe_ch, DiskChs::from(dupe_chsn), None, RwSectorScope::DataOnly, true) {
                 Ok(rsr) => rsr,
                 Err(e) => {
-                    eprintln!("Error reading sector: {}", e);
-                    std::process::exit(1);
+                    bail!("Error reading sector: {}", e);
                 }
             };
 
             let dump_string = match disk.dump_sector_string(dupe_ch, DiskChs::from(dupe_chsn), None) {
                 Ok(dump_string) => dump_string,
                 Err(e) => {
-                    eprintln!("Error dumping sector: {}", e);
-                    std::process::exit(1);
+                    bail!("Error dumping sector: {}", e);
                 }
             };
 
@@ -115,8 +113,7 @@ pub(crate) fn run(global: &GlobalOptions, params: args::DumpParams) -> Result<()
         let rsr = match disk.read_sector(phys_ch, id_chs, params.n, scope, true) {
             Ok(rsr) => rsr,
             Err(e) => {
-                eprintln!("Error reading sector: {}", e);
-                std::process::exit(1);
+                bail!("Error reading sector: {}", e);
             }
         };
 
@@ -127,12 +124,15 @@ pub(crate) fn run(global: &GlobalOptions, params: args::DumpParams) -> Result<()
             RwSectorScope::DataBlock => &rsr.read_buf,
         };
 
-        println!(
-            "Dumping sector from {} with id {} in hex format, with scope {:?}:",
-            phys_ch,
-            DiskChsn::from((id_chs, params.n.unwrap_or(2))),
-            scope
-        );
+        if !global.silent {
+            println!(
+                "Dumping sector from {} with id {} in hex format, with scope {:?}:",
+                phys_ch,
+                DiskChsn::from((id_chs, params.n.unwrap_or(2))),
+                scope
+            );
+        }
+
         _ = fluxfox::util::dump_slice(data_slice, 0, row_size, &mut buf);
 
         // If we requested DataBlock scope, we can independently calculate the CRC, so do that now.
@@ -145,16 +145,30 @@ pub(crate) fn run(global: &GlobalOptions, params: args::DumpParams) -> Result<()
     }
     else {
         // No sector was provided, dump the whole track.
-
         let ch = DiskCh::new(params.cylinder, params.head);
 
-        println!("Dumping track {} in hex format:", ch);
+        let rtr = if params.raw {
+            if !global.silent {
+                println!("Dumping track {}, raw, in hex format:", ch);
+            }
 
-        let rtr = match disk.read_track(ch, None) {
-            Ok(rtr) => rtr,
-            Err(e) => {
-                eprintln!("Error reading track: {}", e);
-                std::process::exit(1);
+            match disk.read_track_raw(ch, None) {
+                Ok(rtr) => rtr,
+                Err(e) => {
+                    bail!("Error reading track: {}", e);
+                }
+            }
+        }
+        else {
+            if !global.silent {
+                println!("Dumping track {}, decoded, in hex format:", ch);
+            }
+
+            match disk.read_track(ch, None) {
+                Ok(rtr) => rtr,
+                Err(e) => {
+                    bail!("Error reading track: {}", e);
+                }
             }
         };
 

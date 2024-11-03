@@ -41,10 +41,17 @@ pub(crate) struct DumpParams {
     pub(crate) format: Option<DumpFormat>,
     pub(crate) dupe_mark: bool,
     pub(crate) row_size: Option<u8>,
+    pub(crate) raw: bool,
 }
 
 fn dupe_mark_parser() -> impl Parser<bool> {
     long("dupe-mark").help("Dump the duplication mark if present").switch()
+}
+
+fn raw_parser() -> impl Parser<bool> {
+    long("raw")
+        .help("Dump the raw sector data (only valid for bitstream images or higher)")
+        .switch()
 }
 
 pub(crate) fn dump_parser() -> impl Parser<DumpParams> {
@@ -61,6 +68,7 @@ pub(crate) fn dump_parser() -> impl Parser<DumpParams> {
     let format = dump_format_parser().optional();
     let dupe_mark = dupe_mark_parser();
     let row_size = row_size_parser().optional();
+    let raw = raw_parser();
 
     construct!(DumpParams {
         in_file,
@@ -72,6 +80,7 @@ pub(crate) fn dump_parser() -> impl Parser<DumpParams> {
         phys_cylinder,
         format,
         dupe_mark,
-        row_size
+        row_size,
+        raw
     })
 }
