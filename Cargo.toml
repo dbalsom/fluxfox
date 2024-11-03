@@ -46,7 +46,6 @@ members = [
     "examples/imginfo",
     "examples/imgdump",
     "examples/imgviz",
-    "examples/imgconvert",
     "crates/ffedit",
     "crates/fftool",
 ]

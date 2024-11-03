@@ -24,12 +24,12 @@
 
     --------------------------------------------------------------------------
 */
+use crate::convert::args::{convert_parser, ConvertParams};
+use crate::dump::args::{dump_parser, DumpParams};
+use crate::info::args::{info_parser, InfoParams};
 use bpaf::*;
 use std::path::PathBuf;
 use std::str::FromStr;
-
-use crate::dump::args::{dump_parser, DumpParams};
-use crate::info::args::{info_parser, InfoParams};
 
 #[derive(Debug, Clone, Copy)]
 pub enum DumpFormat {
@@ -54,6 +54,7 @@ impl FromStr for DumpFormat {
 #[derive(Clone, Debug)]
 pub(crate) enum Command {
     Version,
+    Convert(ConvertParams),
     Dump(DumpParams),
     Info(InfoParams),
 }
@@ -80,8 +81,15 @@ pub fn global_options_parser() -> impl Parser<GlobalOptions> {
 pub(crate) fn in_file_parser() -> impl Parser<PathBuf> {
     long("in_file")
         .short('i')
-        .argument::<PathBuf>("IN_FILE")
+        .argument::<PathBuf>("INPUT_FILE")
         .help("Path to input file")
+}
+
+pub(crate) fn out_file_parser() -> impl Parser<PathBuf> {
+    long("out_file")
+        .short('o')
+        .argument::<PathBuf>("OUTPUT_FILE")
+        .help("Path to output file")
 }
 
 pub(crate) fn command_parser() -> impl Parser<AppParams> {
@@ -92,16 +100,22 @@ pub(crate) fn command_parser() -> impl Parser<AppParams> {
         .command("version")
         .help("Display version information and exit");
 
+    let convert = construct!(Command::Convert(convert_parser()))
+        .to_options()
+        .command("convert")
+        .help("Convert a disk image to a different format");
+
     let dump = construct!(Command::Dump(dump_parser()))
         .to_options()
         .command("dump")
         .help("Dump data from a disk image");
+
     let info = construct!(Command::Info(info_parser()))
         .to_options()
         .command("info")
         .help("Display information about a disk image");
 
-    let command = construct!([version, dump, info]);
+    let command = construct!([version, convert, dump, info]);
 
     construct!(AppParams { global, command })
 }

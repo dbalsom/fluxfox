@@ -1,5 +1,5 @@
 /*
-    fftool
+    FluxFox - fftool
     https://github.com/dbalsom/fluxfox
 
     Copyright 2024 Daniel Balsom
@@ -23,38 +23,36 @@
     DEALINGS IN THE SOFTWARE.
 
     --------------------------------------------------------------------------
+
+    prompt.rs
+
+    Implement a simple prompt that requires the user to enter 'y' or 'n'.
 */
+use std::io;
+use std::io::Write;
 
-pub mod args;
-pub mod convert;
-pub mod dump;
-mod find;
-pub mod info;
-mod prompt;
+pub fn prompt(message: &str) -> bool {
+    loop {
+        // Display the prompt message without a newline at the end
+        print!("{}", message);
+        // Ensure the prompt is shown immediately
+        io::stdout().flush().expect("Failed to flush stdout");
 
-use anyhow::{Context, Error};
-use bpaf::Parser;
-use std::io::Cursor;
-use std::path::Path;
+        // Read the user's input
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).expect("Failed to read line");
 
-use crate::args::Command;
-use args::command_parser;
+        // Process the input: trim whitespace and convert to lowercase
+        let input = input.trim().to_lowercase();
 
-fn main() -> Result<(), Error> {
-    let app_params = command_parser().run();
-
-    match app_params.command {
-        Command::Version => {
-            println!("fftool v{}", env!("CARGO_PKG_VERSION"));
-            Ok(())
+        // Match the input against accepted responses
+        match input.as_str() {
+            "y" | "yes" => return true, // User answered 'yes'
+            "n" | "no" => return false, // User answered 'no'
+            _ => {
+                // Invalid input, prompt again
+                println!("Please enter 'y' or 'n'.");
+            }
         }
-        Command::Convert(params) => convert::run(&app_params.global, params).context("Convert command failed"),
-        Command::Dump(params) => dump::run(&app_params.global, params).context("Dump command failed"),
-        Command::Info(params) => info::run(&app_params.global, params).context("Info command failed"),
     }
-}
-
-pub(crate) fn read_file(path: &Path) -> Result<Cursor<Vec<u8>>, Error> {
-    let buffer = std::fs::read(path)?;
-    Ok(Cursor::new(buffer))
 }

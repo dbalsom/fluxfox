@@ -1,5 +1,5 @@
 /*
-    FluxFox
+    fftool
     https://github.com/dbalsom/fluxfox
 
     Copyright 2024 Daniel Balsom
@@ -23,36 +23,42 @@
     DEALINGS IN THE SOFTWARE.
 
     --------------------------------------------------------------------------
-
-    examples/imgconvert/src/prompt.rs
-
-    Implement a simple prompt that requires the user to enter 'y' or 'n'.
 */
-use std::io;
-use std::io::Write;
+use crate::args::*;
+use bpaf::{construct, long, Parser};
+use std::path::PathBuf;
 
-pub(crate) fn prompt(message: &str) -> bool {
-    loop {
-        // Display the prompt message without a newline at the end
-        print!("{}", message);
-        // Ensure the prompt is shown immediately
-        io::stdout().flush().expect("Failed to flush stdout");
+#[derive(Clone, Debug)]
+pub(crate) struct ConvertParams {
+    pub(crate) in_file: PathBuf,
+    pub(crate) out_file: PathBuf,
+    #[allow(dead_code)]
+    pub(crate) weak_to_holes: bool,
+    pub(crate) prolok: bool,
+}
 
-        // Read the user's input
-        let mut input = String::new();
-        io::stdin().read_line(&mut input).expect("Failed to read line");
+fn weak_to_holes_parser() -> impl Parser<bool> {
+    long("weak-to-holes").switch().help("Convert weak bits to holes")
+}
 
-        // Process the input: trim whitespace and convert to lowercase
-        let input = input.trim().to_lowercase();
+fn prolok_parser() -> impl Parser<bool> {
+    long("prolok")
+        .switch()
+        .help("Convert weak bits to holes on Prolok-protected tracks")
+}
 
-        // Match the input against accepted responses
-        match input.as_str() {
-            "y" | "yes" => return true, // User answered 'yes'
-            "n" | "no" => return false, // User answered 'no'
-            _ => {
-                // Invalid input, prompt again
-                println!("Please enter 'y' or 'n'.");
-            }
-        }
-    }
+pub(crate) fn convert_parser() -> impl Parser<ConvertParams> {
+    //let path = positional::<String>("PATH").help("Path to the file to dump");
+
+    let in_file = in_file_parser();
+    let out_file = out_file_parser();
+    let weak_to_holes = weak_to_holes_parser();
+    let prolok = prolok_parser();
+
+    construct!(ConvertParams {
+        in_file,
+        out_file,
+        weak_to_holes,
+        prolok,
+    })
 }

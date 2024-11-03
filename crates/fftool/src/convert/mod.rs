@@ -1,5 +1,5 @@
 /*
-    FluxFox
+    fftool
     https://github.com/dbalsom/fluxfox
 
     Copyright 2024 Daniel Balsom
@@ -23,112 +23,49 @@
     DEALINGS IN THE SOFTWARE.
 
     --------------------------------------------------------------------------
-
-    examples/imgconvert/src/main.rs
-
-    This is a simple example of how to use FluxFox to convert one disk image
-    format to another.
-
-    WARNING: fluxfox is not primarily intended for the purpose of disk image
-    conversion. I am not responsible for any data loss or corruption that may
-    result as a consequence of using this tool.
 */
-mod prompt;
+pub mod args;
 
-use bpaf::*;
+use crate::args::GlobalOptions;
+use crate::prompt;
+use crate::read_file;
+use anyhow::{bail, Error};
 use fluxfox::diskimage::DiskImageFlags;
 use fluxfox::{format_from_ext, DiskImage, ImageParser, ParserWriteCompatibility};
 use std::io::Cursor;
-use std::path::PathBuf;
-use std::ptr::read;
 
-pub const WARNING: &str = "WARNING: fluxfox is not primarily intended for the purpose of disk\n\
-image conversion. I am not responsible for any data loss or corruption\n\
-that may result as a consequence of using this tool.\n";
-
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-struct Out {
-    in_filename: PathBuf,
-    out_filename: PathBuf,
-    prolok: bool,
-    debug: bool,
-}
-
-/// Set up bpaf argument parsing.
-fn opts() -> OptionParser<Out> {
-    let debug = short('d').long("debug").help("Print debug messages").switch();
-
-    let in_filename = short('i')
-        .long("in_filename")
-        .help("Filename of source image")
-        .argument::<PathBuf>("IN_FILE");
-
-    let out_filename = short('o')
-        .long("out_filename")
-        .help("Filename of destination image")
-        .argument::<PathBuf>("OUT_FILE");
-
-    let prolok = long("prolok")
-        .help("Create PROLOK holes for compatible formats")
-        .switch();
-
-    construct!(Out {
-        in_filename,
-        out_filename,
-        prolok,
-        debug,
-    })
-    .to_options()
-    .descr("imgconvert: display info about disk image")
-}
-
-fn main() {
-    env_logger::init();
-
-    // Get the command line options.
-    let opts = opts().run();
-    let disk_image = match std::fs::File::open(&opts.in_filename) {
-        Ok(file) => file,
-        Err(e) => {
-            eprintln!("Error opening file: {}", e);
-            std::process::exit(1);
-        }
-    };
-
-    let mut reader = std::io::BufReader::new(disk_image);
+pub(crate) fn run(global: &GlobalOptions, params: args::ConvertParams) -> Result<(), Error> {
+    let mut reader = read_file(&params.in_file)?;
 
     let disk_image_type = match DiskImage::detect_format(&mut reader) {
         Ok(disk_image_type) => disk_image_type,
         Err(e) => {
-            eprintln!("Error detecting input disk image type: {}", e);
-            std::process::exit(1);
+            bail!("Error detecting input disk image type: {}", e);
         }
     };
 
-    println!("Input disk image type: {}", disk_image_type);
+    if !global.silent {
+        println!("Input disk image type: {}", disk_image_type);
+    }
 
     // Get extension from output filename
-    let output_extension = match opts.out_filename.extension() {
+    let output_extension = match params.out_file.extension() {
         Some(ext) => ext,
         None => {
-            eprintln!("Error: A file extension is required for the output file!");
-            std::process::exit(1);
+            bail!("Error: A file extension is required for the output file!");
         }
     };
 
     let ext_str = match output_extension.to_str() {
         Some(ext) => ext,
         None => {
-            eprintln!("Error: Invalid output file extension!");
-            std::process::exit(1);
+            bail!("Error: Invalid output file extension!");
         }
     };
     let output_format = match format_from_ext(ext_str) {
         Some(format) => format,
         None => {
-            eprintln!("Error: Unknown output file extension: {}", ext_str);
-            std::process::exit(1);
+            bail!("Error: Unknown output file extension: {}", ext_str);
         }
     };
 
@@ -136,11 +73,10 @@ fn main() {
     //std::process::exit(0);
 
     // Load disk image
-    let mut in_disk = match DiskImage::load(&mut reader, Some(opts.in_filename.clone()), None) {
+    let mut in_disk = match DiskImage::load(&mut reader, Some(params.in_file.clone()), None) {
         Ok(disk) => disk,
         Err(e) => {
-            eprintln!("Error loading disk image: {}", e);
-            std::process::exit(1);
+            bail!("Error loading disk image: {}", e);
         }
     };
 
@@ -148,7 +84,7 @@ fn main() {
         println!("Input disk image contains a weak bit mask.");
     }
 
-    if opts.prolok {
+    if params.prolok {
         in_disk.set_flag(DiskImageFlags::PROLOK);
         println!("PROLOK holes will be created in output image.");
     }
@@ -172,19 +108,18 @@ fn main() {
     match output_format.save_image(&mut in_disk, &mut out_buffer) {
         Ok(_) => {
             let out_inner: Vec<u8> = out_buffer.into_inner();
-            match std::fs::write(opts.out_filename.clone(), out_inner) {
+            match std::fs::write(params.out_file.clone(), out_inner) {
                 Ok(_) => {
-                    println!("Output image saved to {}", opts.out_filename.display());
+                    println!("Output image saved to {}", params.out_file.display());
+                    Ok(())
                 }
                 Err(e) => {
-                    eprintln!("Error saving output image: {}", e);
-                    std::process::exit(1);
+                    bail!("Error saving output image: {}", e);
                 }
             }
         }
         Err(e) => {
-            eprintln!("Error saving output image: {}", e);
-            std::process::exit(1);
+            bail!("Error saving output image: {}", e);
         }
     }
 }
