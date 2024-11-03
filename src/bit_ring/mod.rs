@@ -34,17 +34,24 @@
 
 use crate::io::{self, Read};
 use bit_vec::BitVec;
+use std::ops::Index;
 
 pub struct BitRing {
     bits: BitVec,
     wrap: usize,
     cursor: usize,
+    wrap_value: Option<bool>,
 }
 
 impl From<BitVec> for BitRing {
     fn from(bits: BitVec) -> BitRing {
         let wrap = bits.len();
-        BitRing { bits, wrap, cursor: 0 }
+        BitRing {
+            bits,
+            wrap,
+            cursor: 0,
+            wrap_value: None,
+        }
     }
 }
 
@@ -52,17 +59,27 @@ impl From<&[u8]> for BitRing {
     fn from(bytes: &[u8]) -> BitRing {
         let bits = BitVec::from_bytes(bytes);
         let wrap = bits.len();
-        BitRing { bits, wrap, cursor: 0 }
+        BitRing {
+            bits,
+            wrap,
+            cursor: 0,
+            wrap_value: None,
+        }
     }
 }
 
 #[allow(dead_code)]
 impl BitRing {
+    pub fn from_bytes(bytes: &[u8]) -> BitRing {
+        BitRing::from(bytes)
+    }
+
     pub fn from_elem(len: usize, elem: bool) -> BitRing {
         BitRing {
             bits: BitVec::from_elem(len, elem),
             wrap: len,
             cursor: 0,
+            wrap_value: None,
         }
     }
 
@@ -77,7 +94,13 @@ impl BitRing {
     /// Set the wrapping point of the BitRing.
     /// `set_wrap` will not allow the length to be set longer than the underlying BitVec.
     pub fn set_wrap(&mut self, wrap_len: usize) {
-        self.wrap = std::cmp::max(wrap_len, self.bits.len());
+        self.wrap = std::cmp::min(wrap_len, self.bits.len());
+    }
+
+    /// Set the value to return when the index wraps around. None will return the actual value,
+    /// while Some(bool) will return the specified value.
+    pub fn set_wrap_value(&mut self, wrap_value: impl Into<Option<bool>>) {
+        self.wrap_value = wrap_value.into();
     }
 
     #[inline]
@@ -86,7 +109,7 @@ impl BitRing {
     }
 
     #[inline]
-    fn wrap_cursor(&mut self, cursor: usize) -> usize {
+    fn wrap_cursor(&self, cursor: usize) -> usize {
         cursor % self.wrap
     }
 }
@@ -105,14 +128,137 @@ impl Read for BitRing {
         let mut read = 0;
         for buf_byte in buf.iter_mut() {
             let mut byte = 0;
-            for i in 0..8 {
-                let bit = self.bits[self.cursor];
-                byte |= (bit as u8) << i;
+            for _ in 0..8 {
+                byte = byte << 1 | (self.bits[self.cursor] as u8);
                 self.incr_cursor();
             }
             *buf_byte = byte;
             read += 1;
         }
         Ok(read)
+    }
+}
+
+impl Index<usize> for BitRing {
+    type Output = bool;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        if index < self.wrap {
+            &self.bits[index]
+        }
+        else {
+            self.wrap_value
+                .as_ref()
+                .unwrap_or_else(|| &self.bits[index % self.wrap])
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bit_vec::BitVec;
+
+    #[test]
+    fn test_from_bitvec() {
+        // Initialize BitRing from a BitVec
+        let bits = BitVec::from_bytes(&[0b1010_1010]);
+        let ring = BitRing::from(bits.clone());
+
+        assert_eq!(ring.len(), bits.len());
+        for i in 0..bits.len() {
+            assert_eq!(ring[i], bits[i]);
+        }
+    }
+
+    #[test]
+    fn test_from_bytes() {
+        // Initialize BitRing from a byte slice
+        let bytes = &[0b1010_1010, 0b1100_1100];
+        let ring = BitRing::from_bytes(bytes);
+
+        let expected_bits = BitVec::from_bytes(bytes);
+        for i in 0..expected_bits.len() {
+            assert_eq!(ring[i], expected_bits[i]);
+        }
+    }
+
+    #[test]
+    fn test_wrap_behavior_no_wrap_value() {
+        // Test wrapping behavior with no wrap_value set
+        let bits = BitVec::from_bytes(&[0b1010_1010]); // 8 bits
+        let mut ring = BitRing::from(bits.clone());
+
+        // Set wrap point at 8 (length of BitVec)
+        ring.set_wrap(8);
+
+        // Access beyond wrap point should wrap around to the beginning
+        for i in 0..16 {
+            assert_eq!(ring[i], bits[i % 8]);
+        }
+    }
+
+    #[test]
+    fn test_wrap_behavior_with_wrap_value() {
+        // Test wrapping behavior with a wrap_value set
+        let bits = BitVec::from_bytes(&[0b1010_1010]); // 8 bits
+        let mut ring = BitRing::from(bits);
+
+        // Set wrap point at 8 (length of BitVec) and wrap_value to Some(false)
+        ring.set_wrap(8);
+        ring.set_wrap_value(Some(false));
+
+        // Access within wrap point should return actual bits
+        for i in 0..8 {
+            assert_eq!(ring[i], ring.bits[i]);
+        }
+
+        // Access beyond wrap point should return wrap_value (false)
+        for i in 8..16 {
+            assert!(!ring[i]);
+        }
+    }
+
+    #[test]
+    fn test_iterate_over_bits() {
+        // Test iterator behavior over BitRing
+        let bytes = &[0b1010_1010];
+        let ring = BitRing::from_bytes(bytes);
+
+        // Collect the iterator output into a vector
+        let collected: Vec<bool> = Iterator::take(ring, 9).collect();
+
+        // Verify it matches the expected pattern
+        let expected = vec![true, false, true, false, true, false, true, false, true];
+        assert_eq!(collected, expected);
+    }
+
+    #[test]
+    fn test_read_to_buffer() {
+        // Test `Read` implementation
+        let bytes = &[0b1010_1010];
+        let mut ring = BitRing::from_bytes(bytes);
+
+        let mut buf = [0; 1];
+        let read_bytes = ring.read(&mut buf).expect("Failed to read from BitRing");
+
+        // Ensure 1 byte is read and matches the input pattern
+        assert_eq!(read_bytes, 1);
+        assert_eq!(buf[0], 0b1010_1010);
+    }
+
+    #[test]
+    fn test_custom_wrap_len() {
+        // Test custom wrap length shorter than the full length
+        let bits = BitVec::from_bytes(&[0b1010_1010, 0b1100_1100]); // 16 bits
+        let mut ring = BitRing::from(bits);
+
+        // Set a custom wrap length at 8 (half the total length)
+        ring.set_wrap(8);
+
+        // Accessing beyond 8 should wrap around to the beginning
+        for i in 0..16 {
+            assert_eq!(ring[i], ring.bits[i % 8]);
+        }
     }
 }
