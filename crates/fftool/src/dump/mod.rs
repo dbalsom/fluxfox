@@ -148,11 +148,23 @@ pub(crate) fn run(global: &GlobalOptions, params: args::DumpParams) -> Result<()
         let ch = DiskCh::new(params.cylinder, params.head);
 
         let rtr = if params.raw {
+            let mut track = match disk.track_mut(ch) {
+                Some(track) => track,
+                None => {
+                    bail!("Specified track: {} not found.", ch);
+                }
+            };
+
             if !global.silent {
-                println!("Dumping track {}, raw, in hex format:", ch);
+                println!(
+                    "Dumping track {} ({}, {} bits), raw, in hex format:",
+                    ch,
+                    track.info().encoding,
+                    track.info().bit_length
+                );
             }
 
-            match disk.read_track_raw(ch, None) {
+            match track.read_track_raw(None) {
                 Ok(rtr) => rtr,
                 Err(e) => {
                     bail!("Error reading track: {}", e);

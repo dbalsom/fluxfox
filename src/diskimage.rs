@@ -452,6 +452,12 @@ impl DiskImage {
             .and_then(|&track_idx| self.track_pool.get(track_idx))
     }
 
+    pub fn track_mut(&mut self, ch: DiskCh) -> Option<&mut DiskTrack> {
+        self.track_map[ch.h() as usize]
+            .get(ch.c() as usize)
+            .and_then(|&track_idx| self.track_pool.get_mut(track_idx))
+    }
+
     pub fn track_by_idx(&self, track_idx: usize) -> Option<&DiskTrack> {
         self.track_pool.get(track_idx)
     }
