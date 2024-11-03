@@ -26,6 +26,7 @@
 */
 use crate::convert::args::{convert_parser, ConvertParams};
 use crate::dump::args::{dump_parser, DumpParams};
+use crate::find::args::{find_parser, FindParams};
 use crate::info::args::{info_parser, InfoParams};
 use bpaf::*;
 use std::path::PathBuf;
@@ -56,6 +57,7 @@ pub(crate) enum Command {
     Version,
     Convert(ConvertParams),
     Dump(DumpParams),
+    Find(FindParams),
     Info(InfoParams),
 }
 
@@ -110,12 +112,17 @@ pub(crate) fn command_parser() -> impl Parser<AppParams> {
         .command("dump")
         .help("Dump data from a disk image");
 
+    let find = construct!(Command::Find(find_parser()))
+        .to_options()
+        .command("find")
+        .help("Find data in a disk image");
+
     let info = construct!(Command::Info(info_parser()))
         .to_options()
         .command("info")
         .help("Display information about a disk image");
 
-    let command = construct!([version, convert, dump, info]);
+    let command = construct!([version, convert, dump, find, info]);
 
     construct!(AppParams { global, command })
 }
@@ -160,4 +167,18 @@ pub(crate) fn n_parser() -> impl Parser<u8> {
         .argument::<u8>("SECTOR_SIZE")
         .help("Specify the size of the sector to dump. 0=128 bytes, 1=256 bytes, 2=512 bytes ... 6=8192 bytes")
         .guard(|&size| size <= 6, "Size must be between 0 and 6")
+}
+
+pub(crate) fn dump_format_parser() -> impl Parser<DumpFormat> {
+    long("format")
+        .short('f')
+        .argument::<DumpFormat>("FORMAT")
+        .help("Specify the dump format: binary, hex, or ascii")
+}
+
+pub(crate) fn row_size_parser() -> impl Parser<u8> {
+    long("row-size")
+        .argument::<u8>("HEAD")
+        .help("Specify the number of elements per row to be dumped")
+        .guard(|&size| size >= 8 && size <= 128, "Size must be between 8 and 128")
 }

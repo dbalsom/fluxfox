@@ -43,22 +43,8 @@ pub(crate) struct DumpParams {
     pub(crate) row_size: Option<u8>,
 }
 
-fn dump_format_parser() -> impl Parser<DumpFormat> {
-    long("format")
-        .short('f')
-        .argument::<DumpFormat>("FORMAT")
-        .help("Specify the dump format: binary, hex, or ascii")
-}
-
 fn dupe_mark_parser() -> impl Parser<bool> {
     long("dupe-mark").help("Dump the duplication mark if present").switch()
-}
-
-fn row_size_parser() -> impl Parser<u8> {
-    long("row-size")
-        .argument::<u8>("HEAD")
-        .help("Specify the number of elements per row to be dumped")
-        .guard(|&size| size >= 8 && size <= 128, "Size must be between 8 and 128")
 }
 
 pub(crate) fn dump_parser() -> impl Parser<DumpParams> {

@@ -48,6 +48,7 @@ fn main() -> Result<(), Error> {
             println!("fftool v{}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
+        Command::Find(params) => find::run(&app_params.global, params).context("Find command failed"),
         Command::Convert(params) => convert::run(&app_params.global, params).context("Convert command failed"),
         Command::Dump(params) => dump::run(&app_params.global, params).context("Dump command failed"),
         Command::Info(params) => info::run(&app_params.global, params).context("Info command failed"),

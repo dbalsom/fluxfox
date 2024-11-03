@@ -1,5 +1,5 @@
 /*
-    fftool
+    fluxfox - fftool
     https://github.com/dbalsom/fluxfox
 
     Copyright 2024 Daniel Balsom
