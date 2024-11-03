@@ -312,6 +312,7 @@ pub struct TrackRegion {
 pub struct BitStreamTrackParams<'a> {
     pub encoding: DiskDataEncoding,
     pub data_rate: DiskDataRate,
+    pub rpm: Option<DiskRpm>,
     pub ch: DiskCh,
     pub bitcell_ct: Option<usize>,
     pub data: &'a [u8],
@@ -702,7 +703,13 @@ impl DiskImage {
     /// - `Err(DiskImageError::SeekError)` if the head value in `ch` is greater than or equal to 2.
     /// - `Err(DiskImageError::ParameterError)` if the length of `data` and `weak` do not match.
     /// - `Err(DiskImageError::IncompatibleImage)` if the disk image is not compatible with `BitStream` resolution.
-    pub fn add_track_fluxstream(&mut self, ch: DiskCh, mut track: FluxStreamTrack) -> Result<(), DiskImageError> {
+    pub fn add_track_fluxstream(
+        &mut self,
+        ch: DiskCh,
+        mut track: FluxStreamTrack,
+        clock_hint: Option<f64>,
+        rpm_hint: Option<DiskRpm>,
+    ) -> Result<&DiskTrack, DiskImageError> {
         let head = ch.h() as usize;
         if head >= 2 {
             return Err(DiskImageError::SeekError);
@@ -728,7 +735,7 @@ impl DiskImage {
 
         track.set_ch(ch);
         track.set_shared(self.shared.clone());
-        track.decode_revolutions()?;
+        track.decode_revolutions(clock_hint, rpm_hint)?;
         track.analyze_revolutions();
 
         log::debug!(
@@ -743,7 +750,7 @@ impl DiskImage {
         // Consider adding a track to an image to be a single 'write' operation.
         self.incr_writes();
 
-        Ok(())
+        Ok(self.track_pool.last().unwrap())
     }
 
     /// Adds a new track to the disk image, of BitStream resolution.
@@ -929,6 +936,13 @@ impl DiskImage {
         track.read_all_sectors(id_ch, n, eot)
     }
 
+    /// Read the track specified by `ch`, decoding data. The data is returned within a
+    /// ReadTrackResult struct, which crucially contains the exact length of the track data in bits.
+    ///
+    /// # Parameters
+    /// - `ch`: The cylinder and head of the track to read.
+    /// - `overdump`: An optional parameter to specify the number of bytes to read past the end of
+    ///               the track. This is useful for examining track wrapping behavior.
     pub fn read_track(&mut self, ch: DiskCh, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
         // Check that the head and cylinder are within the bounds of the track map.
         if ch.h() > 1 || ch.c() as usize >= self.track_map[ch.h() as usize].len() {
@@ -939,6 +953,25 @@ impl DiskImage {
         let track = &mut self.track_pool[ti];
 
         track.read_track(overdump)
+    }
+
+    /// Read the track specified by `ch`, without decoding. The data is returned within a
+    /// ReadTrackResult struct, which crucially contains the exact length of the track data in bits.
+    ///
+    /// # Parameters
+    /// - `ch`: The cylinder and head of the track to read.
+    /// - `overdump`: An optional parameter to specify the number of bytes to read past the end of
+    ///               the track. This is useful for examining track wrapping behavior.
+    pub fn read_track_raw(&mut self, ch: DiskCh, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
+        // Check that the head and cylinder are within the bounds of the track map.
+        if ch.h() > 1 || ch.c() as usize >= self.track_map[ch.h() as usize].len() {
+            return Err(DiskImageError::SeekError);
+        }
+
+        let ti = self.track_map[ch.h() as usize][ch.c() as usize];
+        let track = &mut self.track_pool[ti];
+
+        track.read_track_raw(overdump)
     }
 
     pub fn add_empty_track(
@@ -970,6 +1003,7 @@ impl DiskImage {
                 self.track_pool.push(Box::new(BitStreamTrack {
                     encoding,
                     data_rate,
+                    rpm: self.descriptor.rpm,
                     ch,
                     data: stream,
                     metadata: DiskStructureMetadata::default(),
@@ -1727,5 +1761,15 @@ impl DiskImage {
 
     pub fn incr_writes(&mut self) {
         self.shared.lock().unwrap().writes += 1;
+    }
+
+    /// Return the last track in the track pool.
+    /// This is useful for returning the last track created when performing an incremental file load,
+    /// ie, to use the last track's data rate to prime the pll for the next track.
+    /// It should not be used afterward as entries in the track pool can be orphaned by track map
+    /// renumbering.
+    #[allow(dead_code)]
+    pub(crate) fn last_pool_track(&self) -> Option<&DiskTrack> {
+        self.track_pool.last()
     }
 }

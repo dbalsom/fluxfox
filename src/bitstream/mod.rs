@@ -43,6 +43,7 @@ pub trait TrackCodec {
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool;
     fn replace(&mut self, new_bits: BitVec);
+    fn data_bits(&self) -> &BitVec;
     fn data(&self) -> Vec<u8>;
     fn set_clock_map(&mut self, clock_map: BitVec);
     fn clock_map(&self) -> &BitVec;

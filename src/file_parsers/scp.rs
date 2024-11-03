@@ -517,6 +517,7 @@ impl ScpFormat {
             let params = BitStreamTrackParams {
                 encoding: DiskDataEncoding::Mfm,
                 data_rate: DiskDataRate::from(rev_density),
+                rpm: None,
                 ch: DiskCh::new(c, h),
                 bitcell_ct: Some(track_bits),
                 data: &track_data,

@@ -359,6 +359,7 @@ impl TCFormat {
             let params = BitStreamTrackParams {
                 encoding: disk_encoding,
                 data_rate: disk_data_rate,
+                rpm: Some(disk_rpm),
                 ch: DiskCh::new(cylinder_n, head_n),
                 bitcell_ct: None,
                 data: &track_data_vec,

@@ -350,6 +350,7 @@ impl HfeFormat {
             let params = BitStreamTrackParams {
                 encoding: DiskDataEncoding::Mfm,
                 data_rate: DiskDataRate::from(file_header.bit_rate as u32 * 100),
+                rpm: None,
                 ch: DiskCh::from((ti as u16, 0)),
                 bitcell_ct: None,
                 data: &track_data[0],
@@ -371,6 +372,7 @@ impl HfeFormat {
             let params = BitStreamTrackParams {
                 encoding: DiskDataEncoding::Mfm,
                 data_rate: DiskDataRate::from(file_header.bit_rate as u32 * 100),
+                rpm: None,
                 ch: DiskCh::from((ti as u16, 1)),
                 bitcell_ct: None,
                 data: &track_data[1],

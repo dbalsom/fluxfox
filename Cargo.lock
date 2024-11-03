@@ -788,6 +788,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "fftool"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bpaf",
+ "crossbeam-channel",
+ "fluxfox",
+ "indexmap 2.6.0",
+ "log 0.4.22",
+ "once_cell",
+]
+
+[[package]]
 name = "flate2"
 version = "1.0.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -255,6 +255,15 @@ impl DiskDensity {
             _ => None,
         }
     }
+
+    pub fn base_clock(&self) -> f64 {
+        match self {
+            DiskDensity::Standard => 4e-6,
+            DiskDensity::Double => 2e-6,
+            DiskDensity::High => 1e-6,
+            DiskDensity::Extended => 5e-7,
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug)]

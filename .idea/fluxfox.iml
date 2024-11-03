@@ -10,6 +10,7 @@
       <sourceFolder url="file://$MODULE_DIR$/examples/imgdump/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/examples/imgconvert/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/ffedit/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/fftool/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

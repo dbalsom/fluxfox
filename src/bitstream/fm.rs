@@ -113,6 +113,10 @@ impl TrackCodec for FmCodec {
         self.bit_vec = new_bits;
     }
 
+    fn data_bits(&self) -> &BitVec {
+        &self.bit_vec
+    }
+
     fn data(&self) -> Vec<u8> {
         self.bit_vec.to_bytes()
     }

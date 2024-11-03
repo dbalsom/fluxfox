@@ -37,14 +37,13 @@ use crate::diskimage::{
 };
 use crate::flux::flux_revolution::FluxRevolution;
 use crate::flux::pll::{Pll, PllPreset};
-use crate::flux::AVERAGE_FLUX_DENSITY;
 
 use crate::structure_parsers::system34::System34Standard;
 use crate::structure_parsers::DiskStructureMetadata;
 use crate::track::bitstream::BitStreamTrack;
 use crate::{
-    format_us, DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskDensity, DiskImageError, DiskRpm,
-    SectorMapEntry,
+    format_us, DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity,
+    DiskImageError, DiskRpm, SectorMapEntry,
 };
 use sha1_smol::Digest;
 use std::any::Any;
@@ -59,6 +58,7 @@ pub struct FluxStreamTrack {
     decoded_revolutions: Vec<Option<BitStreamTrack>>,
     best_revolution: usize,
     density: DiskDensity,
+    rpm: DiskRpm,
 
     dirty: bool,
     resolved: Option<BitStreamTrack>,
@@ -67,6 +67,10 @@ pub struct FluxStreamTrack {
 }
 
 impl Track for FluxStreamTrack {
+    fn resolution(&self) -> DiskDataResolution {
+        DiskDataResolution::FluxStream
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -91,6 +95,8 @@ impl Track for FluxStreamTrack {
         TrackInfo {
             encoding: self.encoding,
             data_rate: self.data_rate,
+            density: Some(DiskDensity::from(self.data_rate)),
+            rpm: Some(self.rpm),
             bit_length: 0,
             sector_ct: 0,
         }
@@ -208,6 +214,13 @@ impl Track for FluxStreamTrack {
         Err(DiskImageError::ResolveError)
     }
 
+    fn read_track_raw(&mut self, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
+        if let Some(resolved) = self.get_bitstream_mut() {
+            return resolved.read_track_raw(overdump);
+        }
+        Err(DiskImageError::ResolveError)
+    }
+
     fn has_weak_bits(&self) -> bool {
         if let Some(resolved) = self.get_bitstream() {
             return resolved.has_weak_bits();
@@ -256,6 +269,7 @@ impl FluxStreamTrack {
             decoded_revolutions: Vec::new(),
             best_revolution: 0,
             density: DiskDensity::Double,
+            rpm: DiskRpm::Rpm300,
             dirty: false,
             resolved: None,
             shared: None,
@@ -308,49 +322,78 @@ impl FluxStreamTrack {
         self.revolutions.get_mut(index)
     }
 
-    pub fn decode_revolutions(&mut self) -> Result<(), DiskImageError> {
+    /// Decode all revolutions in the track. Use 'base_clock' to set the base clock for the PLL,
+    /// if provided. If not provided, the base clock is estimated based on the flux transition
+    /// count, but this can be ambiguous. If no base clock is provided, and we cannot guess, we
+    /// will assume a double density track.
+    pub fn decode_revolutions(
+        &mut self,
+        clock_hint: Option<f64>,
+        rpm_hint: Option<DiskRpm>,
+    ) -> Result<(), DiskImageError> {
         for (i, revolution) in self.revolutions.iter_mut().enumerate() {
             let ft_ct = revolution.ft_ct();
-
-            let mut base_clock; // 1μs base clock
-            let base_rpm;
-            // Estimate bitstream length based on flux transition count.
-            let bitcell_estimate = ((ft_ct as f64) * AVERAGE_FLUX_DENSITY) as usize;
-            (base_clock, base_rpm) = match bitcell_estimate {
-                80_000..133_333 => (2e-6, DiskRpm::Rpm300),
-                133_333..183_333 => (1e-6, DiskRpm::Rpm360),
-                183_333..233_332 => (1e-6, DiskRpm::Rpm300),
-                _ => {
-                    log::error!(
-                        "decode_revolutions(): Revolution {} has invalid flux transition count: {} (~{} bitcells). Skipping.",
-                        i,
-                        ft_ct,
-                        bitcell_estimate
-                    );
-                    continue;
+            let mut base_rpm = rpm_hint.unwrap_or(DiskRpm::Rpm300);
+            let mut base_clock = 2e-6;
+            let base_clock_opt = match clock_hint {
+                Some(hint) => Some(hint),
+                None => {
+                    // Try to estimate base clock and rpm based on flux transition count.
+                    // This is not perfect - we may need to adjust the clock later.
+                    match ft_ct {
+                        20_000..41_666 => Some(2e-6),
+                        50_000.. => Some(1e-6),
+                        _ => {
+                            log::warn!(
+                                "decode_revolutions(): Revolution {} has ambiguous FT count: {}. Falling back to histogram clock detection.",
+                                i,
+                                ft_ct
+                            );
+                            None
+                        }
+                    }
                 }
             };
+
+            if base_clock_opt.is_none() {
+                // Try to determine the base clock and RPM based on the revolution histogram.
+                let full_hist = revolution.histogram(1.0);
+                let base_transition_time_opt = revolution.base_transition_time(&full_hist);
+
+                if let Some(base_transition_time) = base_transition_time_opt {
+                    let hist_period = base_transition_time / 2.0;
+                    log::debug!(
+                        "decode_revolutions(): Revolution {}: Histogram base period {:.4}",
+                        i,
+                        format_us!(hist_period)
+                    );
+                    base_clock = hist_period;
+                }
+                else {
+                    log::warn!(
+                        "decode_revolutions(): Revolution {}: No base clock hint, and full histogram base period not found. Assuming 2us bitcell.",
+                        i
+                    );
+                    base_clock = 2e-6;
+                }
+            }
 
             let index_time = revolution.index_time;
             let rev_rpm = 60.0 / index_time;
             let f_rpm = f64::from(base_rpm);
 
-            // Allow maximum 15% RPM variation.
-            if (255.0..=414.0).contains(&rev_rpm) {
-                let clock_adjust = rev_rpm / f_rpm;
-
-                base_clock *= clock_adjust;
-                log::warn!(
-                    "decode_revolutions(): Revolution {} RPM is {:.3}, clock adjust: {:.4} new_clock: {}",
-                    i,
-                    rev_rpm,
-                    clock_adjust,
-                    format_us!(base_clock)
-                );
-            }
-            else {
-                log::error!("Revolution {} RPM is {:.2}, out of range.", i, rev_rpm);
-                return Err(DiskImageError::IncompatibleImage);
+            // If the reported RPM seems accurate, trust it.
+            match rev_rpm {
+                255.0..345.0 => base_rpm = DiskRpm::Rpm300,
+                345.0..414.0 => base_rpm = DiskRpm::Rpm360,
+                _ => {
+                    log::error!(
+                        "Revolution {} RPM is out of range ({:.2}). Assuming {}",
+                        i,
+                        rev_rpm,
+                        base_rpm
+                    );
+                }
             }
 
             // Create PLL and decode revolution.
@@ -369,16 +412,16 @@ impl FluxStreamTrack {
                         i,
                         format_us!(hist_period),
                     );
+                    base_clock = hist_period;
                 }
                 else {
                     log::warn!(
-                        "decode_revolutions(): Revolution {}: Histogram clock {} is too far from base {}",
+                        "decode_revolutions(): Revolution {}: Start of track histogram clock {} is too far from base {}, not adjusting clock.",
                         i,
                         format_us!(hist_period),
                         format_us!(base_clock)
                     );
                 }
-                base_clock = hist_period;
             }
 
             pll.set_clock(1.0 / base_clock, None);
@@ -396,6 +439,7 @@ impl FluxStreamTrack {
             let params = BitStreamTrackParams {
                 encoding: revolution.encoding,
                 data_rate: DiskDataRate::from(revolution.data_rate as u32),
+                rpm: Some(base_rpm),
                 ch: revolution.ch,
                 bitcell_ct: Some(bitcell_ct),
                 data: &bitstream_data,

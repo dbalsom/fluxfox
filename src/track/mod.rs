@@ -39,13 +39,18 @@ use crate::diskimage::{
 };
 use crate::structure_parsers::system34::System34Standard;
 use crate::structure_parsers::DiskStructureMetadata;
-use crate::{DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskImageError, SectorMapEntry};
+use crate::{
+    DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskImageError,
+    DiskRpm, SectorMapEntry,
+};
 use sha1_smol::Digest;
 use std::any::Any;
 
 pub struct TrackInfo {
     pub encoding: DiskDataEncoding,
     pub data_rate: DiskDataRate,
+    pub density: Option<DiskDensity>,
+    pub rpm: Option<DiskRpm>,
     pub bit_length: usize,
     pub sector_ct: usize,
 }
@@ -95,23 +100,31 @@ impl TrackConsistency {
 }
 
 pub trait Track: Any {
+    /// Return the resolution of the track as a `DiskDataResolution`.
+    fn resolution(&self) -> DiskDataResolution;
+    /// Return a reference to the track as a `dyn Any`, for downcasting.
     fn as_any(&self) -> &dyn Any;
     fn ch(&self) -> DiskCh;
-
     fn set_ch(&mut self, ch: DiskCh);
-
+    /// Return the encoding of the track as `DiskDataEncoding`.
     fn encoding(&self) -> DiskDataEncoding;
+    /// Return information about the track as a `TrackInfo` struct.
     fn info(&self) -> TrackInfo;
-
     fn metadata(&self) -> Option<&DiskStructureMetadata>;
 
     fn get_sector_ct(&self) -> usize;
 
+    /// Returns `true` if the track contains a sector with the specified ID.
+    ///
+    /// # Parameters
+    /// - `id`: The sector ID to search for.
+    /// - `id_chsn`: An optional `DiskChsn` value. If provided, the `id` parameter is ignored and
+    ///              the entire `DiskChsn` value is used to search for the sector.
     fn has_sector_id(&self, id: u8, id_chsn: Option<DiskChsn>) -> bool;
 
     fn get_sector_list(&self) -> Vec<SectorMapEntry>;
 
-    /// Masters a new sector to a track in the disk image, essentially 'formatting' a new sector,
+    /// Adds a new sector to a track in the disk image, essentially 'formatting' a new sector,
     /// This function is only valid for tracks with `MetaSector` resolution.
     ///
     /// # Parameters
@@ -152,17 +165,42 @@ pub trait Track: Any {
         debug: bool,
     ) -> Result<WriteSectorResult, DiskImageError>;
 
+    /// Return a hash that uniquely identifies the track data. Intended for use in identifying
+    /// duplicate tracks.
     fn get_hash(&mut self) -> Digest;
 
-    /// Read all sectors from the track identified by 'ch'. The data is returned within a
-    /// ReadSectorResult struct which also sets some convenience metadata flags which are needed
-    /// when handling ByteStream images.
-    /// Unlike read_sectors, the data returned is only the actual sector data. The address marks and
+    /// Read all sectors from the track. The data is returned within a `ReadSectorResult` struct
+    /// which also sets some convenience metadata flags which are needed when handling ByteStream
+    /// images.
+    /// Unlike `read_sectors`, the data returned is only the actual sector data. The address marks and
     /// CRCs are not included in the data.
-    /// This function is intended for use in implementing the Read Track FDC command.
+    /// This function is intended for use in implementing the µPD765 FDC's "Read Track" command.
     fn read_all_sectors(&mut self, ch: DiskCh, n: u8, track_len: u8) -> Result<ReadTrackResult, DiskImageError>;
     fn get_next_id(&self, chs: DiskChs) -> Option<DiskChsn>;
+
+    /// Read the entire track, decoding the data within.
+    /// Not valid for MetaSector resolution tracks, which will return `DiskImageError::UnsupportedFormat`.
+    ///
+    /// # Parameters
+    /// - `ch`: The cylinder and head of the track to read.
+    /// - `overdump`: An optional parameter to specify the number of bytes to read past the end of
+    ///               the track. This is useful for examining track wrapping behavior.
+    /// # Returns
+    /// - `Ok(ReadTrackResult)` if the track was successfully read.
+    /// - `Err(DiskImageError)` if an error occurred while reading the track.
     fn read_track(&mut self, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError>;
+
+    /// Read the entire track without decoding.
+    /// Not valid for MetaSector resolution tracks, which will return `DiskImageError::UnsupportedFormat`.
+    ///
+    /// # Parameters
+    /// - `ch`: The cylinder and head of the track to read.
+    /// - `overdump`: An optional parameter to specify the number of bytes to read past the end of
+    ///               the track. This is useful for examining track wrapping behavior.
+    /// # Returns
+    /// - `Ok(ReadTrackResult)` if the track was successfully read.
+    /// - `Err(DiskImageError)` if an error occurred while reading the track.
+    fn read_track_raw(&mut self, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError>;
     fn has_weak_bits(&self) -> bool;
     fn format(
         &mut self,

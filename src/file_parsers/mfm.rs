@@ -246,6 +246,7 @@ impl MfmFormat {
             let params = BitStreamTrackParams {
                 encoding: DiskDataEncoding::Mfm,
                 data_rate: DiskDataRate::from(data_rate),
+                rpm: None,
                 ch: DiskCh::from((cylinder as u16, head)),
                 bitcell_ct,
                 data: &track_data,

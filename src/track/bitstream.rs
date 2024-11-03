@@ -45,7 +45,10 @@ use crate::structure_parsers::{
     DiskStructureElement, DiskStructureMetadata, DiskStructureMetadataItem, DiskStructureParser,
 };
 use crate::util::crc_ibm_3740;
-use crate::{DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskImageError, FoxHashSet, SectorMapEntry};
+use crate::{
+    DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskImageError,
+    DiskRpm, FoxHashSet, SectorMapEntry,
+};
 use bit_vec::BitVec;
 use sha1_smol::Digest;
 use std::any::Any;
@@ -54,6 +57,7 @@ use std::sync::{Arc, Mutex};
 pub struct BitStreamTrack {
     pub(crate) encoding: DiskDataEncoding,
     pub(crate) data_rate: DiskDataRate,
+    pub(crate) rpm: Option<DiskRpm>,
     pub(crate) ch: DiskCh,
     pub(crate) data: TrackDataStream,
     pub(crate) metadata: DiskStructureMetadata,
@@ -62,6 +66,10 @@ pub struct BitStreamTrack {
 }
 
 impl Track for BitStreamTrack {
+    fn resolution(&self) -> DiskDataResolution {
+        DiskDataResolution::BitStream
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -82,6 +90,8 @@ impl Track for BitStreamTrack {
         TrackInfo {
             encoding: self.encoding,
             data_rate: self.data_rate,
+            density: Some(DiskDensity::from(self.data_rate)),
+            rpm: self.rpm,
             bit_length: self.data.len(),
             sector_ct: self.sector_ids.len(),
         }
@@ -721,6 +731,26 @@ impl Track for BitStreamTrack {
         })
     }
 
+    fn read_track_raw(&mut self, _overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
+        //let extra_bytes = overdump.unwrap_or(0);
+
+        let data_size = self.data.len() / 8 + if self.data.len() % 8 > 0 { 1 } else { 0 };
+        //let dump_size = data_size + extra_bytes;
+
+        let track_read_vec = self.data.data();
+
+        Ok(ReadTrackResult {
+            not_found: false,
+            sectors_read: 0,
+            read_buf: track_read_vec,
+            deleted_mark: false,
+            address_crc_error: false,
+            data_crc_error: false,
+            read_len_bits: self.data.len(),
+            read_len_bytes: data_size,
+        })
+    }
+
     fn has_weak_bits(&self) -> bool {
         self.data.has_weak_bits()
     }
@@ -976,6 +1006,7 @@ impl BitStreamTrack {
         Ok(BitStreamTrack {
             encoding: params.encoding,
             data_rate: params.data_rate,
+            rpm: None,
             ch: params.ch,
             data: data_stream,
             metadata,

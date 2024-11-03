@@ -43,8 +43,8 @@ use crate::track::fluxstream::FluxStreamTrack;
 use crate::util::read_ascii;
 use crate::{io, DiskDataResolution, FoxHashSet, LoadingCallback};
 use crate::{
-    DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat,
-    ParserWriteCompatibility, DEFAULT_SECTOR_SIZE,
+    DiskCh, DiskDataEncoding, DiskDataRate, DiskImage, DiskImageError, DiskImageFormat, ParserWriteCompatibility,
+    DEFAULT_SECTOR_SIZE,
 };
 use binrw::binrw;
 use binrw::BinRead;
@@ -423,17 +423,43 @@ impl KfxFormat {
         // }
 
         let data_rate = disk_image.data_rate();
-        disk_image.add_track_fluxstream(next_ch, flux_track)?;
+
+        // Get hints from disk image if we aren't the first track.
+        let (clock_hint, rpm_hint) = if !disk_image.track_pool.is_empty() {
+            (
+                Some(disk_image.descriptor.density.base_clock()),
+                disk_image.descriptor.rpm,
+            )
+        }
+        else {
+            (None, None)
+        };
+
+        let new_track = disk_image.add_track_fluxstream(next_ch, flux_track, clock_hint, rpm_hint)?;
+
+        let (new_density, new_rpm) = if new_track.get_sector_ct() == 0 {
+            log::warn!("Track did not decode any sectors. Not updating disk image descriptor.");
+            (disk_image.descriptor.density, disk_image.descriptor.rpm)
+        }
+        else {
+            let info = new_track.info();
+            log::debug!(
+                "Updating disk descriptor with density: {:?} and RPM: {:?}",
+                info.density,
+                info.rpm
+            );
+            (info.density.unwrap_or(disk_image.descriptor.density), info.rpm)
+        };
 
         log::debug!("Track added.");
 
         disk_image.descriptor = DiskDescriptor {
             geometry: disk_image.geometry(),
             data_rate,
-            density: DiskDensity::from(data_rate),
+            density: new_density,
             data_encoding: DiskDataEncoding::Mfm,
             default_sector_size: DEFAULT_SECTOR_SIZE,
-            rpm: None,
+            rpm: new_rpm,
             write_protect: Some(true),
         };
 

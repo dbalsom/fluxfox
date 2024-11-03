@@ -48,6 +48,7 @@ members = [
     "examples/imgviz",
     "examples/imgconvert",
     "crates/ffedit",
+    "crates/fftool",
 ]
 
 [features]

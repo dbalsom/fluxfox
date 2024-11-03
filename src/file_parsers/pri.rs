@@ -489,6 +489,7 @@ impl PriFormat {
                     let params = BitStreamTrackParams {
                         encoding: DiskDataEncoding::Mfm,
                         data_rate: DiskDataRate::from(current_bit_clock),
+                        rpm: None,
                         ch: current_ch,
                         bitcell_ct: Some(track_header.bit_length as usize),
                         data: &chunk.data,

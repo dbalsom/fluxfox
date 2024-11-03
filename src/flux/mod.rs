@@ -32,7 +32,7 @@ pub mod flux_revolution;
 #[macro_use]
 pub mod pll;
 
-pub const AVERAGE_FLUX_DENSITY: f64 = 2.636; // Average number of bits encoded per flux transition
+//pub const AVERAGE_FLUX_DENSITY: f64 = 2.636; // Average number of bits encoded per flux transition
 
 #[macro_export]
 macro_rules! format_us {

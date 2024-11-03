@@ -424,6 +424,7 @@ impl F86Format {
             let params = BitStreamTrackParams {
                 encoding: track_encoding,
                 data_rate: track_data_rate,
+                rpm: disk_rpm,
                 ch: DiskCh::from((cylinder_n, head_n)),
                 bitcell_ct,
                 data: &track_data_vec,

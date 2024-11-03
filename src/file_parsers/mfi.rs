@@ -256,6 +256,7 @@ impl MfiFormat {
                 let params = BitStreamTrackParams {
                     encoding: DiskDataEncoding::Mfm,
                     data_rate,
+                    rpm: None,
                     ch: track.ch,
                     bitcell_ct: Some(stream_bit_ct),
                     data: &stream_bytes,

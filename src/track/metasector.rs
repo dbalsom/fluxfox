@@ -40,7 +40,10 @@ use crate::structure_parsers::system34::System34Standard;
 use crate::structure_parsers::DiskStructureMetadata;
 
 use crate::bitstream::TrackDataStream;
-use crate::{DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskImageError, FoxHashSet, SectorMapEntry};
+use crate::{
+    DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskImageError, FoxHashSet,
+    SectorMapEntry,
+};
 use sha1_smol::Digest;
 use std::any::Any;
 use std::sync::{Arc, Mutex};
@@ -176,6 +179,9 @@ pub struct MetaSectorTrack {
 }
 
 impl Track for MetaSectorTrack {
+    fn resolution(&self) -> DiskDataResolution {
+        DiskDataResolution::MetaSector
+    }
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -196,6 +202,8 @@ impl Track for MetaSectorTrack {
         TrackInfo {
             encoding: self.encoding,
             data_rate: self.data_rate,
+            density: None,
+            rpm: None,
             bit_length: 0,
             sector_ct: self.sectors.len(),
         }
@@ -556,6 +564,10 @@ impl Track for MetaSectorTrack {
     }
 
     fn read_track(&mut self, _overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
+        Err(DiskImageError::UnsupportedFormat)
+    }
+
+    fn read_track_raw(&mut self, _overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 
