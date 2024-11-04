@@ -41,6 +41,7 @@ use crate::flux::pll::{Pll, PllPreset};
 use crate::structure_parsers::system34::System34Standard;
 use crate::structure_parsers::DiskStructureMetadata;
 use crate::track::bitstream::BitStreamTrack;
+use crate::track::metasector::MetaSectorTrack;
 use crate::{
     format_us, DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity,
     DiskImageError, DiskRpm, SectorMapEntry,
@@ -73,6 +74,18 @@ impl Track for FluxStreamTrack {
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn as_metasector_track(&self) -> Option<&MetaSectorTrack> {
+        None
+    }
+
+    fn as_bitstream_track(&self) -> Option<&BitStreamTrack> {
+        None
+    }
+
+    fn as_fluxstream_track(&self) -> Option<&FluxStreamTrack> {
+        self.as_any().downcast_ref::<FluxStreamTrack>()
     }
 
     fn ch(&self) -> DiskCh {
@@ -288,21 +301,26 @@ impl FluxStreamTrack {
         self.revolutions.is_empty()
     }
 
-    pub fn normalize(&mut self) {
+    pub(crate) fn normalize(&mut self) {
         // Drop revolutions that didn't decode at least 100 bits
         // TODO: Can we do this while keeping the best revolution index valid?
         self.revolutions.retain(|r| r.bitstream.len() > 100);
         self.best_revolution = 0;
     }
 
-    pub fn add_revolution(&mut self, ch: DiskCh, data: &[f64], data_rate: f64, index_time: f64) -> &mut FluxRevolution {
+    pub(crate) fn add_revolution(
+        &mut self,
+        ch: DiskCh,
+        data: &[f64],
+        data_rate: f64,
+        index_time: f64,
+    ) -> &mut FluxRevolution {
         let new_stream = FluxRevolution::from_f64(ch, data, data_rate, index_time);
         self.revolutions.push(new_stream);
-        self.decoded_revolutions.push(None);
         self.revolutions.last_mut().unwrap()
     }
 
-    pub fn add_revolution_from_u16(
+    pub(crate) fn add_revolution_from_u16(
         &mut self,
         ch: DiskCh,
         data: &[u16],
@@ -314,6 +332,10 @@ impl FluxStreamTrack {
         self.revolutions.push(new_stream);
     }
 
+    pub fn revolution_ct(&self) -> usize {
+        self.revolutions.len()
+    }
+
     pub fn revolution(&self, index: usize) -> Option<&FluxRevolution> {
         self.revolutions.get(index)
     }
@@ -322,16 +344,27 @@ impl FluxStreamTrack {
         self.revolutions.get_mut(index)
     }
 
+    pub fn revolution_iter(&self) -> impl Iterator<Item = &FluxRevolution> {
+        self.revolutions.iter()
+    }
+
+    pub fn revolution_iter_mut(&mut self) -> impl Iterator<Item = &mut FluxRevolution> {
+        self.revolutions.iter_mut()
+    }
+
     /// Decode all revolutions in the track. Use 'base_clock' to set the base clock for the PLL,
     /// if provided. If not provided, the base clock is estimated based on the flux transition
     /// count, but this can be ambiguous. If no base clock is provided, and we cannot guess, we
     /// will assume a double density track.
-    pub fn decode_revolutions(
+    pub(crate) fn decode_revolutions(
         &mut self,
         clock_hint: Option<f64>,
         rpm_hint: Option<DiskRpm>,
     ) -> Result<(), DiskImageError> {
+        self.decoded_revolutions = Vec::new();
+
         for (i, revolution) in self.revolutions.iter_mut().enumerate() {
+            self.decoded_revolutions.push(None);
             let ft_ct = revolution.ft_ct();
             let mut base_rpm = rpm_hint.unwrap_or(DiskRpm::Rpm300);
             let mut base_clock = 2e-6;
@@ -462,6 +495,16 @@ impl FluxStreamTrack {
         Ok(())
     }
 
+    pub fn synthesize_revolutions(&mut self) {
+        let synthetic_revs: Vec<FluxRevolution> = self
+            .revolutions
+            .windows(2) // Create pairs of successive elements
+            .flat_map(|pair| FluxRevolution::from_adjacent_pair(&pair[0], &pair[1])) // Call make_foo on each pair
+            .collect();
+
+        self.revolutions.extend(synthetic_revs);
+    }
+
     pub fn analyze_revolutions(&mut self) {
         let mut best_revolution = 0;
         let mut best_score = 0;
@@ -474,6 +517,16 @@ impl FluxStreamTrack {
         for (i, bitstream) in self.decoded_revolutions.iter().enumerate() {
             if let Some(track) = bitstream {
                 let score = track.calc_quality_score();
+                let bad_sectors = track.get_sector_list().iter().filter(|s| !s.data_crc_valid).count();
+
+                log::debug!(
+                    "FluxStreamTrack::analyze_revolutions(): Revolution {}, ft_ct: {} bitcells: {} bad sectors: {} score: {}",
+                    i,
+                    self.revolutions[i].ft_ct(),
+                    track.info().bit_length,
+                    bad_sectors,
+                    score
+                );
 
                 // Higher bitstream quality score = better revolution.
                 if score > best_score {
@@ -488,7 +541,12 @@ impl FluxStreamTrack {
             self.revolutions.len(),
             best_score
         );
+
         self.best_revolution = best_revolution;
+        self.encoding = self.decoded_revolutions[best_revolution]
+            .as_ref()
+            .expect("Best revolution not decoded.")
+            .encoding();
     }
 
     fn get_bitstream(&self) -> Option<&BitStreamTrack> {

@@ -794,6 +794,7 @@ dependencies = [
  "anyhow",
  "bpaf",
  "crossbeam-channel",
+ "env_logger",
  "fluxfox",
  "indexmap 2.6.0",
  "log 0.4.22",

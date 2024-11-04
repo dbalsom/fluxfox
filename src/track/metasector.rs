@@ -40,6 +40,8 @@ use crate::structure_parsers::system34::System34Standard;
 use crate::structure_parsers::DiskStructureMetadata;
 
 use crate::bitstream::TrackDataStream;
+use crate::track::bitstream::BitStreamTrack;
+use crate::track::fluxstream::FluxStreamTrack;
 use crate::{
     DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskImageError, FoxHashSet,
     SectorMapEntry,
@@ -184,6 +186,18 @@ impl Track for MetaSectorTrack {
     }
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn as_metasector_track(&self) -> Option<&MetaSectorTrack> {
+        self.as_any().downcast_ref::<MetaSectorTrack>()
+    }
+
+    fn as_bitstream_track(&self) -> Option<&BitStreamTrack> {
+        None
+    }
+
+    fn as_fluxstream_track(&self) -> Option<&FluxStreamTrack> {
+        None
     }
 
     fn ch(&self) -> DiskCh {

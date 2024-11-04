@@ -27,7 +27,7 @@
 use crate::args::GlobalOptions;
 use crate::read_file;
 use anyhow::{bail, Error};
-use fluxfox::DiskImage;
+use fluxfox::{DiskCh, DiskDataResolution, DiskImage};
 
 pub mod args;
 
@@ -78,8 +78,69 @@ pub(crate) fn run(_global: &GlobalOptions, params: args::InfoParams) -> Result<(
     }
     println!();
 
-    if params.sector_list {
-        let _ = disk.dump_sector_map(&mut std::io::stdout());
+    if params.track_list || params.sector_list || params.rev_list {
+        let _ = dump_track_map(&mut std::io::stdout(), &disk, params.sector_list, params.rev_list);
+    }
+
+    Ok(())
+}
+
+pub fn dump_track_map<W: std::io::Write>(
+    mut out: W,
+    disk: &DiskImage,
+    sectors: bool,
+    revolutions: bool,
+) -> Result<(), Error> {
+    let head_map = disk.get_sector_map();
+
+    for (head_idx, head) in head_map.iter().enumerate() {
+        out.write_fmt(format_args!("Head {} [{} tracks]\n", head_idx, head.len()))?;
+        for (track_idx, track) in head.iter().enumerate() {
+            let ch = DiskCh::new(track_idx as u16, head_idx as u8);
+
+            if let Some(track_ref) = disk.track(ch) {
+                match track_ref.resolution() {
+                    DiskDataResolution::MetaSector => {
+                        out.write_fmt(format_args!("\tTrack {}\n", track_idx))?;
+                    }
+                    DiskDataResolution::FluxStream | DiskDataResolution::BitStream => {
+                        let stream = track_ref.get_track_stream().expect("Couldn't retrieve track stream!");
+                        out.write_fmt(format_args!(
+                            "\tTrack {}: [{} encoding, {} bits]\n",
+                            track_idx,
+                            track_ref.encoding(),
+                            stream.len()
+                        ))?;
+                    }
+                }
+
+                if revolutions {
+                    if let Some(flux_track) = track_ref.as_fluxstream_track() {
+                        out.write_fmt(format_args!("\t\tRevolutions ({}):\n", flux_track.revolution_ct()))?;
+                        for revolution in flux_track.revolution_iter() {
+                            let rev_stats = revolution.stats();
+                            out.write_fmt(format_args!(
+                                "\t\t\tFlux ct: {} Bitcells: {} First ft: {:.4} Last ft: {:.4}\n",
+                                rev_stats.ft_ct,
+                                rev_stats.bitcell_ct,
+                                rev_stats.first_ft * 1e6,
+                                rev_stats.last_ft * 1e6
+                            ))?;
+                        }
+                    }
+                }
+
+                if sectors {
+                    out.write_fmt(format_args!("\t\tSectors ({}):\n", track.len()))?;
+                    for sector in track {
+                        out.write_fmt(format_args!(
+                            "\t\t\t{} address_crc_valid: {} data_crc_valid: {} deleted: {}\n",
+                            sector.chsn, sector.address_crc_valid, sector.data_crc_valid, sector.deleted_mark
+                        ))?;
+                    }
+                }
+            }
+        }
     }
 
     Ok(())

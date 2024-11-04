@@ -33,6 +33,8 @@ pub(crate) struct InfoParams {
     // Define specific parameters for `info`
     pub(crate) in_file: PathBuf,
     pub(crate) sector_list: bool,
+    pub(crate) track_list: bool,
+    pub(crate) rev_list: bool,
 }
 
 fn sector_list_parser() -> impl Parser<bool> {
@@ -41,9 +43,28 @@ fn sector_list_parser() -> impl Parser<bool> {
         .switch()
 }
 
+fn track_list_parser() -> impl Parser<bool> {
+    bpaf::long("track-list")
+        .help("List all tracks in the disk image")
+        .switch()
+}
+
+fn rev_list_parser() -> impl Parser<bool> {
+    bpaf::long("rev-list")
+        .help("List all revolutions in the disk image")
+        .switch()
+}
+
 pub(crate) fn info_parser() -> impl Parser<InfoParams> {
     let in_file = in_file_parser();
     let sector_list = sector_list_parser();
+    let track_list = track_list_parser();
+    let rev_list = rev_list_parser();
 
-    construct!(InfoParams { in_file, sector_list })
+    construct!(InfoParams {
+        in_file,
+        sector_list,
+        track_list,
+        rev_list
+    })
 }

@@ -807,7 +807,7 @@ impl DiskStructureParser for System34Parser {
     }
 
     fn crc16(track: &mut TrackDataStream, bit_index: usize, end: usize) -> u16 {
-        let bytes_requested = ((end - bit_index) >> 1) / 8;
+        let bytes_requested = (end - bit_index) / 16;
 
         log::trace!(
             "Performing CRC on {} bytes from bit index {}",
@@ -816,7 +816,7 @@ impl DiskStructureParser for System34Parser {
         );
 
         let mut data = vec![0; bytes_requested];
-        track.seek(SeekFrom::Start((bit_index >> 1) as u64)).unwrap();
+        track.seek(SeekFrom::Start(bit_index as u64)).unwrap();
         track.read_exact(&mut data).unwrap();
         crc_ibm_3740(&data, None)
     }
