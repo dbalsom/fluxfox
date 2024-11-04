@@ -54,7 +54,7 @@ pub const KFX_DEFAULT_MCK: f64 = ((18432000.0 * 73.0) / 14.0) / 2.0;
 pub const KFX_DEFAULT_SCK: f64 = KFX_DEFAULT_MCK / 2.0;
 pub const KFX_DEFAULT_ICK: f64 = KFX_DEFAULT_MCK / 16.0;
 
-pub enum OobBlock {
+pub enum OsbBlock {
     Invalid(u8),
     StreamInfo,
     Index,
@@ -63,17 +63,17 @@ pub enum OobBlock {
     Eof,
 }
 
-fn read_oob_block<R: ReadBytesExt>(reader: &mut R) -> OobBlock {
+fn read_osb_block<R: ReadBytesExt>(reader: &mut R) -> OsbBlock {
     let byte = reader.read_u8().unwrap_or(0);
     //log::trace!("Read OOB block type: {:02X}", byte);
 
     match byte {
-        0x01 => OobBlock::StreamInfo,
-        0x02 => OobBlock::Index,
-        0x03 => OobBlock::StreamEnd,
-        0x04 => OobBlock::KfInfo,
-        0x0D => OobBlock::Eof,
-        _ => OobBlock::Invalid(byte),
+        0x01 => OsbBlock::StreamInfo,
+        0x02 => OsbBlock::Index,
+        0x03 => OsbBlock::StreamEnd,
+        0x04 => OsbBlock::KfInfo,
+        0x0D => OsbBlock::Eof,
+        _ => OsbBlock::Invalid(byte),
     }
 }
 
@@ -190,9 +190,11 @@ impl KfxFormat {
 
         // Read the steam once to gather the index offsets.
         log::debug!("Scanning stream for index blocks...");
+        let mut stream_position = 0;
         let mut eof = false;
         while !eof {
-            eof = kfx_context.read_index_block(&mut image, &mut index_offsets, &mut index_times)?;
+            eof =
+                kfx_context.read_index_block(&mut image, &mut index_offsets, &mut stream_position, &mut index_times)?;
         }
 
         kfx_context.current_offset_idx = 0;
@@ -200,9 +202,10 @@ impl KfxFormat {
         // Read the stream again now that we know where the indexes are
         log::debug!("Reading stream... [Found {} index offsets]", index_offsets.len());
         image.seek(io::SeekFrom::Start(0))?;
+        stream_position = 0;
         eof = false;
         while !eof {
-            eof = kfx_context.read_block(&mut image, &index_offsets, &mut streams)?;
+            eof = kfx_context.read_block(&mut image, &index_offsets, &mut stream_position, &mut streams)?;
         }
 
         let mut pll = Pll::from_preset(PllPreset::Aggressive);
@@ -474,42 +477,51 @@ impl KfxFormat {
         &mut self,
         image: &mut RWS,
         index_offsets: &mut Vec<u64>,
+        stream_position: &mut u64,
         index_times: &mut Vec<f64>,
     ) -> Result<bool, DiskImageError> {
-        let current_pos = image.stream_position()?;
+        let file_offset = image.stream_position()?;
         let byte = image.read_u8()?;
 
         match byte {
             0x00..=0x07 => {
                 // Flux2 block
                 image.seek(std::io::SeekFrom::Current(1))?;
+                *stream_position += 2;
             }
             0x09 => {
                 // Nop2 block
                 // Skip one byte
                 image.seek(std::io::SeekFrom::Current(1))?;
+                *stream_position += 2;
             }
             0x0A => {
                 // Nop3 block
                 // Skip two bytes
                 image.seek(std::io::SeekFrom::Current(2))?;
+                *stream_position += 3;
+            }
+            0x0B => {
+                // Ovl16 block
+                *stream_position += 1;
             }
             0x0C => {
                 // Flux3 block
                 image.seek(std::io::SeekFrom::Current(2))?;
+                *stream_position += 3;
             }
             0x0D => {
                 // OOB block
-                let oob_block = read_oob_block(image);
+                let oob_block = read_osb_block(image);
 
                 match oob_block {
-                    OobBlock::Invalid(oob_byte) => {
+                    OsbBlock::Invalid(oob_byte) => {
                         log::error!("Invalid OOB block type: {:02X}", oob_byte);
                     }
-                    OobBlock::StreamInfo => {
+                    OsbBlock::StreamInfo => {
                         let _sib = StreamInfoBlock::read(image)?;
                     }
-                    OobBlock::Index => {
+                    OsbBlock::Index => {
                         let ib = IndexBlock::read(image)?;
 
                         //let index_time = ib.index_counter as f64 / self.ick;
@@ -517,42 +529,46 @@ impl KfxFormat {
                         if let Some(last_index_counter) = self.last_index_counter {
                             let index_delta = ib.index_counter.wrapping_sub(last_index_counter);
                             let index_time_delta = index_delta as f64 / self.ick;
-
-                            index_offsets.push(ib.stream_pos as u64);
                             index_times.push(index_time_delta);
 
                             log::debug!(
-                                "Index block: current_pos: {} next_pos: {} sample_ct: {} index_ct: {} delta: {:.6} rpm: {:.3}",
-                                current_pos,
+                                "Index block: file_offset: {} next_pos: {} sample_ct: {} index_ct: {} delta: {:.6} rpm: {:.3}",
+                                file_offset,
                                 ib.stream_pos,
                                 ib.sample_counter,
                                 ib.index_counter,
                                 index_time_delta,
                                 60.0 / index_time_delta
                             );
-
-                            // If stream_pos is behind us, we need to go back and create a revolution
-                            // at stream_pos
-                            if (ib.stream_pos as u64) < current_pos {
-                                log::warn!("Stream pos is behind current position.");
-                            }
                         }
                         else {
                             log::debug!(
-                                "Index block: current_pos: {} pos: {} sample_ct: {} index_ct: {}",
-                                current_pos,
+                                "Index block: file_offset: {} next_pos: {} sample_ct: {} index_ct: {}",
+                                file_offset,
                                 ib.stream_pos,
                                 ib.sample_counter,
                                 ib.index_counter
                             );
                         }
 
+                        index_offsets.push(ib.stream_pos as u64);
+
+                        // If stream_pos is behind us, we need to go back and create a revolution
+                        // at stream_pos
+                        if (ib.stream_pos as u64) < *stream_position {
+                            log::warn!(
+                                "Stream pos is behind current stream position: {} < {}",
+                                ib.stream_pos,
+                                stream_position
+                            );
+                        }
+
                         self.last_index_counter = Some(ib.index_counter);
                     }
-                    OobBlock::StreamEnd => {
+                    OsbBlock::StreamEnd => {
                         let _seb = StreamEndBlock::read(image)?;
                     }
-                    OobBlock::KfInfo => {
+                    OsbBlock::KfInfo => {
                         log::debug!("KfInfo block");
                         let _kib = KfInfoBlock::read(image)?;
                         // Ascii string follows
@@ -562,7 +578,7 @@ impl KfxFormat {
                             string_end = str_opt.is_none() || terminator == 0;
                         }
                     }
-                    OobBlock::Eof => {
+                    OsbBlock::Eof => {
                         log::debug!("EOF block");
                         return Ok(true);
                     }
@@ -570,6 +586,7 @@ impl KfxFormat {
             }
             _ => {
                 // Flux1 block
+                *stream_position += 1;
             }
         }
 
@@ -581,15 +598,22 @@ impl KfxFormat {
         &mut self,
         image: &mut RWS,
         index_offsets: &[u64],
+        stream_position: &mut u64,
         streams: &mut Vec<Vec<f64>>,
     ) -> Result<bool, DiskImageError> {
-        let current_pos = image.stream_position()?;
+        let file_offset = image.stream_position()?;
         let byte = image.read_u8()?;
 
         // If we've reached the stream position indicated by the last index block,
         // we're starting a new revolution.
-        if (self.current_offset_idx < index_offsets.len()) && (current_pos >= index_offsets[self.current_offset_idx]) {
-            log::debug!("Starting new revolution at pos: {}", current_pos);
+        if (self.current_offset_idx < index_offsets.len())
+            && (*stream_position >= index_offsets[self.current_offset_idx])
+        {
+            log::debug!(
+                "Starting new revolution at stream_pos: {}, file_offset: {}",
+                *stream_position,
+                file_offset
+            );
             streams.push(Vec::new());
             self.current_offset_idx += 1;
             self.idx_ct += 1;
@@ -603,6 +627,7 @@ impl KfxFormat {
                 let flux_u32 = u16::from_be_bytes([byte, byte2]) as u32;
                 let flux = (self.flux_ovl + flux_u32) as f64 / self.sck;
 
+                *stream_position += 2;
                 streams.last_mut().unwrap().push(flux);
 
                 self.flux_ovl = 0;
@@ -610,16 +635,19 @@ impl KfxFormat {
             0x08 => {
                 // Nop1 block
                 // Do nothing
+                *stream_position += 1;
             }
             0x09 => {
                 // Nop2 block
                 // Skip one byte
                 image.seek(std::io::SeekFrom::Current(1))?;
+                *stream_position += 2;
             }
             0x0A => {
                 // Nop3 block
                 // Skip two bytes
                 image.seek(std::io::SeekFrom::Current(2))?;
+                *stream_position += 3;
             }
             0x0B => {
                 // Ovl16 block
@@ -637,14 +665,14 @@ impl KfxFormat {
                 self.flux_ovl = 0;
             }
             0x0D => {
-                // OOB block
-                let oob_block = read_oob_block(image);
+                // OSB block. OSB blocks do not advance the stream position.
+                let osb_block = read_osb_block(image);
 
-                match oob_block {
-                    OobBlock::Invalid(oob_byte) => {
+                match osb_block {
+                    OsbBlock::Invalid(oob_byte) => {
                         log::error!("Invalid OOB block type: {:02X}", oob_byte);
                     }
-                    OobBlock::StreamInfo => {
+                    OsbBlock::StreamInfo => {
                         let sib = StreamInfoBlock::read(image)?;
                         log::trace!(
                             "StreamInfo block: pos: {} time: {}",
@@ -652,16 +680,27 @@ impl KfxFormat {
                             sib.transfer_time_ms
                         );
                     }
-                    OobBlock::Index => {
+                    OsbBlock::Index => {
                         let _ib = IndexBlock::read(image)?;
                     }
-                    OobBlock::StreamEnd => {
+                    OsbBlock::StreamEnd => {
                         let seb = StreamEndBlock::read(image)?;
                         log::debug!(
-                            "StreamEnd block: pos: {} hw_status: {:02X}",
+                            "StreamEnd block: end_pos: {} stream_pos: {} offset: {} hw_status: {:02X}",
                             seb.stream_pos,
+                            *stream_position,
+                            file_offset,
                             seb.hw_status_code
                         );
+
+                        if seb.stream_pos as u64 != *stream_position {
+                            log::warn!(
+                                "StreamEnd position does not match stream position: {} != {}",
+                                seb.stream_pos,
+                                *stream_position
+                            );
+                        }
+
                         match seb.hw_status_code {
                             0 => {
                                 log::debug!("Hardware status reported OK");
@@ -679,7 +718,7 @@ impl KfxFormat {
                             }
                         }
                     }
-                    OobBlock::KfInfo => {
+                    OsbBlock::KfInfo => {
                         log::debug!("KfInfo block");
                         let _kib = KfInfoBlock::read(image)?;
                         // Ascii string follows
@@ -704,7 +743,7 @@ impl KfxFormat {
                             string_end = str_opt.is_none() || terminator == 0;
                         }
                     }
-                    OobBlock::Eof => {
+                    OsbBlock::Eof => {
                         log::debug!("EOF block");
                         return Ok(true);
                     }
@@ -714,6 +753,7 @@ impl KfxFormat {
                 // Flux1 block
                 let flux = (self.flux_ovl + byte as u32) as f64 / self.sck;
                 streams.last_mut().unwrap().push(flux);
+                *stream_position += 1;
                 self.flux_ovl = 0;
             }
         }
