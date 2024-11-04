@@ -241,6 +241,17 @@ impl From<DiskDataRate> for DiskDensity {
     }
 }
 
+impl Display for DiskDensity {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            DiskDensity::Standard => write!(f, "Standard"),
+            DiskDensity::Double => write!(f, "Double"),
+            DiskDensity::High => write!(f, "High"),
+            DiskDensity::Extended => write!(f, "Extended"),
+        }
+    }
+}
+
 impl DiskDensity {
     /// Return the number of bitcells for a given disk density.
     /// It is ideal to provide the disk dimensions to get the most accurate bitcell count as high
