@@ -257,7 +257,7 @@ impl Track for BitStreamTrack {
                 let (scope_read_off, scope_data_off, scope_data_adj) = match scope {
                     // Add 4 bytes for address mark and 2 bytes for CRC.
                     RwSectorScope::DataBlock => (0, 4, 6),
-                    RwSectorScope::DataOnly => (32, 0, 0),
+                    RwSectorScope::DataOnly => (64, 0, 0),
                 };
 
                 // Normally we read the contents of the sector determined by N in the sector header.
@@ -1041,7 +1041,7 @@ impl BitStreamTrack {
 
     fn read_exact_at(&mut self, offset: usize, buf: &mut [u8]) -> Result<(), DiskImageError> {
         self.data
-            .seek(SeekFrom::Start((offset >> 1) as u64))
+            .seek(SeekFrom::Start(offset as u64))
             .map_err(|_| DiskImageError::SeekError)?;
         self.data.read_exact(buf)?;
         Ok(())
