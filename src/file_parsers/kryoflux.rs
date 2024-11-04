@@ -41,7 +41,7 @@ use crate::flux::FluxTransition;
 use crate::io::{ReadBytesExt, ReadSeek, ReadWriteSeek};
 use crate::track::fluxstream::FluxStreamTrack;
 use crate::util::read_ascii;
-use crate::{io, DiskDataResolution, FoxHashSet, LoadingCallback};
+use crate::{format_us, io, DiskDataResolution, FoxHashSet, LoadingCallback};
 use crate::{
     DiskCh, DiskDataEncoding, DiskDataRate, DiskImage, DiskImageError, DiskImageFormat, ParserWriteCompatibility,
     DEFAULT_SECTOR_SIZE,
@@ -531,22 +531,28 @@ impl KfxFormat {
                             let index_time_delta = index_delta as f64 / self.ick;
                             index_times.push(index_time_delta);
 
+                            let sample_time = ib.sample_counter as f64 / self.sck;
+
                             log::debug!(
-                                "Index block: file_offset: {} next_pos: {} sample_ct: {} index_ct: {} delta: {:.6} rpm: {:.3}",
+                                "Index block: file_offset: {} next_pos: {} sample_ct: {} ({}) index_ct: {} delta: {:.6} rpm: {:.3}",
                                 file_offset,
                                 ib.stream_pos,
                                 ib.sample_counter,
+                                format_us!(sample_time),
                                 ib.index_counter,
                                 index_time_delta,
                                 60.0 / index_time_delta
                             );
                         }
                         else {
+                            let sample_time = ib.sample_counter as f64 / self.sck;
+
                             log::debug!(
-                                "Index block: file_offset: {} next_pos: {} sample_ct: {} index_ct: {}",
+                                "Index block: file_offset: {} next_pos: {} sample_ct: {} ({}) index_ct: {}",
                                 file_offset,
                                 ib.stream_pos,
                                 ib.sample_counter,
+                                format_us!(sample_time),
                                 ib.index_counter
                             );
                         }
