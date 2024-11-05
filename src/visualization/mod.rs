@@ -40,8 +40,8 @@ use bit_vec::BitVec;
 use std::cmp::min;
 use std::f32::consts::{PI, TAU};
 use tiny_skia::{
-    BlendMode, Color, FillRule, LineCap, LineJoin, Paint, PathBuilder, Pixmap, Point, PremultipliedColorU8, Stroke,
-    Transform,
+    BlendMode, Color, FillRule, GradientStop, LineCap, LineJoin, LinearGradient, Paint, PathBuilder, Pixmap, Point,
+    PremultipliedColorU8, Shader, SpreadMode, Stroke, Transform,
 };
 
 /// Parameter struct for
@@ -309,8 +309,7 @@ pub fn render_track_weak_bits(
     let center_x = width as f32 / 2.0;
     let center_y = height as f32 / 2.0;
     let total_radius = width.min(height) as f32 / 2.0;
-    let min_radius = p.min_radius_fraction * total_radius; // Scale min_radius to pixel value
-    let _min_radius_sq = min_radius * min_radius;
+    let mut min_radius = p.min_radius_fraction * total_radius; // Scale min_radius to pixel value
 
     let rtracks = collect_weak_masks(p.head, disk_image);
     let num_tracks = min(rtracks.len(), p.track_limit);
@@ -320,22 +319,20 @@ pub fn render_track_weak_bits(
         log::trace!("track {} length: {}", ti, track.len());
     }
 
-    // If pinning has been specified, normalize the track count and minimum radius.
-    // We subtract any overdumped tracks from the radius, so that the minimum radius fraction
+    // If pinning has been specified, adjust the minimum radius.
+    // We subtract any over-dumped tracks from the radius, so that the minimum radius fraction
     // is consistent with the last standard track.
-    let (normalized_track_ct, min_radius) = if p.pin_last_standard_track {
+    min_radius = if p.pin_last_standard_track {
         let normalized_track_ct = match num_tracks {
             0..50 => 40,
             50.. => 80,
         };
         let track_width = (total_radius - min_radius) / normalized_track_ct as f32;
         let overdump = num_tracks - normalized_track_ct;
-        let min_radius = p.min_radius_fraction * total_radius - (overdump as f32 * track_width);
-
-        (normalized_track_ct, min_radius)
+        p.min_radius_fraction * total_radius - (overdump as f32 * track_width)
     }
     else {
-        (num_tracks, p.min_radius_fraction * total_radius)
+        min_radius
     };
 
     let track_width = (total_radius - min_radius) / num_tracks as f32;
@@ -403,33 +400,6 @@ pub fn render_track_weak_bits(
                     if word_value != 0 {
                         pix_buf[((y + y_offset) * span + (x + x_offset)) as usize] = weak_color;
                     }
-
-                    // let color = match resolution {
-                    //     ResolutionType::Bit => {
-                    //         if rtracks[track_index][bit_index] {
-                    //             color_white
-                    //         } else {
-                    //             color_black
-                    //         }
-                    //     }
-                    //     ResolutionType::Byte => {
-                    //         // Calculate the byte value
-                    //         let byte_value = match decode {
-                    //             false => rtracks[track_index].read_byte(bit_index).unwrap_or_default(),
-                    //             true => {
-                    //                 // Only render bits in 16-bit steps.
-                    //                 let decoded_bit_idx = (bit_index) & !0xF;
-                    //                 rtracks[track_index]
-                    //                     .read_decoded_byte(decoded_bit_idx)
-                    //                     .unwrap_or_default()
-                    //             }
-                    //         };
-                    //
-                    //         let gray_value = POPCOUNT_TABLE[byte_value as usize];
-                    //
-                    //         PremultipliedColorU8::from_rgba(gray_value, gray_value, gray_value, 255).unwrap()
-                    //     }
-                    // };
                 }
             }
             else {
@@ -439,10 +409,6 @@ pub fn render_track_weak_bits(
     }
 
     Ok(())
-}
-
-fn calculate_track_width(total_tracks: usize, image_radius: f64, min_radius_ratio: f64) -> f64 {
-    (image_radius - (image_radius * min_radius_ratio)) / total_tracks as f64
 }
 
 /// Render a representation of a disk's data to a Pixmap.
@@ -460,6 +426,7 @@ pub fn render_track_metadata_quadrant(
         return Err(DiskVisualizationError::NoTracks);
     }
 
+    let overlap_max = (1024 + 6) * 16;
     let image_size = pixmap.width() as f32 * 2.0;
     let total_radius = image_size / 2.0;
     let mut min_radius = p.min_radius_fraction * total_radius; // Scale min_radius to pixel value
@@ -515,7 +482,8 @@ pub fn render_track_metadata_quadrant(
                                end_angle: f32,
                                inner_radius: f32,
                                outer_radius: f32,
-                               element_type: Option<DiskStructureElement>| {
+                               element_type: Option<DiskStructureElement>|
+     -> Color {
         // Draw the outer curve
         add_arc(path_builder, center, inner_radius, start_angle, end_angle);
         // Draw line segment to end angle of inner curve
@@ -544,6 +512,7 @@ pub fn render_track_metadata_quadrant(
         }
 
         paint.set_color(*color);
+        *color
     };
 
     let (clip_start, clip_end) = match p.direction {
@@ -554,12 +523,125 @@ pub fn render_track_metadata_quadrant(
     for draw_markers in [false, true].iter() {
         for (ti, track_meta) in rmetadata.iter().enumerate() {
             let mut has_elements = false;
-            let outer_radius = total_radius as f32 - (ti as f32 * track_width as f32);
-            let inner_radius = outer_radius - (track_width as f32 * (1.0 - p.track_gap));
+            let outer_radius = total_radius - (ti as f32 * track_width);
+            let inner_radius = outer_radius - (track_width * (1.0 - p.track_gap));
             let mut paint = Paint {
                 blend_mode: BlendMode::SourceOver,
                 ..Default::default()
             };
+
+            // Look for metadata items crossing the index, and draw them first.
+            // We limit the maximum index overlap as an 8192 byte sector at the end of a track will
+            // wrap the index twice.
+            if !*draw_markers {
+                for meta_item in track_meta.items.iter() {
+                    if meta_item.end >= rtracks[ti].len() {
+                        let meta_length = meta_item.end - meta_item.start;
+                        let overlap_long = meta_length > overlap_max;
+
+                        log::trace!(
+                            "render_track_metadata_quadrant(): Overlapping metadata item at {}-{} len: {} max: {} long: {}",
+                            meta_item.start,
+                            meta_item.end,
+                            meta_length,
+                            overlap_max,
+                            overlap_long,
+                        );
+
+                        has_elements = true;
+
+                        let mut start_angle;
+                        let mut end_angle;
+                        if overlap_long {
+                            start_angle = p.index_angle;
+                            end_angle = p.index_angle
+                                + ((((meta_item.start + overlap_max) % rtracks[ti].len()) as f32
+                                    / rtracks[ti].len() as f32)
+                                    * TAU);
+                        }
+                        else {
+                            start_angle = p.index_angle;
+                            end_angle = p.index_angle + ((meta_item.end as f32 / rtracks[ti].len() as f32) * TAU);
+                        }
+
+                        if start_angle > end_angle {
+                            std::mem::swap(&mut start_angle, &mut end_angle);
+                        }
+
+                        (start_angle, end_angle) = match p.direction {
+                            RotationDirection::CounterClockwise => (start_angle, end_angle),
+                            RotationDirection::Clockwise => (TAU - start_angle, TAU - end_angle),
+                        };
+
+                        if start_angle > end_angle {
+                            std::mem::swap(&mut start_angle, &mut end_angle);
+                        }
+
+                        // Skip sectors that are outside the current quadrant
+                        if end_angle <= clip_start || start_angle >= clip_end {
+                            continue;
+                        }
+
+                        // Clamp start and end angle to quadrant boundaries
+                        if start_angle < clip_start {
+                            start_angle = clip_start;
+                        }
+
+                        if end_angle > clip_end {
+                            end_angle = clip_end;
+                        }
+
+                        let start_color = draw_metadata_slice(
+                            &mut path_builder,
+                            &mut paint,
+                            start_angle,
+                            end_angle,
+                            inner_radius,
+                            outer_radius,
+                            Some(meta_item.elem_type),
+                        );
+
+                        //let overlap_long = false;
+                        if overlap_long {
+                            // Long elements are gradually faded out across the index to imply they continue.
+                            let end_color =
+                                Color::from_rgba(start_color.red(), start_color.green(), start_color.blue(), 0.0)
+                                    .unwrap();
+
+                            let (start_pt, end_pt) = match p.direction {
+                                RotationDirection::CounterClockwise => (
+                                    Point::from_xy(center.x, 0.0),
+                                    Point::from_xy(center.x, total_radius / 8.0),
+                                ),
+                                RotationDirection::Clockwise => (
+                                    Point::from_xy(center.x, center.y),
+                                    Point::from_xy(center.x, center.y - total_radius / 8.0),
+                                ),
+                            };
+
+                            // Set up a vertical gradient (top to bottom)
+                            let gradient = LinearGradient::new(
+                                start_pt, //Point::from_xy(center.x, 0.0),
+                                end_pt,   //Point::from_xy(center.x, total_radius / 8.0),
+                                vec![GradientStop::new(0.0, start_color), GradientStop::new(1.0, end_color)],
+                                SpreadMode::Pad,
+                                Transform::identity(),
+                            )
+                            .unwrap();
+
+                            paint.shader = gradient;
+                        }
+
+                        if let Some(path) = path_builder.finish() {
+                            pixmap.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
+                        }
+
+                        path_builder = PathBuilder::new(); // Reset the path builder for the next sector
+                    }
+                }
+            }
+
+            // Draw non-overlapping metadata.
             for (_mi, meta_item) in track_meta.items.iter().enumerate() {
                 if let DiskStructureElement::System34(System34Element::Marker(..)) = meta_item.elem_type {
                     if !*draw_markers {
