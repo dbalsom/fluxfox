@@ -70,6 +70,9 @@ pub struct RenderTrackDataParams {
     pub decode: bool,
     /// Resolution to render data at (Bit or Byte)
     pub resolution: ResolutionType,
+    /// Set the inner radius to the last standard track instead of last track
+    /// This keeps proportions consistent between disks with different track counts
+    pub pin_last_standard_track: bool,
 }
 
 pub struct RenderTrackMetadataParams {
@@ -78,7 +81,7 @@ pub struct RenderTrackMetadataParams {
     /// Which side of disk to render
     pub head: u8,
     /// Minimum inner radius as a fraction (0.0 to 1.0)
-    pub min_radius_ratio: f32,
+    pub min_radius_fraction: f32,
     /// Angle of index position / start of track
     pub index_angle: f32,
     /// Maximum number of tracks to render
@@ -91,6 +94,9 @@ pub struct RenderTrackMetadataParams {
     pub palette: FoxHashMap<DiskStructureGenericElement, Color>,
     /// Whether to draw empty tracks as black rings
     pub draw_empty_tracks: bool,
+    /// Set the inner radius to the last standard track instead of last track
+    /// This keeps proportions consistent between disks with different track counts
+    pub pin_last_standard_track: bool,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -115,72 +121,6 @@ pub enum ResolutionType {
     Byte,
 }
 
-/*
-impl From<System34Element> for Rgba<u8> {
-    #[rustfmt::skip]
-    fn from(element: System34Element) -> Self {
-        match element {
-            System34Element::Gap1 => Rgba([0, 0, 0, 128]),
-            System34Element::Gap2 => Rgba([0, 0, 0, 128]),
-            System34Element::Gap3 => Rgba([0, 0, 0, 128]),
-            System34Element::Gap4a => Rgba([0, 0, 0, 128]),
-            System34Element::Gap4b => Rgba([0, 0, 0, 128]),
-            System34Element::Sync => Rgba([0, 255, 255, 128]),
-            System34Element::Marker(System34Marker::Iam, Some(false)) => Rgba([255, 0, 255, 128]),
-            System34Element::Marker(System34Marker::Iam, _) => Rgba([0, 0, 255, 128]),
-            System34Element::Marker(System34Marker::Idam, _) => Rgba([0, 128, 255, 200]),
-            System34Element::Marker(System34Marker::Dam, _) => Rgba([255, 255, 0, 200]),
-            System34Element::Marker(System34Marker::Ddam, _) => Rgba([255, 255, 0, 200]),
-            System34Element::Data { address_crc: true, data_crc: true, .. } => Rgba([0, 255, 0, 64]),
-            System34Element::Data { address_crc: true, data_crc: false, .. } => Rgba([255, 128, 0, 64]),
-            System34Element::Data { address_crc: false, data_crc: true, .. } => Rgba([0, 255, 0, 64]),
-            System34Element::Data { address_crc: false, data_crc: false, .. } => Rgba([255, 128, 0, 64]),
-        }
-    }
-}
-
-impl System34Element {
-    pub fn alpha(&self) -> u8 {
-        match self {
-            System34Element::Gap1 => 128,
-            System34Element::Gap2 => 128,
-            System34Element::Gap3 => 128,
-            System34Element::Gap4a => 128,
-            System34Element::Gap4b => 128,
-            System34Element::Sync => 128,
-            System34Element::Marker(System34Marker::Iam, Some(false)) => 200,
-            System34Element::Marker(System34Marker::Iam, _) => 200,
-            System34Element::Marker(System34Marker::Idam, _) => 200,
-            System34Element::Marker(System34Marker::Dam, _) => 200,
-            System34Element::Marker(System34Marker::Ddam, _) => 200,
-            System34Element::Data { .. } => 64,
-        }
-    }
-
-    #[rustfmt::skip]
-    pub fn to_rgba_nested(&self, nest_lvl: u32) -> Rgba<u8> {
-        match (nest_lvl, self) {
-            (_, System34Element::Gap1) => Rgba([0, 0, 0, 128]),
-            (_, System34Element::Gap2) => Rgba([0, 0, 0, 128]),
-            (_, System34Element::Gap3) => Rgba([0, 0, 0, 128]),
-            (_, System34Element::Gap4a) => Rgba([0, 0, 0, 128]),
-            (_, System34Element::Gap4b) => Rgba([0, 0, 0, 128]),
-            (_, System34Element::Sync) => Rgba([0, 255, 255, 128]),
-            (_, System34Element::Marker(System34Marker::Iam, Some(false))) => Rgba([255, 0, 255, 128]),
-            (_, System34Element::Marker(System34Marker::Iam, _)) => Rgba([0, 0, 255, 128]),
-            (_, System34Element::Marker(System34Marker::Idam, _)) => Rgba([0, 128, 255, 200]),
-            (_, System34Element::Marker(System34Marker::Dam, _)) => Rgba([255, 255, 0, 200]),
-            (_, System34Element::Marker(System34Marker::Ddam, _)) => Rgba([255, 255, 0, 200]),
-            (1, System34Element::Data { data_crc: true, deleted: false, .. }) => Rgba([0, 255, 0, 64]),
-            (_, System34Element::Data { data_crc: true, deleted: false, .. }) => Rgba([0, 255, 168, 80]),
-            (1, System34Element::Data { data_crc: true, deleted: true, .. }) => Rgba([0, 0, 255, 64]),
-            (_, System34Element::Data { data_crc: true, deleted: true, .. }) => Rgba([0, 168, 255, 80]),
-            (1, System34Element::Data { data_crc: false, .. }) => Rgba([255, 128, 0, 128]),
-            (_, System34Element::Data { data_crc: false, .. }) => Rgba([255, 128, 168, 160]),
-        }
-    }
-}*/
-
 /// Create a lookup table to map a u8 value to a grayscale gradient value based on the number of
 /// bits set in the u8 value (popcount)
 const POPCOUNT_TABLE: [u8; 256] = {
@@ -200,18 +140,6 @@ fn collect_streams(head: u8, disk_image: &DiskImage) -> Vec<&TrackDataStream> {
         .filter_map(|track_i| disk_image.track_pool[*track_i].get_track_stream())
         .collect()
 }
-
-// fn collect_streams(head: u8, disk_image: &DiskImage) -> Vec<&TrackDataStream> {
-//     disk_image.track_map[head as usize]
-//         .iter()
-//         .filter_map(|track_i| {
-//             disk_image.track_pool[*track_i]
-//                 .as_any()
-//                 .downcast_ref::<BitStreamTrack>()
-//                 .map(|track| &track.data)
-//         })
-//         .collect()
-// }
 
 fn collect_weak_masks(head: u8, disk_image: &DiskImage) -> Vec<&BitVec> {
     disk_image.track_map[head as usize]
@@ -247,8 +175,7 @@ pub fn render_track_data(
     let center_x = width as f32 / 2.0;
     let center_y = height as f32 / 2.0;
     let total_radius = width.min(height) as f32 / 2.0;
-    let min_radius = p.min_radius_fraction * total_radius; // Scale min_radius to pixel value
-    let _min_radius_sq = min_radius * min_radius;
+    let mut min_radius = p.min_radius_fraction * total_radius; // Scale min_radius to pixel value
 
     let rtracks = collect_streams(p.head, disk_image);
     let rmetadata = collect_metadata(p.head, disk_image);
@@ -259,12 +186,23 @@ pub fn render_track_data(
         log::trace!("track {} length: {}", ti, track.len());
     }
 
-    //println!("track data type is : {:?}", rtracks[0]);
+    // If pinning has been specified, adjust the minimum radius.
+    // We subtract any over-dumped tracks from the radius, so that the minimum radius fraction
+    // is consistent with the last standard track.
+    min_radius = if p.pin_last_standard_track {
+        let normalized_track_ct = match num_tracks {
+            0..50 => 40,
+            50.. => 80,
+        };
+        let track_width = (total_radius - min_radius) / normalized_track_ct as f32;
+        let overdump = num_tracks - normalized_track_ct;
+        p.min_radius_fraction * total_radius - (overdump as f32 * track_width)
+    }
+    else {
+        min_radius
+    };
 
     let track_width = (total_radius - min_radius) / num_tracks as f32;
-    let _track_width_sq = track_width * track_width;
-    let _render_track_width = track_width * (1.0 - p.track_gap);
-
     let pix_buf = pixmap.pixels_mut();
 
     let color_black = PremultipliedColorU8::from_rgba(0, 0, 0, 255).unwrap();
@@ -377,15 +315,28 @@ pub fn render_track_weak_bits(
     let rtracks = collect_weak_masks(p.head, disk_image);
     let num_tracks = min(rtracks.len(), p.track_limit);
 
-    let normalized_track_ct: usize = match num_tracks {
-        0..50 => 40,
-        50.. => 80,
-    };
-
     log::trace!("collected {} track references.", num_tracks);
     for (ti, track) in rtracks.iter().enumerate() {
         log::trace!("track {} length: {}", ti, track.len());
     }
+
+    // If pinning has been specified, normalize the track count and minimum radius.
+    // We subtract any overdumped tracks from the radius, so that the minimum radius fraction
+    // is consistent with the last standard track.
+    let (normalized_track_ct, min_radius) = if p.pin_last_standard_track {
+        let normalized_track_ct = match num_tracks {
+            0..50 => 40,
+            50.. => 80,
+        };
+        let track_width = (total_radius - min_radius) / normalized_track_ct as f32;
+        let overdump = num_tracks - normalized_track_ct;
+        let min_radius = p.min_radius_fraction * total_radius - (overdump as f32 * track_width);
+
+        (normalized_track_ct, min_radius)
+    }
+    else {
+        (num_tracks, p.min_radius_fraction * total_radius)
+    };
 
     let track_width = (total_radius - min_radius) / num_tracks as f32;
     let _track_width_sq = track_width * track_width;
@@ -421,7 +372,7 @@ pub fn render_track_weak_bits(
                     continue;
                 }
 
-                let track_index = (normalized_track_ct - 1).saturating_sub(track_offset.floor() as usize);
+                let track_index = (num_tracks - 1).saturating_sub(track_offset.floor() as usize);
 
                 if track_index < num_tracks {
                     // Adjust angle for clockwise or counter-clockwise
@@ -503,20 +454,38 @@ pub fn render_track_metadata_quadrant(
 ) -> Result<(), DiskVisualizationError> {
     let rtracks = collect_streams(p.head, disk_image);
     let rmetadata = collect_metadata(p.head, disk_image);
-    let total_tracks = min(rtracks.len(), p.track_limit);
+    let num_tracks = min(rtracks.len(), p.track_limit);
 
-    if total_tracks == 0 {
+    if num_tracks == 0 {
         return Err(DiskVisualizationError::NoTracks);
     }
 
-    let image_size = pixmap.width() as f64 * 2.0;
-    let image_radius = image_size / 2.0;
-    let track_width = calculate_track_width(total_tracks, image_radius, p.min_radius_ratio as f64);
+    let image_size = pixmap.width() as f32 * 2.0;
+    let total_radius = image_size / 2.0;
+    let mut min_radius = p.min_radius_fraction * total_radius; // Scale min_radius to pixel value
+
+    // If pinning has been specified, adjust the minimum radius.
+    // We subtract any over-dumped tracks from the radius, so that the minimum radius fraction
+    // is consistent with the last standard track.
+    min_radius = if p.pin_last_standard_track {
+        let normalized_track_ct = match num_tracks {
+            0..50 => 40,
+            50.. => 80,
+        };
+        let track_width = (total_radius - min_radius) / normalized_track_ct as f32;
+        let overdump = num_tracks - normalized_track_ct;
+        p.min_radius_fraction * total_radius - (overdump as f32 * track_width)
+    }
+    else {
+        min_radius
+    };
+
+    let track_width = (total_radius - min_radius) / num_tracks as f32;
 
     let center = match p.quadrant {
-        0 => Point::from_xy(image_radius as f32, image_radius as f32),
-        1 => Point::from_xy(0.0, image_radius as f32),
-        2 => Point::from_xy(image_radius as f32, 0.0),
+        0 => Point::from_xy(total_radius, total_radius),
+        1 => Point::from_xy(0.0, total_radius),
+        2 => Point::from_xy(total_radius, 0.0),
         3 => Point::from_xy(0.0, 0.0),
         _ => return Err(DiskVisualizationError::InvalidParameter),
     };
@@ -585,7 +554,7 @@ pub fn render_track_metadata_quadrant(
     for draw_markers in [false, true].iter() {
         for (ti, track_meta) in rmetadata.iter().enumerate() {
             let mut has_elements = false;
-            let outer_radius = image_radius as f32 - (ti as f32 * track_width as f32);
+            let outer_radius = total_radius as f32 - (ti as f32 * track_width as f32);
             let inner_radius = outer_radius - (track_width as f32 * (1.0 - p.track_gap));
             let mut paint = Paint {
                 blend_mode: BlendMode::SourceOver,
