@@ -221,7 +221,7 @@ impl Index<usize> for BitRing {
         }
         else {
             if index == self.wrap {
-                log::warn!("Index wrapped around at {}", index);
+                //log::debug!("Index wrapped around at {}", index);
             }
             self.wrap_value
                 .as_ref()
