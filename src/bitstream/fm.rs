@@ -233,27 +233,6 @@ impl TrackCodec for FmCodec {
         Some(byte)
     }
 
-    fn read_decoded_byte2(&self, index: usize) -> Option<u8> {
-        if index >= self.bit_vec.len() || index >= self.clock_map.len() {
-            log::error!(
-                "read_decoded_byte(): index out of bounds: {} vec: {} clock_map:{}",
-                index,
-                self.bit_vec.len(),
-                self.clock_map.len()
-            );
-            return None;
-        }
-        let p_off: usize = self.clock_map[index] as usize;
-        let mut byte = 0;
-        for bi in (index..std::cmp::min(index + FM_BYTE_LEN, self.bit_vec.len()))
-            .skip(p_off)
-            .step_by(2)
-        {
-            byte = (byte << 1) | self.bit_vec[bi] as u8;
-        }
-        Some(byte)
-    }
-
     fn write_buf(&mut self, buf: &[u8], offset: usize) -> Option<usize> {
         let encoded_buf = Self::encode(buf, false, EncodingVariant::Data);
 

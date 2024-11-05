@@ -76,6 +76,10 @@ impl Track for BitStreamTrack {
         self
     }
 
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
     fn as_metasector_track(&self) -> Option<&MetaSectorTrack> {
         None
     }
@@ -85,6 +89,10 @@ impl Track for BitStreamTrack {
     }
 
     fn as_fluxstream_track(&self) -> Option<&FluxStreamTrack> {
+        None
+    }
+
+    fn as_fluxstream_track_mut(&mut self) -> Option<&mut FluxStreamTrack> {
         None
     }
 

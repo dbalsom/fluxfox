@@ -76,6 +76,10 @@ impl Track for FluxStreamTrack {
         self
     }
 
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
     fn as_metasector_track(&self) -> Option<&MetaSectorTrack> {
         None
     }
@@ -86,6 +90,10 @@ impl Track for FluxStreamTrack {
 
     fn as_fluxstream_track(&self) -> Option<&FluxStreamTrack> {
         self.as_any().downcast_ref::<FluxStreamTrack>()
+    }
+
+    fn as_fluxstream_track_mut(&mut self) -> Option<&mut FluxStreamTrack> {
+        self.as_any_mut().downcast_mut::<FluxStreamTrack>()
     }
 
     fn ch(&self) -> DiskCh {
@@ -330,6 +338,12 @@ impl FluxStreamTrack {
     ) {
         let new_stream = FluxRevolution::from_u16(ch, data, data_rate, index_time, timebase);
         self.revolutions.push(new_stream);
+    }
+
+    pub fn set_revolution(&mut self, index: usize) {
+        if index < self.revolutions.len() {
+            self.best_revolution = index;
+        }
     }
 
     pub fn revolution_ct(&self) -> usize {

@@ -113,12 +113,15 @@ pub trait Track: Any {
     fn resolution(&self) -> DiskDataResolution;
     /// Return a reference to the track as a `dyn Any`, for downcasting.
     fn as_any(&self) -> &dyn Any;
+
+    fn as_any_mut(&mut self) -> &mut dyn Any;
     /// Downcast the track to a `MetaSectorTrack`, if possible.
     fn as_metasector_track(&self) -> Option<&MetaSectorTrack>;
     /// Downcast the track to a `BitStreamTrack`, if possible.
     fn as_bitstream_track(&self) -> Option<&BitStreamTrack>;
     /// Downcast the track to a `FluxStreamTrack`, if possible.
     fn as_fluxstream_track(&self) -> Option<&FluxStreamTrack>;
+    fn as_fluxstream_track_mut(&mut self) -> Option<&mut FluxStreamTrack>;
     fn ch(&self) -> DiskCh;
     fn set_ch(&mut self, ch: DiskCh);
     /// Return the encoding of the track as `DiskDataEncoding`.

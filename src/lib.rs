@@ -62,7 +62,7 @@ pub mod structure_parsers;
 pub mod util;
 
 mod copy_protection;
-mod flux;
+pub mod flux;
 mod image_writer;
 mod range_check;
 mod track;

@@ -653,15 +653,12 @@ impl DiskStructureParser for System34Parser {
                         dam_header[2] = track.read_decoded_byte(marker.start + mfm_offset!(2)).unwrap();
                         dam_header[3] = track.read_decoded_byte(marker.start + mfm_offset!(3)).unwrap();
 
-                        //log::trace!("dam header verify: {:02X?}", dam_header);
+                        //log::debug!("DAM header verification: {:02X?}", dam_header);
 
-                        let crc_byte0 = track.read_decoded_byte(data_end).unwrap_or(0xAA);
-                        let crc_byte1 = track.read_decoded_byte(data_end + mfm_offset!(1)).unwrap_or(0xAA);
-                        let crc = u16::from_be_bytes([crc_byte0, crc_byte1]);
-                        let calculated_crc = System34Parser::crc16(track, element_offset, data_end);
-                        log::trace!("Data CRC16: {:04X} Calculated: {:04X}", crc, calculated_crc);
+                        let (data_crc, calculated_crc) = System34Parser::crc16(track, element_offset, data_end);
+                        log::trace!("Data CRC16: {:04X} Calculated: {:04X}", data_crc, calculated_crc);
 
-                        let crc_correct = crc == calculated_crc;
+                        let crc_correct = data_crc == calculated_crc;
                         if !crc_correct {
                             log::warn!("Data CRC error detected at offset: {}", element_offset);
                         }
@@ -806,7 +803,7 @@ impl DiskStructureParser for System34Parser {
         }
     }
 
-    fn crc16(track: &mut TrackDataStream, bit_index: usize, end: usize) -> u16 {
+    fn crc16(track: &mut TrackDataStream, bit_index: usize, end: usize) -> (u16, u16) {
         let bytes_requested = (end - bit_index) / 16;
 
         log::trace!(
@@ -815,9 +812,14 @@ impl DiskStructureParser for System34Parser {
             bit_index
         );
 
-        let mut data = vec![0; bytes_requested];
+        let mut data = vec![0; bytes_requested + 2];
         track.seek(SeekFrom::Start(bit_index as u64)).unwrap();
         track.read_exact(&mut data).unwrap();
-        crc_ibm_3740(&data, None)
+
+        //log::debug!("Buffer: {:02X?}", data);
+        let recorded = u16::from_be_bytes([data[bytes_requested], data[bytes_requested + 1]]);
+        let calculated = crc_ibm_3740(&data[0..bytes_requested], None);
+
+        (recorded, calculated)
     }
 }

@@ -188,6 +188,10 @@ impl Track for MetaSectorTrack {
         self
     }
 
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
     fn as_metasector_track(&self) -> Option<&MetaSectorTrack> {
         self.as_any().downcast_ref::<MetaSectorTrack>()
     }
@@ -197,6 +201,10 @@ impl Track for MetaSectorTrack {
     }
 
     fn as_fluxstream_track(&self) -> Option<&FluxStreamTrack> {
+        None
+    }
+
+    fn as_fluxstream_track_mut(&mut self) -> Option<&mut FluxStreamTrack> {
         None
     }
 

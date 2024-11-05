@@ -56,7 +56,6 @@ pub trait TrackCodec {
     fn set_track_padding(&mut self);
     fn read_raw_byte(&self, index: usize) -> Option<u8>;
     fn read_decoded_byte(&self, index: usize) -> Option<u8>;
-    fn read_decoded_byte2(&self, index: usize) -> Option<u8>;
     fn write_buf(&mut self, buf: &[u8], offset: usize) -> Option<usize>;
     fn write_raw_buf(&mut self, buf: &[u8], offset: usize) -> usize;
     fn encode(&self, data: &[u8], prev_bit: bool, encoding_type: EncodingVariant) -> BitVec;
