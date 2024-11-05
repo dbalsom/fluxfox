@@ -440,8 +440,9 @@ impl Pll {
             //     format_us!(delta_time),
             //     format_us!(window_max),
             // );
-            assert!(delta_time <= window_max);
-            assert!(delta_time >= window_min);
+
+            //assert!(delta_time <= window_max);
+            //assert!(delta_time >= window_min);
 
             //phase_adjust = min_phase_error;
             //phase_adjust = (phase_adjust + (0.65 * min_phase_error)) % (self.working_period / 2.0);

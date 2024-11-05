@@ -39,6 +39,9 @@ use crate::diskimage::{
 };
 use crate::structure_parsers::system34::System34Standard;
 use crate::structure_parsers::DiskStructureMetadata;
+use crate::track::bitstream::BitStreamTrack;
+use crate::track::fluxstream::FluxStreamTrack;
+use crate::track::metasector::MetaSectorTrack;
 use crate::{
     DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskImageError,
     DiskRpm, SectorMapEntry,
@@ -82,6 +85,8 @@ pub struct TrackConsistency {
     pub no_dam: bool,
     pub consistent_sector_size: Option<u8>,
     pub nonconsecutive_sectors: bool,
+    pub overlapping_sectors: bool,
+    pub sector_crossing_index: bool,
     pub sector_ct: usize,
 }
 
@@ -92,6 +97,8 @@ impl TrackConsistency {
         self.deleted_data |= other.deleted_data;
         self.no_dam |= other.no_dam;
         self.nonconsecutive_sectors |= other.nonconsecutive_sectors;
+        self.overlapping_sectors |= other.overlapping_sectors;
+        self.sector_crossing_index |= other.sector_crossing_index;
 
         if other.consistent_sector_size.is_none() {
             self.consistent_sector_size = None;
@@ -101,9 +108,20 @@ impl TrackConsistency {
 
 pub trait Track: Any {
     /// Return the resolution of the track as a `DiskDataResolution`.
+    /// This can be used to determine the track's underlying representation, especially if you wish
+    /// to downcast the track to a specific type.
     fn resolution(&self) -> DiskDataResolution;
     /// Return a reference to the track as a `dyn Any`, for downcasting.
     fn as_any(&self) -> &dyn Any;
+
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+    /// Downcast the track to a `MetaSectorTrack`, if possible.
+    fn as_metasector_track(&self) -> Option<&MetaSectorTrack>;
+    /// Downcast the track to a `BitStreamTrack`, if possible.
+    fn as_bitstream_track(&self) -> Option<&BitStreamTrack>;
+    /// Downcast the track to a `FluxStreamTrack`, if possible.
+    fn as_fluxstream_track(&self) -> Option<&FluxStreamTrack>;
+    fn as_fluxstream_track_mut(&mut self) -> Option<&mut FluxStreamTrack>;
     fn ch(&self) -> DiskCh;
     fn set_ch(&mut self, ch: DiskCh);
     /// Return the encoding of the track as `DiskDataEncoding`.

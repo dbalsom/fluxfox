@@ -294,7 +294,7 @@ pub fn render_track_data(
                                 true => {
                                     // Only render bits in 16-bit steps.
                                     rtracks[track_index]
-                                        .read_decoded_byte2(decoded_bit_idx)
+                                        .read_decoded_byte(decoded_bit_idx)
                                         .unwrap_or_default()
                                 }
                             };

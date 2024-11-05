@@ -97,6 +97,23 @@ pub(crate) fn run(global: &GlobalOptions, params: args::DumpParams) -> Result<()
         phys_ch.set_h(phys_head);
     }
 
+    let track_mut_opt = disk.track_mut(phys_ch);
+    let track_mut = match track_mut_opt {
+        Some(track_mut) => track_mut,
+        None => {
+            bail!("Specified track: {} not found.", phys_ch);
+        }
+    };
+
+    if let Some(rev) = params.rev {
+        if let Some(flux_track) = track_mut.as_fluxstream_track_mut() {
+            flux_track.set_revolution(rev as usize);
+        }
+        else {
+            bail!("Revolution number specified but track is not a flux track.");
+        }
+    }
+
     // If sector was provided, dump the sector.
     if let Some(sector) = params.sector {
         // Dump the specified sector in hex format to stdout.
@@ -110,6 +127,9 @@ pub(crate) fn run(global: &GlobalOptions, params: args::DumpParams) -> Result<()
         //     false => (RwSectorScope::DataOnly, false),
         // };
 
+        _ = writeln!(&mut buf, "reading sector...");
+        _ = buf.flush();
+
         let rsr = match disk.read_sector(phys_ch, id_chs, params.n, scope, true) {
             Ok(rsr) => rsr,
             Err(e) => {
@@ -117,7 +137,7 @@ pub(crate) fn run(global: &GlobalOptions, params: args::DumpParams) -> Result<()
             }
         };
 
-        _ = writeln!(&mut buf, "Data length: {}", rsr.data_len);
+        _ = writeln!(&mut buf, "Data idx: {} length: {}", rsr.data_idx, rsr.data_len);
 
         let data_slice = match scope {
             RwSectorScope::DataOnly => &rsr.read_buf[rsr.data_idx..rsr.data_idx + rsr.data_len],
@@ -148,7 +168,7 @@ pub(crate) fn run(global: &GlobalOptions, params: args::DumpParams) -> Result<()
         let ch = DiskCh::new(params.cylinder, params.head);
 
         let rtr = if params.raw {
-            let mut track = match disk.track_mut(ch) {
+            let track = match disk.track_mut(ch) {
                 Some(track) => track,
                 None => {
                     bail!("Specified track: {} not found.", ch);
@@ -165,19 +185,37 @@ pub(crate) fn run(global: &GlobalOptions, params: args::DumpParams) -> Result<()
             }
 
             match track.read_track_raw(None) {
-                Ok(rtr) => rtr,
+                Ok(rtr) => {
+                    //println!("* read track raw *");
+                    rtr
+                }
                 Err(e) => {
                     bail!("Error reading track: {}", e);
                 }
             }
         }
         else {
+            let track = match disk.track_mut(ch) {
+                Some(track) => track,
+                None => {
+                    bail!("Specified track: {} not found.", ch);
+                }
+            };
+
             if !global.silent {
-                println!("Dumping track {}, decoded, in hex format:", ch);
+                println!(
+                    "Dumping track {} ({}, {} bits), decoded, in hex format:",
+                    ch,
+                    track.info().encoding,
+                    track.info().bit_length
+                );
             }
 
             match disk.read_track(ch, None) {
-                Ok(rtr) => rtr,
+                Ok(rtr) => {
+                    //println!("* read track *");
+                    rtr
+                }
                 Err(e) => {
                     bail!("Error reading track: {}", e);
                 }

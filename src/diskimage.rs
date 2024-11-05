@@ -615,6 +615,7 @@ impl DiskImage {
                     if let Some(callback_fn) = callback {
                         callback_fn(LoadingStatus::Complete);
                     }
+                    image.post_load_process();
                     Ok(image)
                 }
                 else {
@@ -741,6 +742,7 @@ impl DiskImage {
 
         track.set_ch(ch);
         track.set_shared(self.shared.clone());
+        track.synthesize_revolutions(); // Create synthetic revolutions to increase chances of successful decoding.
         track.decode_revolutions(clock_hint, rpm_hint)?;
         track.analyze_revolutions();
 
@@ -1326,6 +1328,7 @@ impl DiskImage {
 
         let mut last_track_sector_size = 0;
 
+        log::debug!("update_consistency(): Running consistency check...");
         for track_idx in self.track_idx_iter() {
             let td = &self.track_pool[track_idx];
             match td.get_track_consistency() {
@@ -1568,9 +1571,21 @@ impl DiskImage {
     }
 
     pub fn dump_info<W: crate::io::Write>(&mut self, mut out: W) -> Result<(), crate::io::Error> {
-        out.write_fmt(format_args!("Disk Format: {:?}\n", self.standard_format))?;
+        let disk_format_string = match self.standard_format {
+            Some(format) => format.to_string(),
+            None => "Non-standard".to_string(),
+        };
+
+        // let rpm_string = match self.descriptor.rpm {
+        //     Some(rpm) => rpm.to_string(),
+        //     None => "Unknown".to_string(),
+        // };
+
+        out.write_fmt(format_args!("Disk Format: {}\n", disk_format_string))?;
         out.write_fmt(format_args!("Geometry: {}\n", self.descriptor.geometry))?;
-        out.write_fmt(format_args!("Volume Name: {:?}\n", self.volume_name))?;
+        out.write_fmt(format_args!("Density: {}\n", self.descriptor.density))?;
+        //out.write_fmt(format_args!("RPM: {}\n", rpm_string))?;
+        //out.write_fmt(format_args!("Volume Name: {:?}\n", self.volume_name))?;
 
         if let Some(comment) = &self.comment {
             out.write_fmt(format_args!("Comment: {:?}\n", comment))?;

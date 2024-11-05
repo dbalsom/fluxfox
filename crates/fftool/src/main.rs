@@ -41,6 +41,8 @@ use crate::args::Command;
 use args::command_parser;
 
 fn main() -> Result<(), Error> {
+    env_logger::init();
+
     let app_params = command_parser().run();
 
     match app_params.command {

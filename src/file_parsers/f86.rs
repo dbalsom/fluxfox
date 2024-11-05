@@ -610,7 +610,7 @@ impl F86Format {
 
             if let Some(track) = image.track_pool[ti].as_any().downcast_ref::<BitStreamTrack>() {
                 let absolute_bit_count = track.data.len();
-                log::error!("Absolute bit count: {}", absolute_bit_count);
+                //log::trace!("Absolute bit count: {}", absolute_bit_count);
 
                 let mut bit_data = track.data.data();
                 let mut weak_data = track.data.weak_data();
@@ -641,10 +641,10 @@ impl F86Format {
                         "PROLOK: Converting {} weak bits to holes.",
                         track.data.weak_data().len()
                     );
-                    f86_weak_to_holes(&mut bit_data, &mut weak_data);
+                    f86_weak_to_holes(&mut bit_data, &weak_data);
                 }
                 else {
-                    f86_weak_to_weak(&mut bit_data, &mut weak_data);
+                    f86_weak_to_weak(&mut bit_data, &weak_data);
                 }
 
                 log::trace!(

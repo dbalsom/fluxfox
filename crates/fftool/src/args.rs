@@ -169,6 +169,13 @@ pub(crate) fn n_parser() -> impl Parser<u8> {
         .guard(|&size| size <= 6, "Size must be between 0 and 6")
 }
 
+pub(crate) fn rev_parser() -> impl Parser<u8> {
+    long("rev")
+        .short('r')
+        .argument::<u8>("REVOLUTION_NUMBER")
+        .help("Specify the revolution to target. Only applicable to flux images.")
+}
+
 pub(crate) fn dump_format_parser() -> impl Parser<DumpFormat> {
     long("format")
         .short('f')

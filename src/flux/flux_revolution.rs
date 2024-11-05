@@ -24,14 +24,36 @@
 
     --------------------------------------------------------------------------
 */
-
 use crate::flux::pll::{Pll, PllDecodeStatEntry};
 use crate::flux::{FluxStats, FluxTransition};
 use crate::{DiskCh, DiskDataEncoding};
 use bit_vec::BitVec;
 use histogram::{Bucket, Histogram};
+use std::cmp::Ordering;
+
+/// Type of revolution.
+/// `Source` is a direct read from the disk image.
+/// `Synthetic` is a generated revolution, usually shifting a flux from one source revolution
+///             to another.
+#[derive(Copy, Clone, Debug)]
+pub enum FluxRevolutionType {
+    Source,
+    Synthetic,
+}
+
+pub struct FluxRevolutionStats {
+    pub rev_type: FluxRevolutionType,
+    pub encoding: DiskDataEncoding,
+    pub data_rate: f64,
+    pub index_time: f64,
+    pub ft_ct: usize,
+    pub bitcell_ct: usize,
+    pub first_ft: f64,
+    pub last_ft: f64,
+}
 
 pub struct FluxRevolution {
+    pub rev_type: FluxRevolutionType,
     pub ch: DiskCh,
     pub data_rate: f64,
     pub index_time: f64,
@@ -48,8 +70,22 @@ impl FluxRevolution {
         self.encoding
     }
 
+    pub fn stats(&self) -> FluxRevolutionStats {
+        FluxRevolutionStats {
+            rev_type: self.rev_type,
+            encoding: self.encoding,
+            data_rate: self.data_rate,
+            index_time: self.index_time,
+            ft_ct: self.flux_deltas.len(),
+            bitcell_ct: self.bitstream.len(),
+            first_ft: *self.flux_deltas.first().unwrap_or(&0.0),
+            last_ft: *self.flux_deltas.last().unwrap_or(&0.0),
+        }
+    }
+
     pub fn from_f64(ch: DiskCh, deltas: &[f64], data_rate: f64, index_time: f64) -> Self {
         FluxRevolution {
+            rev_type: FluxRevolutionType::Source,
             ch,
             data_rate,
             index_time,
@@ -65,6 +101,7 @@ impl FluxRevolution {
     pub fn from_u16(ch: DiskCh, data: &[u16], data_rate: f64, index_time: f64, timebase: f64) -> Self {
         log::debug!("FluxRevolution::from_u16(): Using timebase of {:.3}ns", timebase * 1e9);
         let mut new = FluxRevolution {
+            rev_type: FluxRevolutionType::Source,
             ch,
             data_rate,
             index_time,
@@ -89,6 +126,98 @@ impl FluxRevolution {
 
         log::warn!("FluxRevolution::from_u16(): {} NFA cells found", nfa_count);
         new
+    }
+
+    pub(crate) fn from_adjacent_pair(first: &FluxRevolution, second: &FluxRevolution) -> Vec<FluxRevolution> {
+        let mut new_revolutions = Vec::new();
+
+        let flux_ct_diff = (first.flux_deltas.len() as i64 - second.flux_deltas.len() as i64).abs();
+
+        match first.flux_deltas.len().cmp(&second.flux_deltas.len()) {
+            Ordering::Greater if flux_ct_diff == 2 => {
+                log::debug!(
+                    "FluxRevolution::from_adjacent_pair(): First revolution is candidate for flux shift to second."
+                );
+
+                let mut first_deltas = first.flux_deltas.clone();
+                let shift_delta = first_deltas.pop();
+
+                let mut second_deltas = second.flux_deltas.clone();
+                second_deltas.insert(0, shift_delta.unwrap());
+
+                let new_first = FluxRevolution {
+                    rev_type: FluxRevolutionType::Synthetic,
+                    ch: first.ch,
+                    data_rate: first.data_rate,
+                    index_time: first.index_time,
+                    transitions: Vec::with_capacity(first_deltas.len()),
+                    flux_deltas: first_deltas,
+                    bitstream: BitVec::with_capacity((first.data_rate as usize) * 2),
+                    biterrors: BitVec::with_capacity((first.data_rate as usize) * 2),
+                    encoding: DiskDataEncoding::Mfm,
+                    pll_stats: Vec::new(),
+                };
+
+                let new_second = FluxRevolution {
+                    rev_type: FluxRevolutionType::Synthetic,
+                    ch: second.ch,
+                    data_rate: second.data_rate,
+                    index_time: second.index_time,
+                    transitions: Vec::with_capacity(second_deltas.len()),
+                    flux_deltas: second_deltas,
+                    bitstream: BitVec::with_capacity((second.data_rate as usize) * 2),
+                    biterrors: BitVec::with_capacity((second.data_rate as usize) * 2),
+                    encoding: DiskDataEncoding::Mfm,
+                    pll_stats: Vec::new(),
+                };
+
+                new_revolutions.push(new_first);
+                new_revolutions.push(new_second);
+            }
+            Ordering::Less if flux_ct_diff == 2 => {
+                log::debug!(
+                    "FluxRevolution::from_adjacent_pair(): Second revolution is candidate for flux shift to first."
+                );
+
+                let mut first_deltas = first.flux_deltas.clone();
+                let mut second_deltas = second.flux_deltas.clone();
+
+                let shift_delta = second_deltas.remove(0);
+                first_deltas.push(shift_delta);
+
+                let new_first = FluxRevolution {
+                    rev_type: FluxRevolutionType::Synthetic,
+                    ch: first.ch,
+                    data_rate: first.data_rate,
+                    index_time: first.index_time,
+                    transitions: Vec::with_capacity(first_deltas.len()),
+                    flux_deltas: first_deltas,
+                    bitstream: BitVec::with_capacity((first.data_rate as usize) * 2),
+                    biterrors: BitVec::with_capacity((first.data_rate as usize) * 2),
+                    encoding: DiskDataEncoding::Mfm,
+                    pll_stats: Vec::new(),
+                };
+
+                let new_second = FluxRevolution {
+                    rev_type: FluxRevolutionType::Synthetic,
+                    ch: second.ch,
+                    data_rate: second.data_rate,
+                    index_time: second.index_time,
+                    transitions: Vec::with_capacity(second_deltas.len()),
+                    flux_deltas: second_deltas,
+                    bitstream: BitVec::with_capacity((second.data_rate as usize) * 2),
+                    biterrors: BitVec::with_capacity((second.data_rate as usize) * 2),
+                    encoding: DiskDataEncoding::Mfm,
+                    pll_stats: Vec::new(),
+                };
+
+                new_revolutions.push(new_first);
+                new_revolutions.push(new_second);
+            }
+            _ => {}
+        }
+
+        new_revolutions
     }
 
     pub(crate) fn ft_ct(&self) -> usize {

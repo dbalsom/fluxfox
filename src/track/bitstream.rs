@@ -44,6 +44,8 @@ use crate::structure_parsers::system34::{
 use crate::structure_parsers::{
     DiskStructureElement, DiskStructureMetadata, DiskStructureMetadataItem, DiskStructureParser,
 };
+use crate::track::fluxstream::FluxStreamTrack;
+use crate::track::metasector::MetaSectorTrack;
 use crate::util::crc_ibm_3740;
 use crate::{
     DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskImageError,
@@ -72,6 +74,26 @@ impl Track for BitStreamTrack {
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn as_metasector_track(&self) -> Option<&MetaSectorTrack> {
+        None
+    }
+
+    fn as_bitstream_track(&self) -> Option<&BitStreamTrack> {
+        self.as_any().downcast_ref::<BitStreamTrack>()
+    }
+
+    fn as_fluxstream_track(&self) -> Option<&FluxStreamTrack> {
+        None
+    }
+
+    fn as_fluxstream_track_mut(&mut self) -> Option<&mut FluxStreamTrack> {
+        None
     }
 
     fn ch(&self) -> DiskCh {
@@ -187,7 +209,7 @@ impl Track for BitStreamTrack {
                 no_dam,
                 sector_chsn,
                 ..
-            } if no_dam == true => {
+            } if no_dam => {
                 // No DAM found. Return an empty buffer.
                 address_crc_error = !address_crc_valid;
                 return Ok(ReadSectorResult {
@@ -243,7 +265,7 @@ impl Track for BitStreamTrack {
                 let (scope_read_off, scope_data_off, scope_data_adj) = match scope {
                     // Add 4 bytes for address mark and 2 bytes for CRC.
                     RwSectorScope::DataBlock => (0, 4, 6),
-                    RwSectorScope::DataOnly => (32, 0, 0),
+                    RwSectorScope::DataOnly => (64, 0, 0),
                 };
 
                 // Normally we read the contents of the sector determined by N in the sector header.
@@ -282,9 +304,11 @@ impl Track for BitStreamTrack {
                     read_vec.len()
                 );
 
+                log::debug!("read_sector(): Seeking to offset: {}", element_start + scope_read_off);
                 self.data
-                    .seek(SeekFrom::Start(((element_start >> 1) + scope_read_off) as u64))
+                    .seek(SeekFrom::Start((element_start + scope_read_off) as u64))
                     .map_err(|_| DiskImageError::BitstreamError)?;
+                log::debug!("read_sector(): Reading {} bytes.", read_vec.len());
                 self.data
                     .read_exact(&mut read_vec)
                     .map_err(|_| DiskImageError::BitstreamError)?;
@@ -845,6 +869,7 @@ impl Track for BitStreamTrack {
                     consistency.bad_address_crc = true;
                 }
                 if !data_crc {
+                    //log::warn!("reporting bad CRC for sector: {:?}", item.chsn);
                     consistency.bad_data_crc = true;
                 }
                 if deleted {
@@ -883,13 +908,12 @@ impl BitStreamTrack {
             params.bitcell_ct.unwrap_or(params.data.len() * 8)
         );
 
-        let data = BitVec::from_bytes(&params.data);
-        let weak_bitvec_opt = params.weak.as_deref().map(BitVec::from_bytes);
+        let data = BitVec::from_bytes(params.data);
+        let weak_bitvec_opt = params.weak.map(BitVec::from_bytes);
 
         let (mut data_stream, markers) = match params.encoding {
             DiskDataEncoding::Mfm => {
                 let mut codec;
-
                 // If a weak bit mask was provided by the file format, we will honor it.
                 // Otherwise, if 'detect_weak' is set we will try to detect weak bits from the MFM stream.
                 if weak_bitvec_opt.is_some() {
@@ -898,6 +922,7 @@ impl BitStreamTrack {
                 else {
                     codec = MfmCodec::new(data, params.bitcell_ct, None);
                     if params.detect_weak {
+                        log::debug!("add_track_bitstream(): detecting weak bits...");
                         let weak_bitvec = codec.create_weak_bit_mask(MfmCodec::WEAK_BIT_RUN);
                         if weak_bitvec.any() {
                             log::debug!(
@@ -909,6 +934,7 @@ impl BitStreamTrack {
                     }
                 }
 
+                //log::debug!("add_track_bitstream(): Scanning for markers...");
                 let mut data_stream: TrackDataStream = Box::new(codec);
                 let markers = System34Parser::scan_track_markers(&data_stream);
                 if !markers.is_empty() {
@@ -1023,10 +1049,14 @@ impl BitStreamTrack {
 
     fn read_exact_at(&mut self, offset: usize, buf: &mut [u8]) -> Result<(), DiskImageError> {
         self.data
-            .seek(SeekFrom::Start((offset >> 1) as u64))
+            .seek(SeekFrom::Start(offset as u64))
             .map_err(|_| DiskImageError::SeekError)?;
         self.data.read_exact(buf)?;
         Ok(())
+    }
+
+    pub fn len(&self) -> usize {
+        self.data.len()
     }
 
     /// Retrieves the bit index of the first sector in the track data after the specified bit index.

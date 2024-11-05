@@ -36,6 +36,28 @@ use crate::io::{self, Read};
 use bit_vec::BitVec;
 use std::ops::Index;
 
+pub struct BitRingIter<'a> {
+    ring: &'a BitRing,
+    cursor: usize,
+    limit: Option<usize>, // Optional limit for one revolution
+}
+
+impl Iterator for BitRingIter<'_> {
+    type Item = bool;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(limit) = self.limit {
+            if self.cursor >= limit {
+                return None;
+            }
+        }
+
+        let bit = self.ring.bits[self.cursor];
+        self.cursor += 1;
+        Some(bit)
+    }
+}
+
 pub struct BitRing {
     bits: BitVec,
     wrap: usize,
@@ -70,6 +92,22 @@ impl From<&[u8]> for BitRing {
 
 #[allow(dead_code)]
 impl BitRing {
+    pub fn iter(&self) -> BitRingIter {
+        BitRingIter {
+            ring: self,
+            cursor: 0,
+            limit: None,
+        }
+    }
+
+    pub fn iter_revolution(&self) -> BitRingIter {
+        BitRingIter {
+            ring: self,
+            cursor: 0,
+            limit: Some(self.wrap),
+        }
+    }
+
     pub fn from_bytes(bytes: &[u8]) -> BitRing {
         BitRing::from(bytes)
     }
@@ -83,12 +121,44 @@ impl BitRing {
         }
     }
 
+    #[inline]
     pub fn len(&self) -> usize {
         self.bits.len()
     }
 
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.bits.is_empty()
+    }
+
+    #[inline]
     pub fn wrap_len(&self) -> usize {
         self.wrap
+    }
+
+    #[inline]
+    pub fn bits(&self) -> &BitVec {
+        &self.bits
+    }
+
+    #[inline]
+    pub fn bits_mut(&mut self) -> &mut BitVec {
+        &mut self.bits
+    }
+
+    #[inline]
+    pub fn to_bytes(&self) -> Vec<u8> {
+        self.bits.to_bytes()
+    }
+
+    #[inline]
+    pub fn set(&mut self, index: usize, bit: bool) {
+        if index < self.wrap {
+            self.bits.set(index, bit);
+        }
+        else {
+            self.bits.set(index % self.wrap, bit);
+        }
     }
 
     /// Set the wrapping point of the BitRing.
@@ -110,6 +180,9 @@ impl BitRing {
 
     #[inline]
     fn wrap_cursor(&self, cursor: usize) -> usize {
+        if cursor != cursor % self.wrap {
+            log::warn!("Cursor wrapped around at {}", cursor);
+        }
         cursor % self.wrap
     }
 }
@@ -129,7 +202,7 @@ impl Read for BitRing {
         for buf_byte in buf.iter_mut() {
             let mut byte = 0;
             for _ in 0..8 {
-                byte = byte << 1 | (self.bits[self.cursor] as u8);
+                byte = (byte << 1) | (self.bits[self.cursor] as u8);
                 self.incr_cursor();
             }
             *buf_byte = byte;
@@ -147,6 +220,9 @@ impl Index<usize> for BitRing {
             &self.bits[index]
         }
         else {
+            if index == self.wrap {
+                //log::debug!("Index wrapped around at {}", index);
+            }
             self.wrap_value
                 .as_ref()
                 .unwrap_or_else(|| &self.bits[index % self.wrap])
@@ -259,6 +335,30 @@ mod tests {
         // Accessing beyond 8 should wrap around to the beginning
         for i in 0..16 {
             assert_eq!(ring[i], ring.bits[i % 8]);
+        }
+    }
+
+    #[test]
+    fn test_iter_revolution_length() {
+        // Initialize BitRing with a known bit pattern
+        let bits = BitVec::from_bytes(&[0b1010_1010, 0b1100_1100]); // 16 bits
+        let ring = BitRing::from(bits.clone());
+
+        // Check that iter_revolution returns exactly `len()` elements
+        let revolution: Vec<bool> = ring.iter_revolution().collect();
+        assert_eq!(
+            revolution.len(),
+            ring.len(),
+            "iter_revolution should return exactly len() elements"
+        );
+
+        // Optional: Verify the content of the revolution matches the original bits
+        for i in 0..ring.len() {
+            assert_eq!(
+                revolution[i], ring.bits[i],
+                "Mismatch at index {} in iter_revolution",
+                i
+            );
         }
     }
 }

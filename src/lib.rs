@@ -62,7 +62,7 @@ pub mod structure_parsers;
 pub mod util;
 
 mod copy_protection;
-mod flux;
+pub mod flux;
 mod image_writer;
 mod range_check;
 mod track;
@@ -237,6 +237,17 @@ impl From<DiskDataRate> for DiskDensity {
             DiskDataRate::Rate500Kbps => DiskDensity::High,
             DiskDataRate::Rate1000Kbps => DiskDensity::Extended,
             _ => DiskDensity::Standard,
+        }
+    }
+}
+
+impl Display for DiskDensity {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            DiskDensity::Standard => write!(f, "Standard"),
+            DiskDensity::Double => write!(f, "Double"),
+            DiskDensity::High => write!(f, "High"),
+            DiskDensity::Extended => write!(f, "Extended"),
         }
     }
 }

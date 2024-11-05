@@ -3,9 +3,14 @@ mod common;
 use fluxfox::diskimage::RwSectorScope;
 use fluxfox::{DiskCh, DiskChs, DiskImage, DiskImageError};
 
+fn init() {
+    let _ = env_logger::builder().is_test(true).try_init();
+}
+
 #[test]
 fn test_prolok() {
     use std::io::Cursor;
+    init();
 
     let disk_image_buf = std::fs::read(".\\tests\\images\\tc\\catprot.tc").unwrap();
     let mut in_buffer = Cursor::new(disk_image_buf);

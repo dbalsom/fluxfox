@@ -213,5 +213,5 @@ pub trait DiskStructureParser {
 
     fn create_clock_map(markers: &[DiskStructureMarkerItem], clock_map: &mut BitVec);
 
-    fn crc16(track: &mut TrackDataStream, start: usize, end: usize) -> u16;
+    fn crc16(track: &mut TrackDataStream, bit_index: usize, end: usize) -> (u16, u16);
 }
