@@ -146,7 +146,7 @@ impl FluxRevolution {
                 second_deltas.insert(0, shift_delta.unwrap());
 
                 let new_first = FluxRevolution {
-                    rev_type: FluxRevolutionType::Source,
+                    rev_type: FluxRevolutionType::Synthetic,
                     ch: first.ch,
                     data_rate: first.data_rate,
                     index_time: first.index_time,
@@ -159,7 +159,7 @@ impl FluxRevolution {
                 };
 
                 let new_second = FluxRevolution {
-                    rev_type: FluxRevolutionType::Source,
+                    rev_type: FluxRevolutionType::Synthetic,
                     ch: second.ch,
                     data_rate: second.data_rate,
                     index_time: second.index_time,
@@ -178,6 +178,41 @@ impl FluxRevolution {
                 log::debug!(
                     "FluxRevolution::from_adjacent_pair(): Second revolution is candidate for flux shift to first."
                 );
+
+                let mut first_deltas = first.flux_deltas.clone();
+                let mut second_deltas = second.flux_deltas.clone();
+
+                let shift_delta = second_deltas.remove(0);
+                first_deltas.push(shift_delta);
+
+                let new_first = FluxRevolution {
+                    rev_type: FluxRevolutionType::Synthetic,
+                    ch: first.ch,
+                    data_rate: first.data_rate,
+                    index_time: first.index_time,
+                    transitions: Vec::with_capacity(first_deltas.len()),
+                    flux_deltas: first_deltas,
+                    bitstream: BitVec::with_capacity((first.data_rate as usize) * 2),
+                    biterrors: BitVec::with_capacity((first.data_rate as usize) * 2),
+                    encoding: DiskDataEncoding::Mfm,
+                    pll_stats: Vec::new(),
+                };
+
+                let new_second = FluxRevolution {
+                    rev_type: FluxRevolutionType::Synthetic,
+                    ch: second.ch,
+                    data_rate: second.data_rate,
+                    index_time: second.index_time,
+                    transitions: Vec::with_capacity(second_deltas.len()),
+                    flux_deltas: second_deltas,
+                    bitstream: BitVec::with_capacity((second.data_rate as usize) * 2),
+                    biterrors: BitVec::with_capacity((second.data_rate as usize) * 2),
+                    encoding: DiskDataEncoding::Mfm,
+                    pll_stats: Vec::new(),
+                };
+
+                new_revolutions.push(new_first);
+                new_revolutions.push(new_second);
             }
             _ => {}
         }
