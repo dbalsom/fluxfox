@@ -27,6 +27,7 @@
 use crate::args::GlobalOptions;
 use crate::read_file;
 use anyhow::{bail, Error};
+use fluxfox::flux::flux_revolution::FluxRevolutionType;
 use fluxfox::{DiskCh, DiskDataResolution, DiskImage};
 
 pub mod args;
@@ -116,8 +117,16 @@ pub fn dump_track_map<W: std::io::Write>(
 
                 if revolutions {
                     if let Some(flux_track) = track_ref.as_fluxstream_track() {
-                        out.write_fmt(format_args!("\t\tRevolutions ({}):\n", flux_track.revolution_ct()))?;
-                        for revolution in flux_track.revolution_iter() {
+                        let source_ct = flux_track
+                            .revolution_iter()
+                            .filter(|r| matches!(r.stats().rev_type, FluxRevolutionType::Source))
+                            .count();
+
+                        out.write_fmt(format_args!("\t\tSource Revolutions ({}):\n", source_ct))?;
+                        for revolution in flux_track
+                            .revolution_iter()
+                            .filter(|r| matches!(r.stats().rev_type, FluxRevolutionType::Source))
+                        {
                             let rev_stats = revolution.stats();
                             out.write_fmt(format_args!(
                                 "\t\t\tFlux ct: {} Bitcells: {} First ft: {:.4} Last ft: {:.4}\n",
@@ -126,6 +135,28 @@ pub fn dump_track_map<W: std::io::Write>(
                                 rev_stats.first_ft * 1e6,
                                 rev_stats.last_ft * 1e6
                             ))?;
+                        }
+
+                        let synthetic_count = flux_track.revolution_ct() - source_ct;
+
+                        if synthetic_count > 0 {
+                            out.write_fmt(format_args!(
+                                "\t\tSynthetic Revolutions ({}):\n",
+                                flux_track.revolution_ct() - source_ct
+                            ))?;
+                            for revolution in flux_track
+                                .revolution_iter()
+                                .filter(|r| matches!(r.stats().rev_type, FluxRevolutionType::Synthetic))
+                            {
+                                let rev_stats = revolution.stats();
+                                out.write_fmt(format_args!(
+                                    "\t\t\tFlux ct: {} Bitcells: {} First ft: {:.4} Last ft: {:.4}\n",
+                                    rev_stats.ft_ct,
+                                    rev_stats.bitcell_ct,
+                                    rev_stats.first_ft * 1e6,
+                                    rev_stats.last_ft * 1e6
+                                ))?;
+                            }
                         }
                     }
                 }

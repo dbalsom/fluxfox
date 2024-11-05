@@ -65,6 +65,6 @@ pub(crate) fn info_parser() -> impl Parser<InfoParams> {
         in_file,
         sector_list,
         track_list,
-        rev_list
+        rev_list,
     })
 }

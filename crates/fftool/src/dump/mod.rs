@@ -97,6 +97,23 @@ pub(crate) fn run(global: &GlobalOptions, params: args::DumpParams) -> Result<()
         phys_ch.set_h(phys_head);
     }
 
+    let track_mut_opt = disk.track_mut(phys_ch);
+    let track_mut = match track_mut_opt {
+        Some(track_mut) => track_mut,
+        None => {
+            bail!("Specified track: {} not found.", phys_ch);
+        }
+    };
+
+    if let Some(rev) = params.rev {
+        if let Some(flux_track) = track_mut.as_fluxstream_track_mut() {
+            flux_track.set_revolution(rev as usize);
+        }
+        else {
+            bail!("Revolution number specified but track is not a flux track.");
+        }
+    }
+
     // If sector was provided, dump the sector.
     if let Some(sector) = params.sector {
         // Dump the specified sector in hex format to stdout.

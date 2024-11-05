@@ -42,6 +42,7 @@ pub(crate) struct DumpParams {
     pub(crate) dupe_mark: bool,
     pub(crate) row_size: Option<u8>,
     pub(crate) raw: bool,
+    pub(crate) rev: Option<u8>,
 }
 
 fn dupe_mark_parser() -> impl Parser<bool> {
@@ -69,6 +70,7 @@ pub(crate) fn dump_parser() -> impl Parser<DumpParams> {
     let dupe_mark = dupe_mark_parser();
     let row_size = row_size_parser().optional();
     let raw = raw_parser();
+    let rev = rev_parser().optional();
 
     construct!(DumpParams {
         in_file,
@@ -81,6 +83,7 @@ pub(crate) fn dump_parser() -> impl Parser<DumpParams> {
         format,
         dupe_mark,
         row_size,
-        raw
+        raw,
+        rev
     })
 }
