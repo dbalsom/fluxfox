@@ -32,6 +32,8 @@ pub mod flux_revolution;
 #[macro_use]
 pub mod pll;
 
+pub use flux_revolution::FluxRevolutionType;
+
 //pub const AVERAGE_FLUX_DENSITY: f64 = 2.636; // Average number of bits encoded per flux transition
 
 #[macro_export]
