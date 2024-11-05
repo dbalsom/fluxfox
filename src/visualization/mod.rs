@@ -44,6 +44,55 @@ use tiny_skia::{
     Transform,
 };
 
+/// Parameter struct for
+pub struct RenderTrackDataParams {
+    /// Background color to use for area outside of disk ring. If None, the image will be transparent.
+    pub bg_color: Option<Color>,
+    /// Color to use when rendering weak bit mask.
+    pub weak_color: Option<Color>,
+    /// Which side of disk to render
+    pub head: u8,
+    /// Destination Pixmap size in pixels
+    pub image_size: (u32, u32),
+    /// Render position in pixels. Image must fit - no clipping is performed.
+    pub image_pos: (u32, u32),
+    /// Minimum inner radius as a fraction (0.0 to 1.0)
+    pub min_radius_fraction: f32,
+    /// Angle of index position / start of track
+    pub index_angle: f32,
+    /// Maximum number of tracks to render
+    pub track_limit: usize,
+    /// Width of the gap between tracks as a fraction (0.0 to 1.0)
+    pub track_gap: f32,
+    /// Rotational direction for rendering (Clockwise or CounterClockwise)
+    pub direction: RotationDirection,
+    /// Decode data in sectors for more visual contrast
+    pub decode: bool,
+    /// Resolution to render data at (Bit or Byte)
+    pub resolution: ResolutionType,
+}
+
+pub struct RenderTrackMetadataParams {
+    /// Which quadrant to render (0-3)
+    pub quadrant: u8,
+    /// Which side of disk to render
+    pub head: u8,
+    /// Minimum inner radius as a fraction (0.0 to 1.0)
+    pub min_radius_ratio: f32,
+    /// Angle of index position / start of track
+    pub index_angle: f32,
+    /// Maximum number of tracks to render
+    pub track_limit: usize,
+    /// Width of the gap between tracks as a fraction (0.0 to 1.0)
+    pub track_gap: f32,
+    /// Rotational direction for rendering (Clockwise or CounterClockwise)
+    pub direction: RotationDirection,
+    /// Palette to use for rendering metadata elements
+    pub palette: FoxHashMap<DiskStructureGenericElement, Color>,
+    /// Whether to draw empty tracks as black rings
+    pub draw_empty_tracks: bool,
+}
+
 #[derive(Copy, Clone, Debug)]
 pub enum RotationDirection {
     Clockwise,
@@ -187,33 +236,23 @@ fn collect_metadata(head: u8, disk_image: &DiskImage) -> Vec<&DiskStructureMetad
 /// Used as a base for other visualization functions.
 pub fn render_track_data(
     disk_image: &DiskImage,
-    bg_color: Option<Color>,
     pixmap: &mut Pixmap,
-    head: u8,
-    image_size: (u32, u32),
-    image_pos: (u32, u32),
-    min_radius_fraction: f32, // Minimum radius as a fraction (0.0 to 1.0)
-    index_angle: f32,         // Index angle (0 starts data at 90 degrees cw)
-    track_limit: usize,
-    track_gap_weight: f32,
-    direction: RotationDirection, // Added parameter for rotation direction
-    decode: bool,                 // Decode data (true) or render as raw MFM (false)
-    resolution: ResolutionType,   // Added parameter for resolution type
+    p: &RenderTrackDataParams,
 ) -> Result<(), DiskImageError> {
-    let (width, height) = image_size;
+    let (width, height) = p.image_size;
     let span = pixmap.width();
 
-    let (x_offset, y_offset) = image_pos;
+    let (x_offset, y_offset) = p.image_pos;
 
     let center_x = width as f32 / 2.0;
     let center_y = height as f32 / 2.0;
     let total_radius = width.min(height) as f32 / 2.0;
-    let min_radius = min_radius_fraction * total_radius; // Scale min_radius to pixel value
+    let min_radius = p.min_radius_fraction * total_radius; // Scale min_radius to pixel value
     let _min_radius_sq = min_radius * min_radius;
 
-    let rtracks = collect_streams(head, disk_image);
-    let rmetadata = collect_metadata(head, disk_image);
-    let num_tracks = min(rtracks.len(), track_limit);
+    let rtracks = collect_streams(p.head, disk_image);
+    let rmetadata = collect_metadata(p.head, disk_image);
+    let num_tracks = min(rtracks.len(), p.track_limit);
 
     log::trace!("collected {} track references.", num_tracks);
     for (ti, track) in rtracks.iter().enumerate() {
@@ -224,13 +263,13 @@ pub fn render_track_data(
 
     let track_width = (total_radius - min_radius) / num_tracks as f32;
     let _track_width_sq = track_width * track_width;
-    let _render_track_width = track_width * (1.0 - track_gap_weight);
+    let _render_track_width = track_width * (1.0 - p.track_gap);
 
     let pix_buf = pixmap.pixels_mut();
 
     let color_black = PremultipliedColorU8::from_rgba(0, 0, 0, 255).unwrap();
     let color_white = PremultipliedColorU8::from_rgba(255, 255, 255, 255).unwrap();
-    let color_bg: PremultipliedColorU8 = match bg_color {
+    let color_bg: PremultipliedColorU8 = match p.bg_color {
         Some(color) => PremultipliedColorU8::from_rgba(
             (color.red() * 255.0) as u8,
             (color.green() * 255.0) as u8,
@@ -252,7 +291,7 @@ pub fn render_track_data(
 
             if distance >= min_radius && distance <= total_radius {
                 let track_offset = (distance - min_radius) / track_width;
-                if track_offset.fract() < track_gap_weight {
+                if track_offset.fract() < p.track_gap {
                     continue;
                 }
 
@@ -260,9 +299,9 @@ pub fn render_track_data(
 
                 if track_index < num_tracks {
                     // Adjust angle for clockwise or counter-clockwise
-                    let normalized_angle = match direction {
-                        RotationDirection::Clockwise => angle - index_angle,
-                        RotationDirection::CounterClockwise => TAU - (angle - index_angle),
+                    let normalized_angle = match p.direction {
+                        RotationDirection::Clockwise => angle - p.index_angle,
+                        RotationDirection::CounterClockwise => TAU - (angle - p.index_angle),
                     };
 
                     let normalized_angle = (normalized_angle + PI) % TAU;
@@ -271,7 +310,7 @@ pub fn render_track_data(
                     // Ensure bit_index is within bounds
                     let bit_index = min(bit_index, rtracks[track_index].len() - 9);
 
-                    let color = match resolution {
+                    let color = match p.resolution {
                         ResolutionType::Bit => {
                             if rtracks[track_index][bit_index] {
                                 color_white
@@ -285,7 +324,7 @@ pub fn render_track_data(
 
                             // Don't decode empty tracks - there's no data to decode!
                             let decoded_bit_idx = (bit_index) & !0xF;
-                            let decode_override = decode
+                            let decode_override = p.decode
                                 && !rmetadata[track_index].items.is_empty()
                                 && rtracks[track_index].is_data(decoded_bit_idx);
 
@@ -322,29 +361,21 @@ pub fn render_track_data(
 pub fn render_track_weak_bits(
     disk_image: &DiskImage,
     pixmap: &mut Pixmap,
-    head: u8,
-    image_size: (u32, u32),
-    image_pos: (u32, u32),
-    min_radius_fraction: f32, // Minimum radius as a fraction (0.0 to 1.0)
-    index_angle: f32,         // Index angle (0 starts data at 90 degrees cw)
-    track_limit: usize,
-    track_gap_weight: f32,
-    direction: RotationDirection, // Added parameter for rotation direction
-    weak_color: PremultipliedColorU8,
+    p: &RenderTrackDataParams,
 ) -> Result<(), DiskImageError> {
-    let (width, height) = image_size;
+    let (width, height) = p.image_size;
     let span = pixmap.width();
 
-    let (x_offset, y_offset) = image_pos;
+    let (x_offset, y_offset) = p.image_pos;
 
     let center_x = width as f32 / 2.0;
     let center_y = height as f32 / 2.0;
     let total_radius = width.min(height) as f32 / 2.0;
-    let min_radius = min_radius_fraction * total_radius; // Scale min_radius to pixel value
+    let min_radius = p.min_radius_fraction * total_radius; // Scale min_radius to pixel value
     let _min_radius_sq = min_radius * min_radius;
 
-    let rtracks = collect_weak_masks(head, disk_image);
-    let num_tracks = min(rtracks.len(), track_limit);
+    let rtracks = collect_weak_masks(p.head, disk_image);
+    let num_tracks = min(rtracks.len(), p.track_limit);
 
     let normalized_track_ct: usize = match num_tracks {
         0..50 => 40,
@@ -358,9 +389,20 @@ pub fn render_track_weak_bits(
 
     let track_width = (total_radius - min_radius) / num_tracks as f32;
     let _track_width_sq = track_width * track_width;
-    let _render_track_width = track_width * (1.0 - track_gap_weight);
+    let _render_track_width = track_width * (1.0 - p.track_gap);
 
     let pix_buf = pixmap.pixels_mut();
+
+    let weak_color: PremultipliedColorU8 = match p.weak_color {
+        Some(color) => PremultipliedColorU8::from_rgba(
+            (color.red() * 255.0) as u8,
+            (color.green() * 255.0) as u8,
+            (color.blue() * 255.0) as u8,
+            (color.alpha() * 255.0) as u8,
+        )
+        .unwrap(),
+        None => PremultipliedColorU8::from_rgba(0, 0, 0, 0).unwrap(),
+    };
 
     let color_trans: PremultipliedColorU8 = PremultipliedColorU8::from_rgba(0, 0, 0, 0).unwrap();
 
@@ -375,7 +417,7 @@ pub fn render_track_weak_bits(
 
             if distance >= min_radius && distance <= total_radius {
                 let track_offset = (distance - min_radius) / track_width;
-                if track_offset.fract() < track_gap_weight {
+                if track_offset.fract() < p.track_gap {
                     continue;
                 }
 
@@ -383,9 +425,9 @@ pub fn render_track_weak_bits(
 
                 if track_index < num_tracks {
                     // Adjust angle for clockwise or counter-clockwise
-                    let normalized_angle = match direction {
-                        RotationDirection::Clockwise => angle - index_angle,
-                        RotationDirection::CounterClockwise => TAU - (angle - index_angle),
+                    let normalized_angle = match p.direction {
+                        RotationDirection::Clockwise => angle - p.index_angle,
+                        RotationDirection::CounterClockwise => TAU - (angle - p.index_angle),
                     };
 
                     let normalized_angle = (normalized_angle + PI) % TAU;
@@ -457,19 +499,11 @@ fn calculate_track_width(total_tracks: usize, image_radius: f64, min_radius_rati
 pub fn render_track_metadata_quadrant(
     disk_image: &DiskImage,
     pixmap: &mut Pixmap,
-    quadrant: u8,
-    head: u8,
-    min_radius_ratio: f32, // Minimum radius as a fraction (0.0 to 1.0)
-    index_angle: f32,
-    track_limit: usize,
-    track_gap: f32,
-    direction: RotationDirection, // Added parameter for rotation direction
-    palette: FoxHashMap<DiskStructureGenericElement, Color>,
-    draw_empty_tracks: bool,
+    p: &RenderTrackMetadataParams,
 ) -> Result<(), DiskVisualizationError> {
-    let rtracks = collect_streams(head, disk_image);
-    let rmetadata = collect_metadata(head, disk_image);
-    let total_tracks = min(rtracks.len(), track_limit);
+    let rtracks = collect_streams(p.head, disk_image);
+    let rmetadata = collect_metadata(p.head, disk_image);
+    let total_tracks = min(rtracks.len(), p.track_limit);
 
     if total_tracks == 0 {
         return Err(DiskVisualizationError::NoTracks);
@@ -477,9 +511,9 @@ pub fn render_track_metadata_quadrant(
 
     let image_size = pixmap.width() as f64 * 2.0;
     let image_radius = image_size / 2.0;
-    let track_width = calculate_track_width(total_tracks, image_radius, min_radius_ratio as f64);
+    let track_width = calculate_track_width(total_tracks, image_radius, p.min_radius_ratio as f64);
 
-    let center = match quadrant {
+    let center = match p.quadrant {
         0 => Point::from_xy(image_radius as f32, image_radius as f32),
         1 => Point::from_xy(0.0, image_radius as f32),
         2 => Point::from_xy(image_radius as f32, 0.0),
@@ -495,7 +529,7 @@ pub fn render_track_metadata_quadrant(
     //     3 => (3.0 * PI / 2.0, PI),
     //     _ => panic!("Invalid quadrant"),
     // };
-    let quadrant_angles_cc = match quadrant {
+    let quadrant_angles_cc = match p.quadrant {
         0 => (PI, 3.0 * PI / 2.0),
         1 => (3.0 * PI / 2.0, 2.0 * PI),
         2 => (PI / 2.0, PI),
@@ -534,7 +568,7 @@ pub fn render_track_metadata_quadrant(
 
         if let Some(element_type) = element_type {
             let generic_elem = DiskStructureGenericElement::from(element_type);
-            color = palette.get(&generic_elem).unwrap_or(&null_color);
+            color = p.palette.get(&generic_elem).unwrap_or(&null_color);
         }
         else {
             color = &Color::BLACK;
@@ -543,7 +577,7 @@ pub fn render_track_metadata_quadrant(
         paint.set_color(*color);
     };
 
-    let (clip_start, clip_end) = match direction {
+    let (clip_start, clip_end) = match p.direction {
         RotationDirection::CounterClockwise => (quadrant_angles_cc.0, quadrant_angles_cc.1),
         RotationDirection::Clockwise => (quadrant_angles_cc.0, quadrant_angles_cc.1),
     };
@@ -552,7 +586,7 @@ pub fn render_track_metadata_quadrant(
         for (ti, track_meta) in rmetadata.iter().enumerate() {
             let mut has_elements = false;
             let outer_radius = image_radius as f32 - (ti as f32 * track_width as f32);
-            let inner_radius = outer_radius - (track_width as f32 * (1.0 - track_gap));
+            let inner_radius = outer_radius - (track_width as f32 * (1.0 - p.track_gap));
             let mut paint = Paint {
                 blend_mode: BlendMode::SourceOver,
                 ..Default::default()
@@ -569,14 +603,14 @@ pub fn render_track_metadata_quadrant(
 
                 has_elements = true;
 
-                let mut start_angle = ((meta_item.start as f32 / rtracks[ti].len() as f32) * TAU) + index_angle;
-                let mut end_angle = ((meta_item.end as f32 / rtracks[ti].len() as f32) * TAU) + index_angle;
+                let mut start_angle = ((meta_item.start as f32 / rtracks[ti].len() as f32) * TAU) + p.index_angle;
+                let mut end_angle = ((meta_item.end as f32 / rtracks[ti].len() as f32) * TAU) + p.index_angle;
 
                 if start_angle > end_angle {
                     std::mem::swap(&mut start_angle, &mut end_angle);
                 }
 
-                (start_angle, end_angle) = match direction {
+                (start_angle, end_angle) = match p.direction {
                     RotationDirection::CounterClockwise => (start_angle, end_angle),
                     RotationDirection::Clockwise => (TAU - start_angle, TAU - end_angle),
                 };
@@ -617,7 +651,7 @@ pub fn render_track_metadata_quadrant(
             }
 
             // If a track contained no elements, draw a black ring
-            if !has_elements && draw_empty_tracks {
+            if !has_elements && p.draw_empty_tracks {
                 draw_metadata_slice(
                     &mut path_builder,
                     &mut paint,

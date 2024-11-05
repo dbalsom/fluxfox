@@ -36,7 +36,9 @@ use fast_image_resize::images::Image as FirImage;
 use fast_image_resize::{FilterType, PixelType, ResizeAlg, Resizer};
 use tiny_skia::{Color, IntSize, Pixmap, PremultipliedColorU8};
 
-use fluxfox::visualization::{render_track_data, render_track_weak_bits, ResolutionType, RotationDirection};
+use fluxfox::visualization::{
+    render_track_data, render_track_weak_bits, RenderTrackDataParams, ResolutionType, RotationDirection,
+};
 use fluxfox::DiskImage;
 
 pub struct RenderParams {
@@ -51,7 +53,7 @@ pub struct RenderParams {
     pub track_gap: f32,
     pub decode: bool,
     pub weak: bool,
-    pub weak_color: PremultipliedColorU8,
+    pub weak_color: Option<Color>,
     pub resolution_type: ResolutionType,
 }
 
@@ -90,21 +92,23 @@ pub fn render_side(disk: &DiskImage, p: RenderParams) -> Result<Pixmap, anyhow::
         rendered_image.fill(color);
     }
     let data_render_start_time = Instant::now();
-    match render_track_data(
-        &disk,
-        p.bg_color,
-        &mut rendered_image,
-        p.side as u8,
-        (supersample_size, supersample_size),
-        (0, 0),
-        p.min_radius,
-        p.angle,
-        p.track_limit,
-        p.track_gap,
+
+    let render_params = RenderTrackDataParams {
+        bg_color: p.bg_color,
+        weak_color: p.weak_color,
+        head: p.side as u8,
+        image_size: (supersample_size, supersample_size),
+        image_pos: (0, 0),
+        min_radius_fraction: p.min_radius,
+        index_angle: p.angle,
+        track_limit: p.track_limit,
+        track_gap: p.track_gap,
         direction,
-        p.decode,
-        p.resolution_type,
-    ) {
+        decode: p.decode,
+        resolution: p.resolution_type,
+    };
+
+    match render_track_data(&disk, &mut rendered_image, &render_params) {
         Ok(_) => {
             println!("Rendered data layer in {:?}", data_render_start_time.elapsed());
         }
@@ -118,19 +122,7 @@ pub fn render_side(disk: &DiskImage, p: RenderParams) -> Result<Pixmap, anyhow::
     if p.weak {
         let weak_render_start_time = Instant::now();
         println!("Rendering weak bits layer...");
-        match render_track_weak_bits(
-            &disk,
-            &mut rendered_image,
-            p.side as u8,
-            (supersample_size, supersample_size),
-            (0, 0),
-            p.min_radius,
-            p.angle,
-            p.track_limit,
-            p.track_gap,
-            direction,
-            p.weak_color,
-        ) {
+        match render_track_weak_bits(&disk, &mut rendered_image, &render_params) {
             Ok(_) => {
                 println!("Rendered weak bits layer in {:?}", weak_render_start_time.elapsed());
             }

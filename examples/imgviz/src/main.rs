@@ -42,13 +42,12 @@ use std::time::Instant;
 
 use bpaf::*;
 use crossbeam::channel;
-
-use tiny_skia::{BlendMode, Color, FilterQuality, Pixmap, PixmapPaint, PremultipliedColorU8, Transform};
+use tiny_skia::{BlendMode, Color, FilterQuality, Pixmap, PixmapPaint, Transform};
 
 use fluxfox::structure_parsers::DiskStructureGenericElement;
-use fluxfox::visualization::render_track_metadata_quadrant;
 use fluxfox::visualization::ResolutionType;
 use fluxfox::visualization::RotationDirection;
+use fluxfox::visualization::{render_track_metadata_quadrant, RenderTrackMetadataParams};
 use fluxfox::DiskImage;
 
 use crate::args::{parse_color, substitute_title};
@@ -307,8 +306,7 @@ fn main() {
     //let pal_dark_purple = Color::from_rgba8(0x5d, 0x27, 0x5d, 0xff);
     let pal_orange = Color::from_rgba8(0xef, 0x7d, 0x57, 0xff);
     //let pal_dark_red = Color::from_rgba8(0xb1, 0x3e, 0x53, 0xff);
-
-    let pal_weak_bits = PremultipliedColorU8::from_rgba(70, 200, 200, 255).unwrap();
+    let pal_weak_bits = Color::from_rgba8(70, 200, 200, 255);
 
     #[rustfmt::skip]
     let palette = HashMap::from([
@@ -357,7 +355,7 @@ fn main() {
                 track_gap: render_track_gap,
                 decode: opts.decode,
                 weak: opts.weak,
-                weak_color: pal_weak_bits,
+                weak_color: Some(pal_weak_bits),
                 resolution_type: resolution,
             };
 
@@ -390,19 +388,19 @@ fn main() {
                 thread::spawn(move || {
                     let mut pixmap = pixmap.lock().unwrap();
                     let l_disk = disk.lock().unwrap();
-                    _ = render_track_metadata_quadrant(
-                        &l_disk,
-                        &mut pixmap,
+
+                    let render_params = RenderTrackMetadataParams {
                         quadrant,
-                        side as u8,
-                        min_radius_fraction,
-                        opts.angle,
-                        track_ct,
-                        render_track_gap,
+                        head: side as u8,
+                        min_radius_ratio: min_radius_fraction,
+                        index_angle: opts.angle,
+                        track_limit: track_ct,
+                        track_gap: render_track_gap,
                         direction,
                         palette,
-                        false,
-                    );
+                        draw_empty_tracks: false,
+                    };
+                    _ = render_track_metadata_quadrant(&l_disk, &mut pixmap, &render_params);
 
                     //println!("Sending quadrant over channel...");
                     match sender.send(quadrant) {
