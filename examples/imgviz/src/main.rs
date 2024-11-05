@@ -392,13 +392,14 @@ fn main() {
                     let render_params = RenderTrackMetadataParams {
                         quadrant,
                         head: side as u8,
-                        min_radius_ratio: min_radius_fraction,
+                        min_radius_fraction,
                         index_angle: opts.angle,
                         track_limit: track_ct,
                         track_gap: render_track_gap,
                         direction,
                         palette,
                         draw_empty_tracks: false,
+                        pin_last_standard_track: true,
                     };
                     _ = render_track_metadata_quadrant(&l_disk, &mut pixmap, &render_params);
 

@@ -106,6 +106,7 @@ pub fn render_side(disk: &DiskImage, p: RenderParams) -> Result<Pixmap, anyhow::
         direction,
         decode: p.decode,
         resolution: p.resolution_type,
+        pin_last_standard_track: true,
     };
 
     match render_track_data(&disk, &mut rendered_image, &render_params) {
