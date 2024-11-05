@@ -232,11 +232,11 @@ pub enum DiskDensity {
 impl From<DiskDataRate> for DiskDensity {
     fn from(rate: DiskDataRate) -> Self {
         match rate {
-            DiskDataRate::Rate125Kbps => DiskDensity::Standard,
-            DiskDataRate::Rate250Kbps => DiskDensity::Double,
-            DiskDataRate::Rate500Kbps => DiskDensity::High,
-            DiskDataRate::Rate1000Kbps => DiskDensity::Extended,
-            _ => DiskDensity::Standard,
+            DiskDataRate::Rate125Kbps(_) => DiskDensity::Standard,
+            DiskDataRate::Rate250Kbps(_) => DiskDensity::Double,
+            DiskDataRate::Rate500Kbps(_) => DiskDensity::High,
+            DiskDataRate::Rate1000Kbps(_) => DiskDensity::Extended,
+            _ => DiskDensity::Double,
         }
     }
 }
@@ -254,25 +254,34 @@ impl Display for DiskDensity {
 
 impl DiskDensity {
     /// Return the number of bitcells for a given disk density.
-    /// It is ideal to provide the disk dimensions to get the most accurate bitcell count as high
+    /// It is ideal to provide the disk RPM to get the most accurate bitcell count as high
     /// density 5.25 disks have different bitcell counts than high density 3.5 disks.
-    pub fn bitcells(&self, dimensions: Option<DiskPhysicalDimensions>) -> Option<usize> {
-        match (self, dimensions) {
+    pub fn bitcells(&self, rpm: Option<DiskRpm>) -> Option<usize> {
+        match (self, rpm) {
             (DiskDensity::Standard, _) => Some(50_000),
             (DiskDensity::Double, _) => Some(100_000),
-            (DiskDensity::High, Some(DiskPhysicalDimensions::Dimension5_25)) => Some(166_666),
-            (DiskDensity::High, Some(DiskPhysicalDimensions::Dimension3_5) | None) => Some(200_000),
+            (DiskDensity::High, Some(DiskRpm::Rpm360)) => Some(166_666),
+            (DiskDensity::High, Some(DiskRpm::Rpm300) | None) => Some(200_000),
             (DiskDensity::Extended, _) => Some(400_000),
-            _ => None,
         }
     }
 
-    pub fn base_clock(&self) -> f64 {
-        match self {
-            DiskDensity::Standard => 4e-6,
-            DiskDensity::Double => 2e-6,
-            DiskDensity::High => 1e-6,
-            DiskDensity::Extended => 5e-7,
+    pub fn base_clock(&self, rpm: Option<DiskRpm>) -> f64 {
+        match (self, rpm) {
+            (DiskDensity::Standard, _) => 4e-6,
+            (DiskDensity::Double, None | Some(DiskRpm::Rpm300)) => 2e-6,
+            (DiskDensity::Double, Some(DiskRpm::Rpm360)) => 1.666e-6,
+            (DiskDensity::High, _) => 1e-6,
+            (DiskDensity::Extended, _) => 5e-7,
+        }
+    }
+
+    pub fn from_base_clock(clock: f64) -> Option<DiskDensity> {
+        match clock {
+            0.375e-6..0.625e-6 => Some(DiskDensity::Extended),
+            0.75e-6..1.25e-6 => Some(DiskDensity::High),
+            1.5e-6..2.5e-6 => Some(DiskDensity::Double),
+            _ => None,
         }
     }
 }
@@ -319,38 +328,49 @@ impl From<usize> for EncodingPhase {
     }
 }
 
-#[derive(Copy, Clone, Debug, Default)]
+/// DiskDataRate defines the data rate of the disk image - for MFM and FM encoding, this is the
+/// bit rate / 2.
+/// DiskDataRate defines standard data rate categories, while storing a clock adjustment factor to
+/// make possible calculation of the exact data rate if required.
+#[derive(Copy, Clone, Debug)]
 pub enum DiskDataRate {
     RateNonstandard(u32),
-    Rate125Kbps,
-    #[default]
-    Rate250Kbps,
-    Rate300Kbps,
-    Rate500Kbps,
-    Rate1000Kbps,
+    Rate125Kbps(f64),
+    Rate250Kbps(f64),
+    Rate300Kbps(f64),
+    Rate500Kbps(f64),
+    Rate1000Kbps(f64),
+}
+
+impl Default for DiskDataRate {
+    fn default() -> Self {
+        DiskDataRate::Rate250Kbps(1.0)
+    }
 }
 
 impl From<DiskDataRate> for u32 {
     fn from(rate: DiskDataRate) -> Self {
         match rate {
-            DiskDataRate::Rate125Kbps => 125_000,
-            DiskDataRate::Rate250Kbps => 250_000,
-            DiskDataRate::Rate300Kbps => 300_000,
-            DiskDataRate::Rate500Kbps => 500_000,
-            DiskDataRate::Rate1000Kbps => 1_000_000,
+            DiskDataRate::Rate125Kbps(f) => (125_000.0 * f) as u32,
+            DiskDataRate::Rate250Kbps(f) => (250_000.0 * f) as u32,
+            DiskDataRate::Rate300Kbps(f) => (300_000.0 * f) as u32,
+            DiskDataRate::Rate500Kbps(f) => (500_000.0 * f) as u32,
+            DiskDataRate::Rate1000Kbps(f) => (1_000_000.0 * f) as u32,
             DiskDataRate::RateNonstandard(rate) => rate,
         }
     }
 }
 
+/// Implement a conversion from a u32 to a DiskDataRate.
+/// An 8-15% rate deviance is allowed for standard rates, otherwise a RateNonstandard is returned.
 impl From<u32> for DiskDataRate {
     fn from(rate: u32) -> Self {
         match rate {
-            125_000 => DiskDataRate::Rate125Kbps,
-            250_000 => DiskDataRate::Rate250Kbps,
-            300_000 => DiskDataRate::Rate300Kbps,
-            500_000 => DiskDataRate::Rate500Kbps,
-            1_000_000 => DiskDataRate::Rate1000Kbps,
+            93_750..143_750 => DiskDataRate::Rate125Kbps(rate as f64 / 125_000.0),
+            212_000..271_000 => DiskDataRate::Rate250Kbps(rate as f64 / 250_000.0),
+            271_000..345_000 => DiskDataRate::Rate300Kbps(rate as f64 / 300_000.0),
+            425_000..575_000 => DiskDataRate::Rate500Kbps(rate as f64 / 500_000.0),
+            850_000..1_150_000 => DiskDataRate::Rate1000Kbps(rate as f64 / 1_000_000.0),
             _ => DiskDataRate::RateNonstandard(rate),
         }
     }
@@ -359,23 +379,23 @@ impl From<u32> for DiskDataRate {
 impl From<DiskDensity> for DiskDataRate {
     fn from(density: DiskDensity) -> Self {
         match density {
-            DiskDensity::Standard => DiskDataRate::Rate125Kbps,
-            DiskDensity::Double => DiskDataRate::Rate250Kbps,
-            DiskDensity::High => DiskDataRate::Rate500Kbps,
-            DiskDensity::Extended => DiskDataRate::Rate1000Kbps,
+            DiskDensity::Standard => DiskDataRate::Rate125Kbps(1.0),
+            DiskDensity::Double => DiskDataRate::Rate250Kbps(1.0),
+            DiskDensity::High => DiskDataRate::Rate500Kbps(1.0),
+            DiskDensity::Extended => DiskDataRate::Rate1000Kbps(1.0),
         }
     }
 }
 
 impl Display for DiskDataRate {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+    fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
         match self {
-            DiskDataRate::RateNonstandard(rate) => write!(f, "*{}Kbps", rate / 1000),
-            DiskDataRate::Rate125Kbps => write!(f, "125Kbps"),
-            DiskDataRate::Rate250Kbps => write!(f, "250Kbps"),
-            DiskDataRate::Rate300Kbps => write!(f, "300Kbps"),
-            DiskDataRate::Rate500Kbps => write!(f, "500Kbps"),
-            DiskDataRate::Rate1000Kbps => write!(f, "1000Kbps"),
+            DiskDataRate::RateNonstandard(rate) => write!(fmt, "*{}Kbps", rate / 1000),
+            DiskDataRate::Rate125Kbps(f) => write!(fmt, "125Kbps (x{:.2})", f),
+            DiskDataRate::Rate250Kbps(f) => write!(fmt, "250Kbps (x{:.2})", f),
+            DiskDataRate::Rate300Kbps(f) => write!(fmt, "300Kbps (x{:.2})", f),
+            DiskDataRate::Rate500Kbps(f) => write!(fmt, "500Kbps (x{:.2})", f),
+            DiskDataRate::Rate1000Kbps(f) => write!(fmt, "1000Kbps (x{:.2})", f),
         }
     }
 }
@@ -407,6 +427,30 @@ impl Display for DiskRpm {
         match self {
             DiskRpm::Rpm300 => write!(f, "300RPM"),
             DiskRpm::Rpm360 => write!(f, "360RPM"),
+        }
+    }
+}
+
+impl DiskRpm {
+    /// Try to determine the disk RPM from the time between index pulses.
+    /// Sometimes flux streams report bizarre RPMs, so you will need fallback logic if this
+    /// conversion fails.
+    pub fn from_index_time(time: f64) -> Option<DiskRpm> {
+        let rpm = 60.0 / time;
+        // We'd like to support a 15% deviation, but there is a small overlap between 300 +15%
+        // and 360 -15%, so we split the difference at 327 RPM.
+        match rpm {
+            270.0..327.00 => Some(DiskRpm::Rpm300),
+            327.0..414.00 => Some(DiskRpm::Rpm360),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn clock_multiplier(&self) -> f64 {
+        match self {
+            DiskRpm::Rpm300 => 1.0,
+            DiskRpm::Rpm360 => 300.0 / 360.0,
         }
     }
 }

@@ -76,12 +76,12 @@ impl ImdTrack {
 
 fn imd_mode_to_rate(data_rate: u8) -> Option<(DiskDataRate, DiskDataEncoding)> {
     match data_rate {
-        0 => Some((DiskDataRate::Rate500Kbps, DiskDataEncoding::Fm)),
-        1 => Some((DiskDataRate::Rate300Kbps, DiskDataEncoding::Fm)),
-        2 => Some((DiskDataRate::Rate250Kbps, DiskDataEncoding::Fm)),
-        3 => Some((DiskDataRate::Rate500Kbps, DiskDataEncoding::Mfm)),
-        4 => Some((DiskDataRate::Rate300Kbps, DiskDataEncoding::Mfm)),
-        5 => Some((DiskDataRate::Rate250Kbps, DiskDataEncoding::Mfm)),
+        0 => Some((DiskDataRate::Rate500Kbps(1.0), DiskDataEncoding::Fm)),
+        1 => Some((DiskDataRate::Rate300Kbps(1.0), DiskDataEncoding::Fm)),
+        2 => Some((DiskDataRate::Rate250Kbps(1.0), DiskDataEncoding::Fm)),
+        3 => Some((DiskDataRate::Rate500Kbps(1.0), DiskDataEncoding::Mfm)),
+        4 => Some((DiskDataRate::Rate300Kbps(1.0), DiskDataEncoding::Mfm)),
+        5 => Some((DiskDataRate::Rate250Kbps(1.0), DiskDataEncoding::Mfm)),
         _ => None,
     }
 }

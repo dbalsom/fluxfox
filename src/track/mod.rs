@@ -49,6 +49,7 @@ use crate::{
 use sha1_smol::Digest;
 use std::any::Any;
 
+#[derive(Debug)]
 pub struct TrackInfo {
     pub encoding: DiskDataEncoding,
     pub data_rate: DiskDataRate,

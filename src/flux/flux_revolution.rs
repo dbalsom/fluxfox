@@ -55,7 +55,7 @@ pub struct FluxRevolutionStats {
 pub struct FluxRevolution {
     pub rev_type: FluxRevolutionType,
     pub ch: DiskCh,
-    pub data_rate: f64,
+    pub data_rate: Option<f64>,
     pub index_time: f64,
     pub flux_deltas: Vec<f64>,
     pub transitions: Vec<FluxTransition>,
@@ -71,10 +71,11 @@ impl FluxRevolution {
     }
 
     pub fn stats(&self) -> FluxRevolutionStats {
+        let computed_data_rate = self.bitstream.len() as f64 * (1.0 / self.index_time);
         FluxRevolutionStats {
             rev_type: self.rev_type,
             encoding: self.encoding,
-            data_rate: self.data_rate,
+            data_rate: self.data_rate.unwrap_or(computed_data_rate),
             index_time: self.index_time,
             ft_ct: self.flux_deltas.len(),
             bitcell_ct: self.bitstream.len(),
@@ -83,32 +84,32 @@ impl FluxRevolution {
         }
     }
 
-    pub fn from_f64(ch: DiskCh, deltas: &[f64], data_rate: f64, index_time: f64) -> Self {
+    pub fn from_f64(ch: DiskCh, deltas: &[f64], index_time: f64) -> Self {
         FluxRevolution {
             rev_type: FluxRevolutionType::Source,
             ch,
-            data_rate,
+            data_rate: None,
             index_time,
             flux_deltas: deltas.to_vec(),
             transitions: Vec::with_capacity(deltas.len()),
-            bitstream: BitVec::with_capacity((data_rate as usize) * 2),
-            biterrors: BitVec::with_capacity((data_rate as usize) * 2),
+            bitstream: BitVec::with_capacity(deltas.len() * 3),
+            biterrors: BitVec::with_capacity(deltas.len() * 3),
             encoding: DiskDataEncoding::Mfm,
             pll_stats: Vec::new(),
         }
     }
 
-    pub fn from_u16(ch: DiskCh, data: &[u16], data_rate: f64, index_time: f64, timebase: f64) -> Self {
+    pub fn from_u16(ch: DiskCh, data: &[u16], index_time: f64, timebase: f64) -> Self {
         log::debug!("FluxRevolution::from_u16(): Using timebase of {:.3}ns", timebase * 1e9);
         let mut new = FluxRevolution {
             rev_type: FluxRevolutionType::Source,
             ch,
-            data_rate,
+            data_rate: None,
             index_time,
             flux_deltas: Vec::with_capacity(data.len()),
             transitions: Vec::with_capacity(data.len()),
-            bitstream: BitVec::with_capacity((data_rate as usize) * 2),
-            biterrors: BitVec::with_capacity((data_rate as usize) * 2),
+            bitstream: BitVec::with_capacity(data.len() * 3),
+            biterrors: BitVec::with_capacity(data.len() * 3),
             encoding: DiskDataEncoding::Mfm,
             pll_stats: Vec::new(),
         };
@@ -152,8 +153,8 @@ impl FluxRevolution {
                     index_time: first.index_time,
                     transitions: Vec::with_capacity(first_deltas.len()),
                     flux_deltas: first_deltas,
-                    bitstream: BitVec::with_capacity((first.data_rate as usize) * 2),
-                    biterrors: BitVec::with_capacity((first.data_rate as usize) * 2),
+                    bitstream: BitVec::with_capacity(first.bitstream.capacity()),
+                    biterrors: BitVec::with_capacity(first.bitstream.capacity()),
                     encoding: DiskDataEncoding::Mfm,
                     pll_stats: Vec::new(),
                 };
@@ -165,8 +166,8 @@ impl FluxRevolution {
                     index_time: second.index_time,
                     transitions: Vec::with_capacity(second_deltas.len()),
                     flux_deltas: second_deltas,
-                    bitstream: BitVec::with_capacity((second.data_rate as usize) * 2),
-                    biterrors: BitVec::with_capacity((second.data_rate as usize) * 2),
+                    bitstream: BitVec::with_capacity(second.bitstream.capacity()),
+                    biterrors: BitVec::with_capacity(second.bitstream.capacity()),
                     encoding: DiskDataEncoding::Mfm,
                     pll_stats: Vec::new(),
                 };
@@ -192,8 +193,8 @@ impl FluxRevolution {
                     index_time: first.index_time,
                     transitions: Vec::with_capacity(first_deltas.len()),
                     flux_deltas: first_deltas,
-                    bitstream: BitVec::with_capacity((first.data_rate as usize) * 2),
-                    biterrors: BitVec::with_capacity((first.data_rate as usize) * 2),
+                    bitstream: BitVec::with_capacity(first.bitstream.capacity()),
+                    biterrors: BitVec::with_capacity(first.bitstream.capacity()),
                     encoding: DiskDataEncoding::Mfm,
                     pll_stats: Vec::new(),
                 };
@@ -205,8 +206,8 @@ impl FluxRevolution {
                     index_time: second.index_time,
                     transitions: Vec::with_capacity(second_deltas.len()),
                     flux_deltas: second_deltas,
-                    bitstream: BitVec::with_capacity((second.data_rate as usize) * 2),
-                    biterrors: BitVec::with_capacity((second.data_rate as usize) * 2),
+                    bitstream: BitVec::with_capacity(second.bitstream.capacity()),
+                    biterrors: BitVec::with_capacity(second.bitstream.capacity()),
                     encoding: DiskDataEncoding::Mfm,
                     pll_stats: Vec::new(),
                 };
@@ -383,12 +384,7 @@ impl FluxRevolution {
         );
     }
 
-    pub fn decode_direct(&mut self, pll: &mut Pll, set_rate: bool) -> FluxStats {
-        if set_rate {
-            log::trace!("FluxRevolution::decode(): Setting PLL rate to {}", self.data_rate);
-            pll.set_clock(self.data_rate, None);
-        }
-
+    pub fn decode_direct(&mut self, pll: &mut Pll) -> FluxStats {
         let mut decode_result = pll.decode(self, DiskDataEncoding::Mfm);
         let encoding = decode_result
             .flux_stats
@@ -421,6 +417,7 @@ impl FluxRevolution {
             self.bitstream.len() as f64 / self.flux_deltas.len() as f64
         );
 
+        self.data_rate = Some(self.bitstream.len() as f64 * (1.0 / self.index_time) / 2.0);
         self.pll_stats = decode_result.pll_stats;
         decode_result.flux_stats
     }

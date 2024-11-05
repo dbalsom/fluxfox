@@ -129,10 +129,10 @@ fn f86_disk_time_shift(flags: u16) -> F86TimeShift {
 
 fn f86_track_data_rate(flags: u16) -> Option<DiskDataRate> {
     match flags & 0x07 {
-        0b000 => Some(DiskDataRate::Rate500Kbps),
-        0b001 => Some(DiskDataRate::Rate300Kbps),
-        0b010 => Some(DiskDataRate::Rate250Kbps),
-        0b011 => Some(DiskDataRate::Rate125Kbps),
+        0b000 => Some(DiskDataRate::Rate500Kbps(1.0)),
+        0b001 => Some(DiskDataRate::Rate300Kbps(1.0)),
+        0b010 => Some(DiskDataRate::Rate250Kbps(1.0)),
+        0b011 => Some(DiskDataRate::Rate125Kbps(1.0)),
         _ => None,
     }
 }
@@ -223,9 +223,9 @@ impl F86Format {
         let hole = (header.flags & F86_DISK_HOLE_MASK) >> 1;
         let heads = if header.flags & F86_DISK_SIDES != 0 { 2 } else { 1 };
         let (image_data_rate, image_density) = match hole {
-            0 => (DiskDataRate::Rate250Kbps, DiskDensity::Double),
-            1 => (DiskDataRate::Rate500Kbps, DiskDensity::High),
-            2 => (DiskDataRate::Rate1000Kbps, DiskDensity::Extended),
+            0 => (DiskDataRate::Rate250Kbps(1.0), DiskDensity::Double),
+            1 => (DiskDataRate::Rate500Kbps(1.0), DiskDensity::High),
+            2 => (DiskDataRate::Rate1000Kbps(1.0), DiskDensity::Extended),
             3 => {
                 log::warn!("Unsupported hole size: {}", hole);
                 return Err(DiskImageError::UnsupportedFormat);
@@ -569,10 +569,10 @@ impl F86Format {
         let mut track_flags = 0;
         log::trace!("Setting data rate: {:?}", image.descriptor.data_rate);
         track_flags |= match image.descriptor.data_rate {
-            DiskDataRate::Rate500Kbps => 0b000,
-            DiskDataRate::Rate300Kbps => 0b001,
-            DiskDataRate::Rate250Kbps => 0b010,
-            DiskDataRate::Rate1000Kbps => 0b011,
+            DiskDataRate::Rate500Kbps(_) => 0b000,
+            DiskDataRate::Rate300Kbps(_) => 0b001,
+            DiskDataRate::Rate250Kbps(_) => 0b010,
+            DiskDataRate::Rate1000Kbps(_) => 0b011,
             _ => {
                 log::error!("Unsupported data rate: {:?}", image.descriptor.data_rate);
                 return Err(DiskImageError::UnsupportedFormat);

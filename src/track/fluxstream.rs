@@ -110,7 +110,9 @@ impl Track for FluxStreamTrack {
 
     fn info(&self) -> TrackInfo {
         if let Some(resolved) = self.get_bitstream() {
-            return resolved.info();
+            let ti = resolved.info();
+            log::debug!("FluxStreamTrack::info(): Bitstream info: {:?}", ti);
+            return ti;
         }
 
         TrackInfo {
@@ -316,27 +318,14 @@ impl FluxStreamTrack {
         self.best_revolution = 0;
     }
 
-    pub(crate) fn add_revolution(
-        &mut self,
-        ch: DiskCh,
-        data: &[f64],
-        data_rate: f64,
-        index_time: f64,
-    ) -> &mut FluxRevolution {
-        let new_stream = FluxRevolution::from_f64(ch, data, data_rate, index_time);
+    pub(crate) fn add_revolution(&mut self, ch: DiskCh, data: &[f64], index_time: f64) -> &mut FluxRevolution {
+        let new_stream = FluxRevolution::from_f64(ch, data, index_time);
         self.revolutions.push(new_stream);
         self.revolutions.last_mut().unwrap()
     }
 
-    pub(crate) fn add_revolution_from_u16(
-        &mut self,
-        ch: DiskCh,
-        data: &[u16],
-        data_rate: f64,
-        index_time: f64,
-        timebase: f64,
-    ) {
-        let new_stream = FluxRevolution::from_u16(ch, data, data_rate, index_time, timebase);
+    pub(crate) fn add_revolution_from_u16(&mut self, ch: DiskCh, data: &[u16], index_time: f64, timebase: f64) {
+        let new_stream = FluxRevolution::from_u16(ch, data, index_time, timebase);
         self.revolutions.push(new_stream);
     }
 
@@ -380,11 +369,26 @@ impl FluxStreamTrack {
         for (i, revolution) in self.revolutions.iter_mut().enumerate() {
             self.decoded_revolutions.push(None);
             let ft_ct = revolution.ft_ct();
-            let mut base_rpm = rpm_hint.unwrap_or(DiskRpm::Rpm300);
-            let mut base_clock = 2e-6;
+
+            // Use the rpm hint if provided, otherwise try to derive from the revolution's index time,
+            // falling back to 300 RPM if neither works.
+            let mut base_rpm =
+                rpm_hint.unwrap_or(DiskRpm::from_index_time(revolution.index_time).unwrap_or(DiskRpm::Rpm300));
+
+            log::debug!("decode_revolutions:() using base rpm: {}", base_rpm);
+
+            let mut base_clock;
             let base_clock_opt = match clock_hint {
-                Some(hint) => Some(hint),
+                Some(hint) => {
+                    log::debug!("decode_revolutions(): Revolution {}: Using clock hint: {}", i, hint);
+                    Some(hint)
+                }
                 None => {
+                    log::debug!(
+                        "decode_revolutions(): Revolution {}: Estimating clock by FT count: {}",
+                        i,
+                        ft_ct
+                    );
                     // Try to estimate base clock and rpm based on flux transition count.
                     // This is not perfect - we may need to adjust the clock later.
                     match ft_ct {
@@ -402,7 +406,31 @@ impl FluxStreamTrack {
                 }
             };
 
-            if base_clock_opt.is_none() {
+            log::debug!("Base clock after flux count check is {:?}", base_clock_opt);
+
+            let index_time = revolution.index_time;
+            let rev_rpm = 60.0 / index_time;
+            let f_rpm = f64::from(base_rpm);
+
+            // If RPM calculated from the index time seems accurate, trust it over the rpm hint.
+            base_rpm = match rev_rpm {
+                255.0..345.0 => DiskRpm::Rpm300,
+                345.0..414.0 => DiskRpm::Rpm360,
+                _ => {
+                    log::error!(
+                        "Revolution {} RPM is out of range ({:.2}). Assuming {}",
+                        i,
+                        rev_rpm,
+                        base_rpm
+                    );
+                    // TODO: Fall back to calculating rpm from sum of flux times?
+                    base_rpm
+                }
+            };
+
+            log::debug!("Base RPM after index time check is {:?}", base_rpm);
+
+            base_clock = if base_clock_opt.is_none() {
                 // Try to determine the base clock and RPM based on the revolution histogram.
                 let full_hist = revolution.histogram(1.0);
                 let base_transition_time_opt = revolution.base_transition_time(&full_hist);
@@ -414,34 +442,19 @@ impl FluxStreamTrack {
                         i,
                         format_us!(hist_period)
                     );
-                    base_clock = hist_period;
+                    hist_period
                 }
                 else {
                     log::warn!(
                         "decode_revolutions(): Revolution {}: No base clock hint, and full histogram base period not found. Assuming 2us bitcell.",
                         i
                     );
-                    base_clock = 2e-6;
+                    2e-6
                 }
             }
-
-            let index_time = revolution.index_time;
-            let rev_rpm = 60.0 / index_time;
-            let f_rpm = f64::from(base_rpm);
-
-            // If the reported RPM seems accurate, trust it.
-            match rev_rpm {
-                255.0..345.0 => base_rpm = DiskRpm::Rpm300,
-                345.0..414.0 => base_rpm = DiskRpm::Rpm360,
-                _ => {
-                    log::error!(
-                        "Revolution {} RPM is out of range ({:.2}). Assuming {}",
-                        i,
-                        rev_rpm,
-                        base_rpm
-                    );
-                }
-            }
+            else {
+                base_clock_opt.unwrap() * base_rpm.clock_multiplier()
+            };
 
             // Create PLL and decode revolution.
             let mut pll = Pll::from_preset(PllPreset::Aggressive);
@@ -449,6 +462,12 @@ impl FluxStreamTrack {
             // Create histogram for rev.
             let hist = revolution.histogram(0.02);
             let base_transition_time_opt = revolution.base_transition_time(&hist);
+            if base_transition_time_opt.is_none() {
+                log::warn!(
+                    "decode_revolutions(): Revolution {}: Unable to detect track start transition time.",
+                    i
+                );
+            }
 
             if let Some(base_transition_time) = base_transition_time_opt {
                 let hist_period = base_transition_time / 2.0;
@@ -473,19 +492,19 @@ impl FluxStreamTrack {
 
             pll.set_clock(1.0 / base_clock, None);
             log::debug!(
-                "decode_revolutions(): Revolution {}: Data Rate: {:.2}, Base period {:.4}, {:.2}rpm",
+                "decode_revolutions(): Decoding revolution {}: Bitrate: {:.2}, Base period {}, {:.2}rpm",
                 i,
                 1.0 / base_clock,
-                base_clock,
+                format_us!(base_clock),
                 f_rpm
             );
 
-            let flux_stats = revolution.decode_direct(&mut pll, false);
+            let flux_stats = revolution.decode_direct(&mut pll);
 
             let (bitstream_data, bitcell_ct) = revolution.bitstream_data();
             let params = BitStreamTrackParams {
                 encoding: revolution.encoding,
-                data_rate: DiskDataRate::from(revolution.data_rate as u32),
+                data_rate: DiskDataRate::from(revolution.data_rate.unwrap() as u32), // Data rate should be Some after decoding
                 rpm: Some(base_rpm),
                 ch: revolution.ch,
                 bitcell_ct: Some(bitcell_ct),
@@ -557,10 +576,13 @@ impl FluxStreamTrack {
         );
 
         self.best_revolution = best_revolution;
-        self.encoding = self.decoded_revolutions[best_revolution]
-            .as_ref()
-            .expect("Best revolution not decoded.")
-            .encoding();
+
+        let rev_ref = self
+            .revolutions
+            .get_mut(best_revolution)
+            .expect("Best revolution not found.");
+
+        self.encoding = rev_ref.encoding;
     }
 
     fn get_bitstream(&self) -> Option<&BitStreamTrack> {

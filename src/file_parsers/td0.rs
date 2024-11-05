@@ -129,12 +129,12 @@ pub struct Td0Format {}
 
 fn td0_data_rate(rate: u8) -> DiskDataRate {
     match rate & 0x03 {
-        0 => DiskDataRate::Rate250Kbps,
-        1 => DiskDataRate::Rate300Kbps,
-        2 => DiskDataRate::Rate500Kbps,
+        0 => DiskDataRate::Rate250Kbps(1.0),
+        1 => DiskDataRate::Rate300Kbps(1.0),
+        2 => DiskDataRate::Rate500Kbps(1.0),
         _ => {
             log::warn!("TD0 Data Rate out of range: {} Assuming 300Kbps", rate);
-            DiskDataRate::Rate300Kbps
+            DiskDataRate::Rate300Kbps(1.0)
         }
     }
 }

@@ -36,15 +36,12 @@
 */
 use crate::diskimage::DiskDescriptor;
 use crate::file_parsers::{bitstream_flags, FormatCaps};
-use crate::flux::pll::{Pll, PllPreset};
-use crate::flux::FluxTransition;
 use crate::io::{ReadBytesExt, ReadSeek, ReadWriteSeek};
 use crate::track::fluxstream::FluxStreamTrack;
 use crate::util::read_ascii;
 use crate::{format_us, io, DiskDataResolution, FoxHashSet, LoadingCallback};
 use crate::{
-    DiskCh, DiskDataEncoding, DiskDataRate, DiskImage, DiskImageError, DiskImageFormat, ParserWriteCompatibility,
-    DEFAULT_SECTOR_SIZE,
+    DiskCh, DiskDataEncoding, DiskImage, DiskImageError, DiskImageFormat, ParserWriteCompatibility, DEFAULT_SECTOR_SIZE,
 };
 use binrw::binrw;
 use binrw::BinRead;
@@ -208,14 +205,7 @@ impl KfxFormat {
             eof = kfx_context.read_block(&mut image, &index_offsets, &mut stream_position, &mut streams)?;
         }
 
-        let mut pll = Pll::from_preset(PllPreset::Aggressive);
-        //pll.set_clock(2e-6, None);
         let mut flux_track = FluxStreamTrack::new();
-
-        // log::debug!("Found {} partial revolutions in stream", streams.len());
-        // for (si, stream) in streams.iter().enumerate() {
-        //     log::debug!("  Rev {}: {} samples", si, stream.len());
-        // }
         let complete_revs = (kfx_context.idx_ct - 1) as usize;
 
         // We need to have at least two index markers to have a complete revolution.
@@ -250,7 +240,7 @@ impl KfxFormat {
             .take(complete_revs)
             .zip(index_times.iter())
         {
-            flux_track.add_revolution(next_ch, rev, pll.get_clock(), *index_time);
+            flux_track.add_revolution(next_ch, rev, *index_time);
         }
 
         #[cfg(feature = "plot")]
@@ -430,7 +420,7 @@ impl KfxFormat {
         // Get hints from disk image if we aren't the first track.
         let (clock_hint, rpm_hint) = if !disk_image.track_pool.is_empty() {
             (
-                Some(disk_image.descriptor.density.base_clock()),
+                Some(disk_image.descriptor.density.base_clock(disk_image.descriptor.rpm)),
                 disk_image.descriptor.rpm,
             )
         }
@@ -875,22 +865,5 @@ fn kfx_parse_str(s: &str) -> (Option<f64>, Option<f64>) {
     }
     else {
         (None, None)
-    }
-}
-
-#[allow(dead_code)]
-fn kfx_transition_ct_to_bitrate(count: usize) -> Option<DiskDataRate> {
-    match count {
-        35000..=60000 => Some(DiskDataRate::Rate250Kbps),
-        70000..=120000 => Some(DiskDataRate::Rate500Kbps),
-        140000..=240000 => Some(DiskDataRate::Rate1000Kbps),
-        _ => None,
-    }
-}
-
-#[allow(dead_code)]
-fn print_transitions(transitions: Vec<FluxTransition>) {
-    for t in transitions {
-        print!("{}", t);
     }
 }

@@ -42,7 +42,6 @@
 use crate::diskimage::{BitStreamTrackParams, DiskDescriptor};
 use crate::file_parsers::{bitstream_flags, FormatCaps};
 use crate::flux::pll::{Pll, PllPreset};
-use crate::flux::FluxTransition;
 use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::track::fluxstream::FluxStreamTrack;
 use crate::{
@@ -471,23 +470,17 @@ impl ScpFormat {
                     ri,
                     data.len()
                 );
-                flux_track.add_revolution_from_u16(
-                    DiskCh::new(c, h),
-                    &data,
-                    pll.get_clock(),
-                    rev_seconds,
-                    capture_resolution_seconds,
-                );
+                flux_track.add_revolution_from_u16(DiskCh::new(c, h), &data, rev_seconds, capture_resolution_seconds);
                 pll.reset_clock();
             }
 
             let rev = 0;
             let flux_stream = flux_track.revolution_mut(rev).unwrap();
-            flux_stream.decode_direct(&mut pll, true);
+            flux_stream.decode_direct(&mut pll);
 
             let rev = 1;
             let flux_stream = flux_track.revolution_mut(rev).unwrap();
-            let rev_stats = flux_stream.decode_direct(&mut pll, false);
+            let rev_stats = flux_stream.decode_direct(&mut pll);
 
             //let flux_ct = flux_stream.transition_ct();
             //let rev_encoding = flux_stream.encoding();
@@ -553,22 +546,5 @@ impl ScpFormat {
 
     pub fn save_image<RWS: ReadWriteSeek>(_image: &DiskImage, _output: &mut RWS) -> Result<(), DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
-    }
-}
-
-#[allow(dead_code)]
-fn scp_transition_ct_to_bitrate(count: usize) -> Option<DiskDataRate> {
-    match count {
-        35000..=60000 => Some(DiskDataRate::Rate250Kbps),
-        70000..=120000 => Some(DiskDataRate::Rate500Kbps),
-        140000..=240000 => Some(DiskDataRate::Rate1000Kbps),
-        _ => None,
-    }
-}
-
-#[allow(dead_code)]
-fn print_transitions(transitions: Vec<FluxTransition>) {
-    for t in transitions {
-        print!("{}", t);
     }
 }

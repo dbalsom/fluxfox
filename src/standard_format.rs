@@ -109,15 +109,15 @@ impl StandardFormat {
 
     pub fn get_data_rate(&self) -> DiskDataRate {
         match self {
-            StandardFormat::PcFloppy160 => DiskDataRate::Rate250Kbps,
-            StandardFormat::PcFloppy180 => DiskDataRate::Rate250Kbps,
-            StandardFormat::PcFloppy320 => DiskDataRate::Rate250Kbps,
-            StandardFormat::PcFloppy360 => DiskDataRate::Rate250Kbps,
-            StandardFormat::PcFloppy720 => DiskDataRate::Rate250Kbps,
-            StandardFormat::PcFloppy1200 => DiskDataRate::Rate500Kbps,
-            StandardFormat::PcFloppy1440 => DiskDataRate::Rate500Kbps,
-            StandardFormat::PcFloppy2880 => DiskDataRate::Rate1000Kbps,
-            _ => DiskDataRate::Rate250Kbps,
+            StandardFormat::PcFloppy160 => DiskDataRate::Rate250Kbps(1.0),
+            StandardFormat::PcFloppy180 => DiskDataRate::Rate250Kbps(1.0),
+            StandardFormat::PcFloppy320 => DiskDataRate::Rate250Kbps(1.0),
+            StandardFormat::PcFloppy360 => DiskDataRate::Rate250Kbps(1.0),
+            StandardFormat::PcFloppy720 => DiskDataRate::Rate250Kbps(1.0),
+            StandardFormat::PcFloppy1200 => DiskDataRate::Rate500Kbps(1.0),
+            StandardFormat::PcFloppy1440 => DiskDataRate::Rate500Kbps(1.0),
+            StandardFormat::PcFloppy2880 => DiskDataRate::Rate1000Kbps(1.0),
+            _ => DiskDataRate::Rate250Kbps(1.0),
         }
     }
 

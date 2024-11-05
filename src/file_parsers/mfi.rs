@@ -370,9 +370,9 @@ impl MfiFormat {
         //let mut flux_track = FluxStreamTrack::new(1.0 / 2e-6);
         let mut flux_track = FluxStreamTrack::new();
 
-        flux_track.add_revolution(track.ch, &fluxes, pll.get_clock(), 0.2); // 200ms
+        flux_track.add_revolution(track.ch, &fluxes, 0.2); // 200ms
         let flux_stream = flux_track.revolution_mut(0).unwrap();
-        let rev_stats = flux_stream.decode_direct(&mut pll, true);
+        let rev_stats = flux_stream.decode_direct(&mut pll);
 
         //let rev_encoding = flux_stream.encoding();
         let rev_density = match rev_stats.detect_density(true) {

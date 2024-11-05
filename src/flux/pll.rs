@@ -79,8 +79,8 @@ pub struct Pll {
 impl Pll {
     pub fn new() -> Self {
         Pll {
-            pll_default_rate: u32::from(DiskDataRate::Rate250Kbps) as f64 * 2.0,
-            pll_rate: u32::from(DiskDataRate::Rate250Kbps) as f64 * 2.0,
+            pll_default_rate: u32::from(DiskDataRate::Rate250Kbps(1.0)) as f64 * 2.0,
+            pll_rate: u32::from(DiskDataRate::Rate250Kbps(1.0)) as f64 * 2.0,
             pll_period: BASE_CLOCK, // 2 µs
             working_period: BASE_CLOCK,
             period_factor: 1.0,
@@ -108,7 +108,7 @@ impl Pll {
         }
         assert!(self.pll_rate > 1.0);
         log::debug!(
-            "Pll::set_clock(): Setting clock rate to {}, max adjust: {:?} new period: {}",
+            "Pll::set_clock(): Setting clock rate to {:.2}, max adjust: {:.2} new period: {}",
             self.pll_rate,
             self.max_adjust,
             format_us!(self.pll_period)
