@@ -28,8 +28,7 @@ tests/images/*
 
 # Allow doc images
 !/doc/img/*
-/doc/img/visualization*
-!/doc/img/visualization_example.png
+!/doc/img/visualization*
 
 # Misc
 /resources/bootsector2.asm

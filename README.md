@@ -9,6 +9,7 @@ is not final, and there are probably a million bugs. I do not recommend using th
 stable state.**
 
 ![image](doc/img/visualization_example.png)
+<p align="center">Arac (1988, Digital Leisure Corporation) showing the signature of MINDER copy protection</p>
 
 ## Goals
 
