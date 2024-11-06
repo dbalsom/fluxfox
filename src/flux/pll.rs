@@ -24,10 +24,13 @@
 
     --------------------------------------------------------------------------
 */
-use crate::flux::flux_revolution::FluxRevolution;
-use crate::flux::{FluxStats, FluxTransition};
-use crate::{format_ms, format_us};
-use crate::{DiskDataEncoding, DiskDataRate};
+use crate::{
+    flux::{flux_revolution::FluxRevolution, FluxStats, FluxTransition},
+    format_ms,
+    format_us,
+    DiskDataEncoding,
+    DiskDataRate,
+};
 use bit_vec::BitVec;
 use std::io::Write;
 
@@ -251,7 +254,7 @@ impl Pll {
 
             if flux_ct == 0 {
                 flux_stats.shortest_flux = delta_time;
-                log::warn!(
+                log::debug!(
                     "decode_mfm(): first flux transition: {} @({})",
                     format_us!(delta_time),
                     format_ms!(time)
@@ -355,7 +358,7 @@ impl Pll {
             }
 
             if zero_ct > 16 {
-                log::warn!("decode_mfm(): NFA zone @ {}??", format_ms!(time));
+                //log::warn!("decode_mfm(): NFA zone @ {}??", format_ms!(time));
             }
 
             // Transition should be somewhere within our last clock period, ideally in the center of it.
@@ -449,7 +452,7 @@ impl Pll {
             phase_adjust = 0.65 * min_phase_error;
 
             if flux_ct == 0 {
-                log::warn!(
+                log::debug!(
                     "decode_mfm(): first phase error: {} @({:.9})",
                     format_us!(phase_error),
                     time
@@ -552,7 +555,7 @@ impl Pll {
 
             if flux_ct == 0 {
                 flux_stats.shortest_flux = delta_time;
-                log::warn!("first flux transition: {} @({:.9})", format_us!(delta_time), time);
+                log::debug!("first flux transition: {} @({:.9})", format_us!(delta_time), time);
             }
 
             // Set the time of the next flux transition.

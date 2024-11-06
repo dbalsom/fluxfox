@@ -25,39 +25,48 @@
     --------------------------------------------------------------------------
 */
 
-use crate::bitstream::mfm::MfmCodec;
-use crate::track::bitstream::BitStreamTrack;
+use crate::{bitstream::mfm::MfmCodec, track::bitstream::BitStreamTrack};
 
-use crate::bitstream::fm::FmCodec;
-use crate::bitstream::TrackDataStream;
-use crate::boot_sector::BootSector;
-use crate::chs::{DiskCh, DiskChs, DiskChsn};
-use crate::containers::zip::{extract_file, extract_first_file};
-use crate::containers::DiskImageContainer;
-use crate::detect::detect_image_format;
-use crate::file_parsers::kryoflux::KfxFormat;
-use crate::file_parsers::{filter_writable, formats_from_caps, FormatCaps, ImageParser};
-use crate::io::ReadSeek;
-use crate::standard_format::StandardFormat;
-use crate::structure_parsers::system34::System34Standard;
-use crate::structure_parsers::DiskStructureMetadata;
-use crate::track::{DiskTrack, Track};
-
-use crate::track::fluxstream::FluxStreamTrack;
-use crate::track::metasector::MetaSectorTrack;
-use crate::{
-    util, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskImageError, DiskRpm, FoxHashMap,
-    FoxHashSet, LoadingCallback, LoadingStatus, TrackConsistency,
+use std::{
+    fmt::Display,
+    io::Cursor,
+    path::PathBuf,
+    sync::{Arc, Mutex},
 };
+
 use bit_vec::BitVec;
 use bitflags::bitflags;
 use sha1_smol::Digest;
-use std::fmt::Display;
-use std::io::Cursor;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 
-pub const DEFAULT_BOOT_SECTOR: &[u8] = include_bytes!("../resources/bootsector.bin");
+use crate::{
+    bitstream::{fm::FmCodec, TrackDataStream},
+    boot_sector::BootSector,
+    chs::{DiskCh, DiskChs, DiskChsn},
+    containers::{
+        zip::{extract_file, extract_first_file},
+        DiskImageContainer,
+    },
+    detect::detect_image_format,
+    file_parsers::{filter_writable, formats_from_caps, kryoflux::KfxFormat, FormatCaps, ImageParser},
+    io::ReadSeek,
+    standard_format::StandardFormat,
+    structure_parsers::{system34::System34Standard, DiskStructureMetadata},
+    track::{fluxstream::FluxStreamTrack, metasector::MetaSectorTrack, DiskTrack, Track},
+    util,
+    DiskDataEncoding,
+    DiskDataRate,
+    DiskDataResolution,
+    DiskDensity,
+    DiskImageError,
+    DiskRpm,
+    FoxHashMap,
+    FoxHashSet,
+    LoadingCallback,
+    LoadingStatus,
+    TrackConsistency,
+};
+
+pub(crate) const DEFAULT_BOOT_SECTOR: &[u8] = include_bytes!("../resources/bootsector.bin");
 
 bitflags! {
     /// Bit flags that can be applied to a disk image.
@@ -70,6 +79,23 @@ bitflags! {
         const DIRTY         = 0b0000_0000_0000_0010;
         #[doc = "Disk Image represents a PROLOK protected disk"]
         const PROLOK        = 0b0000_0000_0000_0100;
+    }
+}
+
+/// A DiskSelection enumeration is used to select a disk image by either index or path when dealing
+/// with containers that contain multiple disk images.
+#[derive(Clone, Debug)]
+pub enum DiskSelection {
+    Index(usize),
+    Path(PathBuf),
+}
+
+impl Display for DiskSelection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DiskSelection::Index(idx) => write!(f, "(Index: {})", idx),
+            DiskSelection::Path(path) => write!(f, "(Path: {})", path.display()),
+        }
     }
 }
 
@@ -306,7 +332,7 @@ pub struct WriteSectorResult {
 
 pub struct TrackRegion {
     pub start: usize,
-    pub end: usize,
+    pub end:   usize,
 }
 
 pub struct BitStreamTrackParams<'a> {
@@ -486,10 +512,14 @@ impl DiskImage {
         self.consistency.image_caps
     }
 
-    pub fn load_from_file(file_path: PathBuf, callback: Option<LoadingCallback>) -> Result<Self, DiskImageError> {
+    pub fn load_from_file(
+        file_path: PathBuf,
+        disk_selection: Option<DiskSelection>,
+        callback: Option<LoadingCallback>,
+    ) -> Result<Self, DiskImageError> {
         let mut file_vec = std::fs::read(file_path.clone())?;
         let mut cursor = Cursor::new(&mut file_vec);
-        let image = DiskImage::load(&mut cursor, Some(file_path), callback)?;
+        let image = DiskImage::load(&mut cursor, Some(file_path), disk_selection, callback)?;
 
         Ok(image)
     }
@@ -497,6 +527,7 @@ impl DiskImage {
     pub fn load<RS: ReadSeek>(
         image_io: &mut RS,
         image_path: Option<PathBuf>,
+        disk_selection: Option<DiskSelection>,
         callback: Option<LoadingCallback>,
     ) -> Result<Self, DiskImageError> {
         let container = DiskImage::detect_format(image_io)?;
@@ -523,48 +554,76 @@ impl DiskImage {
                     Err(DiskImageError::UnknownFormat);
                 }
             }
-            DiskImageContainer::ZippedKryofluxSet(file_set, set_ch) => {
+            DiskImageContainer::ZippedKryofluxSet(disks) => {
                 #[cfg(feature = "zip")]
                 {
-                    // Create an empty image. We will loop through all the files in the set and
-                    // append tracks to them as we go.
-                    let mut image = DiskImage::default();
-                    image.descriptor.geometry = set_ch;
+                    let disk_opt = match disk_selection {
+                        Some(DiskSelection::Index(idx)) => disks.get(idx),
+                        Some(DiskSelection::Path(ref path)) => disks.iter().find(|disk| disk.base_path == *path),
+                        _ => {
+                            if disks.len() == 1 {
+                                disks.get(0)
+                            }
+                            else {
+                                log::error!("Multiple disks found in Kryoflux set without a selection.");
+                                return Err(DiskImageError::MultiDiskError(
+                                    "No disk selection provided.".to_string(),
+                                ));
+                            }
+                        }
+                    };
 
-                    if let Some(ref callback_fn) = callback {
-                        // Let caller know to show a progress bar
-                        callback_fn(LoadingStatus::ProgressSupport(true));
-                    }
+                    if let Some(disk) = disk_opt {
+                        // Create an empty image. We will loop through all the files in the set and
+                        // append tracks to them as we go.
+                        let mut image = DiskImage::default();
+                        image.descriptor.geometry = disk.geometry;
 
-                    for (fi, file_path) in file_set.iter().enumerate() {
-                        let mut file_vec = extract_file(image_io, &file_path.clone())?;
-                        let mut cursor = Cursor::new(&mut file_vec);
-                        log::debug!("load(): Loading Kryoflux stream file from zip: {:?}", file_path);
+                        if let Some(ref callback_fn) = callback {
+                            // Let caller know to show a progress bar
+                            callback_fn(LoadingStatus::ProgressSupport(true));
+                        }
 
-                        // We won't give the callback to the kryoflux loader - instead we will call it here ourselves
-                        // updating percentage complete as a fraction of files loaded.
-                        match KfxFormat::load_image(&mut cursor, &mut image, None) {
-                            Ok(_) => {}
-                            Err(e) => {
-                                // It's okay to fail if we have already added the standard number of tracks to an image.
-                                log::error!("load(): Error loading Kryoflux stream file: {:?}", e);
-                                //return Err(e);
-                                break;
+                        for (fi, file_path) in disk.file_set.iter().enumerate() {
+                            let mut file_vec = extract_file(image_io, &file_path.clone())?;
+                            let mut cursor = Cursor::new(&mut file_vec);
+                            log::debug!("load(): Loading Kryoflux stream file from zip: {:?}", file_path);
+
+                            // We won't give the callback to the kryoflux loader - instead we will call it here ourselves
+                            // updating percentage complete as a fraction of files loaded.
+                            match KfxFormat::load_image(&mut cursor, &mut image, None) {
+                                Ok(_) => {}
+                                Err(e) => {
+                                    // It's okay to fail if we have already added the standard number of tracks to an image.
+                                    log::error!("load(): Error loading Kryoflux stream file: {:?}", e);
+                                    //return Err(e);
+                                    break;
+                                }
+                            }
+
+                            if let Some(ref callback_fn) = callback {
+                                let completion = (fi + 1) as f64 / disk.file_set.len() as f64;
+                                callback_fn(LoadingStatus::Progress(completion));
                             }
                         }
 
-                        if let Some(ref callback_fn) = callback {
-                            let completion = (fi + 1) as f64 / file_set.len() as f64;
-                            callback_fn(LoadingStatus::Progress(completion));
+                        if let Some(callback_fn) = callback {
+                            callback_fn(LoadingStatus::Complete);
                         }
-                    }
 
-                    if let Some(callback_fn) = callback {
-                        callback_fn(LoadingStatus::Complete);
+                        image.post_load_process();
+                        Ok(image)
                     }
-
-                    image.post_load_process();
-                    Ok(image)
+                    else {
+                        log::error!(
+                            "Disk selection {} not found in Kryoflux set.",
+                            disk_selection.clone().unwrap()
+                        );
+                        Err(DiskImageError::MultiDiskError(format!(
+                            "Disk selection {} not found in set.",
+                            disk_selection.unwrap()
+                        )))
+                    }
                 }
             }
             DiskImageContainer::KryofluxSet => {

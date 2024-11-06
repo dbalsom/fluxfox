@@ -24,8 +24,14 @@
 
     --------------------------------------------------------------------------
 */
-use crate::io::{Read, Seek, SeekFrom};
-use crate::DiskImageError;
+
+use regex::Regex;
+use std::{cmp::Ordering, path::PathBuf};
+
+use crate::{
+    io::{Read, Seek, SeekFrom},
+    DiskImageError,
+};
 
 pub const CRC_CCITT_INITIAL: u16 = 0xFFFF;
 
@@ -182,4 +188,118 @@ pub fn dump_string(data_slice: &[u8]) -> String {
         out.push(if (40..=126).contains(&byte) { byte as char } else { '.' });
     }
     out
+}
+
+#[allow(clippy::ptr_arg)]
+pub fn natural_sort(a: &PathBuf, b: &PathBuf) -> Ordering {
+    let re = Regex::new(r"(\D+)|(\d+)").expect("Invalid regex");
+
+    let a_str = a.iter().next().and_then(|s| s.to_str()).unwrap_or("");
+    let b_str = b.iter().next().and_then(|s| s.to_str()).unwrap_or("");
+
+    let a_parts = re.captures_iter(a_str);
+    let b_parts = re.captures_iter(b_str);
+
+    for (a_part, b_part) in a_parts.zip(b_parts) {
+        // Handle non-numeric parts, converting to lowercase for case-insensitive comparison
+        if let (Some(a_text), Some(b_text)) = (a_part.get(1), b_part.get(1)) {
+            let ordering = a_text.as_str().to_lowercase().cmp(&b_text.as_str().to_lowercase());
+            if ordering != Ordering::Equal {
+                return ordering;
+            }
+            continue;
+        }
+
+        // Handle numeric parts
+        let a_num = a_part.get(2).and_then(|m| m.as_str().parse::<u32>().ok());
+        let b_num = b_part.get(2).and_then(|m| m.as_str().parse::<u32>().ok());
+
+        match (a_num, b_num) {
+            (Some(a_num), Some(b_num)) => {
+                let ordering = a_num.cmp(&b_num);
+                if ordering != Ordering::Equal {
+                    return ordering;
+                }
+            }
+            // Fallback to lexicographic comparison if parsing fails
+            _ => return a_str.to_lowercase().cmp(&b_str.to_lowercase()),
+        }
+    }
+
+    // Fallback to comparing the full path if the directory names are identical
+    a_str.to_lowercase().cmp(&b_str.to_lowercase())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_natural_sort() {
+        let mut paths = vec![
+            PathBuf::from("Disk1"),
+            PathBuf::from("disk10"),
+            PathBuf::from("Disk2"),
+            PathBuf::from("Disk3"),
+            PathBuf::from("disk11"),
+            PathBuf::from("Disk12"),
+            PathBuf::from("Disk9"),
+        ];
+
+        // Sort using natural_sort function
+        paths.sort_by(natural_sort);
+
+        // Expected order: Disk1, Disk2, Disk3, Disk9, Disk10, Disk11, Disk12
+        let expected_order = vec![
+            PathBuf::from("Disk1"),
+            PathBuf::from("Disk2"),
+            PathBuf::from("Disk3"),
+            PathBuf::from("Disk9"),
+            PathBuf::from("disk10"),
+            PathBuf::from("disk11"),
+            PathBuf::from("Disk12"),
+        ];
+
+        assert_eq!(paths, expected_order);
+    }
+
+    #[test]
+    fn test_natural_sort_with_paths() {
+        let mut paths = vec![
+            PathBuf::from("Disk10/track00.0.raw"),
+            PathBuf::from("Disk11/track00.0.raw"),
+            PathBuf::from("Disk12/track00.0.raw"),
+            PathBuf::from("Disk13/track00.0.raw"),
+            PathBuf::from("Disk14/track00.0.raw"),
+            PathBuf::from("Disk15/track00.0.raw"),
+            PathBuf::from("Disk1/track00.0.raw"),
+            PathBuf::from("Disk2/track00.0.raw"),
+            PathBuf::from("Disk3/track00.0.raw"),
+            PathBuf::from("Disk4/track00.0.raw"),
+            PathBuf::from("Disk5/track00.0.raw"),
+            PathBuf::from("Disk6/track00.0.raw"),
+        ];
+
+        // Sort using natural_sort function
+        paths.sort_by(natural_sort);
+
+        // Expected order: Disk1, Disk2, ..., Disk15
+        let expected_order = vec![
+            PathBuf::from("Disk1/track00.0.raw"),
+            PathBuf::from("Disk2/track00.0.raw"),
+            PathBuf::from("Disk3/track00.0.raw"),
+            PathBuf::from("Disk4/track00.0.raw"),
+            PathBuf::from("Disk5/track00.0.raw"),
+            PathBuf::from("Disk6/track00.0.raw"),
+            PathBuf::from("Disk10/track00.0.raw"),
+            PathBuf::from("Disk11/track00.0.raw"),
+            PathBuf::from("Disk12/track00.0.raw"),
+            PathBuf::from("Disk13/track00.0.raw"),
+            PathBuf::from("Disk14/track00.0.raw"),
+            PathBuf::from("Disk15/track00.0.raw"),
+        ];
+
+        assert_eq!(paths, expected_order);
+    }
 }

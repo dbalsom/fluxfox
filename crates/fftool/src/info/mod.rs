@@ -24,11 +24,9 @@
 
     --------------------------------------------------------------------------
 */
-use crate::args::GlobalOptions;
-use crate::read_file;
+use crate::{args::GlobalOptions, read_file};
 use anyhow::{bail, Error};
-use fluxfox::flux::flux_revolution::FluxRevolutionType;
-use fluxfox::{DiskCh, DiskDataResolution, DiskImage};
+use fluxfox::{flux::flux_revolution::FluxRevolutionType, DiskCh, DiskDataResolution, DiskImage};
 
 pub mod args;
 
@@ -44,7 +42,7 @@ pub(crate) fn run(_global: &GlobalOptions, params: args::InfoParams) -> Result<(
 
     println!("Detected disk image type: {}", disk_image_type);
 
-    let mut disk = match DiskImage::load(&mut reader, Some(params.in_file), None) {
+    let mut disk = match DiskImage::load(&mut reader, Some(params.in_file), None, None) {
         Ok(disk) => disk,
         Err(e) => {
             bail!("Error loading disk image: {}", e);

@@ -31,10 +31,11 @@
     format.
 */
 use bpaf::*;
-use fluxfox::diskimage::RwSectorScope;
-use fluxfox::{DiskCh, DiskChs, DiskChsn, DiskImage};
-use std::io::{BufWriter, Cursor, Write};
-use std::path::PathBuf;
+use fluxfox::{diskimage::RwSectorScope, DiskCh, DiskChs, DiskChsn, DiskImage};
+use std::{
+    io::{BufWriter, Cursor, Write},
+    path::PathBuf,
+};
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -163,7 +164,7 @@ fn main() {
         println!("Detected disk image type: {}", disk_image_type);
     }
 
-    let mut disk = match DiskImage::load(&mut cursor, Some(opts.filename.clone()), None) {
+    let mut disk = match DiskImage::load(&mut cursor, Some(opts.filename.clone()), None, None) {
         Ok(disk) => disk,
         Err(e) => {
             eprintln!("Error loading disk image: {}", e);

@@ -30,25 +30,44 @@
 
 */
 use super::{Track, TrackConsistency, TrackInfo};
-use crate::bitstream::TrackDataStream;
-use crate::diskimage::{
-    BitStreamTrackParams, ReadSectorResult, ReadTrackResult, RwSectorScope, ScanSectorResult, SectorDescriptor,
-    SharedDiskContext, WriteSectorResult,
-};
-use crate::flux::flux_revolution::FluxRevolution;
-use crate::flux::pll::{Pll, PllPreset};
-
-use crate::structure_parsers::system34::System34Standard;
-use crate::structure_parsers::DiskStructureMetadata;
-use crate::track::bitstream::BitStreamTrack;
-use crate::track::metasector::MetaSectorTrack;
 use crate::{
-    format_us, DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity,
-    DiskImageError, DiskRpm, SectorMapEntry,
+    bitstream::TrackDataStream,
+    diskimage::{
+        BitStreamTrackParams,
+        ReadSectorResult,
+        ReadTrackResult,
+        RwSectorScope,
+        ScanSectorResult,
+        SectorDescriptor,
+        SharedDiskContext,
+        WriteSectorResult,
+    },
+    flux::{
+        flux_revolution::FluxRevolution,
+        pll::{Pll, PllPreset},
+    },
+};
+
+use crate::{
+    format_us,
+    structure_parsers::{system34::System34Standard, DiskStructureMetadata},
+    track::{bitstream::BitStreamTrack, metasector::MetaSectorTrack},
+    DiskCh,
+    DiskChs,
+    DiskChsn,
+    DiskDataEncoding,
+    DiskDataRate,
+    DiskDataResolution,
+    DiskDensity,
+    DiskImageError,
+    DiskRpm,
+    SectorMapEntry,
 };
 use sha1_smol::Digest;
-use std::any::Any;
-use std::sync::{Arc, Mutex};
+use std::{
+    any::Any,
+    sync::{Arc, Mutex},
+};
 
 pub struct FluxStreamTrack {
     encoding: DiskDataEncoding,
@@ -61,7 +80,7 @@ pub struct FluxStreamTrack {
     density: DiskDensity,
     rpm: DiskRpm,
 
-    dirty: bool,
+    dirty:    bool,
     resolved: Option<BitStreamTrack>,
 
     shared: Option<Arc<Mutex<SharedDiskContext>>>,
@@ -384,14 +403,9 @@ impl FluxStreamTrack {
                     Some(hint)
                 }
                 None => {
-                    log::debug!(
-                        "decode_revolutions(): Revolution {}: Estimating clock by FT count: {}",
-                        i,
-                        ft_ct
-                    );
                     // Try to estimate base clock and rpm based on flux transition count.
                     // This is not perfect - we may need to adjust the clock later.
-                    match ft_ct {
+                    let base_clock_opt = match ft_ct {
                         20_000..41_666 => Some(2e-6),
                         50_000.. => Some(1e-6),
                         _ => {
@@ -402,7 +416,16 @@ impl FluxStreamTrack {
                             );
                             None
                         }
-                    }
+                    };
+
+                    log::debug!(
+                        "decode_revolutions(): Revolution {}: Estimating clock by FT count: {} Base clock: {:?}",
+                        i,
+                        ft_ct,
+                        base_clock_opt
+                    );
+
+                    base_clock_opt
                 }
             };
 
@@ -430,7 +453,13 @@ impl FluxStreamTrack {
 
             log::debug!("Base RPM after index time check is {:?}", base_rpm);
 
-            base_clock = if base_clock_opt.is_none() {
+            base_clock = if let Some(base_clock) = base_clock_opt {
+                // Handling the case of a double-density disk imaged in a 360 RPM drive is a pain.
+                // For now, let's assume that anything higher than a 1.5us base clock is double density,
+                // in which case we will adjust the clock by the relative RPM.
+                base_rpm.adjust_clock(base_clock)
+            }
+            else {
                 // Try to determine the base clock and RPM based on the revolution histogram.
                 let full_hist = revolution.histogram(1.0);
                 let base_transition_time_opt = revolution.base_transition_time(&full_hist);
@@ -451,9 +480,6 @@ impl FluxStreamTrack {
                     );
                     2e-6
                 }
-            }
-            else {
-                base_clock_opt.unwrap() * base_rpm.clock_multiplier()
             };
 
             // Create PLL and decode revolution.

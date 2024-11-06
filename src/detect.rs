@@ -24,14 +24,20 @@
 
     --------------------------------------------------------------------------
 */
-use crate::chs::DiskChs;
-use crate::containers::zip;
-use crate::containers::DiskImageContainer;
-use crate::file_parsers::{kryoflux::KfxFormat, ImageParser, IMAGE_FORMATS};
+use crate::{
+    chs::DiskChs,
+    containers::{zip, DiskImageContainer},
+    file_parsers::{kryoflux::KfxFormat, ImageParser, IMAGE_FORMATS},
+};
 
-use crate::io::ReadSeek;
-use crate::standard_format::StandardFormat;
-use crate::{DiskImageError, DiskImageFormat};
+use crate::{
+    containers::KryoFluxSet,
+    io::ReadSeek,
+    standard_format::StandardFormat,
+    util::natural_sort,
+    DiskImageError,
+    DiskImageFormat,
+};
 use std::path::PathBuf;
 
 /// Attempt to detect the format of a disk image. If the format cannot be determined, UnknownFormat is returned.
@@ -75,7 +81,8 @@ pub fn detect_image_format<T: ReadSeek>(image_io: &mut T) -> Result<DiskImageCon
                 }
 
                 return Err(DiskImageError::UnknownFormat);
-            } else if total_size > 5_000_000 {
+            }
+            else if total_size > 5_000_000 {
                 // Multiple files in the zip, of at least 5MB
                 // Get the file listing
 
@@ -86,24 +93,50 @@ pub fn detect_image_format<T: ReadSeek>(image_io: &mut T) -> Result<DiskImageCon
                     .map(|entry| PathBuf::from(&entry.name))
                     .collect();
 
-                // Get the first file in the listing with a 'raw' extension
-                let first_raw = path_vec
+                // Get all files that end in "00.0.raw" - should match the first file of any Kryoflux set.
+                let mut raw_files: Vec<_> = path_vec
                     .iter()
-                    .find(|&path| path.extension().unwrap_or_default() == "raw");
+                    .filter(|&path| {
+                        path.file_name()
+                            .and_then(|name| name.to_str())
+                            .map_or(false, |name| name.ends_with("00.0.raw"))
+                    })
+                    .collect();
 
-                if let Some(raw_path) = first_raw {
-                    log::debug!("Found .raw file in zip: {:?}", raw_path);
-                    let kryo_set = KfxFormat::expand_kryoflux_set(raw_path.clone(), Some(path_vec))?;
+                // Sort the matches, alphabetically. This is intended to match the first disk if
+                // a zip archive has multiple disks in it.
+                raw_files.sort_by(|a: &&PathBuf, b: &&PathBuf| natural_sort(a, b));
+                log::warn!("raw files: {:?}", raw_files);
+
+                let mut set_vec = Vec::new();
+                for file in raw_files {
+                    log::debug!("Found .raw file in zip: {:?}", file);
+                    let kryo_set = KfxFormat::expand_kryoflux_set(file.clone(), Some(path_vec.clone()))?;
                     log::debug!(
                         "Expanded to kryoflux set of {} files, geometry: {}",
                         kryo_set.0.len(),
                         kryo_set.1
                     );
 
-                    // We could assume we need at least 40 files to be a kryoflux set
-                    if kryo_set.0.len() > 39 {
-                        return Ok(DiskImageContainer::ZippedKryofluxSet(kryo_set.0, kryo_set.1));
+                    let path_to_set = file.parent().unwrap_or(&PathBuf::new()).to_path_buf();
+
+                    set_vec.push(KryoFluxSet {
+                        base_path: path_to_set.clone(),
+                        file_set:  kryo_set.0,
+                        geometry:  kryo_set.1,
+                    });
+                }
+
+                if !set_vec.is_empty() {
+                    for (si, set) in set_vec.iter().enumerate() {
+                        log::debug!(
+                            "Found Kryoflux set in archive at idx {}, path : {}",
+                            si,
+                            set.base_path.display()
+                        );
                     }
+
+                    return Ok(DiskImageContainer::ZippedKryofluxSet(set_vec));
                 }
             }
         }

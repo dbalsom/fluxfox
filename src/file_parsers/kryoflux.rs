@@ -34,17 +34,26 @@
 
 
 */
-use crate::diskimage::DiskDescriptor;
-use crate::file_parsers::{bitstream_flags, FormatCaps};
-use crate::io::{ReadBytesExt, ReadSeek, ReadWriteSeek};
-use crate::track::fluxstream::FluxStreamTrack;
-use crate::util::read_ascii;
-use crate::{format_us, io, DiskDataResolution, FoxHashSet, LoadingCallback};
 use crate::{
-    DiskCh, DiskDataEncoding, DiskImage, DiskImageError, DiskImageFormat, ParserWriteCompatibility, DEFAULT_SECTOR_SIZE,
+    diskimage::DiskDescriptor,
+    file_parsers::{bitstream_flags, FormatCaps},
+    format_us,
+    io,
+    io::{ReadBytesExt, ReadSeek, ReadWriteSeek},
+    track::fluxstream::FluxStreamTrack,
+    util::read_ascii,
+    DiskCh,
+    DiskDataEncoding,
+    DiskDataResolution,
+    DiskImage,
+    DiskImageError,
+    DiskImageFormat,
+    FoxHashSet,
+    LoadingCallback,
+    ParserWriteCompatibility,
+    DEFAULT_SECTOR_SIZE,
 };
-use binrw::binrw;
-use binrw::BinRead;
+use binrw::{binrw, BinRead};
 use std::path::{Path, PathBuf};
 
 pub const KFX_DEFAULT_MCK: f64 = ((18432000.0 * 73.0) / 14.0) / 2.0;
@@ -259,9 +268,11 @@ impl KfxFormat {
             let phase_err: Vec<f64> = plot_stats.iter().map(|point| point.phase_err).collect();
             let phase_err_i: Vec<f64> = plot_stats.iter().map(|point| point.phase_err_i).collect();
 
-            use plotly::common::{Line, Marker, Mode};
-            use plotly::layout::Axis;
-            use plotly::*;
+            use plotly::{
+                common::{Line, Marker, Mode},
+                layout::Axis,
+                *,
+            };
             let mut plot = Plot::new();
             let flux_times = Scatter::new(x.clone(), len.clone())
                 .mode(Mode::Markers)
@@ -334,8 +345,10 @@ impl KfxFormat {
             plot.add_trace(predicted_times);
             plot.add_trace(flux_times);
 
-            use plotly::color::Rgba;
-            use plotly::layout::{Shape, ShapeLayer, ShapeLine, ShapeType};
+            use plotly::{
+                color::Rgba,
+                layout::{Shape, ShapeLayer, ShapeLine, ShapeType},
+            };
 
             // // Create a list of shapes representing each PLL window
             // let shapes: Vec<Shape> = x
@@ -815,7 +828,7 @@ impl KfxFormat {
                     .iter()
                     .any(|f| *f.file_name().unwrap().to_ascii_lowercase() == *test_name)
                 {
-                    log::debug!("Found filename in set: {}", test_name);
+                    log::trace!("Found filename in set: {}", test_name);
 
                     if h > 0 {
                         h = h.wrapping_add(1)

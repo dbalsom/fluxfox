@@ -69,9 +69,11 @@ mod track;
 #[cfg(feature = "viz")]
 pub mod visualization;
 
-use std::fmt;
-use std::fmt::{Display, Formatter};
-use std::hash::RandomState;
+use std::{
+    fmt,
+    fmt::{Display, Formatter},
+    hash::RandomState,
+};
 
 use thiserror::Error;
 
@@ -95,7 +97,7 @@ type LoadingCallback = Box<dyn Fn(LoadingStatus) + Send + 'static>;
 
 #[derive(Debug, Error)]
 pub enum DiskImageError {
-    #[error("An IO error occurred reading or writing the disk image")]
+    #[error("An IO error occurred reading or writing the disk image: {0}")]
     IoError(String),
     #[error("A filesystem error occurred or path not found")]
     FsError,
@@ -127,6 +129,8 @@ pub enum DiskImageError {
     WriteProtectError,
     #[error("Flux track has not been resolved")]
     ResolveError,
+    #[error("An error occurred reading a multi-disk archive: {0}")]
+    MultiDiskError(String),
 }
 
 // Manually implement `From<io::Error>` for `DiskImageError`
@@ -447,20 +451,25 @@ impl DiskRpm {
     }
 
     #[inline]
-    pub fn clock_multiplier(&self) -> f64 {
-        match self {
-            DiskRpm::Rpm300 => 1.0,
-            DiskRpm::Rpm360 => 300.0 / 360.0,
+    pub fn adjust_clock(&self, base_clock: f64) -> f64 {
+        // Assume a base clock of 1.5us or greater is a double density disk.
+        if matches!(self, DiskRpm::Rpm360) && base_clock >= 1.5e-6 {
+            base_clock * (300.0 / 360.0)
+        }
+        else {
+            base_clock
         }
     }
 }
 
-pub use crate::chs::{DiskCh, DiskChs, DiskChsn};
-pub use crate::diskimage::{DiskImage, DiskImageFormat, SectorMapEntry};
-pub use crate::file_parsers::{format_from_ext, supported_extensions, ImageParser, ParserWriteCompatibility};
-pub use crate::image_builder::ImageBuilder;
-pub use crate::image_writer::ImageWriter;
-pub use crate::standard_format::StandardFormat;
-pub use crate::track::TrackConsistency;
+pub use crate::{
+    chs::{DiskCh, DiskChs, DiskChsn},
+    diskimage::{DiskImage, DiskImageFormat, SectorMapEntry},
+    file_parsers::{format_from_ext, supported_extensions, ImageParser, ParserWriteCompatibility},
+    image_builder::ImageBuilder,
+    image_writer::ImageWriter,
+    standard_format::StandardFormat,
+    track::TrackConsistency,
+};
 
 pub type DiskSectorMap = Vec<Vec<Vec<SectorMapEntry>>>;

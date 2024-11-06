@@ -30,18 +30,38 @@
     to images. Requires the 'vis' feature to be enabled.
 */
 
-use crate::bitstream::TrackDataStream;
-use crate::structure_parsers::system34::System34Element;
-use crate::structure_parsers::{DiskStructureElement, DiskStructureGenericElement, DiskStructureMetadata};
+use crate::{
+    bitstream::TrackDataStream,
+    structure_parsers::{
+        system34::System34Element,
+        DiskStructureElement,
+        DiskStructureGenericElement,
+        DiskStructureMetadata,
+    },
+};
 
-use crate::track::bitstream::BitStreamTrack;
-use crate::{DiskImage, DiskImageError, DiskVisualizationError, FoxHashMap};
+use crate::{track::bitstream::BitStreamTrack, DiskImage, DiskImageError, DiskVisualizationError, FoxHashMap};
 use bit_vec::BitVec;
-use std::cmp::min;
-use std::f32::consts::{PI, TAU};
+use std::{
+    cmp::min,
+    f32::consts::{PI, TAU},
+};
 use tiny_skia::{
-    BlendMode, Color, FillRule, GradientStop, LineCap, LineJoin, LinearGradient, Paint, PathBuilder, Pixmap, Point,
-    PremultipliedColorU8, Shader, SpreadMode, Stroke, Transform,
+    BlendMode,
+    Color,
+    FillRule,
+    GradientStop,
+    LineCap,
+    LineJoin,
+    LinearGradient,
+    Paint,
+    PathBuilder,
+    Pixmap,
+    Point,
+    PremultipliedColorU8,
+    SpreadMode,
+    Stroke,
+    Transform,
 };
 
 /// Parameter struct for

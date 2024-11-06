@@ -32,17 +32,31 @@
 
 */
 use crate::{DiskCh, DiskImageFormat};
-use std::fmt::{Display, Formatter, Result};
-use std::path::PathBuf;
+use std::{
+    fmt::{Display, Formatter, Result},
+    path::PathBuf,
+};
 
 #[cfg(feature = "zip")]
 pub mod zip;
 
 #[derive(Clone, Debug)]
+pub struct KryoFluxSet {
+    pub base_path: PathBuf,
+    pub file_set:  Vec<PathBuf>,
+    pub geometry:  DiskCh,
+}
+
+#[derive(Clone, Debug)]
 pub enum DiskImageContainer {
     Raw(DiskImageFormat),
     Zip(DiskImageFormat),
-    ZippedKryofluxSet(Vec<PathBuf>, DiskCh),
+    /// A set of Kryoflux images zipped together.
+    /// The outer vector represents the number of disks in the archive (the number of unique
+    /// paths found to a kryoflux .*00.0.raw file). It stores a tuple, the first element of which is
+    /// the path to the raw files, the second is a Vec containing the full path of all raws in that
+    /// set, and the third is the geometry of that set as DiskCh.
+    ZippedKryofluxSet(Vec<KryoFluxSet>),
     KryofluxSet,
 }
 
@@ -51,7 +65,7 @@ impl Display for DiskImageContainer {
         match self {
             DiskImageContainer::Raw(fmt) => write!(f, "{:?}", fmt),
             DiskImageContainer::Zip(fmt) => write!(f, "Zipped {:?}", fmt),
-            DiskImageContainer::ZippedKryofluxSet(_, _) => write!(f, "Zipped Kryoflux Image Set"),
+            DiskImageContainer::ZippedKryofluxSet(_) => write!(f, "Zipped Kryoflux Image Set"),
             DiskImageContainer::KryofluxSet => write!(f, "Kryoflux Image Set"),
         }
     }

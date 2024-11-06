@@ -24,14 +24,14 @@
 
     --------------------------------------------------------------------------
 */
-use crate::app::{AppEvent, ApplicationState};
-use crate::components::data_block::DataBlock;
-use crate::disk_selection::DiskSelection;
+use crate::{
+    app::{AppEvent, ApplicationState},
+    components::data_block::DataBlock,
+    disk_selection::DiskSelection,
+};
 use crossbeam_channel::Sender;
 use fluxfox::DiskImage;
-use std::cell::RefCell;
-use std::path::PathBuf;
-use std::rc::Rc;
+use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
 // Contain mutable data for App
 // This avoids borrowing issues when passing the mutable context to the command processor
@@ -53,6 +53,7 @@ impl AppContext {
 
             match DiskImage::load_from_file(
                 inner_filename,
+                None,
                 Some(Box::new(move |status| match status {
                     fluxfox::LoadingStatus::Progress(progress) => {
                         inner_sender.send(AppEvent::LoadingStatus(progress)).unwrap();

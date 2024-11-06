@@ -33,26 +33,30 @@ mod args;
 mod render;
 mod text;
 
-use std::collections::HashMap;
-use std::io::Write;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Instant;
+use std::{
+    collections::HashMap,
+    io::Write,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+    thread,
+    time::Instant,
+};
 
 use bpaf::*;
 use crossbeam::channel;
 use tiny_skia::{BlendMode, Color, FilterQuality, Pixmap, PixmapPaint, Transform};
 
-use fluxfox::structure_parsers::DiskStructureGenericElement;
-use fluxfox::visualization::ResolutionType;
-use fluxfox::visualization::RotationDirection;
-use fluxfox::visualization::{render_track_metadata_quadrant, RenderTrackMetadataParams};
-use fluxfox::DiskImage;
+use fluxfox::{
+    structure_parsers::DiskStructureGenericElement,
+    visualization::{render_track_metadata_quadrant, RenderTrackMetadataParams, ResolutionType, RotationDirection},
+    DiskImage,
+};
 
-use crate::args::{parse_color, substitute_title};
-use crate::render::render_side;
-use crate::text::{calculate_scaled_font_size, create_font, measure_text, render_text, Justification};
+use crate::{
+    args::{parse_color, substitute_title},
+    render::render_side,
+    text::{calculate_scaled_font_size, create_font, measure_text, render_text, Justification},
+};
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -238,7 +242,7 @@ fn main() {
     println!("Reading disk image: {}", opts.in_filename.display());
     println!("Detected disk image type: {}", disk_image_type);
 
-    let disk = match DiskImage::load(&mut reader, Some(opts.in_filename), None) {
+    let disk = match DiskImage::load(&mut reader, Some(opts.in_filename), None, None) {
         Ok(disk) => disk,
         Err(e) => {
             eprintln!("Error loading disk image: {}", e);
@@ -440,9 +444,9 @@ fn main() {
 
                 let paint = match opts.data {
                     true => PixmapPaint {
-                        opacity: 1.0,
+                        opacity:    1.0,
                         blend_mode: BlendMode::HardLight,
-                        quality: FilterQuality::Nearest,
+                        quality:    FilterQuality::Nearest,
                     },
                     false => PixmapPaint::default(),
                 };

@@ -26,12 +26,9 @@
 */
 pub mod args;
 
-use crate::args::GlobalOptions;
-use crate::prompt;
-use crate::read_file;
+use crate::{args::GlobalOptions, prompt, read_file};
 use anyhow::{bail, Error};
-use fluxfox::diskimage::DiskImageFlags;
-use fluxfox::{format_from_ext, DiskImage, ImageParser, ParserWriteCompatibility};
+use fluxfox::{diskimage::DiskImageFlags, format_from_ext, DiskImage, ImageParser, ParserWriteCompatibility};
 use std::io::Cursor;
 
 pub(crate) fn run(global: &GlobalOptions, params: args::ConvertParams) -> Result<(), Error> {
@@ -73,7 +70,7 @@ pub(crate) fn run(global: &GlobalOptions, params: args::ConvertParams) -> Result
     //std::process::exit(0);
 
     // Load disk image
-    let mut in_disk = match DiskImage::load(&mut reader, Some(params.in_file.clone()), None) {
+    let mut in_disk = match DiskImage::load(&mut reader, Some(params.in_file.clone()), None, None) {
         Ok(disk) => disk,
         Err(e) => {
             bail!("Error loading disk image: {}", e);

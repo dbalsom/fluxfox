@@ -27,13 +27,10 @@
 pub(crate) mod args;
 
 use anyhow::{bail, Error};
-use std::io::BufWriter;
-use std::io::Write;
+use std::io::{BufWriter, Write};
 
-use crate::args::GlobalOptions;
-use crate::read_file;
-use fluxfox::diskimage::RwSectorScope;
-use fluxfox::{DiskCh, DiskChs, DiskChsn, DiskImage};
+use crate::{args::GlobalOptions, read_file};
+use fluxfox::{diskimage::RwSectorScope, DiskCh, DiskChs, DiskChsn, DiskImage};
 
 pub(crate) fn run(global: &GlobalOptions, params: args::DumpParams) -> Result<(), Error> {
     let row_size = params.row_size.unwrap_or(16) as usize;
@@ -51,7 +48,7 @@ pub(crate) fn run(global: &GlobalOptions, params: args::DumpParams) -> Result<()
         println!("Detected disk image type: {}", disk_image_type);
     }
 
-    let mut disk = match DiskImage::load(&mut cursor, Some(params.in_file.clone()), None) {
+    let mut disk = match DiskImage::load(&mut cursor, Some(params.in_file.clone()), None, None) {
         Ok(disk) => disk,
         Err(e) => {
             eprintln!("Error loading disk image: {}", e);
