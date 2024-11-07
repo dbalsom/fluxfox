@@ -27,17 +27,15 @@
 
 //! # fluxfox
 //!
-//! fluxfox is a Rust library for reading, writing, and manipulating disk images of the kind used
-//! with vintage IBM Personal Computers, compatibles, and emulators thereof.
+//! fluxfox is a library crate for reading, writing, and manipulating floppy disk images of the
+//! kind used with vintage IBM Personal Computers and compatibles.
 //!
-//! It is primarily designed for emulator authors who may be writing a PC emulator in Rust and would
+//! fluxfox is primarily designed for emulator authors who may be writing a PC emulator and would
 //! like to support disk images in a variety of formats, however it can be used for visualization,
-//! dumping, editing, conversion, and other disk image tasks.
+//! dumping, editing, and other disk image tasks.
 //!
 //! fluxfox currently supports several different disk image formats, both modern and vintage, of
-//! bitstream and sector-based resolution. Internally, fluxfox disk images can exist as either
-//! byte or bit representations, and up-conversion is possible depending on the format and sector
-//! encoding.
+//! flux, bitstream and sector-based resolution.
 //!
 //! The main interface to fluxfox is via a [`DiskImage`] object, which can be created by loading
 //! a disk image file, or by creating a new disk image from scratch.
