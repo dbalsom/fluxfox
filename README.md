@@ -2,6 +2,8 @@
 
 # fluxfox
 
+[![Crate Badge]][Crate] [![Docs Badge]][API Docs] [![Deps.rs Badge]][Deps.rs] [![License Badge]](./LICENSE)
+
 A floppy disk image library for PC emulators
 
 **This library is under heavy initial development. The API is incredibly unstable, the internal disk representation
@@ -151,7 +153,8 @@ you can add `fluxfox=error` to your `RUST_LOG` environment variable to limit out
 ## Image Editing
 
 I'm working on a basic disk editor, called ffedit, powered by fluxfox's API.
-ffedit is a TUI application, using [Ratatui](ratatui.rs) for its interface. This editor is in very early stages.
+ffedit is a TUI application, using [Ratatui](https://github.com/ratatui/ratatui) for its interface. This editor is in
+very early stages.
 
 ![image](doc/img/ffedit_01.png)
 
