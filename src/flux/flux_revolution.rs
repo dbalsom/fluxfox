@@ -24,9 +24,15 @@
 
     --------------------------------------------------------------------------
 */
-use crate::flux::pll::{Pll, PllDecodeStatEntry};
-use crate::flux::{FluxStats, FluxTransition};
-use crate::{DiskCh, DiskDataEncoding};
+use crate::{
+    flux::{
+        pll::{Pll, PllDecodeStatEntry},
+        FluxStats,
+        FluxTransition,
+    },
+    DiskCh,
+    DiskDataEncoding,
+};
 use bit_vec::BitVec;
 use histogram::{Bucket, Histogram};
 use std::cmp::Ordering;
@@ -41,35 +47,57 @@ pub enum FluxRevolutionType {
     Synthetic,
 }
 
+/// A struct containing statistics about a flux revolution.
 pub struct FluxRevolutionStats {
+    /// The type of revolution.
     pub rev_type: FluxRevolutionType,
+    /// The data encoding detected for the revolution.
     pub encoding: DiskDataEncoding,
+    /// The data rate of the revolution in bits per second.
     pub data_rate: f64,
+    /// The time taken to read the revolution in seconds.
     pub index_time: f64,
+    /// The number of flux transitions in the revolution.
     pub ft_ct: usize,
+    /// The number of bits decoded from the revolution.
     pub bitcell_ct: usize,
+    /// The duration of the first flux transition in the revolution.
     pub first_ft: f64,
+    /// The duration of the last flux transition in the revolution.
     pub last_ft: f64,
 }
 
+/// A struct representing one revolution of a fluxstream track.
 pub struct FluxRevolution {
+    /// The type of revolution.
     pub rev_type: FluxRevolutionType,
+    /// The physical cylinder and head of the revolution.
     pub ch: DiskCh,
+    /// The data rate of the revolution in bits per second, or None if not determined.
     pub data_rate: Option<f64>,
+    /// The time taken to read the revolution in seconds.
     pub index_time: f64,
+    /// The list of times between flux transitions, in seconds.
     pub flux_deltas: Vec<f64>,
+    /// The list of transitions decoded from the flux deltas as `FluxTransition` enums.
     pub transitions: Vec<FluxTransition>,
+    /// The bitstream decoded from the flux deltas.
     pub bitstream: BitVec,
+    /// The bit errors found in the bitstream.
     pub biterrors: BitVec,
+    /// The data encoding detected for the revolution.
     pub encoding: DiskDataEncoding,
+    /// Statistics from the PLL decoding process.
     pub pll_stats: Vec<PllDecodeStatEntry>,
 }
 
 impl FluxRevolution {
+    /// Retrieve the data encoding detected for the revolution.
     pub fn encoding(&self) -> DiskDataEncoding {
         self.encoding
     }
 
+    /// Retrieve statistics about a decoded revolution.
     pub fn stats(&self) -> FluxRevolutionStats {
         let computed_data_rate = self.bitstream.len() as f64 * (1.0 / self.index_time);
         FluxRevolutionStats {
@@ -84,6 +112,7 @@ impl FluxRevolution {
         }
     }
 
+    /// Create a new `FluxRevolution` from a list of durations between flux transitions in seconds.
     pub fn from_f64(ch: DiskCh, deltas: &[f64], index_time: f64) -> Self {
         FluxRevolution {
             rev_type: FluxRevolutionType::Source,
@@ -99,6 +128,8 @@ impl FluxRevolution {
         }
     }
 
+    /// Create a new `FluxRevolution` from a list of durations between flux transitions, given
+    /// in integer ticks of the provided clock period `timebase`.
     pub fn from_u16(ch: DiskCh, data: &[u16], index_time: f64, timebase: f64) -> Self {
         log::debug!("FluxRevolution::from_u16(): Using timebase of {:.3}ns", timebase * 1e9);
         let mut new = FluxRevolution {
@@ -129,6 +160,8 @@ impl FluxRevolution {
         new
     }
 
+    /// Create new synthetic `FluxRevolution`s from a pair of adjacent revolutions.
+    /// Fluxes are shifted from one revolution to another to correct for index jitter.
     pub(crate) fn from_adjacent_pair(first: &FluxRevolution, second: &FluxRevolution) -> Vec<FluxRevolution> {
         let mut new_revolutions = Vec::new();
 
@@ -221,15 +254,18 @@ impl FluxRevolution {
         new_revolutions
     }
 
+    /// Retrieve the number of flux transitions in this revolution.
     pub(crate) fn ft_ct(&self) -> usize {
         self.flux_deltas.len()
     }
 
+    /// Retrieve the vector of `PllDecodeStatEntry` structs from the PLL decoding process.
     #[allow(dead_code)]
     pub(crate) fn pll_stats(&self) -> &Vec<PllDecodeStatEntry> {
         &self.pll_stats
     }
 
+    /// Locate local maxima in a histogram by bucket.
     fn find_local_maxima(hist: &Histogram) -> Vec<(u64, std::ops::RangeInclusive<u64>)> {
         let mut peaks = vec![];
         let mut previous_bucket: Option<Bucket> = None;
@@ -254,6 +290,7 @@ impl FluxRevolution {
         peaks
     }
 
+    /// Attempt to calculate the base (short) transition time from a histogram.
     pub fn base_transition_time(&self, hist: &Histogram) -> Option<f64> {
         let peaks = Self::find_local_maxima(hist);
 
@@ -269,6 +306,7 @@ impl FluxRevolution {
         Some(range_median as f64 / 1_000_000_000.0)
     }
 
+    /// Produce a Histogram over a percentage of the flux deltas in the revolution.
     pub fn histogram(&self, percent: f32) -> Histogram {
         // from docs:
         // grouping_power should be set such that 2^(-1 * grouping_power) is an acceptable relative error.
@@ -301,11 +339,10 @@ impl FluxRevolution {
         }
 
         //Self::print_horizontal_histogram_with_labels(&hist, 16);
-
         hist
     }
 
-    /// Debugging function to print a historgram in ASCII.
+    /// Debugging function to print a histogram in ASCII.
     #[allow(dead_code)]
     fn print_horizontal_histogram_with_labels(hist: &Histogram, height: usize) {
         let mut max_count = 0;
@@ -357,6 +394,8 @@ impl FluxRevolution {
         self.transitions.len()
     }
 
+    /// Retrieve the average time between flux transitions in seconds for the entire revolution.
+    /// Note: this value is probably not reliable for determining any specific heuristics.
     pub fn transition_avg(&self) -> f64 {
         let mut t_sum = 0.0;
         let mut t_ct = 0;
@@ -422,6 +461,7 @@ impl FluxRevolution {
         decode_result.flux_stats
     }
 
+    /// Create an iterator over the flux delta times in a revolution.
     pub fn delta_iter(&self) -> std::slice::Iter<f64> {
         self.flux_deltas.iter()
     }
