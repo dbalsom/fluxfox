@@ -8,6 +8,7 @@ license = "MIT"
 
 [package]
 name = "fluxfox"
+description = "A library crate for working with floppy disk images for the IBM PC and compatibles."
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
