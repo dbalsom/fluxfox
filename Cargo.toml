@@ -16,7 +16,6 @@ readme = "README.md"
 keywords.workspace = true
 repository.workspace = true
 license.workspace = true
-license-file = "LICENSE"
 
 [dependencies]
 bit-vec = "0.8"

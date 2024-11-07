@@ -8,7 +8,6 @@ readme = "README.md"
 keywords.workspace = true
 repository.workspace = true
 license = "MIT"
-license-file = "LICENSE"
 
 [dependencies]
 fluxfox = { path = "../.." }
