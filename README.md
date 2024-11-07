@@ -2,7 +2,7 @@
 
 # fluxfox
 
-[![Crate Badge]][Crate] [![Docs Badge]][API Docs] [![Deps.rs Badge]][Deps.rs] [![License Badge]](./LICENSE)
+[![Crate Badge]][Crate] [![Docs Badge]][Docs] [![Deps.rs Badge]][Deps.rs] [![License Badge]](./LICENSE)
 
 A floppy disk image library for PC emulators
 
@@ -203,3 +203,16 @@ Run with the `-h` parameter to see more command-line options.
 
 An example visualization is shown at the top of this README.
 
+[Crate]: https://crates.io/crates/fluxfox
+
+[Crate Badge]: https://img.shields.io/crates/v/fluxfox?logo=rust&style=flat-square&logoColor=E05D44&color=E05D44
+
+[License Badge]: https://img.shields.io/crates/l/fluxfox?style=flat-square&color=1370D3
+
+[Docs]: https://docs.rs/fluxfox
+
+[Docs Badge]: https://img.shields.io/docsrs/fluxfox?logo=rust&style=flat-square&logoColor=E05D44
+
+[Deps.rs]: https://deps.rs/repo/github/dbalsom/fluxfox
+
+[Deps.rs Badge]: https://deps.rs/repo/github/dbalsom/fluxfox/status.svg?style=flat-square
