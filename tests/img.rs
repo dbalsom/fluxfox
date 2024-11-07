@@ -1,7 +1,7 @@
 mod common;
 
 use common::*;
-use fluxfox::{DiskImage, DiskImageFormat, ImageParser};
+use fluxfox::{DiskImage, DiskImageFileFormat, ImageParser};
 
 #[test]
 fn test_img() {
@@ -10,14 +10,14 @@ fn test_img() {
     let disk_image_buf = std::fs::read(".\\tests\\images\\Transylvania.img").unwrap();
     let mut in_buffer = Cursor::new(disk_image_buf);
 
-    let mut img_image = DiskImage::load(&mut in_buffer, None, None).unwrap();
+    let mut img_image = DiskImage::load(&mut in_buffer, None, None, None).unwrap();
 
     let geometry = img_image.image_format().geometry;
 
     println!("Loaded IMG of geometry {}...", geometry);
 
     let mut out_buffer = Cursor::new(Vec::new());
-    let fmt = DiskImageFormat::RawSectorImage;
+    let fmt = DiskImageFileFormat::RawSectorImage;
 
     fmt.save_image(&mut img_image, &mut out_buffer).unwrap();
 

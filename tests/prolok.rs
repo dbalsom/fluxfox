@@ -1,7 +1,6 @@
 mod common;
 
-use fluxfox::diskimage::RwSectorScope;
-use fluxfox::{DiskCh, DiskChs, DiskImage, DiskImageError};
+use fluxfox::{diskimage::RwSectorScope, DiskCh, DiskChs, DiskImage, DiskImageError};
 
 fn init() {
     let _ = env_logger::builder().is_test(true).try_init();
@@ -15,7 +14,7 @@ fn test_prolok() {
     let disk_image_buf = std::fs::read(".\\tests\\images\\tc\\catprot.tc").unwrap();
     let mut in_buffer = Cursor::new(disk_image_buf);
 
-    let mut tc_image = DiskImage::load(&mut in_buffer, None, None).unwrap();
+    let mut tc_image = DiskImage::load(&mut in_buffer, None, None, None).unwrap();
 
     println!(
         "Loaded TransCopy image of geometry {}...",

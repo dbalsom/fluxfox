@@ -1,6 +1,6 @@
 mod common;
 
-use fluxfox::{DiskImage, DiskImageFormat, ImageParser};
+use fluxfox::{DiskImage, DiskImageFileFormat, ImageParser};
 
 fn init() {
     let _ = env_logger::builder().is_test(true).try_init();
@@ -14,12 +14,12 @@ fn test_86f_write() {
     let disk_image_buf = std::fs::read(".\\tests\\images\\Transylvania.86f").unwrap();
     let mut in_buffer = Cursor::new(disk_image_buf);
 
-    let mut f86_image = DiskImage::load(&mut in_buffer, None, None).unwrap();
+    let mut f86_image = DiskImage::load(&mut in_buffer, None, None, None).unwrap();
 
     println!("Loaded 86F image of geometry {}...", f86_image.image_format().geometry);
 
     let mut out_buffer = Cursor::new(Vec::new());
-    let fmt = DiskImageFormat::F86Image;
+    let fmt = DiskImageFileFormat::F86Image;
 
     match fmt.save_image(&mut f86_image, &mut out_buffer) {
         Ok(_) => println!("Saved 86F image."),

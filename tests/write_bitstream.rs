@@ -1,7 +1,6 @@
 mod common;
 
-use fluxfox::diskimage::RwSectorScope;
-use fluxfox::{DiskCh, DiskChs, DiskImage, DiskImageError};
+use fluxfox::{diskimage::RwSectorScope, DiskCh, DiskChs, DiskImage, DiskImageError};
 
 #[test]
 fn test_bitstream_write() {
@@ -10,7 +9,7 @@ fn test_bitstream_write() {
     let disk_image_buf = std::fs::read(".\\tests\\images\\Transylvania.86f").unwrap();
     let mut in_buffer = Cursor::new(disk_image_buf);
 
-    let mut f86_image = DiskImage::load(&mut in_buffer, None, None).unwrap();
+    let mut f86_image = DiskImage::load(&mut in_buffer, None, None, None).unwrap();
 
     println!("Loaded 86F image of geometry {}...", f86_image.image_format().geometry);
 

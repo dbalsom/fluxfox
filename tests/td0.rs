@@ -1,7 +1,7 @@
 mod common;
 
 use common::*;
-use fluxfox::{DiskImage, DiskImageFormat, ImageParser};
+use fluxfox::{DiskImage, DiskImageFileFormat, ImageParser};
 
 #[test]
 fn test_td0() {
@@ -10,13 +10,13 @@ fn test_td0() {
     let disk_image_buf = std::fs::read(".\\tests\\images\\Transylvania.td0").unwrap();
     let mut in_buffer = Cursor::new(disk_image_buf);
 
-    let mut img_image = DiskImage::load(&mut in_buffer, None, None).unwrap();
+    let mut img_image = DiskImage::load(&mut in_buffer, None, None, None).unwrap();
 
     println!("Loaded TD0 image of geometry {}...", img_image.image_format().geometry);
 
     let mut out_buffer = Cursor::new(Vec::new());
 
-    let fmt = DiskImageFormat::RawSectorImage;
+    let fmt = DiskImageFileFormat::RawSectorImage;
     fmt.save_image(&mut img_image, &mut out_buffer).unwrap();
 
     //let in_inner: Vec<u8> = in_buffer.into_inner();
