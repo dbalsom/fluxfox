@@ -4,6 +4,8 @@ edition = "2021"
 authors = ["Daniel Balsom"]
 keywords = ["emulation", "ibm", "floppy", "disk"]
 repository = "https://github.com/dbalsom/fluxfox"
+license = "MIT"
+license-file = "LICENSE"
 
 [package]
 name = "fluxfox"
