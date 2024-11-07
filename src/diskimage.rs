@@ -89,7 +89,9 @@ bitflags! {
 /// with containers that contain multiple disk images.
 #[derive(Clone, Debug)]
 pub enum DiskSelection {
+    /// Specify a disk image by index into a list of normally sorted path names within the container.
     Index(usize),
+    /// Specify a disk image by path within the container.
     Path(PathBuf),
 }
 
@@ -106,18 +108,31 @@ impl Display for DiskSelection {
 /// read or written by FluxFox.
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub enum DiskImageFileFormat {
+    /// A raw sector image. Typically, has extensions IMG, IMA, DSK.
     RawSectorImage,
+    /// An ImageDisk sector image. Typically has extension IMD.
     ImageDisk,
-    PceSectorImage,    // PSI
-    PceBitstreamImage, // PRI
-    PceFluxImage,      // PFI
+    /// A PCE sector image. Typically, has extension PSI.
+    PceSectorImage,
+    /// A PCE bitstream image. Typically, has extension PRI,
+    PceBitstreamImage,
+    /// A PCE flux stream image. Typically, has extension PFI.
+    PceFluxImage,
+    /// An MFM bitstream image. Typically, has extension MFM.
     MfmBitstreamImage,
+    /// A TeleDisk sector image. Typically, has extension TD0.
     TeleDisk,
+    /// A Kryoflux flux stream image. Typically, has extension RAW.
     KryofluxStream,
+    /// An HFEv1 bitstream image. Typically, has extension HFE.
     HfeImage,
-    F86Image, // 86F
+    /// An 86F bitstream image. Typically, has extension 86F.
+    F86Image,
+    /// A TransCopy bitstream image. Typically, has extension TC.
     TransCopyImage,
+    /// A SuperCard Pro flux stream image. Typically, has extension SCP.
     SuperCardPro,
+    /// A MAME floppy image. Typically, has extension MFI.
     MameFloppyImage,
 }
 
