@@ -23,8 +23,9 @@ tests/images/*
 *.jpg
 *.csv
 
-# scripts
+# scripts, except for published utilies in /scripts
 *.py
+!/scripts/*
 
 # Allow doc images
 !/doc/img/*
