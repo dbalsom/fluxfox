@@ -32,23 +32,35 @@
 use super::{Track, TrackConsistency, TrackInfo};
 
 use crate::diskimage::{
-    ReadSectorResult, ReadTrackResult, RwSectorScope, ScanSectorResult, SectorDescriptor, SharedDiskContext,
+    ReadSectorResult,
+    ReadTrackResult,
+    RwSectorScope,
+    ScanSectorResult,
+    SectorDescriptor,
+    SharedDiskContext,
     WriteSectorResult,
 };
 
-use crate::structure_parsers::system34::System34Standard;
-use crate::structure_parsers::DiskStructureMetadata;
+use crate::structure_parsers::{system34::System34Standard, DiskStructureMetadata};
 
-use crate::bitstream::TrackDataStream;
-use crate::track::bitstream::BitStreamTrack;
-use crate::track::fluxstream::FluxStreamTrack;
 use crate::{
-    DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskImageError, FoxHashSet,
+    bitstream::TrackDataStream,
+    track::{bitstream::BitStreamTrack, fluxstream::FluxStreamTrack},
+    DiskCh,
+    DiskChs,
+    DiskChsn,
+    DiskDataEncoding,
+    DiskDataRate,
+    DiskDataResolution,
+    DiskImageError,
+    FoxHashSet,
     SectorMapEntry,
 };
 use sha1_smol::Digest;
-use std::any::Any;
-use std::sync::{Arc, Mutex};
+use std::{
+    any::Any,
+    sync::{Arc, Mutex},
+};
 
 struct SectorMatch<'a> {
     pub(crate) sectors: Vec<&'a MetaSector>,
@@ -70,6 +82,7 @@ impl SectorMatch<'_> {
 
 struct SectorMatchMut<'a> {
     pub(crate) sectors: Vec<&'a mut MetaSector>,
+    #[allow(dead_code)]
     pub(crate) sizes: Vec<u8>,
     pub(crate) wrong_cylinder: bool,
     pub(crate) bad_cylinder: bool,

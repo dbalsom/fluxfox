@@ -237,7 +237,7 @@ impl Pll {
         let max_clock = self.working_period + (self.working_period * self.max_adjust);
         self.working_period = self.pll_period;
 
-        let p_term = self.pll_period * self.phase_gain;
+        //let p_term = self.pll_period * self.phase_gain;
 
         let mut flux_stats = FluxStats {
             total: stream.flux_deltas.len() as u32,
@@ -367,8 +367,7 @@ impl Pll {
             // have arrived assuming no clock deviation since last flux.
 
             //let predicted_flux_time = last_flux_time + (clock_ticks_since_flux as f64 * self.pll_clock);
-            let predicted_flux_time =
-                last_flux_time + phase_adjust + (clock_ticks_since_flux as f64 * self.working_period);
+            //let predicted_flux_time = last_flux_time + phase_adjust + (clock_ticks_since_flux as f64 * self.working_period);
 
             // The error is the difference between the actual flux time and the predicted flux time.
             //let phase_error = next_flux_time - predicted_flux_time;
@@ -413,7 +412,7 @@ impl Pll {
             // If the phase_error_delta remains low, the clock is accurate, and it is the phase that
             // needs to be adjusted. If phase_error_delta is high, we need to adjust the clock more.
             //
-            let phase_delta_error = phase_error - last_phase_error;
+            //let phase_delta_error = phase_error - last_phase_error;
 
             // The idea of taking the smallest magnitude phase error from the last two fluxes is that
             // if one flux is well-centered, we have more of a clock problem than a phase

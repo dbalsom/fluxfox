@@ -978,6 +978,7 @@ impl DiskImage {
     }
 
     // TODO: Fix this, it doesn't handle nonconsecutive sectors
+    #[allow(deprecated)]
     pub fn next_sector_on_track(&self, chs: DiskChs) -> Option<DiskChs> {
         let ti = self.track_map[chs.h() as usize][chs.c() as usize];
         let track = &self.track_pool[ti];
