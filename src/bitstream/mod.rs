@@ -28,8 +28,11 @@
 pub mod fm;
 pub mod mfm;
 
-use crate::io::{Read, Seek};
-use crate::{DiskDataEncoding, EncodingPhase};
+use crate::{
+    io::{Read, Seek},
+    DiskDataEncoding,
+    EncodingPhase,
+};
 use bit_vec::BitVec;
 use std::ops::Index;
 
@@ -62,7 +65,7 @@ pub trait TrackCodec {
     fn find_marker(&self, marker: u64, mask: Option<u64>, start: usize, limit: Option<usize>) -> Option<(usize, u16)>;
 
     fn set_data_ranges(&mut self, ranges: Vec<(usize, usize)>);
-    fn is_data(&self, index: usize) -> bool;
+    fn is_data(&self, index: usize, wrapping: bool) -> bool;
     fn debug_marker(&self, index: usize) -> String;
     fn debug_decode(&self, index: usize) -> String;
 }

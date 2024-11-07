@@ -29,11 +29,14 @@
     Implements a wrapper around a BitVec to provide FM encoding and decoding.
 
 */
-use crate::bitstream::{EncodingVariant, TrackCodec, TrackDataStreamT};
-use crate::diskimage::TrackRegion;
-use crate::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom};
-use crate::range_check::RangeChecker;
-use crate::{DiskDataEncoding, EncodingPhase};
+use crate::{
+    bitstream::{EncodingVariant, TrackCodec, TrackDataStreamT},
+    diskimage::TrackRegion,
+    io::{Error, ErrorKind, Read, Result, Seek, SeekFrom},
+    range_check::RangeChecker,
+    DiskDataEncoding,
+    EncodingPhase,
+};
 use bit_vec::BitVec;
 use std::ops::Index;
 
@@ -62,6 +65,7 @@ pub struct FmCodec {
     bit_cursor: usize,
     track_padding: usize,
     data_ranges: RangeChecker,
+    data_ranges_filtered: RangeChecker,
 }
 
 pub enum FmEncodingType {
@@ -369,11 +373,25 @@ impl TrackCodec for FmCodec {
     }
 
     fn set_data_ranges(&mut self, ranges: Vec<(usize, usize)>) {
+        // Don't set ranges for overlapping sectors. This avoids visual discontinuities during
+        // visualization.
+        let filtered_ranges = ranges
+            .iter()
+            .filter(|(start, end)| !(*start >= self.bit_vec.len() || *end >= self.bit_vec.len()))
+            .map(|(start, end)| (*start, *end))
+            .collect::<Vec<(usize, usize)>>();
+
+        self.data_ranges_filtered = RangeChecker::new(filtered_ranges);
         self.data_ranges = RangeChecker::new(ranges);
     }
 
-    fn is_data(&self, index: usize) -> bool {
-        self.data_ranges.contains(index)
+    fn is_data(&self, index: usize, wrapping: bool) -> bool {
+        if wrapping {
+            self.data_ranges.contains(index)
+        }
+        else {
+            self.data_ranges_filtered.contains(index)
+        }
     }
 
     fn debug_marker(&self, index: usize) -> String {
@@ -425,6 +443,7 @@ impl FmCodec {
             bit_cursor: sync,
             track_padding: 0,
             data_ranges: Default::default(),
+            data_ranges_filtered: Default::default(),
         }
     }
 
@@ -597,7 +616,7 @@ impl FmCodec {
                 if zero_ct >= run {
                     regions.push(TrackRegion {
                         start: region_start,
-                        end: i - 1,
+                        end:   i - 1,
                     });
                 }
                 zero_ct = 0;

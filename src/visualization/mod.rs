@@ -284,7 +284,7 @@ pub fn render_track_data(
                             let decoded_bit_idx = (bit_index) & !0xF;
                             let decode_override = p.decode
                                 && !rmetadata[track_index].items.is_empty()
-                                && rtracks[track_index].is_data(decoded_bit_idx);
+                                && rtracks[track_index].is_data(decoded_bit_idx, false);
 
                             let byte_value = match decode_override {
                                 false => rtracks[track_index].read_raw_byte(bit_index).unwrap_or_default(),

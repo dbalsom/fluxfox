@@ -32,12 +32,15 @@
 
 use std::ops::Index;
 
-use crate::bit_ring::BitRing;
-use crate::bitstream::{EncodingVariant, TrackCodec, TrackDataStreamT};
-use crate::diskimage::TrackRegion;
-use crate::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom};
-use crate::range_check::RangeChecker;
-use crate::{DiskDataEncoding, EncodingPhase};
+use crate::{
+    bit_ring::BitRing,
+    bitstream::{EncodingVariant, TrackCodec, TrackDataStreamT},
+    diskimage::TrackRegion,
+    io::{Error, ErrorKind, Read, Result, Seek, SeekFrom},
+    range_check::RangeChecker,
+    DiskDataEncoding,
+    EncodingPhase,
+};
 use bit_vec::BitVec;
 
 pub const MFM_BYTE_LEN: usize = 16;
@@ -60,6 +63,7 @@ pub struct MfmCodec {
     bit_cursor: usize,
     track_padding: usize,
     data_ranges: RangeChecker,
+    data_ranges_filtered: RangeChecker,
 }
 
 pub fn get_mfm_sync_offset(track: &BitVec) -> Option<EncodingPhase> {
@@ -349,11 +353,25 @@ impl TrackCodec for MfmCodec {
     }
 
     fn set_data_ranges(&mut self, ranges: Vec<(usize, usize)>) {
+        // Don't set ranges for overlapping sectors. This avoids visual discontinuities during
+        // visualization.
+        let filtered_ranges = ranges
+            .iter()
+            .filter(|(start, end)| !(*start >= self.bits.len() || *end >= self.bits.len()))
+            .map(|(start, end)| (*start, *end))
+            .collect::<Vec<(usize, usize)>>();
+
+        self.data_ranges_filtered = RangeChecker::new(filtered_ranges);
         self.data_ranges = RangeChecker::new(ranges);
     }
 
-    fn is_data(&self, index: usize) -> bool {
-        self.data_ranges.contains(index)
+    fn is_data(&self, index: usize, wrapping: bool) -> bool {
+        if wrapping {
+            self.data_ranges.contains(index)
+        }
+        else {
+            self.data_ranges_filtered.contains(index)
+        }
     }
 
     fn debug_marker(&self, index: usize) -> String {
@@ -405,6 +423,7 @@ impl MfmCodec {
             bit_cursor: sync,
             track_padding: 0,
             data_ranges: Default::default(),
+            data_ranges_filtered: Default::default(),
         }
     }
 
@@ -515,7 +534,7 @@ impl MfmCodec {
                 if zero_ct >= run {
                     regions.push(TrackRegion {
                         start: region_start,
-                        end: i - 1,
+                        end:   i - 1,
                     });
                 }
                 zero_ct = 0;
