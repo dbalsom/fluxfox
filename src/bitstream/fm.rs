@@ -35,7 +35,6 @@ use crate::{
     io::{Error, ErrorKind, Read, Result, Seek, SeekFrom},
     range_check::RangeChecker,
     DiskDataEncoding,
-    EncodingPhase,
 };
 use bit_vec::BitVec;
 use std::ops::Index;
@@ -49,6 +48,7 @@ pub const FM_MARKER_DATA_MASK: u64 = 0x0000_0000_0000_5555;
 pub const FM_MARKER_CLOCK_MASK: u64 = 0xAAAA_AAAA_AAAA_AAAA;
 pub const FM_MARKER_CLOCK_PATTERN: u64 = 0xAAAA_AAAA_AAAA_A02A;
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! fm_offset {
     ($x:expr) => {
@@ -73,14 +73,14 @@ pub enum FmEncodingType {
     AddressMark,
 }
 
-pub fn get_fm_sync_offset(track: &BitVec) -> Option<EncodingPhase> {
+pub fn get_fm_sync_offset(track: &BitVec) -> Option<bool> {
     match find_sync(track, 0) {
         Some(offset) => {
             if offset % 2 == 0 {
-                Some(EncodingPhase::Even)
+                Some(false)
             }
             else {
-                Some(EncodingPhase::Odd)
+                Some(true)
             }
         }
         None => None,
@@ -135,13 +135,6 @@ impl TrackCodec for FmCodec {
 
     fn clock_map_mut(&mut self) -> &mut BitVec {
         &mut self.clock_map
-    }
-
-    fn get_sync(&self) -> Option<EncodingPhase> {
-        match self.initial_phase {
-            0 => Some(EncodingPhase::Even),
-            _ => Some(EncodingPhase::Odd),
-        }
     }
 
     fn enable_weak(&mut self, enable: bool) {
@@ -421,10 +414,10 @@ impl FmCodec {
             bit_vec.truncate(bit_ct);
         }
 
-        let encoding_sync = get_fm_sync_offset(&bit_vec).unwrap_or(EncodingPhase::Even);
+        let encoding_sync = get_fm_sync_offset(&bit_vec).unwrap_or(false);
         let sync = encoding_sync.into();
 
-        let clock_map = BitVec::from_elem(bit_vec.len(), encoding_sync.into());
+        let clock_map = BitVec::from_elem(bit_vec.len(), encoding_sync);
         let weak_mask = match weak_mask {
             Some(mask) => mask,
             None => BitVec::from_elem(bit_vec.len(), false),

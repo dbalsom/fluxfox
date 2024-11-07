@@ -31,11 +31,18 @@
     HFE format images are an internal bitstream-level format used by the HxC disk emulator.
 
 */
-use crate::diskimage::{BitStreamTrackParams, DiskDescriptor};
-use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
-use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::{
-    DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat, LoadingCallback,
+    diskimage::{BitStreamTrackParams, DiskDescriptor},
+    file_parsers::{FormatCaps, ParserWriteCompatibility},
+    io::{ReadSeek, ReadWriteSeek},
+    DiskCh,
+    DiskDataEncoding,
+    DiskDataRate,
+    DiskDensity,
+    DiskImage,
+    DiskImageError,
+    DiskImageFileFormat,
+    LoadingCallback,
     DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, BinRead};
@@ -183,13 +190,13 @@ struct HfeFileHeader {
 #[brw(little)]
 struct HfeTrackIndexEntry {
     offset: u16,
-    len: u16,
+    len:    u16,
 }
 
 impl HfeFormat {
     #[allow(dead_code)]
-    fn format() -> DiskImageFormat {
-        DiskImageFormat::PceBitstreamImage
+    fn format() -> DiskImageFileFormat {
+        DiskImageFileFormat::PceBitstreamImage
     }
 
     pub(crate) fn capabilities() -> FormatCaps {
@@ -222,7 +229,7 @@ impl HfeFormat {
         disk_image: &mut DiskImage,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
-        disk_image.set_source_format(DiskImageFormat::HfeImage);
+        disk_image.set_source_format(DiskImageFileFormat::HfeImage);
 
         let image_len = read_buf.seek(std::io::SeekFrom::End(0))?;
 

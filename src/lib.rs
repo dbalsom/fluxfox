@@ -86,10 +86,17 @@ type FoxHashMap<K, V, S = RandomState> = std::collections::HashMap<K, V, S>;
 #[allow(unused)]
 type FoxHashSet<T, S = RandomState> = std::collections::HashSet<T, S>;
 
+/// The status of a disk image loading operation, for file parsers that support progress reporting.
 pub enum LoadingStatus {
+    /// Emitted by all file parsers to inform the caller whether the parser will send progress updates.
     ProgressSupport(bool),
+    /// Emitted by file parsers that support progress updates to inform the caller of the current progress.
+    /// The value is a floating-point number between 0.0 and 1.0, where 1.0 represents full completion.
+    /// Note: The value 1.0 is not guaranteed to be emitted.
     Progress(f64),
+    /// Emitted by file parsers to inform the caller that the loading operation is complete.
     Complete,
+    /// Emitted by file parsers to inform the caller that an error occurred during the loading operation.
     Error,
 }
 
@@ -220,8 +227,9 @@ pub enum DiskPhysicalDimensions {
     Dimension3_5,
 }
 
-/// The density of the disk image. Only 8" diskettes were available in standard density.
+/// The density of the disk image.
 ///
+/// * 8" diskettes were FM-encoded and standard density.
 /// * 5.25" diskettes were available in double and high densities.
 /// * 3.5" diskettes were available in double, high and extended densities.
 #[derive(Default, Copy, Clone, Debug)]
@@ -257,9 +265,12 @@ impl Display for DiskDensity {
 }
 
 impl DiskDensity {
-    /// Return the number of bitcells for a given disk density.
+    /// Return the base number of bitcells for a given disk density.
     /// It is ideal to provide the disk RPM to get the most accurate bitcell count as high
     /// density 5.25 disks have different bitcell counts than high density 3.5 disks.
+    ///
+    /// The value provided is only an estimate for the ideal bitcell count. The actual bitcell
+    /// may vary depending on variances in the disk drive used to write the diskette.
     pub fn bitcells(&self, rpm: Option<DiskRpm>) -> Option<usize> {
         match (self, rpm) {
             (DiskDensity::Standard, _) => Some(50_000),
@@ -270,6 +281,9 @@ impl DiskDensity {
         }
     }
 
+    /// Return a value in seconds representing the base clock of a PLL for a given disk density.
+    /// A `DiskRpm` must be provided for double density disks, as the clock is adjusted for
+    /// double-density disks read in high-density 360RPM drives.
     pub fn base_clock(&self, rpm: Option<DiskRpm>) -> f64 {
         match (self, rpm) {
             (DiskDensity::Standard, _) => 4e-6,
@@ -280,54 +294,13 @@ impl DiskDensity {
         }
     }
 
+    /// Attempt to determine the disk density from the base clock of a PLL.
     pub fn from_base_clock(clock: f64) -> Option<DiskDensity> {
         match clock {
             0.375e-6..0.625e-6 => Some(DiskDensity::Extended),
             0.75e-6..1.25e-6 => Some(DiskDensity::High),
             1.5e-6..2.5e-6 => Some(DiskDensity::Double),
             _ => None,
-        }
-    }
-}
-
-#[derive(Copy, Clone, Debug)]
-pub enum EncodingPhase {
-    Even,
-    Odd,
-}
-
-impl From<EncodingPhase> for usize {
-    fn from(phase: EncodingPhase) -> Self {
-        match phase {
-            EncodingPhase::Even => 0,
-            EncodingPhase::Odd => 1,
-        }
-    }
-}
-
-impl From<EncodingPhase> for bool {
-    fn from(phase: EncodingPhase) -> Self {
-        match phase {
-            EncodingPhase::Even => false,
-            EncodingPhase::Odd => true,
-        }
-    }
-}
-
-impl From<bool> for EncodingPhase {
-    fn from(phase: bool) -> Self {
-        match phase {
-            false => EncodingPhase::Even,
-            true => EncodingPhase::Odd,
-        }
-    }
-}
-
-impl From<usize> for EncodingPhase {
-    fn from(phase: usize) -> Self {
-        match phase {
-            0 => EncodingPhase::Even,
-            _ => EncodingPhase::Odd,
         }
     }
 }
@@ -404,20 +377,25 @@ impl Display for DiskDataRate {
     }
 }
 
-/// The nominal rotational speed of the disk.
+/// A `DiskRpm` may represent the standard rotation speed of a standard disk image, or the actual
+/// rotation speed of a disk drive while reading a disk. Double density 5.25" disk drives rotate
+/// at 300RPM, but a double-density disk read in a high-density 5.25" drive may rotate at 360RPM.
 ///
 /// All PC floppy disk drives typically rotate at 300 RPM, except for high density 5.25\" drives
 /// which rotate at 360 RPM.
 ///
-/// Macintosh disk drives may have variable rotation rates per-track.
+/// Macintosh disk drives may have variable rotation rates while reading a single disk.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub enum DiskRpm {
+    /// A 300 RPM base rotation rate.
     #[default]
     Rpm300,
+    /// A 360 RPM base rotation rate.
     Rpm360,
 }
 
 impl From<DiskRpm> for f64 {
+    /// Convert a DiskRpm to a floating-point RPM value.
     fn from(rpm: DiskRpm) -> Self {
         match rpm {
             DiskRpm::Rpm300 => 300.0,
@@ -464,12 +442,11 @@ impl DiskRpm {
 
 pub use crate::{
     chs::{DiskCh, DiskChs, DiskChsn},
-    diskimage::{DiskImage, DiskImageFormat, SectorMapEntry},
+    diskimage::{DiskImage, DiskImageFileFormat, SectorMapEntry},
     file_parsers::{format_from_ext, supported_extensions, ImageParser, ParserWriteCompatibility},
     image_builder::ImageBuilder,
     image_writer::ImageWriter,
     standard_format::StandardFormat,
-    track::TrackConsistency,
 };
 
 pub type DiskSectorMap = Vec<Vec<Vec<SectorMapEntry>>>;

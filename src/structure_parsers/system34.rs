@@ -30,16 +30,29 @@
     This was the standard disk format used on IBM PCs and compatibles.
 
 */
-use crate::bitstream::mfm::{MfmCodec, MFM_BYTE_LEN, MFM_MARKER_LEN};
-use crate::bitstream::TrackDataStream;
-use crate::chs::DiskChsn;
-use crate::io::{Read, Seek, SeekFrom};
-use crate::structure_parsers::{
-    DiskStructureElement, DiskStructureGenericElement, DiskStructureMarker, DiskStructureMarkerItem,
-    DiskStructureMetadataItem, DiskStructureParser,
+
+//! Implements the `DiskStructureParser` trait for the IBM System 34 floppy disk format, used by
+//! PCs and compatibles.
+
+use crate::{
+    bitstream::{
+        mfm::{MfmCodec, MFM_BYTE_LEN, MFM_MARKER_LEN},
+        TrackDataStream,
+    },
+    chs::DiskChsn,
+    io::{Read, Seek, SeekFrom},
+    mfm_offset,
+    structure_parsers::{
+        DiskStructureElement,
+        DiskStructureGenericElement,
+        DiskStructureMarker,
+        DiskStructureMarkerItem,
+        DiskStructureMetadataItem,
+        DiskStructureParser,
+    },
+    util::crc_ibm_3740,
+    DiskImageError,
 };
-use crate::util::crc_ibm_3740;
-use crate::{mfm_offset, DiskImageError};
 use bit_vec::BitVec;
 use std::fmt::{Display, Formatter};
 
@@ -158,16 +171,8 @@ pub enum System34Element {
     Gap4b,
     Sync,
     Marker(System34Marker, Option<bool>),
-    SectorHeader {
-        chsn: DiskChsn,
-        address_crc: bool,
-        data_missing: bool,
-    },
-    Data {
-        address_crc: bool,
-        data_crc: bool,
-        deleted: bool,
-    },
+    SectorHeader { chsn: DiskChsn, address_crc: bool, data_missing: bool },
+    Data { address_crc: bool, data_crc: bool, deleted: bool },
 }
 
 impl From<System34Element> for DiskStructureGenericElement {

@@ -39,7 +39,6 @@ use crate::{
     io::{Error, ErrorKind, Read, Result, Seek, SeekFrom},
     range_check::RangeChecker,
     DiskDataEncoding,
-    EncodingPhase,
 };
 use bit_vec::BitVec;
 
@@ -47,6 +46,7 @@ pub const MFM_BYTE_LEN: usize = 16;
 pub const MFM_MARKER_LEN: usize = 64;
 pub const MFM_MARKER_CLOCK: u64 = 0x0220_0220_0220_0000;
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! mfm_offset {
     ($x:expr) => {
@@ -66,14 +66,14 @@ pub struct MfmCodec {
     data_ranges_filtered: RangeChecker,
 }
 
-pub fn get_mfm_sync_offset(track: &BitVec) -> Option<EncodingPhase> {
+pub fn get_mfm_sync_offset(track: &BitVec) -> Option<bool> {
     match find_sync(track, 0) {
         Some(offset) => {
             if offset % 2 == 0 {
-                Some(EncodingPhase::Even)
+                Some(false)
             }
             else {
-                Some(EncodingPhase::Odd)
+                Some(true)
             }
         }
         None => None,
@@ -131,13 +131,6 @@ impl TrackCodec for MfmCodec {
 
     fn clock_map_mut(&mut self) -> &mut BitVec {
         self.clock_map.bits_mut()
-    }
-
-    fn get_sync(&self) -> Option<EncodingPhase> {
-        match self.initial_phase {
-            0 => Some(EncodingPhase::Even),
-            _ => Some(EncodingPhase::Odd),
-        }
     }
 
     fn enable_weak(&mut self, enable: bool) {
@@ -401,10 +394,10 @@ impl MfmCodec {
             bits.truncate(bit_ct);
         }
 
-        let encoding_sync = get_mfm_sync_offset(&bits).unwrap_or(EncodingPhase::Even);
+        let encoding_sync = get_mfm_sync_offset(&bits).unwrap_or(false);
         let sync = encoding_sync.into();
 
-        let clock_map = BitVec::from_elem(bits.len(), encoding_sync.into());
+        let clock_map = BitVec::from_elem(bits.len(), encoding_sync);
         let weak_mask = match weak_mask {
             Some(mask) => mask,
             None => BitVec::from_elem(bits.len(), false),

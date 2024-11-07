@@ -24,14 +24,22 @@
 
     --------------------------------------------------------------------------
 */
-use crate::chs::{DiskCh, DiskChsn};
-use crate::diskimage::{DiskDescriptor, SectorDescriptor};
-use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
-use crate::io::{ReadSeek, ReadWriteSeek};
-use crate::util::{get_length, read_ascii};
 use crate::{
-    DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat, FoxHashSet,
-    LoadingCallback, ASCII_EOF, DEFAULT_SECTOR_SIZE,
+    chs::{DiskCh, DiskChsn},
+    diskimage::{DiskDescriptor, SectorDescriptor},
+    file_parsers::{FormatCaps, ParserWriteCompatibility},
+    io::{ReadSeek, ReadWriteSeek},
+    util::{get_length, read_ascii},
+    DiskDataEncoding,
+    DiskDataRate,
+    DiskDensity,
+    DiskImage,
+    DiskImageError,
+    DiskImageFileFormat,
+    FoxHashSet,
+    LoadingCallback,
+    ASCII_EOF,
+    DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, BinRead, BinReaderExt};
 use regex::Regex;
@@ -100,15 +108,15 @@ fn imd_sector_size_to_usize(sector_size: u8) -> Option<usize> {
 }
 
 pub struct ImdSectorData {
-    data: Vec<u8>,
+    data:    Vec<u8>,
     deleted: bool,
-    error: bool,
+    error:   bool,
 }
 
 impl ImdFormat {
     #[allow(dead_code)]
-    fn format() -> DiskImageFormat {
-        DiskImageFormat::ImageDisk
+    fn format() -> DiskImageFileFormat {
+        DiskImageFileFormat::ImageDisk
     }
 
     pub(crate) fn capabilities() -> FormatCaps {
@@ -144,7 +152,7 @@ impl ImdFormat {
         disk_image: &mut DiskImage,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
-        disk_image.set_source_format(DiskImageFormat::ImageDisk);
+        disk_image.set_source_format(DiskImageFileFormat::ImageDisk);
 
         // Assign the disk geometry or return error.
         let _raw_len = get_length(&mut read_buf).map_err(|_e| DiskImageError::UnknownFormat)? as usize;
@@ -330,9 +338,9 @@ impl ImdFormat {
             0x00 => {
                 // Sector data unavailable.
                 Ok(ImdSectorData {
-                    data: Vec::new(),
+                    data:    Vec::new(),
                     deleted: false,
-                    error: false,
+                    error:   false,
                 })
             }
             0x01 => {

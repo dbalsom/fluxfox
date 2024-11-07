@@ -25,8 +25,10 @@
     --------------------------------------------------------------------------
 */
 use crate::{DiskDataEncoding, DiskDensity};
-use std::fmt;
-use std::fmt::{Display, Formatter};
+use std::{
+    fmt,
+    fmt::{Display, Formatter},
+};
 
 pub mod flux_revolution;
 #[macro_use]
@@ -36,6 +38,7 @@ pub use flux_revolution::FluxRevolutionType;
 
 //pub const AVERAGE_FLUX_DENSITY: f64 = 2.636; // Average number of bits encoded per flux transition
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! format_us {
     ($value:expr) => {
@@ -43,6 +46,7 @@ macro_rules! format_us {
     };
 }
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! format_ms {
     ($value:expr) => {
@@ -93,7 +97,7 @@ pub struct FluxStats {
     pub too_slow_bits: u32,
 
     pub shortest_flux: f64,
-    pub longest_flux: f64,
+    pub longest_flux:  f64,
 }
 
 impl Display for FluxStats {

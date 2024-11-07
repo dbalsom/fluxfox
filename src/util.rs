@@ -25,6 +25,8 @@
     --------------------------------------------------------------------------
 */
 
+//! The `util` module provides various utility functions.
+
 use regex::Regex;
 use std::{cmp::Ordering, path::PathBuf};
 
@@ -33,6 +35,7 @@ use crate::{
     DiskImageError,
 };
 
+/// The initial seed value for CRC-CCITT and related checksums.
 pub const CRC_CCITT_INITIAL: u16 = 0xFFFF;
 
 pub(crate) fn get_length<T: Seek>(source: &mut T) -> Result<u64, crate::io::Error> {
@@ -190,6 +193,9 @@ pub fn dump_string(data_slice: &[u8]) -> String {
     out
 }
 
+/// Sort `PathBuf`s in a natural order, by breaking them down into numeric and non-numeric parts.
+/// This function is used to sort directory names in a natural order, so that Disk11 is sorted after
+/// Disk2, etc.
 #[allow(clippy::ptr_arg)]
 pub fn natural_sort(a: &PathBuf, b: &PathBuf) -> Ordering {
     let re = Regex::new(r"(\D+)|(\d+)").expect("Invalid regex");

@@ -31,7 +31,7 @@
     could be added in the future.
 
 */
-use crate::{DiskCh, DiskImageFormat};
+use crate::{DiskCh, DiskImageFileFormat};
 use std::{
     fmt::{Display, Formatter, Result},
     path::PathBuf,
@@ -49,8 +49,8 @@ pub struct KryoFluxSet {
 
 #[derive(Clone, Debug)]
 pub enum DiskImageContainer {
-    Raw(DiskImageFormat),
-    Zip(DiskImageFormat),
+    Raw(DiskImageFileFormat),
+    Zip(DiskImageFileFormat),
     /// A set of Kryoflux images zipped together.
     /// The outer vector represents the number of disks in the archive (the number of unique
     /// paths found to a kryoflux .*00.0.raw file). It stores a tuple, the first element of which is

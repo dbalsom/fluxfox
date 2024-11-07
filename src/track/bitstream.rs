@@ -30,31 +30,58 @@
 
 */
 use super::{Track, TrackConsistency, TrackInfo, TrackSectorScanResult};
-use crate::bitstream::fm::FmCodec;
-use crate::bitstream::mfm::{MfmCodec, MFM_BYTE_LEN};
-use crate::bitstream::{EncodingVariant, TrackDataStream};
-use crate::diskimage::{
-    BitStreamTrackParams, ReadSectorResult, ReadTrackResult, RwSectorScope, ScanSectorResult, SectorDescriptor,
-    SharedDiskContext, WriteSectorResult,
-};
-use crate::io::SeekFrom;
-use crate::structure_parsers::system34::{
-    System34Element, System34Marker, System34Parser, System34Standard, DAM_MARKER_BYTES, DDAM_MARKER_BYTES,
-};
-use crate::structure_parsers::{
-    DiskStructureElement, DiskStructureMetadata, DiskStructureMetadataItem, DiskStructureParser,
-};
-use crate::track::fluxstream::FluxStreamTrack;
-use crate::track::metasector::MetaSectorTrack;
-use crate::util::crc_ibm_3740;
 use crate::{
-    DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskImageError,
-    DiskRpm, FoxHashSet, SectorMapEntry,
+    bitstream::{
+        fm::FmCodec,
+        mfm::{MfmCodec, MFM_BYTE_LEN},
+        EncodingVariant,
+        TrackDataStream,
+    },
+    diskimage::{
+        BitStreamTrackParams,
+        ReadSectorResult,
+        ReadTrackResult,
+        RwSectorScope,
+        ScanSectorResult,
+        SectorDescriptor,
+        SharedDiskContext,
+        WriteSectorResult,
+    },
+    io::SeekFrom,
+    structure_parsers::{
+        system34::{
+            System34Element,
+            System34Marker,
+            System34Parser,
+            System34Standard,
+            DAM_MARKER_BYTES,
+            DDAM_MARKER_BYTES,
+        },
+        DiskStructureElement,
+        DiskStructureMetadata,
+        DiskStructureMetadataItem,
+        DiskStructureParser,
+    },
+    track::{fluxstream::FluxStreamTrack, metasector::MetaSectorTrack},
+    util::crc_ibm_3740,
+    DiskCh,
+    DiskChs,
+    DiskChsn,
+    DiskDataEncoding,
+    DiskDataRate,
+    DiskDataResolution,
+    DiskDensity,
+    DiskImageError,
+    DiskRpm,
+    FoxHashSet,
+    SectorMapEntry,
 };
 use bit_vec::BitVec;
 use sha1_smol::Digest;
-use std::any::Any;
-use std::sync::{Arc, Mutex};
+use std::{
+    any::Any,
+    sync::{Arc, Mutex},
+};
 
 pub struct BitStreamTrack {
     pub(crate) encoding: DiskDataEncoding,
@@ -888,7 +915,7 @@ impl Track for BitStreamTrack {
 }
 
 impl BitStreamTrack {
-    pub fn new(
+    pub(crate) fn new(
         params: BitStreamTrackParams,
         shared: Arc<Mutex<SharedDiskContext>>,
     ) -> Result<BitStreamTrack, DiskImageError> {

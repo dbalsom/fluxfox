@@ -24,15 +24,21 @@
 
     --------------------------------------------------------------------------
 */
-use crate::chs::{DiskChs, DiskChsn};
-use crate::detect::chs_from_raw_size;
-use crate::diskimage::{DiskDescriptor, DiskImage, RwSectorScope};
-use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
-use crate::io::{ReadSeek, ReadWriteSeek};
-use crate::structure_parsers::system34::System34Standard;
-use crate::util::get_length;
 use crate::{
-    DiskCh, DiskDataResolution, DiskDensity, DiskImageError, DiskImageFormat, LoadingCallback, StandardFormat,
+    chs::{DiskChs, DiskChsn},
+    detect::chs_from_raw_size,
+    diskimage::{DiskDescriptor, DiskImage, RwSectorScope},
+    file_parsers::{FormatCaps, ParserWriteCompatibility},
+    io::{ReadSeek, ReadWriteSeek},
+    structure_parsers::system34::System34Standard,
+    util::get_length,
+    DiskCh,
+    DiskDataResolution,
+    DiskDensity,
+    DiskImageError,
+    DiskImageFileFormat,
+    LoadingCallback,
+    StandardFormat,
     DEFAULT_SECTOR_SIZE,
 };
 use std::cmp::Ordering;
@@ -41,8 +47,8 @@ pub struct RawFormat;
 
 impl RawFormat {
     #[allow(dead_code)]
-    fn format() -> DiskImageFormat {
-        DiskImageFormat::RawSectorImage
+    fn format() -> DiskImageFileFormat {
+        DiskImageFileFormat::RawSectorImage
     }
 
     pub(crate) fn extensions() -> Vec<&'static str> {
@@ -74,7 +80,7 @@ impl RawFormat {
         disk_image: &mut DiskImage,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
-        disk_image.set_source_format(DiskImageFormat::RawSectorImage);
+        disk_image.set_source_format(DiskImageFileFormat::RawSectorImage);
         disk_image.set_resolution(DiskDataResolution::BitStream);
 
         // Assign the disk geometry or return error.

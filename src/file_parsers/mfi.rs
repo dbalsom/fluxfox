@@ -35,15 +35,23 @@
 
 */
 
-use crate::chs::DiskCh;
-use crate::diskimage::{BitStreamTrackParams, DiskDescriptor};
-use crate::file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility};
-use crate::io::{ReadSeek, ReadWriteSeek};
-use crate::track::fluxstream::FluxStreamTrack;
-
-use crate::flux::pll::{Pll, PllPreset};
 use crate::{
-    DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat, LoadingCallback,
+    chs::DiskCh,
+    diskimage::{BitStreamTrackParams, DiskDescriptor},
+    file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility},
+    io::{ReadSeek, ReadWriteSeek},
+    track::fluxstream::FluxStreamTrack,
+};
+
+use crate::{
+    flux::pll::{Pll, PllPreset},
+    DiskDataEncoding,
+    DiskDataRate,
+    DiskDensity,
+    DiskImage,
+    DiskImageError,
+    DiskImageFileFormat,
+    LoadingCallback,
     DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, BinRead};
@@ -77,7 +85,7 @@ pub struct MfiTrackHeader {
 }
 
 pub struct MfiTrackData {
-    pub ch: DiskCh,
+    pub ch:   DiskCh,
     pub data: Vec<u8>,
 }
 
@@ -92,13 +100,13 @@ pub enum FluxEntryType {
 #[allow(dead_code)]
 pub struct MfiTrackZone {
     start: u32,
-    end: u32,
+    end:   u32,
 }
 
 impl MfiFormat {
     #[allow(dead_code)]
-    fn format() -> DiskImageFormat {
-        DiskImageFormat::PceBitstreamImage
+    fn format() -> DiskImageFileFormat {
+        DiskImageFileFormat::PceBitstreamImage
     }
 
     pub(crate) fn capabilities() -> FormatCaps {
@@ -133,7 +141,7 @@ impl MfiFormat {
         disk_image: &mut DiskImage,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
-        disk_image.set_source_format(DiskImageFormat::MameFloppyImage);
+        disk_image.set_source_format(DiskImageFileFormat::MameFloppyImage);
 
         let disk_len = read_buf.seek(std::io::SeekFrom::End(0))?;
 
@@ -219,7 +227,7 @@ impl MfiFormat {
 
             // Push uncompressed trackdata
             tracks.push(MfiTrackData {
-                ch: DiskCh::new(c, h),
+                ch:   DiskCh::new(c, h),
                 data: decompressed_data.to_vec(),
             });
 
@@ -317,7 +325,7 @@ impl MfiFormat {
                         // Start NFA zone
                         current_nfa_zone = Some(MfiTrackZone {
                             start: flux_delta,
-                            end: 0,
+                            end:   0,
                         });
                     }
                 }
@@ -333,7 +341,7 @@ impl MfiFormat {
                         // Start HOLE zone
                         current_hole_zone = Some(MfiTrackZone {
                             start: flux_delta,
-                            end: 0,
+                            end:   0,
                         });
                     }
                 }

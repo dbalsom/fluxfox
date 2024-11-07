@@ -36,7 +36,7 @@ use crate::{
     standard_format::StandardFormat,
     util::natural_sort,
     DiskImageError,
-    DiskImageFormat,
+    DiskImageFileFormat,
 };
 use std::path::PathBuf;
 
@@ -144,7 +144,7 @@ pub fn detect_image_format<T: ReadSeek>(image_io: &mut T) -> Result<DiskImageCon
 
     for format in IMAGE_FORMATS.iter() {
         if format.detect(&mut *image_io) {
-            if let DiskImageFormat::KryofluxStream = format {
+            if let DiskImageFileFormat::KryofluxStream = format {
                 return Ok(DiskImageContainer::KryofluxSet);
             }
             return Ok(DiskImageContainer::Raw(*format));

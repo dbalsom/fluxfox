@@ -25,13 +25,23 @@
     --------------------------------------------------------------------------
 */
 
+//! The `chs` module defines several structures for working with Cylinder-Head-Sector (CHS)
+//! addressing and sector IDs.
+
 use crate::MAXIMUM_SECTOR_SIZE;
 use std::fmt::Display;
 
+/// A structure representing the four components of Sector ID:
+///  - Cylinder (c)
+///  - Head (h)
+///  - Sector ID (s)
+///  - Sector Size (n)
+///
+/// A DiskChsn may represent a Sector ID or an overall disk geometry.
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Default)]
 pub struct DiskChsn {
     chs: DiskChs,
-    n: u8,
+    n:   u8,
 }
 
 impl From<(u16, u8, u8, u8)> for DiskChsn {
@@ -57,6 +67,7 @@ impl Display for DiskChsn {
 
 #[allow(dead_code)]
 impl DiskChsn {
+    /// Create a new DiskChsn structure from the four sector ID components.
     pub fn new(c: u16, h: u8, s: u8, n: u8) -> Self {
         Self {
             chs: DiskChs::from((c, h, s)),
@@ -64,18 +75,25 @@ impl DiskChsn {
         }
     }
 
+    /// Return all four sector ID components.
+    /// # Returns:
+    /// A tuple containing the cylinder, head, sector ID, and sector size.
     pub fn get(&self) -> (u16, u8, u8, u8) {
         (self.c(), self.h(), self.s(), self.n())
     }
+    /// Return the cylinder (c) field.
     pub fn c(&self) -> u16 {
         self.chs.c()
     }
+    /// Return the head (h) field.
     pub fn h(&self) -> u8 {
         self.chs.h()
     }
+    /// Return the sector id (s) field.
     pub fn s(&self) -> u8 {
         self.chs.s()
     }
+    /// Return the size (n) field.
     pub fn n(&self) -> u8 {
         self.n
     }
@@ -86,10 +104,12 @@ impl DiskChsn {
         std::cmp::min(MAXIMUM_SECTOR_SIZE, 128usize.overflowing_shl(self.n as u32).0)
     }
 
+    /// Convert the value of the sector size field (n) into bytes.
     pub fn n_to_bytes(n: u8) -> usize {
         std::cmp::min(MAXIMUM_SECTOR_SIZE, 128usize.overflowing_shl(n as u32).0)
     }
 
+    /// Convert a size in bytes into a valid sector size field value (n)
     pub fn bytes_to_n(size: usize) -> u8 {
         let mut n = 0;
         let mut size = size;
@@ -100,42 +120,53 @@ impl DiskChsn {
         n
     }
 
+    /// Set the four components of a sector ID.
     pub fn set(&mut self, c: u16, h: u8, s: u8, n: u8) {
         self.set_c(c);
         self.set_h(h);
         self.set_s(s);
         self.n = n;
     }
+    /// Set the cylinder component of a sector ID.
     pub fn set_c(&mut self, c: u16) {
         self.chs.set_c(c)
     }
+    /// Set the head component of a sector ID.
     pub fn set_h(&mut self, h: u8) {
         self.chs.set_h(h)
     }
+    /// Set the sector ID component of a sector ID.
     pub fn set_s(&mut self, s: u8) {
         self.chs.set_s(s)
     }
+
     pub fn seek(&mut self, dst_chs: &DiskChs) {
         self.chs = *dst_chs;
     }
 
-    /// Return the number of sectors represented by a DiskChs structure, interpreted as drive geometry.
+    /// Return the number of sectors represented by a `DiskChsn` structure, interpreted as drive geometry.
     pub fn get_sector_count(&self) -> u32 {
         self.chs.get_sector_count()
     }
 
-    /// Convert a DiskChs struct to an LBA sector address. A reference drive geometry is required to calculate the
-    /// address.
+    /// Convert a `DiskChsn` struct to an LBA sector address. A reference drive geometry is required to
+    /// calculate the address.
     pub fn to_lba(&self, geom: &DiskChs) -> usize {
         self.chs.to_lba(geom)
     }
 
     /// Return a new CHS that is the next sector on the disk.
     /// If the current CHS is the last sector on the disk, the next CHS will be the first sector on the disk.
+    /// A reference drive geometry is required to calculate the address.
+    /// This function is deprecated. Seeking cannot be performed directly on a `DiskChs` structure.
+    #[deprecated]
+    #[allow(deprecated)]
     pub(crate) fn get_next_sector(&self, geom: &DiskChs) -> DiskChs {
         self.chs.get_next_sector(geom)
     }
 
+    #[deprecated]
+    #[allow(deprecated)]
     pub(crate) fn seek_forward(&mut self, sectors: u32, geom: &DiskChs) -> &mut Self {
         self.chs.seek_forward(sectors, geom);
         self
@@ -146,6 +177,12 @@ impl DiskChsn {
     }
 }
 
+/// A structure representing three of the four components of Sector ID:
+///  - Cylinder (c)
+///  - Head (h)
+///  - Sector ID (s)
+///
+/// A DiskChs may represent a Sector ID, where size is ignored, or an overall disk geometry.
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub struct DiskChs {
     c: u16,
@@ -194,46 +231,61 @@ impl Display for DiskChs {
 }
 
 impl DiskChs {
+    /// Create a new DiskChs structure from the three sector ID components.
     pub fn new(c: u16, h: u8, s: u8) -> Self {
         Self { c, h, s }
     }
 
+    /// Return all three sector ID components.
+    /// # Returns:
+    /// A tuple containing the cylinder, head, and sector ID.
     pub fn get(&self) -> (u16, u8, u8) {
         (self.c, self.h, self.s)
     }
+    /// Return the cylinder (c) field.
     pub fn c(&self) -> u16 {
         self.c
     }
+    /// Return the head (h) field.
     pub fn h(&self) -> u8 {
         self.h
     }
+    /// Return the sector id (s) field.
     pub fn s(&self) -> u8 {
         self.s
     }
-
+    /// Set the three components of a `DiskChs`
     pub fn set(&mut self, c: u16, h: u8, s: u8) {
         self.c = c;
         self.h = h;
         self.s = s;
     }
+    /// Set the cylinder (c) component of a `DiskChs`
     pub fn set_c(&mut self, c: u16) {
         self.c = c;
     }
+    /// Set the head (h) component of a `DiskChs`
     pub fn set_h(&mut self, h: u8) {
         self.h = h;
     }
+    /// Set the sector ID (s) component of a `DiskChs`
     pub fn set_s(&mut self, s: u8) {
         self.s = s;
     }
 
-    /// Seek to the specified CHS. This should be called over 'set' as eventually it will calculate appropriate
-    /// timings.
+    /// Seek to the specified CHS.
+    /// This function is deprecated. Seeking cannot be performed directly on a `DiskChs` structure,
+    /// as sector IDs are not always sequential.
+    #[deprecated]
+    #[allow(deprecated)]
     pub fn seek(&mut self, c: u16, h: u8, s: u8) {
         self.seek_to(&DiskChs::from((c, h, s)));
     }
 
-    /// Seek to the specified CHS. This should be called over 'set' as eventually it will calculate appropriate
-    /// timings.
+    /// Seek to the specified CHS.
+    /// This function is deprecated. Seeking cannot be performed directly on a `DiskChs` structure,
+    /// as sector IDs are not always sequential.
+    #[deprecated]
     pub fn seek_to(&mut self, dst_chs: &DiskChs) {
         self.c = dst_chs.c;
         self.h = dst_chs.h;
@@ -245,8 +297,9 @@ impl DiskChs {
         (self.c as u32) * (self.h as u32) * (self.s as u32)
     }
 
-    /// Convert a DiskChs struct to an LBA sector address. A reference drive geometry is required to calculate the
-    /// address.
+    /// Convert a `DiskChs` struct to an LBA sector address.
+    /// A reference drive geometry is required to calculate the address.
+    /// Only valid for standard disk formats.
     pub fn to_lba(&self, geom: &DiskChs) -> usize {
         let hpc = geom.h as usize;
         let spt = geom.s as usize;
@@ -255,22 +308,34 @@ impl DiskChs {
 
     /// Return a new CHS that is the next sector on the disk.
     /// If the current CHS is the last sector on the disk, the next CHS will be the first sector on the disk.
+    /// This function is deprecated. Seeking cannot be performed directly on a `DiskChs` structure,
+    /// as sector IDs are not always sequential.
+    #[deprecated]
     pub(crate) fn get_next_sector(&self, geom: &DiskChs) -> DiskChs {
         if self.s < geom.s {
             // Not at last sector, just return next sector
             DiskChs::from((self.c, self.h, self.s + 1))
-        } else if self.h < geom.h - 1 {
+        }
+        else if self.h < geom.h - 1 {
             // At last sector, but not at last head, go to next head, same cylinder, sector 1
             DiskChs::from((self.c, self.h + 1, 1))
-        } else if self.c < geom.c - 1 {
+        }
+        else if self.c < geom.c - 1 {
             // At last sector and last head, go to next cylinder, head 0, sector 1
             DiskChs::from((self.c + 1, 0, 1))
-        } else {
+        }
+        else {
             // Return start of drive? TODO: Research what does this do on real hardware
             DiskChs::from((0, 0, 1))
         }
     }
 
+    /// Return a new CHS that is the next sector on the disk.
+    /// If the current CHS is the last sector on the disk, the next CHS will be the first sector on the disk.
+    /// This function is deprecated. Seeking cannot be performed directly on a `DiskChs` structure,
+    /// as sector IDs are not always sequential.
+    #[deprecated]
+    #[allow(deprecated)]
     pub(crate) fn seek_forward(&mut self, sectors: u32, geom: &DiskChs) -> &mut Self {
         for _i in 0..sectors {
             *self = self.get_next_sector(geom);
@@ -279,6 +344,12 @@ impl DiskChs {
     }
 }
 
+/// A structure representing two of the four components of Sector ID:
+///  - Cylinder (c)
+///  - Head (h)
+///
+/// A `DiskCh` is usually used as a physical track specifier. It can hold the geometry of a disk,
+/// or act as a cursor specifying a specific track on a disk.
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Default)]
 pub struct DiskCh {
     pub(crate) c: u16,
@@ -313,36 +384,48 @@ impl Display for DiskCh {
 }
 
 impl DiskCh {
+    /// Create a new DiskCh structure from a Cylinder (c) and Head (h) specifier.
     pub fn new(c: u16, h: u8) -> Self {
         Self { c, h }
     }
-
+    /// Return the cylinder (c) field.
     pub fn c(&self) -> u16 {
         self.c
     }
+    /// Return the head (h) field.
     pub fn h(&self) -> u8 {
         self.h
     }
+    /// Set the cylinder (c) field.
     pub fn set_c(&mut self, c: u16) {
         self.c = c
     }
+    /// Set the head (h) field.
     pub fn set_h(&mut self, h: u8) {
         self.h = h
     }
 
-    /// Return a new CH that is the next track on disk.
+    /// Return a new `DiskCh` that represents the next track on disk.
+    /// # Arguments:
+    /// * `heads` - The number of heads on the disk.
+    /// # Returns:
+    /// A new `DiskCh` representing the next track on disk.
     pub fn get_next_track(&self, heads: u8) -> DiskCh {
         if self.h < heads - 1 {
             // Not at least head, just return next head
             DiskCh::from((self.c, self.h + 1))
-        } else {
+        }
+        else {
             // Go to next track, head 0
             DiskCh::from((self.c + 1, 0))
         }
     }
 
-    pub fn seek_next_track(&mut self, heads: u8) -> &mut Self {
-        *self = self.get_next_track(heads);
+    /// Treating the `DiskCh` as a track cursor, set it to reference the next logical track on the disk.
+    /// # Arguments:
+    /// * `heads` - The number of heads on the disk.
+    pub fn seek_next_track(mut self, heads: u8) -> Self {
+        self = self.get_next_track(heads);
         self
     }
 }

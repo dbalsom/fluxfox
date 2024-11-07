@@ -36,12 +36,25 @@
     LZHUF compression.
 
 */
-use crate::diskimage::{DiskDescriptor, SectorDescriptor};
-use crate::file_parsers::compression::lzhuf::{expand, TD0_READ_OPTIONS};
-use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
-use crate::io::{Cursor, Read, ReadBytesExt, ReadSeek, ReadWriteSeek, Seek};
-use crate::{DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, FoxHashSet, LoadingCallback};
-use crate::{DiskChsn, DiskImage, DiskImageError, DiskImageFormat};
+use crate::{
+    diskimage::{DiskDescriptor, SectorDescriptor},
+    file_parsers::{
+        compression::lzhuf::{expand, TD0_READ_OPTIONS},
+        FormatCaps,
+        ParserWriteCompatibility,
+    },
+    io::{Cursor, Read, ReadBytesExt, ReadSeek, ReadWriteSeek, Seek},
+    DiskCh,
+    DiskChsn,
+    DiskDataEncoding,
+    DiskDataRate,
+    DiskDensity,
+    DiskImage,
+    DiskImageError,
+    DiskImageFileFormat,
+    FoxHashSet,
+    LoadingCallback,
+};
 use binrw::{binrw, BinRead};
 
 //pub const SECTOR_DUPLICATED: u8 = 0b0000_0001;
@@ -77,12 +90,12 @@ pub const COMMENT_HEADER_SIZE: usize = 10;
 #[binrw]
 #[brw(little)]
 pub struct CommentHeader {
-    pub crc: u16,
+    pub crc:    u16,
     pub length: u16,
-    pub year: u8,
-    pub month: u8,
-    pub day: u8,
-    pub hour: u8,
+    pub year:   u8,
+    pub month:  u8,
+    pub day:    u8,
+    pub hour:   u8,
     pub minute: u8,
     pub second: u8,
 }
@@ -122,7 +135,7 @@ pub struct SectorDataHeader {
 #[brw(little)]
 pub struct RepeatedDataEntry {
     pub count: u16,
-    pub data: [u8; 2],
+    pub data:  [u8; 2],
 }
 
 pub struct Td0Format {}
@@ -168,8 +181,8 @@ fn calc_crc<RWS: ReadSeek>(image: &mut RWS, offset: u64, len: usize, input_crc: 
 
 impl Td0Format {
     #[allow(dead_code)]
-    fn format() -> DiskImageFormat {
-        DiskImageFormat::TeleDisk
+    fn format() -> DiskImageFileFormat {
+        DiskImageFileFormat::TeleDisk
     }
 
     pub(crate) fn capabilities() -> FormatCaps {
@@ -202,7 +215,7 @@ impl Td0Format {
         disk_image: &mut DiskImage,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
-        disk_image.set_source_format(DiskImageFormat::TeleDisk);
+        disk_image.set_source_format(DiskImageFileFormat::TeleDisk);
 
         let mut image_data = Vec::new();
 

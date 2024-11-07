@@ -39,17 +39,26 @@
     to calculate the disk parameters ourselves as a result.
 
 */
-use crate::diskimage::{BitStreamTrackParams, DiskDescriptor};
-use crate::file_parsers::{bitstream_flags, FormatCaps};
-use crate::flux::pll::{Pll, PllPreset};
-use crate::io::{ReadSeek, ReadWriteSeek};
-use crate::track::fluxstream::FluxStreamTrack;
 use crate::{
-    DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat, DiskRpm,
-    LoadingCallback, ParserWriteCompatibility, StandardFormat, DEFAULT_SECTOR_SIZE,
+    diskimage::{BitStreamTrackParams, DiskDescriptor},
+    file_parsers::{bitstream_flags, FormatCaps},
+    flux::pll::{Pll, PllPreset},
+    io::{ReadSeek, ReadWriteSeek},
+    track::fluxstream::FluxStreamTrack,
+    DiskCh,
+    DiskDataEncoding,
+    DiskDataRate,
+    DiskDensity,
+    DiskImage,
+    DiskImageError,
+    DiskImageFileFormat,
+    DiskRpm,
+    LoadingCallback,
+    ParserWriteCompatibility,
+    StandardFormat,
+    DEFAULT_SECTOR_SIZE,
 };
-use binrw::binrw;
-use binrw::{BinRead, BinReaderExt};
+use binrw::{binrw, BinRead, BinReaderExt};
 
 pub const BASE_CAPTURE_RES: u32 = 25;
 pub const SCP_FLUX_TIME_BASE: u32 = 25;
@@ -71,9 +80,9 @@ pub enum ScpDiskManufacturer {
     Cbm = 0x00,
     Atari = 0x10,
     Apple = 0x20,
-    Pc = 0x30,
+    Pc  = 0x30,
     Tandy = 0x40,
-    TI = 0x50,
+    TI  = 0x50,
     Roland = 0x60,
     Amstrad = 0x70,
     Other = 0x80,
@@ -200,7 +209,7 @@ impl ScpFormat {
         disk_image: &mut DiskImage,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
-        disk_image.set_source_format(DiskImageFormat::SuperCardPro);
+        disk_image.set_source_format(DiskImageFileFormat::SuperCardPro);
 
         let disk_image_size = read_buf.seek(std::io::SeekFrom::End(0))?;
 

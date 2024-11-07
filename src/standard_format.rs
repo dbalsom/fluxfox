@@ -43,21 +43,43 @@
         1.44M HD Double-Sided 3.5"
         2.88M ED Double-Sided 3.5"
 */
-use crate::diskimage::DiskDescriptor;
-use crate::{DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskDensity, DiskRpm, DEFAULT_SECTOR_SIZE};
+
+//! The `standard_format` module defines the `StandardFormat` enum that defines parameters for
+//! several standard PC disk formats.
+
+use crate::{
+    diskimage::DiskDescriptor,
+    DiskCh,
+    DiskChs,
+    DiskChsn,
+    DiskDataEncoding,
+    DiskDataRate,
+    DiskDensity,
+    DiskRpm,
+    DEFAULT_SECTOR_SIZE,
+};
 use std::fmt::{Display, Formatter};
 
-/// An enumeration describing the type of disk image.
+/// An enumeration describing one of several standard PC disk formats.
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
 pub enum StandardFormat {
+    /// An invalid variant
     Invalid,
+    /// A single-sided, 8-sectored, 48tpi, double-density disk.
     PcFloppy160,
+    /// A single-sided, 9-sectored, 48tpi, double-density disk.
     PcFloppy180,
+    /// A double-sided, 8-sectored, 48tpi, double-density disk.
     PcFloppy320,
+    /// A double-sided, 9-sectored, 48tpi, double-density disk.
     PcFloppy360,
+    /// A double-sided, 9-sectored, 96tpi, double-density disk.
     PcFloppy720,
+    /// A double-sided, 15-sectored, 96tpi, high-density disk.
     PcFloppy1200,
+    /// A double-sided, 18-sectored, 96tpi, high-density disk.
     PcFloppy1440,
+    /// A double-sided, 36-sectored, 96tpi, high-density disk.
     PcFloppy2880,
 }
 
@@ -78,7 +100,7 @@ impl Display for StandardFormat {
 }
 
 impl StandardFormat {
-    /// Returns the CHSN geometry corresponding to the DiskImageType.
+    /// Returns the geometry corresponding to the `StandardFormat` as a `DiskChsn` struct.
     pub fn get_chsn(&self) -> DiskChsn {
         match self {
             StandardFormat::Invalid => DiskChsn::new(1, 1, 1, 2),
@@ -93,20 +115,22 @@ impl StandardFormat {
         }
     }
 
-    /// Returns the CHS geometry corresponding to the DiskImageType.
+    /// Returns the geometry corresponding to the D`StandardFormat` as a `DiskChs` struct.
     pub fn get_chs(&self) -> DiskChs {
         self.get_chsn().into()
     }
 
-    /// Returns the CH geometry corresponding to the DiskImageType.
+    /// Returns the geometry corresponding to the `StandardFormat` as a `DiskCh` struct.
     pub fn get_ch(&self) -> DiskCh {
         self.get_chs().into()
     }
 
+    /// Returns the `DiskDataEncoding` corresponding to the `StandardFormat`.
     pub fn get_encoding(&self) -> DiskDataEncoding {
         DiskDataEncoding::Mfm
     }
 
+    /// Returns the `DiskDataRate` corresponding to the `StandardFormat`.
     pub fn get_data_rate(&self) -> DiskDataRate {
         match self {
             StandardFormat::PcFloppy160 => DiskDataRate::Rate250Kbps(1.0),
@@ -121,10 +145,13 @@ impl StandardFormat {
         }
     }
 
+    /// Returns the `DiskDensity` corresponding to the `StandardFormat`.
     pub fn get_density(&self) -> DiskDensity {
         DiskDensity::from(self.get_data_rate())
     }
 
+    /// Returns the default `DiskRpm` corresponding to the `StandardFormat`.
+    /// Note: The actual RPM of an image may vary depending on the drive used to create the disk image.
     pub fn get_rpm(&self) -> DiskRpm {
         match self {
             StandardFormat::PcFloppy160 => DiskRpm::Rpm300,
@@ -139,6 +166,7 @@ impl StandardFormat {
         }
     }
 
+    /// Return the number of bitcells per track corresponding to the `StandardFormat`.
     pub fn get_bitcell_ct(&self) -> usize {
         match self {
             StandardFormat::PcFloppy160 => 100_000,
@@ -153,7 +181,7 @@ impl StandardFormat {
         }
     }
 
-    /// Return a standard default GAP3 value for the disk format.
+    /// Return a standard default GAP3 value corresponding to the `StandardFormat`.
     pub fn get_gap3(&self) -> usize {
         match self {
             StandardFormat::PcFloppy160 => 0x50,
@@ -168,6 +196,7 @@ impl StandardFormat {
         }
     }
 
+    /// Return a standard `DiskDescriptor` struct corresponding to the `StandardFormat`.
     pub fn get_descriptor(&self) -> DiskDescriptor {
         DiskDescriptor {
             geometry: self.get_ch(),
@@ -180,6 +209,7 @@ impl StandardFormat {
         }
     }
 
+    /// Return the size in bytes of a raw sector image corresponding to the `StandardFormat`.
     pub fn size(&self) -> usize {
         match self {
             StandardFormat::PcFloppy160 => 163_840,
@@ -196,12 +226,14 @@ impl StandardFormat {
 }
 
 impl From<StandardFormat> for usize {
+    /// Convert a `StandardFormat` variant into a size in bytes.
     fn from(format: StandardFormat) -> Self {
         format.size()
     }
 }
 
 impl From<usize> for StandardFormat {
+    /// Convert a size in bytes to a `StandardFormat` variant.
     fn from(size: usize) -> Self {
         match size {
             163_840 => StandardFormat::PcFloppy160,

@@ -35,14 +35,24 @@
 
 */
 
-use crate::chs::{DiskCh, DiskChs, DiskChsn};
-use crate::diskimage::{DiskDescriptor, SectorDescriptor};
-use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
-use crate::io::{Cursor, ReadSeek, ReadWriteSeek};
+use crate::{
+    chs::{DiskCh, DiskChs, DiskChsn},
+    diskimage::{DiskDescriptor, SectorDescriptor},
+    file_parsers::{FormatCaps, ParserWriteCompatibility},
+    io::{Cursor, ReadSeek, ReadWriteSeek},
+};
 
 use crate::{
-    DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat, FoxHashMap, FoxHashSet,
-    LoadingCallback, DEFAULT_SECTOR_SIZE,
+    DiskDataEncoding,
+    DiskDataRate,
+    DiskDensity,
+    DiskImage,
+    DiskImageError,
+    DiskImageFileFormat,
+    FoxHashMap,
+    FoxHashSet,
+    LoadingCallback,
+    DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, BinRead};
 
@@ -98,7 +108,7 @@ impl SectorContext {
 #[binrw]
 #[brw(big)]
 pub struct PsiChunkHeader {
-    pub id: [u8; 4],
+    pub id:   [u8; 4],
     pub size: u32,
 }
 
@@ -192,8 +202,8 @@ pub(crate) fn decode_psi_sector_format(sector_format: [u8; 2]) -> Option<(DiskDa
 
 impl PsiFormat {
     #[allow(dead_code)]
-    fn format() -> DiskImageFormat {
-        DiskImageFormat::PceSectorImage
+    fn format() -> DiskImageFileFormat {
+        DiskImageFileFormat::PceSectorImage
     }
 
     pub(crate) fn capabilities() -> FormatCaps {
@@ -283,7 +293,7 @@ impl PsiFormat {
         disk_image: &mut DiskImage,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
-        disk_image.set_source_format(DiskImageFormat::PceSectorImage);
+        disk_image.set_source_format(DiskImageFileFormat::PceSectorImage);
 
         // Seek to start of read_buf.
         read_buf.seek(std::io::SeekFrom::Start(0))?;

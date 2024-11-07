@@ -30,6 +30,12 @@
     to images. Requires the 'vis' feature to be enabled.
 */
 
+//! The `visualization` module provides rendering functions for disk images.
+//! This module requires the `viz` feature to be enabled. Graphics support is provided by the
+//! `tiny-skia` crate, which will be re-exported.
+//!
+//! The `imgviz` example in the repository demonstrates how to use the visualization functions.
+
 use crate::{
     bitstream::TrackDataStream,
     structure_parsers::{
@@ -64,7 +70,7 @@ use tiny_skia::{
     Transform,
 };
 
-/// Parameter struct for
+/// Parameter struct for use with disk surface rendering functions
 pub struct RenderTrackDataParams {
     /// Background color to use for area outside of disk ring. If None, the image will be transparent.
     pub bg_color: Option<Color>,
@@ -95,6 +101,7 @@ pub struct RenderTrackDataParams {
     pub pin_last_standard_track: bool,
 }
 
+/// Parameter struct for use with disk metadata rendering functions
 pub struct RenderTrackMetadataParams {
     /// Which quadrant to render (0-3)
     pub quadrant: u8,
@@ -119,6 +126,9 @@ pub struct RenderTrackMetadataParams {
     pub pin_last_standard_track: bool,
 }
 
+/// Determines the direction of disk surface rotation for visualization functions.
+/// Typically, Side 0, the bottom-facing side of a disk, rotates counter-clockwise when viewed
+/// from the bottom, and Side 1, the top-facing side, rotates clockwise.
 #[derive(Copy, Clone, Debug)]
 pub enum RotationDirection {
     Clockwise,
@@ -134,7 +144,8 @@ impl RotationDirection {
     }
 }
 
-// Define an enum to choose between bit and byte resolution
+/// Determines the visualization resolution - either byte resolution or bit resolution.
+/// Bit resolution requires extremely high resolution output to be legible.
 #[derive(Copy, Clone, Debug)]
 pub enum ResolutionType {
     Bit,
@@ -314,8 +325,8 @@ pub fn render_track_data(
     Ok(())
 }
 
-/// Render a representation of a disk's weak bit mask to a Pixmap.
-/// Used as a base for other visualization functions.
+/// Render a representation of a disk's weak bit mask to a `tiny_skia::Pixmap`.
+/// The destination Pixmap is usually the result of a call to `render_track_data`.
 pub fn render_track_weak_bits(
     disk_image: &DiskImage,
     pixmap: &mut Pixmap,
@@ -431,8 +442,8 @@ pub fn render_track_weak_bits(
     Ok(())
 }
 
-/// Render a representation of a disk's data to a Pixmap.
-/// Used as a base for other visualization functions.
+/// Render a representation of a disk's data to a `tiny_skia::Pixmap`, for a specific quadrant of the unit circle.
+/// Rendering is performed in quadrants to allow for multithreaded rendering of each quadrant.
 pub fn render_track_metadata_quadrant(
     disk_image: &DiskImage,
     pixmap: &mut Pixmap,

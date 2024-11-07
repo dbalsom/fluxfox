@@ -30,11 +30,18 @@
 
     MFM format images are bitstream images produced by the HxC disk emulator software.
 */
-use crate::diskimage::{BitStreamTrackParams, DiskDescriptor};
-use crate::file_parsers::{FormatCaps, ParserWriteCompatibility};
-use crate::io::{ReadSeek, ReadWriteSeek};
 use crate::{
-    DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat, LoadingCallback,
+    diskimage::{BitStreamTrackParams, DiskDescriptor},
+    file_parsers::{FormatCaps, ParserWriteCompatibility},
+    io::{ReadSeek, ReadWriteSeek},
+    DiskCh,
+    DiskDataEncoding,
+    DiskDataRate,
+    DiskDensity,
+    DiskImage,
+    DiskImageError,
+    DiskImageFileFormat,
+    LoadingCallback,
     DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, BinRead};
@@ -82,8 +89,8 @@ enum TrackHeader {
 
 impl MfmFormat {
     #[allow(dead_code)]
-    fn format() -> DiskImageFormat {
-        DiskImageFormat::PceBitstreamImage
+    fn format() -> DiskImageFileFormat {
+        DiskImageFileFormat::PceBitstreamImage
     }
 
     pub(crate) fn capabilities() -> FormatCaps {
@@ -116,7 +123,7 @@ impl MfmFormat {
         disk_image: &mut DiskImage,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
-        disk_image.set_source_format(DiskImageFormat::MfmBitstreamImage);
+        disk_image.set_source_format(DiskImageFileFormat::MfmBitstreamImage);
 
         read_buf.seek(std::io::SeekFrom::Start(0))?;
 

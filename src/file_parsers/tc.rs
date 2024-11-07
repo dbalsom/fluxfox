@@ -47,13 +47,23 @@
     handle DMA transfer of track data.
 */
 
-use crate::file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility};
-use crate::io::{ReadSeek, ReadWriteSeek};
-
-use crate::diskimage::{BitStreamTrackParams, DiskDescriptor};
 use crate::{
-    DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat, DiskRpm,
-    LoadingCallback, DEFAULT_SECTOR_SIZE,
+    file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility},
+    io::{ReadSeek, ReadWriteSeek},
+};
+
+use crate::{
+    diskimage::{BitStreamTrackParams, DiskDescriptor},
+    DiskCh,
+    DiskDataEncoding,
+    DiskDataRate,
+    DiskDensity,
+    DiskImage,
+    DiskImageError,
+    DiskImageFileFormat,
+    DiskRpm,
+    LoadingCallback,
+    DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, BinRead};
 
@@ -176,7 +186,7 @@ impl TCFormat {
         disk_image: &mut DiskImage,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
-        disk_image.set_source_format(DiskImageFormat::TransCopyImage);
+        disk_image.set_source_format(DiskImageFileFormat::TransCopyImage);
 
         let disk_image_size = read_buf.seek(std::io::SeekFrom::End(0)).unwrap();
 

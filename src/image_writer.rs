@@ -29,14 +29,13 @@
     Implements an output helper for writing disk images to a file.
 
 */
-use crate::io::Cursor;
-use crate::{DiskImage, DiskImageError, DiskImageFormat, ImageParser};
+use crate::{io::Cursor, DiskImage, DiskImageError, DiskImageFileFormat, ImageParser};
 use std::path::PathBuf;
 
 #[derive(Debug, Default)]
 pub struct ImageWriter {
-    pub path: Option<PathBuf>,
-    pub format: Option<DiskImageFormat>,
+    pub path:   Option<PathBuf>,
+    pub format: Option<DiskImageFileFormat>,
 }
 
 impl ImageWriter {
@@ -44,7 +43,7 @@ impl ImageWriter {
         Default::default()
     }
 
-    pub fn with_format(self, format: DiskImageFormat) -> Self {
+    pub fn with_format(self, format: DiskImageFileFormat) -> Self {
         Self {
             format: Some(format),
             ..self

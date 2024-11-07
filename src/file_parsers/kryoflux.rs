@@ -47,7 +47,7 @@ use crate::{
     DiskDataResolution,
     DiskImage,
     DiskImageError,
-    DiskImageFormat,
+    DiskImageFileFormat,
     FoxHashSet,
     LoadingCallback,
     ParserWriteCompatibility,
@@ -178,7 +178,7 @@ impl KfxFormat {
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
         disk_image.set_resolution(DiskDataResolution::FluxStream);
-        disk_image.set_source_format(DiskImageFormat::KryofluxStream);
+        disk_image.set_source_format(DiskImageFileFormat::KryofluxStream);
 
         let mut kfx_context = KfxFormat::default();
 
@@ -235,7 +235,7 @@ impl KfxFormat {
             DiskCh::new(0, 0)
         }
         else {
-            let mut last_ch = disk_image.track_ch_iter().last().unwrap_or(DiskCh::new(0, 0));
+            let last_ch = disk_image.track_ch_iter().last().unwrap_or(DiskCh::new(0, 0));
             log::debug!("Previous track in image: {} heads: {}", last_ch, disk_image.heads());
 
             last_ch.seek_next_track(disk_image.heads());

@@ -33,14 +33,25 @@
 
 */
 
-use crate::diskimage::{BitStreamTrackParams, DiskDescriptor, DiskImageFlags};
-use crate::file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility};
-use crate::io::{ReadSeek, ReadWriteSeek};
-
-use crate::track::bitstream::BitStreamTrack;
 use crate::{
-    DiskCh, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskImage, DiskImageError,
-    DiskImageFormat, DiskRpm, LoadingCallback, DEFAULT_SECTOR_SIZE,
+    diskimage::{BitStreamTrackParams, DiskDescriptor, DiskImageFlags},
+    file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility},
+    io::{ReadSeek, ReadWriteSeek},
+};
+
+use crate::{
+    track::bitstream::BitStreamTrack,
+    DiskCh,
+    DiskDataEncoding,
+    DiskDataRate,
+    DiskDataResolution,
+    DiskDensity,
+    DiskImage,
+    DiskImageError,
+    DiskImageFileFormat,
+    DiskRpm,
+    LoadingCallback,
+    DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, BinRead, BinWrite};
 use std::mem::size_of;
@@ -210,7 +221,7 @@ impl F86Format {
         disk_image: &mut DiskImage,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
-        disk_image.set_source_format(DiskImageFormat::F86Image);
+        disk_image.set_source_format(DiskImageFileFormat::F86Image);
 
         read_buf.seek(std::io::SeekFrom::Start(0))?;
 

@@ -35,18 +35,27 @@
 
 */
 
-use crate::chs::DiskCh;
-use crate::diskimage::{BitStreamTrackParams, DiskDescriptor};
-use crate::file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility};
-use crate::io::{Cursor, ReadSeek, ReadWriteSeek, Write};
-
-use crate::track::bitstream::BitStreamTrack;
 use crate::{
-    DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskImage, DiskImageError, DiskImageFormat,
-    FoxHashSet, LoadingCallback, DEFAULT_SECTOR_SIZE,
+    chs::DiskCh,
+    diskimage::{BitStreamTrackParams, DiskDescriptor},
+    file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility},
+    io::{Cursor, ReadSeek, ReadWriteSeek, Write},
 };
-use binrw::meta::WriteEndian;
-use binrw::{binrw, BinRead, BinWrite};
+
+use crate::{
+    track::bitstream::BitStreamTrack,
+    DiskDataEncoding,
+    DiskDataRate,
+    DiskDataResolution,
+    DiskDensity,
+    DiskImage,
+    DiskImageError,
+    DiskImageFileFormat,
+    FoxHashSet,
+    LoadingCallback,
+    DEFAULT_SECTOR_SIZE,
+};
+use binrw::{binrw, meta::WriteEndian, BinRead, BinWrite};
 
 pub struct PriFormat;
 pub const MAXIMUM_CHUNK_SIZE: usize = 0x100000; // Reasonable 1MB limit for chunk sizes.
@@ -55,7 +64,7 @@ pub const MAXIMUM_CHUNK_SIZE: usize = 0x100000; // Reasonable 1MB limit for chun
 #[binrw]
 #[brw(big)]
 pub struct PriChunkHeader {
-    pub id: [u8; 4],
+    pub id:   [u8; 4],
     pub size: u32,
 }
 
@@ -83,7 +92,7 @@ impl Default for PriChunkFooter {
 #[binrw]
 #[brw(big)]
 pub struct PriHeader {
-    pub version: u16,
+    pub version:  u16,
     pub reserved: u16,
 }
 
@@ -114,7 +123,7 @@ pub struct PriWeakMask {
 #[brw(big)]
 pub struct PriAlternateClock {
     pub bit_offset: u32,
-    pub new_clock: u32,
+    pub new_clock:  u32,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -176,8 +185,8 @@ pub(crate) fn pri_weak_bounds(buf: &[u8]) -> (usize, usize) {
 
 impl PriFormat {
     #[allow(dead_code)]
-    fn format() -> DiskImageFormat {
-        DiskImageFormat::PceBitstreamImage
+    fn format() -> DiskImageFileFormat {
+        DiskImageFileFormat::PceBitstreamImage
     }
 
     pub(crate) fn capabilities() -> FormatCaps {
@@ -301,7 +310,7 @@ impl PriFormat {
         data.write(&mut data_buf)?;
 
         let chunk_header = PriChunkHeader {
-            id: *chunk_str,
+            id:   *chunk_str,
             size: data_buf.get_ref().len() as u32,
         };
 
@@ -334,7 +343,7 @@ impl PriFormat {
 
         let chunk_str = b"TEXT";
         let chunk_header = PriChunkHeader {
-            id: *chunk_str,
+            id:   *chunk_str,
             size: text.len() as u32,
         };
 
@@ -376,7 +385,7 @@ impl PriFormat {
         };
 
         let chunk_header = PriChunkHeader {
-            id: *chunk_str,
+            id:   *chunk_str,
             size: data.len() as u32,
         };
 
@@ -402,7 +411,7 @@ impl PriFormat {
         disk_image: &mut DiskImage,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
-        disk_image.set_source_format(DiskImageFormat::PceBitstreamImage);
+        disk_image.set_source_format(DiskImageFileFormat::PceBitstreamImage);
 
         // Seek to start of read_buf.
         read_buf.seek(std::io::SeekFrom::Start(0))?;
@@ -555,7 +564,7 @@ impl PriFormat {
 
         // Write the file header chunk. Version remains at 0 for now.
         let file_header = PriHeader {
-            version: 0,
+            version:  0,
             reserved: 0,
         };
         PriFormat::write_chunk(output, PriChunkType::FileHeader, &file_header)?;

@@ -31,7 +31,6 @@ pub mod mfm;
 use crate::{
     io::{Read, Seek},
     DiskDataEncoding,
-    EncodingPhase,
 };
 use bit_vec::BitVec;
 use std::ops::Index;
@@ -51,7 +50,6 @@ pub trait TrackCodec {
     fn set_clock_map(&mut self, clock_map: BitVec);
     fn clock_map(&self) -> &BitVec;
     fn clock_map_mut(&mut self) -> &mut BitVec;
-    fn get_sync(&self) -> Option<EncodingPhase>;
     fn enable_weak(&mut self, enable: bool);
     fn weak_mask(&self) -> &BitVec;
     fn has_weak_bits(&self) -> bool;

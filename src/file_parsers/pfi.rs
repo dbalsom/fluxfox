@@ -35,14 +35,23 @@
 
 */
 
-use crate::chs::DiskCh;
-use crate::diskimage::DiskDescriptor;
-use crate::file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility};
-use crate::io::{Cursor, ReadSeek, ReadWriteSeek};
+use crate::{
+    chs::DiskCh,
+    diskimage::DiskDescriptor,
+    file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility},
+    io::{Cursor, ReadSeek, ReadWriteSeek},
+};
 
 use crate::{
-    DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFormat, FoxHashSet,
-    LoadingCallback, DEFAULT_SECTOR_SIZE,
+    DiskDataEncoding,
+    DiskDataRate,
+    DiskDensity,
+    DiskImage,
+    DiskImageError,
+    DiskImageFileFormat,
+    FoxHashSet,
+    LoadingCallback,
+    DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, BinRead};
 
@@ -53,7 +62,7 @@ pub const MAXIMUM_CHUNK_SIZE: usize = 0x100000; // Reasonable 1MB limit for chun
 #[binrw]
 #[brw(big)]
 pub struct PfiChunkHeader {
-    pub id: [u8; 4],
+    pub id:   [u8; 4],
     pub size: u32,
 }
 
@@ -81,7 +90,7 @@ impl Default for PfiChunkFooter {
 #[binrw]
 #[brw(big)]
 pub struct PfiHeader {
-    pub version: u16,
+    pub version:  u16,
     pub reserved: u16,
 }
 
@@ -137,8 +146,8 @@ pub(crate) fn pfi_crc(buf: &[u8]) -> u32 {
 
 impl PfiFormat {
     #[allow(dead_code)]
-    fn format() -> DiskImageFormat {
-        DiskImageFormat::PceBitstreamImage
+    fn format() -> DiskImageFileFormat {
+        DiskImageFileFormat::PceBitstreamImage
     }
 
     pub(crate) fn capabilities() -> FormatCaps {
@@ -226,7 +235,7 @@ impl PfiFormat {
         disk_image: &mut DiskImage,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
-        disk_image.set_source_format(DiskImageFormat::PceBitstreamImage);
+        disk_image.set_source_format(DiskImageFileFormat::PceBitstreamImage);
 
         // Seek to start of read_buf.
         read_buf.seek(std::io::SeekFrom::Start(0))?;
