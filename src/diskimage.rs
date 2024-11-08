@@ -217,6 +217,8 @@ pub enum DiskFormat {
     Standard(StandardFormat),
 }
 
+/// A structure used to describe the parameters of a sector to be created on a `MetaSector`
+/// resolution track.
 #[derive(Default)]
 pub struct SectorDescriptor {
     pub id_chsn: DiskChsn,
@@ -227,6 +229,20 @@ pub struct SectorDescriptor {
     pub data_crc_error: bool,
     pub deleted_mark: bool,
     pub missing_data: bool,
+}
+
+/// A structure to uniquely identify a specific sector on a track.
+#[derive(Copy, Clone, Debug, Default)]
+pub struct SectorCursor {
+    /// The sector id. Either a `sector_idx` or `bit_offset` is required to discriminate between
+    /// sectors with the same ID.
+    pub id_chsn: DiskChsn,
+    /// The physical sector index within the track, starting at 0.
+    pub sector_idx: Option<usize>,
+    /// The bit offset of the start of the sector header element.
+    pub header_offset: Option<usize>,
+    /// The bit offset of the start of the sector data element.
+    pub data_offset: Option<usize>,
 }
 
 #[derive(Copy, Clone, Debug, Default)]
@@ -274,15 +290,6 @@ impl DiskConsistency {
     }
 }
 
-pub struct TrackSectorIndex {
-    pub id_chsn: DiskChsn,
-    pub t_idx: usize,
-    pub len: usize,
-    pub address_crc_error: bool,
-    pub data_crc_error: bool,
-    pub deleted_mark: bool,
-}
-
 /// A `DiskDescriptor` structure describes the basic geometry and parameters of a disk image.
 #[derive(Copy, Clone, Default)]
 pub struct DiskDescriptor {
@@ -302,9 +309,12 @@ pub struct DiskDescriptor {
     pub write_protect: Option<bool>,
 }
 
+/// An enum that defines the scope of a sector operation.
 #[derive(Copy, Clone, Debug)]
 pub enum RwSectorScope {
-    DataBlock,
+    /// The operation will include the entire data element, including address marker and CRC bytes.
+    DataElement,
+    /// The operation will include only the sector data, excluding address marker and CRC bytes.
     DataOnly,
 }
 
@@ -1863,7 +1873,7 @@ impl DiskImage {
 
         let data_slice = match scope {
             RwSectorScope::DataOnly => &rsr.read_buf[rsr.data_idx..rsr.data_idx + rsr.data_len],
-            RwSectorScope::DataBlock => &rsr.read_buf,
+            RwSectorScope::DataElement => &rsr.read_buf,
         };
 
         util::dump_slice(data_slice, 0, bytes_per_row, &mut out)

@@ -57,6 +57,7 @@ macro_rules! mfm_offset {
 pub struct MfmCodec {
     bits: BitRing,
     clock_map: BitRing,
+    error_map: BitRing,
     weak_enabled: bool,
     weak_mask: BitRing,
     initial_phase: usize,
@@ -111,7 +112,7 @@ impl TrackCodec for MfmCodec {
     }
 
     fn data_bits(&self) -> &BitVec {
-        &self.bits.bits()
+        self.bits.bits()
     }
 
     fn data(&self) -> Vec<u8> {
@@ -139,6 +140,10 @@ impl TrackCodec for MfmCodec {
 
     fn weak_mask(&self) -> &BitVec {
         self.weak_mask.bits()
+    }
+
+    fn error_map(&self) -> &BitVec {
+        self.error_map.bits()
     }
 
     fn has_weak_bits(&self) -> bool {
@@ -404,12 +409,20 @@ impl MfmCodec {
         };
 
         if weak_mask.len() < bits.len() {
-            panic!("Weak mask must be the same length as the bit vector");
+            panic!("MfmCodec::new(): Weak mask must be the same length as the bit vector");
         }
+
+        let error_bits = MfmCodec::create_error_map(&bits);
+        log::warn!(
+            "MfmCodec::new(): created error map with {} error bits",
+            error_bits.count_ones()
+        );
+        let error_map = BitRing::from(error_bits);
 
         MfmCodec {
             bits: BitRing::from(bits),
             clock_map: BitRing::from(clock_map),
+            error_map,
             weak_enabled: true,
             weak_mask: BitRing::from(weak_mask),
             initial_phase: sync,
@@ -545,7 +558,7 @@ impl MfmCodec {
     /// be encoded. Formats can encode weak bits as a run of 4 or more zero bits. Here we detect
     /// such runs and extract them into a weak bit mask as a BitVec.
     pub(crate) fn create_weak_bit_mask(&self, run: usize) -> BitVec {
-        let mut weak_bitvec = BitVec::new();
+        let mut weak_bitvec = BitVec::with_capacity(self.bits.len());
         let mut zero_ct = 0;
         log::debug!("create_weak_bit_mask(): bits: {}", self.bits.len());
         for bit in self.bits.iter_revolution() {
@@ -572,6 +585,32 @@ impl MfmCodec {
         assert_eq!(weak_bitvec.len(), self.bits.len());
 
         weak_bitvec
+    }
+
+    /// Create an error map that marks where MFM clock violations occur
+    fn create_error_map(bits: &BitVec) -> BitVec {
+        let mut error_bitvec = BitVec::with_capacity(bits.len());
+
+        let mut zero_ct = 0;
+        let mut in_bad_region = false;
+
+        for bit in bits.iter() {
+            if !bit {
+                zero_ct += 1;
+                if zero_ct > 3 {
+                    in_bad_region = true;
+                }
+            }
+            else {
+                if zero_ct < 4 {
+                    in_bad_region = false;
+                }
+                zero_ct = 0;
+            }
+            error_bitvec.push(in_bad_region);
+        }
+
+        error_bitvec
     }
 }
 

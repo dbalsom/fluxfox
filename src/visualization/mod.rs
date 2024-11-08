@@ -46,7 +46,7 @@ use crate::{
     },
 };
 
-use crate::{track::bitstream::BitStreamTrack, DiskImage, DiskImageError, DiskVisualizationError, FoxHashMap};
+use crate::{DiskImage, DiskImageError, DiskVisualizationError, FoxHashMap};
 use bit_vec::BitVec;
 use std::{
     cmp::min,
@@ -70,12 +70,21 @@ use tiny_skia::{
     Transform,
 };
 
+/// A map type selector for visualization functions.
+#[derive(Copy, Clone, Debug)]
+pub enum RenderMapType {
+    /// Choose to render the weak bit mask
+    WeakBits,
+    /// Choose to render the bitstream error mask
+    Errors,
+}
+
 /// Parameter struct for use with disk surface rendering functions
 pub struct RenderTrackDataParams {
     /// Background color to use for area outside of disk ring. If None, the image will be transparent.
     pub bg_color: Option<Color>,
-    /// Color to use when rendering weak bit mask.
-    pub weak_color: Option<Color>,
+    /// Color to use when rendering a track bit map.
+    pub map_color: Option<Color>,
     /// Which side of disk to render
     pub head: u8,
     /// Destination Pixmap size in pixels
@@ -177,9 +186,19 @@ fn collect_weak_masks(head: u8, disk_image: &DiskImage) -> Vec<&BitVec> {
         .iter()
         .filter_map(|track_i| {
             disk_image.track_pool[*track_i]
-                .as_any()
-                .downcast_ref::<BitStreamTrack>()
-                .map(|track| track.data.weak_mask())
+                .get_track_stream()
+                .map(|track| track.weak_mask())
+        })
+        .collect()
+}
+
+fn collect_error_maps(head: u8, disk_image: &DiskImage) -> Vec<&BitVec> {
+    disk_image.track_map[head as usize]
+        .iter()
+        .filter_map(|track_i| {
+            disk_image.track_pool[*track_i]
+                .get_track_stream()
+                .map(|track| track.error_map())
         })
         .collect()
 }
@@ -325,11 +344,13 @@ pub fn render_track_data(
     Ok(())
 }
 
-/// Render a representation of a disk's weak bit mask to a `tiny_skia::Pixmap`.
+/// Render a representation of a track map to a `tiny_skia::Pixmap`.
 /// The destination Pixmap is usually the result of a call to `render_track_data`.
-pub fn render_track_weak_bits(
+/// The mask can be either a weak bit map or an error map
+pub fn render_track_map(
     disk_image: &DiskImage,
     pixmap: &mut Pixmap,
+    map: RenderMapType,
     p: &RenderTrackDataParams,
 ) -> Result<(), DiskImageError> {
     let (width, height) = p.image_size;
@@ -342,13 +363,17 @@ pub fn render_track_weak_bits(
     let total_radius = width.min(height) as f32 / 2.0;
     let mut min_radius = p.min_radius_fraction * total_radius; // Scale min_radius to pixel value
 
-    let rtracks = collect_weak_masks(p.head, disk_image);
-    let num_tracks = min(rtracks.len(), p.track_limit);
+    let track_refs = match map {
+        RenderMapType::WeakBits => collect_weak_masks(p.head, disk_image),
+        RenderMapType::Errors => collect_error_maps(p.head, disk_image),
+    };
+    let num_tracks = min(track_refs.len(), p.track_limit);
 
-    log::trace!("collected {} track references.", num_tracks);
-    for (ti, track) in rtracks.iter().enumerate() {
-        log::trace!("track {} length: {}", ti, track.len());
-    }
+    // log::trace!("collected {} maps of type {:?}", num_tracks, map);
+    // for (ti, track) in track_refs.iter().enumerate() {
+    //     log::debug!("map {} has {} bits", ti, track.count_ones());
+    //     log::trace!("track {} length: {}", ti, track.len());
+    // }
 
     // If pinning has been specified, adjust the minimum radius.
     // We subtract any over-dumped tracks from the radius, so that the minimum radius fraction
@@ -372,7 +397,7 @@ pub fn render_track_weak_bits(
 
     let pix_buf = pixmap.pixels_mut();
 
-    let weak_color: PremultipliedColorU8 = match p.weak_color {
+    let weak_color: PremultipliedColorU8 = match p.map_color {
         Some(color) => PremultipliedColorU8::from_rgba(
             (color.red() * 255.0) as u8,
             (color.green() * 255.0) as u8,
@@ -410,16 +435,16 @@ pub fn render_track_weak_bits(
                     };
 
                     let normalized_angle = (normalized_angle + PI) % TAU;
-                    let bit_index = ((normalized_angle / TAU) * rtracks[track_index].len() as f32) as usize;
+                    let bit_index = ((normalized_angle / TAU) * track_refs[track_index].len() as f32) as usize;
 
                     // Ensure bit_index is within bounds
-                    let bit_index = min(bit_index.saturating_sub(8), rtracks[track_index].len() - 17);
+                    let bit_index = min(bit_index.saturating_sub(8), track_refs[track_index].len() - 17);
 
                     let word_index = bit_index / 16;
-                    let word_value = if word_index < rtracks[track_index].len() / 16 - 1 {
+                    let word_value = if word_index < track_refs[track_index].len() / 16 - 1 {
                         let mut build_word: u16 = 0;
                         for bi in 0..16 {
-                            build_word |= if rtracks[track_index][bit_index + bi] { 1 } else { 0 };
+                            build_word |= if track_refs[track_index][bit_index + bi] { 1 } else { 0 };
                             build_word <<= 1;
                         }
                         build_word

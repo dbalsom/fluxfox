@@ -342,7 +342,7 @@ impl Track for MetaSectorTrack {
     ) -> Result<ReadSectorResult, DiskImageError> {
         match scope {
             // Add 4 bytes for address mark and 2 bytes for CRC.
-            RwSectorScope::DataBlock => unimplemented!("DataBlock scope not supported for ByteStream"),
+            RwSectorScope::DataElement => unimplemented!("DataBlock scope not supported for ByteStream"),
             RwSectorScope::DataOnly => {}
         };
 

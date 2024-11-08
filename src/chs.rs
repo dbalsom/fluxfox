@@ -424,9 +424,8 @@ impl DiskCh {
     /// Treating the `DiskCh` as a track cursor, set it to reference the next logical track on the disk.
     /// # Arguments:
     /// * `heads` - The number of heads on the disk.
-    pub fn seek_next_track(mut self, heads: u8) -> Self {
-        self = self.get_next_track(heads);
-        self
+    pub fn seek_next_track(&mut self, heads: u8) {
+        *self = self.get_next_track(heads);
     }
 }
 

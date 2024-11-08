@@ -91,7 +91,7 @@ fn main() {
 
     println!("Detected disk image type: {}", disk_image_type);
 
-    let mut disk = match DiskImage::load(&mut reader, Some(opts.filename), None) {
+    let mut disk = match DiskImage::load(&mut reader, Some(opts.filename), None, None) {
         Ok(disk) => disk,
         Err(e) => {
             eprintln!("Error loading disk image: {}", e);
@@ -120,7 +120,8 @@ fn main() {
             println!("Boot sector with valid BPB detected:");
             println!("{}", "-".repeat(79));
             let _ = bootsector.dump_bpb(&mut std::io::stdout());
-        } else {
+        }
+        else {
             println!("Boot sector has an invalid BPB");
         }
     }

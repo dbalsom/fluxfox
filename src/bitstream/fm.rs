@@ -61,6 +61,7 @@ pub struct FmCodec {
     clock_map: BitVec,
     weak_enabled: bool,
     weak_mask: BitVec,
+    error_map: BitVec,
     initial_phase: usize,
     bit_cursor: usize,
     track_padding: usize,
@@ -143,6 +144,10 @@ impl TrackCodec for FmCodec {
 
     fn weak_mask(&self) -> &BitVec {
         &self.weak_mask
+    }
+
+    fn error_map(&self) -> &BitVec {
+        &self.error_map
     }
 
     fn has_weak_bits(&self) -> bool {
@@ -427,11 +432,15 @@ impl FmCodec {
             panic!("Weak mask must be the same length as the bit vector");
         }
 
+        // Create an empty error map until we can determine how to set errors for FM tracks.
+        let error_map = BitVec::from_elem(bit_vec.len(), false);
+
         FmCodec {
             bit_vec,
             clock_map,
             weak_enabled: true,
             weak_mask,
+            error_map,
             initial_phase: sync,
             bit_cursor: sync,
             track_padding: 0,

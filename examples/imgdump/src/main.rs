@@ -177,13 +177,13 @@ fn main() {
 
     if opts.dump_dupe_mark {
         if let Some((dupe_ch, dupe_chsn)) = disk.find_duplication_mark() {
-            let rsr = match disk.read_sector(dupe_ch, DiskChs::from(dupe_chsn), None, RwSectorScope::DataOnly, true) {
-                Ok(rsr) => rsr,
-                Err(e) => {
-                    eprintln!("Error reading sector: {}", e);
-                    std::process::exit(1);
-                }
-            };
+            // let rsr = match disk.read_sector(dupe_ch, DiskChs::from(dupe_chsn), None, RwSectorScope::DataOnly, true) {
+            //     Ok(rsr) => rsr,
+            //     Err(e) => {
+            //         eprintln!("Error reading sector: {}", e);
+            //         std::process::exit(1);
+            //     }
+            // };
 
             let dump_string = match disk.dump_sector_string(dupe_ch, DiskChs::from(dupe_chsn), None) {
                 Ok(dump_string) => dump_string,
@@ -225,7 +225,7 @@ fn main() {
         let id_chs = DiskChs::new(opts.cylinder.unwrap(), opts.head.unwrap(), sector);
 
         let (scope, calc_crc) = match opts.structure {
-            true => (RwSectorScope::DataBlock, true),
+            true => (RwSectorScope::DataElement, true),
             false => (RwSectorScope::DataOnly, false),
         };
 
@@ -241,7 +241,7 @@ fn main() {
 
         let data_slice = match scope {
             RwSectorScope::DataOnly => &rsr.read_buf[rsr.data_idx..rsr.data_idx + rsr.data_len],
-            RwSectorScope::DataBlock => &rsr.read_buf,
+            RwSectorScope::DataElement => &rsr.read_buf,
         };
 
         if let Some(find_string) = &opts.find {

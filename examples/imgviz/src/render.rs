@@ -32,14 +32,20 @@
 use std::time::Instant;
 
 use anyhow::bail;
-use fast_image_resize::images::Image as FirImage;
-use fast_image_resize::{FilterType, PixelType, ResizeAlg, Resizer};
+use fast_image_resize::{images::Image as FirImage, FilterType, PixelType, ResizeAlg, Resizer};
 use tiny_skia::{Color, IntSize, Pixmap, PremultipliedColorU8};
 
-use fluxfox::visualization::{
-    render_track_data, render_track_weak_bits, RenderTrackDataParams, ResolutionType, RotationDirection,
+use fluxfox::{
+    visualization::{
+        render_track_data,
+        render_track_map,
+        RenderMapType,
+        RenderTrackDataParams,
+        ResolutionType,
+        RotationDirection,
+    },
+    DiskImage,
 };
-use fluxfox::DiskImage;
 
 pub struct RenderParams {
     pub bg_color: Option<Color>,
@@ -53,7 +59,9 @@ pub struct RenderParams {
     pub track_gap: f32,
     pub decode: bool,
     pub weak: bool,
+    pub errors: bool,
     pub weak_color: Option<Color>,
+    pub error_color: Option<Color>,
     pub resolution_type: ResolutionType,
 }
 
@@ -93,9 +101,9 @@ pub fn render_side(disk: &DiskImage, p: RenderParams) -> Result<Pixmap, anyhow::
     }
     let data_render_start_time = Instant::now();
 
-    let render_params = RenderTrackDataParams {
+    let mut render_params = RenderTrackDataParams {
         bg_color: p.bg_color,
-        weak_color: p.weak_color,
+        map_color: p.error_color,
         head: p.side as u8,
         image_size: (supersample_size, supersample_size),
         image_pos: (0, 0),
@@ -109,6 +117,7 @@ pub fn render_side(disk: &DiskImage, p: RenderParams) -> Result<Pixmap, anyhow::
         pin_last_standard_track: true,
     };
 
+    println!("Rendering data layer for side {}...", p.side);
     match render_track_data(&disk, &mut rendered_image, &render_params) {
         Ok(_) => {
             println!("Rendered data layer in {:?}", data_render_start_time.elapsed());
@@ -119,11 +128,27 @@ pub fn render_side(disk: &DiskImage, p: RenderParams) -> Result<Pixmap, anyhow::
         }
     };
 
+    // Render error bits on composited image if requested.
+    if p.errors {
+        let error_render_start_time = Instant::now();
+        println!("Rendering error map layer for side {}...", p.side);
+        match render_track_map(&disk, &mut rendered_image, RenderMapType::Errors, &render_params) {
+            Ok(_) => {
+                println!("Rendered error map layer in {:?}", error_render_start_time.elapsed());
+            }
+            Err(e) => {
+                eprintln!("Error rendering tracks: {}", e);
+                std::process::exit(1);
+            }
+        };
+    }
+
     // Render weak bits on composited image if requested.
     if p.weak {
+        render_params.map_color = p.weak_color;
         let weak_render_start_time = Instant::now();
-        println!("Rendering weak bits layer...");
-        match render_track_weak_bits(&disk, &mut rendered_image, &render_params) {
+        println!("Rendering weak bits layer for side {}...", p.side);
+        match render_track_map(&disk, &mut rendered_image, RenderMapType::WeakBits, &render_params) {
             Ok(_) => {
                 println!("Rendered weak bits layer in {:?}", weak_render_start_time.elapsed());
             }
@@ -157,7 +182,7 @@ pub fn render_side(disk: &DiskImage, p: RenderParams) -> Result<Pixmap, anyhow::
             let resize_opts =
                 fast_image_resize::ResizeOptions::new().resize_alg(ResizeAlg::Convolution(FilterType::CatmullRom));
 
-            println!("Resampling output image...");
+            println!("Resampling output image for side {}...", p.side);
             match resizer.resize(&mut src_image, &mut dst_image, &resize_opts) {
                 Ok(_) => {
                     println!(

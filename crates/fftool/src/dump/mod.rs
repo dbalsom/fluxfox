@@ -138,7 +138,7 @@ pub(crate) fn run(global: &GlobalOptions, params: args::DumpParams) -> Result<()
 
         let data_slice = match scope {
             RwSectorScope::DataOnly => &rsr.read_buf[rsr.data_idx..rsr.data_idx + rsr.data_len],
-            RwSectorScope::DataBlock => &rsr.read_buf,
+            RwSectorScope::DataElement => &rsr.read_buf,
         };
 
         if !global.silent {

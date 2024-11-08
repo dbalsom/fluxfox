@@ -235,7 +235,7 @@ impl KfxFormat {
             DiskCh::new(0, 0)
         }
         else {
-            let last_ch = disk_image.track_ch_iter().last().unwrap_or(DiskCh::new(0, 0));
+            let mut last_ch = disk_image.track_ch_iter().last().unwrap_or(DiskCh::new(0, 0));
             log::debug!("Previous track in image: {} heads: {}", last_ch, disk_image.heads());
 
             last_ch.seek_next_track(disk_image.heads());

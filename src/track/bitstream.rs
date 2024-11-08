@@ -291,7 +291,7 @@ impl Track for BitStreamTrack {
                 // including address mark and crc bytes, or just the data. Handle offsets accordingly.
                 let (scope_read_off, scope_data_off, scope_data_adj) = match scope {
                     // Add 4 bytes for address mark and 2 bytes for CRC.
-                    RwSectorScope::DataBlock => (0, 4, 6),
+                    RwSectorScope::DataElement => (0, 4, 6),
                     RwSectorScope::DataOnly => (64, 0, 0),
                 };
 

@@ -36,13 +36,11 @@ mod text;
 use std::{
     collections::HashMap,
     io::Write,
-    path::PathBuf,
     sync::{Arc, Mutex},
     thread,
     time::Instant,
 };
 
-use bpaf::*;
 use crossbeam::channel;
 use tiny_skia::{BlendMode, Color, FilterQuality, Pixmap, PixmapPaint, Transform};
 
@@ -53,136 +51,10 @@ use fluxfox::{
 };
 
 use crate::{
-    args::{parse_color, substitute_title},
+    args::{opts, substitute_title},
     render::render_side,
     text::{calculate_scaled_font_size, create_font, measure_text, render_text, Justification},
 };
-
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-struct Out {
-    debug: bool,
-    in_filename: PathBuf,
-    out_filename: PathBuf,
-    resolution: u32,
-    side: Option<u8>,
-    sides: Option<u8>,
-    hole_ratio: f32,
-    angle: f32,
-    data: bool,
-    weak: bool,
-    metadata: bool,
-    index_hole: bool,
-    decode: bool,
-    cc: bool,
-    supersample: u32,
-    img_bg_color: Option<Color>,
-    track_bg_color: Option<Color>,
-    title: Option<String>,
-}
-
-/// Set up bpaf argument parsing.
-fn opts() -> OptionParser<Out> {
-    let debug = short('d').long("debug").help("Print debug messages").switch();
-
-    let in_filename = short('i')
-        .long("in_filename")
-        .help("Filename of disk image to read")
-        .argument::<PathBuf>("IN_FILE");
-
-    let out_filename = short('o')
-        .long("out_filename")
-        .help("Filename of image to write")
-        .argument::<PathBuf>("OUT_FILE");
-
-    let resolution = short('r')
-        .long("resolution")
-        .help("Size of resulting image, in pixels")
-        .argument::<u32>("SIZE");
-
-    let side = short('s')
-        .long("side")
-        .help("Side to render. Omit to render both sides")
-        .argument::<u8>("SIDE")
-        .guard(|side| *side < 2, "Side must be 0 or 1")
-        .optional();
-
-    let sides = long("sides")
-        .help("Override number of sides to render. Only useful for rendering single-sided disks as double-wide images.")
-        .argument::<u8>("SIDES")
-        .guard(|sides| *sides > 0 && *sides < 3, "Sides must be 1 or 2")
-        .optional();
-
-    let hole_ratio = short('h')
-        .long("hole_ratio")
-        .help("Ratio of inner radius to outer radius")
-        .argument::<f32>("RATIO")
-        .fallback(0.33);
-
-    let angle = short('a')
-        .long("angle")
-        .help("Angle of rotation")
-        .argument::<f32>("ANGLE")
-        .fallback(0.0);
-
-    let data = long("data").help("Render data").switch();
-
-    let weak = short('w').long("weak").help("Render weak bits").switch();
-
-    let metadata = long("metadata").help("Render metadata").switch();
-
-    let decode = long("decode").help("Decode data").switch();
-
-    let index_hole = long("index_hole").help("Render index hole").switch();
-
-    let supersample = long("ss")
-        .help("Supersample (2,4,8)")
-        .argument::<u32>("FACTOR")
-        .fallback(1);
-
-    let cc = long("cc").help("Wrap data counter-clockwise").switch();
-
-    let img_bg_color = long("img_bg_color")
-        .help("Specify the image background color as #RRGGBBAA, #RRGGBB, or R,G,B,A")
-        .argument::<String>("IMAGE_BACKGROUND_COLOR")
-        .parse(|input: String| parse_color(&input))
-        .optional();
-
-    let track_bg_color = long("track_bg_color")
-        .help("Specify the track background color as #RRGGBBAA, #RRGGBB, or R,G,B,A")
-        .argument::<String>("TRACK_BACKGROUND_COLOR")
-        .parse(|input: String| parse_color(&input))
-        .optional();
-
-    // Title argument with substitution
-    let title = long("title")
-        .help("Specify the title string, or ${IN_FILE} to use the input filename.")
-        .argument::<String>("TITLE")
-        .optional();
-
-    construct!(Out {
-        debug,
-        in_filename,
-        out_filename,
-        resolution,
-        side,
-        sides,
-        hole_ratio,
-        angle,
-        data,
-        weak,
-        metadata,
-        index_hole,
-        decode,
-        cc,
-        supersample,
-        img_bg_color,
-        track_bg_color,
-        title,
-    })
-    .to_options()
-    .descr("imgviz: generate a graphical visualization of a disk image")
-}
 
 fn main() {
     let mut legend_height = None;
@@ -311,6 +183,7 @@ fn main() {
     let pal_orange = Color::from_rgba8(0xef, 0x7d, 0x57, 0xff);
     //let pal_dark_red = Color::from_rgba8(0xb1, 0x3e, 0x53, 0xff);
     let pal_weak_bits = Color::from_rgba8(70, 200, 200, 255);
+    let pal_error_bits = Color::from_rgba8(255, 0, 0, 255);
 
     #[rustfmt::skip]
     let palette = HashMap::from([
@@ -359,7 +232,9 @@ fn main() {
                 track_gap: render_track_gap,
                 decode: opts.decode,
                 weak: opts.weak,
+                errors: opts.errors,
                 weak_color: Some(pal_weak_bits),
+                error_color: Some(pal_error_bits),
                 resolution_type: resolution,
             };
 
@@ -489,6 +364,7 @@ fn main() {
             final_image.fill(color);
         }
 
+        println!("Compositing sides...");
         for (i, pixmap) in rendered_pixmaps.iter().enumerate() {
             //println!("Compositing pixmap #{}", i);
             final_image.draw_pixmap(
@@ -513,6 +389,7 @@ fn main() {
             final_image.fill(color);
         }
 
+        println!("Compositing side...");
         final_image.draw_pixmap(
             0,
             0,
