@@ -253,7 +253,7 @@ impl Track for MetaSectorTrack {
     }
 
     fn has_sector_id(&self, sid: u8, id_chsn: Option<DiskChsn>) -> bool {
-        if let Some(_) = &self.sectors.iter().find(|sector| {
+        self.sectors.iter().any(|sector| {
             if id_chsn.is_none() && sector.id_chsn.s() == sid {
                 return true;
             }
@@ -263,12 +263,7 @@ impl Track for MetaSectorTrack {
                 }
             }
             false
-        }) {
-            true
-        }
-        else {
-            false
-        }
+        })
     }
 
     fn get_sector_list(&self) -> Vec<SectorMapEntry> {
