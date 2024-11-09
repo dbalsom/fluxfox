@@ -1,6 +1,6 @@
 mod common;
 
-use fluxfox::{diskimage::RwSectorScope, DiskCh, DiskChs, DiskImage, DiskImageError};
+use fluxfox::{diskimage::RwSectorScope, DiskCh, DiskChsnQuery, DiskImage, DiskImageError};
 
 fn init() {
     let _ = env_logger::builder().is_test(true).try_init();
@@ -23,7 +23,8 @@ fn test_prolok() {
 
     let mut read_sector_result = match tc_image.read_sector(
         DiskCh::new(39, 0),
-        DiskChs::new(39, 0, 5),
+        DiskChsnQuery::new(39, 0, 5, None),
+        None,
         None,
         RwSectorScope::DataOnly,
         false,
@@ -48,7 +49,7 @@ fn test_prolok() {
 
     match tc_image.write_sector(
         DiskCh::new(39, 0),
-        DiskChs::new(39, 0, 5),
+        DiskChsnQuery::new(39, 0, 5, 2),
         None,
         &sector_data,
         RwSectorScope::DataOnly,
@@ -65,7 +66,8 @@ fn test_prolok() {
     // Read the sector back. It should have different data.
     read_sector_result = match tc_image.read_sector(
         DiskCh::new(39, 0),
-        DiskChs::new(39, 0, 5),
+        DiskChsnQuery::new(39, 0, 5, 2),
+        None,
         None,
         RwSectorScope::DataOnly,
         false,

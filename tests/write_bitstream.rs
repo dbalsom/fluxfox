@@ -1,6 +1,6 @@
 mod common;
 
-use fluxfox::{diskimage::RwSectorScope, DiskCh, DiskChs, DiskImage, DiskImageError};
+use fluxfox::{diskimage::RwSectorScope, DiskCh, DiskChsnQuery, DiskImage, DiskImageError};
 
 #[test]
 fn test_bitstream_write() {
@@ -15,7 +15,8 @@ fn test_bitstream_write() {
 
     let mut read_sector_result = match f86_image.read_sector(
         DiskCh::new(0, 0),
-        DiskChs::new(0, 0, 1),
+        DiskChsnQuery::new(0, 0, 1, None),
+        None,
         None,
         RwSectorScope::DataOnly,
         false,
@@ -53,7 +54,7 @@ fn test_bitstream_write() {
 
     let _write_sector_result = match f86_image.write_sector(
         DiskCh::new(0, 0),
-        DiskChs::new(0, 0, 1),
+        DiskChsnQuery::new(0, 0, 1, 2),
         None,
         &sector_data,
         RwSectorScope::DataOnly,
@@ -70,7 +71,8 @@ fn test_bitstream_write() {
     // Read the sector back. It should be the same data.
     read_sector_result = match f86_image.read_sector(
         DiskCh::new(0, 0),
-        DiskChs::new(0, 0, 1),
+        DiskChsnQuery::new(0, 0, 1, 2),
+        None,
         None,
         RwSectorScope::DataOnly,
         false,
