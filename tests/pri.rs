@@ -59,20 +59,11 @@ fn test_pri_sector_reads() {
     for ti in ti_vec {
         if let Some(td) = pri_image.track_by_idx_mut(ti) {
             let ch = td.ch();
-            println!("Reading track {}...", ch);
+            //println!("Reading track {}...", ch);
             let rtr = match td.read_all_sectors(ch, 2, 0) {
                 Ok(rtr) => rtr,
                 Err(e) => panic!("Failed to read track: {}", e),
             };
-
-            // pub struct ReadTrackResult {
-            //     pub not_found: bool,
-            //     pub sectors_read: u16,
-            //     pub read_buf: Vec<u8>,
-            //     pub deleted_mark: bool,
-            //     pub address_crc_error: bool,
-            //     pub data_crc_error: bool,
-            // }
 
             if rtr.read_buf.len() != rtr.sectors_read as usize * 512 {
                 eprintln!(
@@ -100,7 +91,7 @@ fn test_pri_sector_reads() {
                 }
 
                 sector_byte = sector_byte.wrapping_add(1);
-                println!("Advancing sector, new sector_byte: {}", sector_byte);
+                //println!("Advancing sector, new sector_byte: {}", sector_byte);
             }
         }
     }
