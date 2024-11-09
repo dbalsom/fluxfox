@@ -114,6 +114,28 @@ impl DiskChsnQuery {
     }
 }
 
+impl From<DiskChsn> for DiskChsnQuery {
+    fn from(chsn: DiskChsn) -> Self {
+        Self {
+            c: Some(chsn.c()),
+            h: Some(chsn.h()),
+            s: chsn.s(),
+            n: Some(chsn.n()),
+        }
+    }
+}
+
+impl From<DiskChs> for DiskChsnQuery {
+    fn from(chs: DiskChs) -> Self {
+        Self {
+            c: Some(chs.c()),
+            h: Some(chs.h()),
+            s: chs.s(),
+            n: None,
+        }
+    }
+}
+
 /// A structure representing the four components of Sector ID:
 ///  - Cylinder (c)
 ///  - Head (h)

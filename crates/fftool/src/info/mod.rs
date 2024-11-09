@@ -164,7 +164,10 @@ pub fn dump_track_map<W: std::io::Write>(
                     for sector in track {
                         out.write_fmt(format_args!(
                             "\t\t\t{} address_crc_valid: {} data_crc_valid: {} deleted: {}\n",
-                            sector.chsn, sector.address_crc_valid, sector.data_crc_valid, sector.deleted_mark
+                            sector.chsn,
+                            sector.attributes.address_crc_valid,
+                            sector.attributes.data_crc_valid,
+                            sector.attributes.deleted_mark
                         ))?;
                     }
                 }

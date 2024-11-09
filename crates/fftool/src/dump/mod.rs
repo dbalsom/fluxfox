@@ -30,7 +30,7 @@ use anyhow::{bail, Error};
 use std::io::{BufWriter, Write};
 
 use crate::{args::GlobalOptions, read_file};
-use fluxfox::{diskimage::RwSectorScope, DiskCh, DiskChs, DiskChsn, DiskImage};
+use fluxfox::{diskimage::RwSectorScope, DiskCh, DiskChs, DiskChsn, DiskChsnQuery, DiskImage};
 
 pub(crate) fn run(global: &GlobalOptions, params: args::DumpParams) -> Result<(), Error> {
     let row_size = params.row_size.unwrap_or(16) as usize;
@@ -60,14 +60,21 @@ pub(crate) fn run(global: &GlobalOptions, params: args::DumpParams) -> Result<()
 
     if params.dupe_mark {
         if let Some((dupe_ch, dupe_chsn)) = disk.find_duplication_mark() {
-            let _rsr = match disk.read_sector(dupe_ch, DiskChs::from(dupe_chsn), None, RwSectorScope::DataOnly, true) {
+            let _rsr = match disk.read_sector(
+                dupe_ch,
+                DiskChsnQuery::from(dupe_chsn),
+                None,
+                None,
+                RwSectorScope::DataOnly,
+                true,
+            ) {
                 Ok(rsr) => rsr,
                 Err(e) => {
                     bail!("Error reading sector: {}", e);
                 }
             };
 
-            let dump_string = match disk.dump_sector_string(dupe_ch, DiskChs::from(dupe_chsn), None) {
+            let dump_string = match disk.dump_sector_string(dupe_ch, DiskChsnQuery::from(dupe_chsn), None, None) {
                 Ok(dump_string) => dump_string,
                 Err(e) => {
                     bail!("Error dumping sector: {}", e);
@@ -127,7 +134,7 @@ pub(crate) fn run(global: &GlobalOptions, params: args::DumpParams) -> Result<()
         _ = writeln!(&mut buf, "reading sector...");
         _ = buf.flush();
 
-        let rsr = match disk.read_sector(phys_ch, id_chs, params.n, scope, true) {
+        let rsr = match disk.read_sector(phys_ch, DiskChsnQuery::from(id_chs), params.n, None, scope, true) {
             Ok(rsr) => rsr,
             Err(e) => {
                 bail!("Error reading sector: {}", e);
