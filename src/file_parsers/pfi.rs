@@ -35,16 +35,15 @@
 
 */
 
+use binrw::{binrw, BinRead};
+
 use crate::{
     chs::DiskCh,
     diskimage::DiskDescriptor,
     file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility},
-    io::{Cursor, ReadSeek, ReadWriteSeek},
-};
-
-use crate::{
+    io::{Cursor, ReadBytesExt, ReadSeek, ReadWriteSeek},
+    track::fluxstream::FluxStreamTrack,
     DiskDataEncoding,
-    DiskDataRate,
     DiskDensity,
     DiskImage,
     DiskImageError,
@@ -53,10 +52,9 @@ use crate::{
     LoadingCallback,
     DEFAULT_SECTOR_SIZE,
 };
-use binrw::{binrw, BinRead};
 
 pub struct PfiFormat;
-pub const MAXIMUM_CHUNK_SIZE: usize = 0x100000; // Reasonable 1MB limit for chunk sizes.
+pub const MAXIMUM_CHUNK_SIZE: usize = 0x1000000; // Reasonable 10MB limit for chunk sizes.
 
 #[derive(Debug)]
 #[binrw]
@@ -64,26 +62,6 @@ pub const MAXIMUM_CHUNK_SIZE: usize = 0x100000; // Reasonable 1MB limit for chun
 pub struct PfiChunkHeader {
     pub id:   [u8; 4],
     pub size: u32,
-}
-
-#[derive(Debug)]
-#[binrw]
-#[brw(big)]
-pub struct PfiChunkFooter {
-    pub id: [u8; 4],
-    pub size: u32,
-    pub footer: u32,
-}
-
-/// We use the Default implementation to set the special CRC value for the footer.
-impl Default for PfiChunkFooter {
-    fn default() -> Self {
-        PfiChunkFooter {
-            id: *b"END ",
-            size: 0,
-            footer: 0x3d64af78,
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -144,10 +122,24 @@ pub(crate) fn pfi_crc(buf: &[u8]) -> u32 {
     crc & 0xffffffff
 }
 
+#[derive(Default)]
+pub struct TrackContext {
+    phys_ch: Option<DiskCh>,
+    clock_rate: Option<u32>,
+    clock_period: f64,
+    index_clocks: Vec<u32>,
+}
+
+#[derive(Default)]
+pub struct PfiRevolution {
+    transitions: Vec<f64>,
+    index_time:  f64,
+}
+
 impl PfiFormat {
     #[allow(dead_code)]
     fn format() -> DiskImageFileFormat {
-        DiskImageFileFormat::PceBitstreamImage
+        DiskImageFileFormat::PceFluxImage
     }
 
     pub(crate) fn capabilities() -> FormatCaps {
@@ -191,7 +183,7 @@ impl PfiFormat {
         }
 
         let chunk_type = match &chunk_header.id {
-            b"Pfi " => PfiChunkType::FileHeader,
+            b"PFI " => PfiChunkType::FileHeader,
             b"TEXT" => PfiChunkType::Text,
             b"END " => PfiChunkType::End,
             b"TRAK" => PfiChunkType::TrackHeader,
@@ -235,7 +227,7 @@ impl PfiFormat {
         disk_image: &mut DiskImage,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
-        disk_image.set_source_format(DiskImageFileFormat::PceBitstreamImage);
+        disk_image.set_source_format(DiskImageFileFormat::PceFluxImage);
 
         // Seek to start of read_buf.
         read_buf.seek(std::io::SeekFrom::Start(0))?;
@@ -248,20 +240,15 @@ impl PfiFormat {
 
         let file_header =
             PfiHeader::read(&mut Cursor::new(&chunk.data)).map_err(|_| DiskImageError::FormatParseError)?;
-        log::trace!("Read PRI file header. Format version: {}", file_header.version);
+        log::trace!("Read PFI file header. Format version: {}", file_header.version);
 
         let mut comment_string = String::new();
-        let mut current_ch = DiskCh::default();
-        let current_crc_error = false;
-
         let mut heads_seen: FoxHashSet<u8> = FoxHashSet::new();
         let mut cylinders_seen: FoxHashSet<u16> = FoxHashSet::new();
-
-        let mut disk_clock_rate = None;
-        let mut current_track_clock = 0;
+        let disk_clock_rate = None;
         let mut track_header;
 
-        let mut index_list: Vec<u32> = Vec::new();
+        let mut ctx = TrackContext::default();
 
         while chunk.chunk_type != PfiChunkType::End {
             match chunk.chunk_type {
@@ -270,16 +257,23 @@ impl PfiFormat {
                         .map_err(|_| DiskImageError::FormatParseError)?;
 
                     let ch = DiskCh::from((track_header.cylinder as u16, track_header.head as u8));
-                    log::trace!("Track header: {:?} Clock Rate: {}", ch, track_header.clock_rate);
 
-                    current_track_clock = track_header.clock_rate;
+                    ctx.phys_ch = Some(ch);
+                    ctx.clock_rate = Some(track_header.clock_rate);
+                    ctx.clock_period = 1.0 / (track_header.clock_rate as f64);
+
+                    log::trace!(
+                        "Track header: {:?} Clock Rate: {:.04}Mhz Period: {:.04}us",
+                        ch,
+                        track_header.clock_rate as f64 / 1_000_000.0,
+                        ctx.clock_period * 1_000_000.0
+                    );
                     cylinders_seen.insert(track_header.cylinder as u16);
                     heads_seen.insert(track_header.head as u8);
-                    current_ch = ch;
                 }
                 PfiChunkType::Index => {
                     let index_entries = chunk.size / 4;
-                    log::trace!("Index chunk with {} entries", index_entries);
+                    let mut index_list: Vec<u32> = Vec::with_capacity(index_entries as usize);
 
                     for i in 0..index_entries {
                         let index = u32::from_be_bytes([
@@ -290,32 +284,92 @@ impl PfiFormat {
                         ]);
                         index_list.push(index);
                     }
+
+                    log::trace!("Index chunk with {} entries:", index_entries);
+                    for idx in &index_list {
+                        log::trace!("Index clock: {}", idx);
+                    }
+
+                    ctx.index_clocks = index_list;
                 }
                 PfiChunkType::TrackData => {
                     log::trace!(
-                        "Track data chunk: {} size: {}  crc_error: {}",
-                        current_ch,
+                        "Track data chunk: {} size: {}",
+                        ctx.phys_ch.unwrap_or_default(),
                         chunk.size,
-                        current_crc_error
                     );
 
-                    // Set the global disk data rate once.
-                    if disk_clock_rate.is_none() {
-                        disk_clock_rate = Some(DiskDataRate::from(current_track_clock));
+                    let revolutions = PfiFormat::read_track_data(&chunk.data, &ctx.index_clocks, ctx.clock_period)?;
+                    log::trace!("Read {} revolutions from track data.", revolutions.len());
+
+                    let mut flux_track = FluxStreamTrack::new();
+
+                    // Get last ch in image.
+                    let next_ch = if disk_image.track_ch_iter().count() == 0 {
+                        log::debug!("No tracks in image, starting at c:0 h:0");
+                        DiskCh::new(0, 0)
+                    }
+                    else {
+                        let mut last_ch = disk_image.track_ch_iter().last().unwrap_or(DiskCh::new(0, 0));
+                        log::debug!("Previous track in image: {} heads: {}", last_ch, disk_image.heads());
+
+                        last_ch.seek_next_track(disk_image.heads());
+                        last_ch
+                    };
+
+                    for (ri, rev) in revolutions.iter().enumerate() {
+                        log::trace!(
+                            "Adding revolution {} with {} transitions and index time of {:.04}ms.",
+                            ri,
+                            rev.transitions.len(),
+                            rev.index_time * 1_000.0
+                        );
+
+                        flux_track.add_revolution(next_ch, &rev.transitions, rev.index_time);
                     }
 
-                    // disk_image.add_track_bitstream(
-                    //     DiskDataEncoding::Mfm,
-                    //     DiskDataRate::from(current_bit_clock),
-                    //     current_ch,
-                    //     current_bit_clock,
-                    //     Some(track_header.bit_length as usize),
-                    //     &chunk.data,
-                    //     None,
-                    // )?;
+                    // Get hints from disk image if we aren't the first track.
+                    let (clock_hint, rpm_hint) = if !disk_image.track_pool.is_empty() {
+                        (
+                            Some(disk_image.descriptor.density.base_clock(disk_image.descriptor.rpm)),
+                            disk_image.descriptor.rpm,
+                        )
+                    }
+                    else {
+                        (None, None)
+                    };
+
+                    let data_rate = disk_image.data_rate();
+                    let new_track = disk_image.add_track_fluxstream(next_ch, flux_track, clock_hint, rpm_hint)?;
+
+                    let (new_density, new_rpm) = if new_track.get_sector_ct() == 0 {
+                        log::warn!("Track did not decode any sectors. Not updating disk image descriptor.");
+                        (disk_image.descriptor.density, disk_image.descriptor.rpm)
+                    }
+                    else {
+                        let info = new_track.info();
+                        log::debug!(
+                            "Updating disk descriptor with density: {:?} and RPM: {:?}",
+                            info.density,
+                            info.rpm
+                        );
+                        (info.density.unwrap_or(disk_image.descriptor.density), info.rpm)
+                    };
+
+                    log::debug!("Track added.");
+
+                    disk_image.descriptor = DiskDescriptor {
+                        geometry: DiskCh::from((cylinders_seen.len() as u16, heads_seen.len() as u8)),
+                        data_rate,
+                        density: new_density,
+                        data_encoding: DiskDataEncoding::Mfm,
+                        default_sector_size: DEFAULT_SECTOR_SIZE,
+                        rpm: new_rpm,
+                        write_protect: Some(true),
+                    };
                 }
                 PfiChunkType::Text => {
-                    // PSI docs:
+                    // PFI docs:
                     // `If there are multiple TEXT chunks, their contents should be concatenated`
                     if let Ok(text) = std::str::from_utf8(&chunk.data) {
                         comment_string.push_str(text);
@@ -337,17 +391,116 @@ impl PfiFormat {
 
         let head_ct = heads_seen.len() as u8;
         let cylinder_ct = cylinders_seen.len() as u16;
+
+        let clock_rate = disk_clock_rate.unwrap_or_default();
+
         disk_image.descriptor = DiskDescriptor {
             geometry: DiskCh::from((cylinder_ct, head_ct)),
-            data_rate: disk_clock_rate.unwrap(),
+            data_rate: clock_rate,
             data_encoding: DiskDataEncoding::Mfm,
-            density: DiskDensity::from(disk_clock_rate.unwrap()),
+            density: DiskDensity::from(clock_rate),
             default_sector_size: DEFAULT_SECTOR_SIZE,
             rpm: None,
             write_protect: None,
         };
 
         Ok(())
+    }
+
+    /// Read PFI variable-length flux transitions and return a list of flux transition times
+    /// in f64 seconds
+    fn read_track_data(
+        data: &[u8],
+        index_times: &[u32],
+        clock_period: f64,
+    ) -> Result<Vec<PfiRevolution>, DiskImageError> {
+        if index_times.is_empty() {
+            log::error!("No index times found in track data.");
+            return Err(DiskImageError::FormatParseError);
+        }
+
+        let mut revs: Vec<PfiRevolution> = Vec::with_capacity(5);
+
+        let mut current_rev_idx = 0;
+        let mut next_index = index_times[0];
+        let mut current_rev = &mut PfiRevolution::default();
+
+        let mut clocks = 0;
+        let mut data_cursor = Cursor::new(data);
+
+        let mut last_index_clock = 0;
+
+        while let Ok(byte) = data_cursor.read_u8() {
+            if clocks >= next_index {
+                log::trace!("Reached next index position at clock: {}", clocks);
+                current_rev_idx += 1;
+                if current_rev_idx >= index_times.len() {
+                    break;
+                }
+
+                current_rev.index_time = (clocks - last_index_clock) as f64 * clock_period;
+
+                next_index = index_times[current_rev_idx];
+                revs.push(PfiRevolution {
+                    transitions: Vec::with_capacity(225_000),
+                    index_time:  0.0,
+                });
+
+                current_rev = revs.last_mut().unwrap();
+                last_index_clock = clocks;
+            }
+
+            match byte {
+                0x00 => {
+                    // Invalid
+                    log::error!("Invalid 0x00 byte in flux stream.");
+                    return Err(DiskImageError::FormatParseError);
+                }
+                0x01 => {
+                    // XX YY
+                    let xx = data_cursor.read_u8()?;
+                    let yy = data_cursor.read_u8()?;
+                    let time = (xx as u16) << 8 | yy as u16;
+                    clocks += time as u32;
+                    current_rev.transitions.push(time as f64 * clock_period);
+                }
+                0x02 => {
+                    // XX YY ZZ
+                    let xx = data_cursor.read_u8()?;
+                    let yy = data_cursor.read_u8()?;
+                    let zz = data_cursor.read_u8()?;
+                    let time = (xx as u32) << 16 | (yy as u32) << 8 | zz as u32;
+                    clocks += time;
+                    current_rev.transitions.push(time as f64 * clock_period);
+                }
+                0x03 => {
+                    // XX YY ZZ WW
+                    let xx = data_cursor.read_u8()?;
+                    let yy = data_cursor.read_u8()?;
+                    let zz = data_cursor.read_u8()?;
+                    let ww = data_cursor.read_u8()?;
+                    let time = (xx as u32) << 24 | (yy as u32) << 16 | (zz as u32) << 8 | ww as u32;
+                    clocks += time;
+                    current_rev.transitions.push(time as f64 * clock_period);
+                }
+                0x04..0x08 => {
+                    // 0(N-4) XX
+                    let base = byte - 0x04;
+                    let xx = data_cursor.read_u8()?;
+                    let time = (base as u16) << 8 | xx as u16;
+                    clocks += time as u32;
+                    current_rev.transitions.push(time as f64 * clock_period);
+                }
+                _ => {
+                    // Byte as literal clock count.
+                    clocks += byte as u32;
+                    current_rev.transitions.push(byte as f64 * clock_period);
+                }
+            }
+        }
+
+        current_rev.index_time = (clocks - last_index_clock) as f64 * clock_period;
+        Ok(revs)
     }
 
     pub fn save_image<RWS: ReadWriteSeek>(_image: &DiskImage, _output: &mut RWS) -> Result<(), DiskImageError> {

@@ -2,6 +2,7 @@
 
 ### Features:
 
+- Added support for PFI (PCE Flux Image) images
 - Added support for visualization of bitstream errors
 - Added offset fields to track interface functions to support tracks with duplicate sector IDs
 - Implemented DiskChsnQuery struct to enable optional matching of Sector ID fields when scanning, reading, or writing
@@ -9,6 +10,7 @@
 
 ### Bugfixes:
 
+- Fixed and improved format tests
 - Fixed bug in Kryoflux import
 
 ### Breaking changes:

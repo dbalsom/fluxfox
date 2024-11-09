@@ -102,7 +102,7 @@ pub enum ParserWriteCompatibility {
     UnsupportedFormat,
 }
 
-pub(crate) const IMAGE_FORMATS: [DiskImageFileFormat; 12] = [
+pub(crate) const IMAGE_FORMATS: [DiskImageFileFormat; 13] = [
     DiskImageFileFormat::ImageDisk,
     DiskImageFileFormat::TeleDisk,
     DiskImageFileFormat::PceSectorImage,
@@ -112,7 +112,7 @@ pub(crate) const IMAGE_FORMATS: [DiskImageFileFormat; 12] = [
     DiskImageFileFormat::F86Image,
     DiskImageFileFormat::TransCopyImage,
     DiskImageFileFormat::SuperCardPro,
-    //DiskImageFormat::PceFluxImage,
+    DiskImageFileFormat::PceFluxImage,
     DiskImageFileFormat::MameFloppyImage,
     DiskImageFileFormat::KryofluxStream,
     DiskImageFileFormat::RawSectorImage,
