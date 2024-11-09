@@ -2,12 +2,18 @@ mod common;
 
 use common::*;
 use fluxfox::{DiskImage, DiskImageFileFormat, ImageParser};
+use std::path::PathBuf;
+
+fn init() {
+    let _ = env_logger::builder().is_test(true).try_init();
+}
 
 #[test]
 fn test_img() {
+    init();
     use std::io::Cursor;
 
-    let disk_image_buf = std::fs::read(".\\tests\\images\\Transylvania.img").unwrap();
+    let disk_image_buf = std::fs::read(".\\tests\\images\\transylvania\\Transylvania.img").unwrap();
     let mut in_buffer = Cursor::new(disk_image_buf);
 
     let mut img_image = DiskImage::load(&mut in_buffer, None, None, None).unwrap();
@@ -38,4 +44,17 @@ fn test_img() {
 
     assert_eq!(in_hash, out_hash);
     println!("Hashes match!");
+}
+
+#[test]
+fn test_img_sector_test() {
+    init();
+    run_sector_test(
+        PathBuf::from(".\\tests\\images\\sector_test\\sector_test_360k.img"),
+        DiskImageFileFormat::RawSectorImage,
+    );
+    run_sector_test(
+        PathBuf::from(".\\tests\\images\\sector_test\\sector_test_360k.imz"),
+        DiskImageFileFormat::RawSectorImage,
+    );
 }

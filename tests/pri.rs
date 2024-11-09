@@ -1,6 +1,8 @@
 mod common;
 
+use crate::common::run_sector_test;
 use fluxfox::{DiskImage, DiskImageFileFormat, ImageParser};
+use std::path::PathBuf;
 
 fn init() {
     let _ = env_logger::builder().is_test(true).try_init();
@@ -11,7 +13,7 @@ fn test_pri_write() {
     init();
     use std::io::Cursor;
 
-    let disk_image_buf = std::fs::read(".\\tests\\images\\Transylvania.86f").unwrap();
+    let disk_image_buf = std::fs::read(".\\tests\\images\\transylvania\\Transylvania.86f").unwrap();
     let mut in_buffer = Cursor::new(disk_image_buf);
 
     let mut f86_image = DiskImage::load(&mut in_buffer, None, None, None).unwrap();
@@ -38,61 +40,9 @@ fn test_pri_write() {
 }
 
 #[test]
-fn test_pri_sector_reads() {
-    init();
-    use std::io::Cursor;
-
-    let disk_image_buf = std::fs::read(".\\tests\\images\\pri\\sector_test.pri").unwrap();
-    let mut in_buffer = Cursor::new(disk_image_buf);
-
-    let mut pri_image = match DiskImage::load(&mut in_buffer, None, None, None) {
-        Ok(image) => image,
-        Err(e) => panic!("Failed to load PRI image: {}", e),
-    };
-
-    println!("Loaded PRI image of geometry {}...", pri_image.image_format().geometry);
-
-    let mut sector_byte: u8 = 0;
-
-    // Collect indices to avoid borrowing issues
-    let ti_vec: Vec<usize> = pri_image.track_idx_iter().collect();
-    for ti in ti_vec {
-        if let Some(td) = pri_image.track_by_idx_mut(ti) {
-            let ch = td.ch();
-            //println!("Reading track {}...", ch);
-            let rtr = match td.read_all_sectors(ch, 2, 0) {
-                Ok(rtr) => rtr,
-                Err(e) => panic!("Failed to read track: {}", e),
-            };
-
-            if rtr.read_buf.len() != rtr.sectors_read as usize * 512 {
-                eprintln!(
-                    "Read buffer size mismatch: expected {} bytes, got {} bytes.",
-                    rtr.sectors_read as usize * 512,
-                    rtr.read_buf.len()
-                );
-            }
-
-            for si in 0..rtr.sectors_read {
-                let sector = &rtr.read_buf[si as usize * 512..(si as usize + 1) * 512];
-                for bi in 0..512 {
-                    if sector[bi] != sector_byte {
-                        eprintln!(
-                            "Sector byte mismatch at track {}, sector {}, byte [{}]: expected {}, got {}.",
-                            td.ch(),
-                            si + 1,
-                            bi,
-                            sector_byte,
-                            sector[bi]
-                        );
-                        assert_eq!(sector[bi], sector_byte);
-                        break;
-                    }
-                }
-
-                sector_byte = sector_byte.wrapping_add(1);
-                //println!("Advancing sector, new sector_byte: {}", sector_byte);
-            }
-        }
-    }
+fn test_pri_sector_test() {
+    run_sector_test(
+        PathBuf::from(".\\tests\\images\\sector_test\\sector_test_360k.pri"),
+        DiskImageFileFormat::PceBitstreamImage,
+    );
 }

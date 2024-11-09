@@ -49,6 +49,18 @@ pub mod tc;
 pub mod td0;
 
 bitflags! {
+    /// Bit flags representing loading options passed to a disk image file parser.
+    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    #[rustfmt::skip]
+    pub struct LoadOptions: u32 {
+        const ERRORS_TO_WEAK_BITS     = 0b0000_0000_0000_0001; // Convert MFM errors to weak bits
+        const NFA_TO_WEAK_BITS        = 0b0000_0000_0000_0010; // Convert NFA zones to weak bits
+        const DETECT_WEAK_BITS        = 0b0000_0000_0000_0100; // Analyze multiple revolutions for weak bits (requires flux image)
+        const WEAK_BITS_TO_HOLES      = 0b0000_0000_0000_1000; // Convert weak bits to holes
+    }
+}
+
+bitflags! {
     /// Bit flags representing the capabilities of a specific image format. Used to determine if a
     /// specific image format can represent a particular DiskImage.
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

@@ -2,6 +2,7 @@ mod common;
 
 use common::*;
 use fluxfox::{DiskImage, DiskImageFileFormat, ImageParser};
+use std::path::PathBuf;
 
 fn init() {
     match env_logger::builder().is_test(true).try_init() {
@@ -18,7 +19,7 @@ fn test_imd() {
     init();
     use std::io::Cursor;
 
-    let disk_image_buf = std::fs::read(".\\tests\\images\\Transylvania.imd").unwrap();
+    let disk_image_buf = std::fs::read(".\\tests\\images\\transylvania\\Transylvania.imd").unwrap();
     let mut in_buffer = Cursor::new(disk_image_buf);
 
     let mut img_image = DiskImage::load(&mut in_buffer, None, None, None).unwrap();
@@ -33,7 +34,7 @@ fn test_imd() {
     //let in_inner: Vec<u8> = in_buffer.into_inner();
     let out_inner: Vec<u8> = out_buffer.into_inner();
 
-    let in_hash = compute_file_hash(".\\tests\\images\\Transylvania.img");
+    let in_hash = compute_file_hash(".\\tests\\images\\transylvania\\Transylvania.img");
 
     //println!("Input file is {} bytes.", in_inner.len());
     //println!("First bytes of input file: {:02X?}", &in_inner[0..16]);
@@ -47,4 +48,14 @@ fn test_imd() {
 
     assert_eq!(in_hash, out_hash);
     println!("Hashes match!");
+}
+
+#[test]
+fn test_imd_sector_test_360k() {
+    init();
+    init();
+    run_sector_test(
+        PathBuf::from(".\\tests\\images\\sector_test\\sector_test_360k.imd"),
+        DiskImageFileFormat::ImageDisk,
+    );
 }

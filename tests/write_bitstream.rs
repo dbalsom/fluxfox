@@ -6,7 +6,7 @@ use fluxfox::{diskimage::RwSectorScope, DiskCh, DiskChsnQuery, DiskImage, DiskIm
 fn test_bitstream_write() {
     use std::io::Cursor;
 
-    let disk_image_buf = std::fs::read(".\\tests\\images\\Transylvania.86f").unwrap();
+    let disk_image_buf = std::fs::read(".\\tests\\images\\transylvania\\Transylvania.86f").unwrap();
     let mut in_buffer = Cursor::new(disk_image_buf);
 
     let mut f86_image = DiskImage::load(&mut in_buffer, None, None, None).unwrap();
