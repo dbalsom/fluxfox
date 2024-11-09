@@ -30,7 +30,7 @@
     such.
 */
 
-use crate::{DiskChs, DiskImage};
+use crate::{chs::DiskChsnQuery, DiskImage};
 use std::fmt::{Display, Formatter, Result};
 
 #[derive(Copy, Clone, Debug)]
@@ -68,30 +68,29 @@ impl DiskImage {
             // Check for Formaster CopyLock.
             // Look for Sector 1 on a track with n == 1 and bad crc.
             // If the address crc is also bad, it's version 2.
-            match track.scan_sector(DiskChs::new(track_ch.c(), track_ch.h(), 1), Some(1)) {
-                Ok(scan_result) => {
-                    if scan_result.data_crc_error {
-                        return if scan_result.address_crc_error {
-                            Some(CopyProtectionScheme::FormasterCopyLock(2))
-                        } else {
-                            Some(CopyProtectionScheme::FormasterCopyLock(1))
-                        };
+            if let Ok(scan_result) =
+                track.scan_sector(DiskChsnQuery::new(track_ch.c(), track_ch.h(), 1, 1), Some(1), None)
+            {
+                if scan_result.data_crc_error {
+                    return if scan_result.address_crc_error {
+                        Some(CopyProtectionScheme::FormasterCopyLock(2))
                     }
+                    else {
+                        Some(CopyProtectionScheme::FormasterCopyLock(1))
+                    };
                 }
-                Err(_) => {}
             }
 
             // Check for Softguard Superlok.
             // Look for Sector 1 on a track > 1 with n == 6 (8129 bytes) and bad crc.
             // Not sure how to detect v2 as the main change is in the detection code.
             if track_ch.c() > 1 {
-                match track.scan_sector(DiskChs::new(track_ch.c(), track_ch.h(), 1), Some(6)) {
-                    Ok(scan_result) => {
-                        if scan_result.data_crc_error {
-                            return Some(CopyProtectionScheme::SoftguardSuperlok(1));
-                        }
+                if let Ok(scan_result) =
+                    track.scan_sector(DiskChsnQuery::new(track_ch.c(), track_ch.h(), 1, 6), Some(6), None)
+                {
+                    if scan_result.data_crc_error {
+                        return Some(CopyProtectionScheme::SoftguardSuperlok(1));
                     }
-                    Err(_) => {}
                 }
             }
 

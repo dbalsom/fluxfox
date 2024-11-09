@@ -45,7 +45,7 @@ use sha1_smol::Digest;
 use crate::{
     bitstream::{fm::FmCodec, TrackDataStream},
     boot_sector::BootSector,
-    chs::{DiskCh, DiskChs, DiskChsn},
+    chs::{DiskCh, DiskChs, DiskChsn, DiskChsnQuery},
     containers::{
         zip::{extract_file, extract_first_file},
         DiskImageContainer,
@@ -217,6 +217,14 @@ pub enum DiskFormat {
     Standard(StandardFormat),
 }
 
+#[derive(Copy, Clone, Debug, Default)]
+pub struct SectorAttributes {
+    pub address_crc_valid: bool,
+    pub data_crc_valid: bool,
+    pub deleted_mark: bool,
+    pub no_dam: bool,
+}
+
 /// A structure used to describe the parameters of a sector to be created on a `MetaSector`
 /// resolution track.
 #[derive(Default)]
@@ -225,10 +233,7 @@ pub struct SectorDescriptor {
     pub data: Vec<u8>,
     pub weak_mask: Option<Vec<u8>>,
     pub hole_mask: Option<Vec<u8>>,
-    pub address_crc_error: bool,
-    pub data_crc_error: bool,
-    pub deleted_mark: bool,
-    pub missing_data: bool,
+    pub attributes: SectorAttributes,
 }
 
 /// A structure to uniquely identify a specific sector on a track.
@@ -248,10 +253,7 @@ pub struct SectorCursor {
 #[derive(Copy, Clone, Debug, Default)]
 pub struct SectorMapEntry {
     pub chsn: DiskChsn,
-    pub address_crc_valid: bool,
-    pub data_crc_valid: bool,
-    pub deleted_mark: bool,
-    pub no_dam: bool,
+    pub attributes: SectorAttributes,
 }
 
 /// A DiskConsistency structure maintains information about the consistency of a disk image.
@@ -955,10 +957,10 @@ impl DiskImage {
         Ok(())
     }
 
-    /// Adds a new track to the disk image, of ByteStream resolution.
+    /// Adds a new track to the disk image, of `MetaSector` resolution.
     /// Data of this resolution is typically sourced from sector-based image formats.
     ///
-    /// This function locks the disk image to `ByteStream` resolution and adds a new track with the
+    /// This function locks the disk image to `MetaSector` resolution and adds a new track with the
     /// specified data encoding, data rate, and geometry.
     ///
     /// # Parameters
@@ -1032,8 +1034,9 @@ impl DiskImage {
     pub fn read_sector(
         &mut self,
         phys_ch: DiskCh,
-        id_chs: DiskChs,
+        id: DiskChsnQuery,
         n: Option<u8>,
+        offset: Option<usize>,
         scope: RwSectorScope,
         debug: bool,
     ) -> Result<ReadSectorResult, DiskImageError> {
@@ -1045,14 +1048,14 @@ impl DiskImage {
         let ti = self.track_map[phys_ch.h() as usize][phys_ch.c() as usize];
         let track = &mut self.track_pool[ti];
 
-        track.read_sector(id_chs, n, scope, debug)
+        track.read_sector(id, n, offset, scope, debug)
     }
 
     pub fn write_sector(
         &mut self,
         phys_ch: DiskCh,
-        id_chs: DiskChs,
-        n: Option<u8>,
+        id: DiskChsnQuery,
+        offset: Option<usize>,
         data: &[u8],
         scope: RwSectorScope,
         deleted: bool,
@@ -1064,7 +1067,7 @@ impl DiskImage {
 
         let ti = self.track_map[phys_ch.h() as usize][phys_ch.c() as usize];
         let track = &mut self.track_pool[ti];
-        track.write_sector(id_chs, n, data, scope, deleted, debug)
+        track.write_sector(id, offset, data, scope, deleted, debug)
     }
 
     /// Read all sectors from the track identified by 'ch'. The data is returned within a
@@ -1310,7 +1313,13 @@ impl DiskImage {
         let ti = self.track_map[0][0];
         let track = &mut self.track_pool[ti];
 
-        match track.read_sector(DiskChs::new(0, 0, 1), None, RwSectorScope::DataOnly, true) {
+        match track.read_sector(
+            DiskChsnQuery::new(0, 0, 1, 2),
+            None,
+            None,
+            RwSectorScope::DataOnly,
+            true,
+        ) {
             Ok(result) => Ok(result.read_buf),
             Err(e) => Err(e),
         }
@@ -1319,8 +1328,8 @@ impl DiskImage {
     pub(crate) fn write_boot_sector(&mut self, buf: &[u8]) -> Result<(), DiskImageError> {
         self.write_sector(
             DiskCh::new(0, 0),
-            DiskChs::new(0, 0, 1),
-            Some(2),
+            DiskChsnQuery::new(0, 0, 1, 2),
+            None,
             buf,
             RwSectorScope::DataOnly,
             false,
@@ -1851,7 +1860,10 @@ impl DiskImage {
                 for sector in track {
                     out.write_fmt(format_args!(
                         "\t\t{} address_crc_valid: {} data_crc_valid: {} deleted: {}\n",
-                        sector.chsn, sector.address_crc_valid, sector.data_crc_valid, sector.deleted_mark
+                        sector.chsn,
+                        sector.attributes.address_crc_valid,
+                        sector.attributes.data_crc_valid,
+                        sector.attributes.no_dam
                     ))?;
                 }
             }
@@ -1863,13 +1875,14 @@ impl DiskImage {
     pub fn dump_sector_hex<W: crate::io::Write>(
         &mut self,
         phys_ch: DiskCh,
-        id_chs: DiskChs,
+        id: DiskChsnQuery,
         n: Option<u8>,
+        offset: Option<usize>,
         scope: RwSectorScope,
         bytes_per_row: usize,
         mut out: W,
     ) -> Result<(), DiskImageError> {
-        let rsr = self.read_sector(phys_ch, id_chs, n, scope, true)?;
+        let rsr = self.read_sector(phys_ch, id, n, offset, scope, true)?;
 
         let data_slice = match scope {
             RwSectorScope::DataOnly => &rsr.read_buf[rsr.data_idx..rsr.data_idx + rsr.data_len],
@@ -1882,10 +1895,11 @@ impl DiskImage {
     pub fn dump_sector_string(
         &mut self,
         phys_ch: DiskCh,
-        id_chs: DiskChs,
+        id: DiskChsnQuery,
         n: Option<u8>,
+        offset: Option<usize>,
     ) -> Result<String, DiskImageError> {
-        let rsr = self.read_sector(phys_ch, id_chs, n, RwSectorScope::DataOnly, true)?;
+        let rsr = self.read_sector(phys_ch, id, n, offset, RwSectorScope::DataOnly, true)?;
 
         Ok(util::dump_string(&rsr.read_buf))
     }

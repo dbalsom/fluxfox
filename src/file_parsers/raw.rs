@@ -25,7 +25,7 @@
     --------------------------------------------------------------------------
 */
 use crate::{
-    chs::{DiskChs, DiskChsn},
+    chs::{DiskChsn, DiskChsnQuery},
     detect::chs_from_raw_size,
     diskimage::{DiskDescriptor, DiskImage, RwSectorScope},
     file_parsers::{FormatCaps, ParserWriteCompatibility},
@@ -201,13 +201,13 @@ impl RawFormat {
                 let track = &mut image.track_pool[ti];
 
                 for s in 1..(track_sector_ct + 1) {
-                    let chs = DiskChs::new(c as u16, h as u8, s as u8);
-                    match track.read_sector(chs, None, RwSectorScope::DataOnly, false) {
+                    let id = DiskChsnQuery::new(c as u16, h as u8, s as u8, 2);
+                    match track.read_sector(id, None, None, RwSectorScope::DataOnly, false) {
                         Ok(read_sector) => {
                             log::trace!(
                                 "Raw::save_image(): Read {} bytes from sector: {}",
                                 read_sector.read_buf.len(),
-                                chs
+                                id
                             );
                             let mut new_buf = read_sector.read_buf.clone();
 

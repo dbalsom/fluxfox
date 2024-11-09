@@ -607,15 +607,9 @@ impl F86Format {
         let mut h = 0;
         let mut track_copy = 0;
 
-        for i in 0..track_entries {
-            track_offsets[i] = output.stream_position()? as u32;
-            log::trace!(
-                "Writing track entry {}, c: {} h: {}, offset: {}",
-                i,
-                c,
-                h,
-                track_offsets[i]
-            );
+        for (i, offset) in track_offsets.iter_mut().take(track_entries).enumerate() {
+            *offset = output.stream_position()? as u32;
+            log::trace!("Writing track entry {}, c: {} h: {}, offset: {}", i, c, h, *offset);
 
             let ti = image.track_map[h][c as usize];
 

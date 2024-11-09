@@ -43,6 +43,7 @@ use crate::{
 };
 
 use crate::{
+    diskimage::SectorAttributes,
     DiskDataEncoding,
     DiskDataRate,
     DiskDensity,
@@ -371,10 +372,12 @@ impl PsiFormat {
                                 data: chunk_expand,
                                 weak_mask: None,
                                 hole_mask: None,
-                                address_crc_error: false, // Compressed data cannot encode address CRC state.
-                                data_crc_error: ctx.data_crc_error,
-                                deleted_mark: false,
-                                missing_data: false,
+                                attributes: SectorAttributes {
+                                    address_crc_valid: true, // Compressed data cannot encode address CRC state.
+                                    data_crc_valid: !ctx.data_crc_error,
+                                    deleted_mark: false,
+                                    no_dam: false,
+                                },
                             };
 
                             track.add_sector(&sd, ctx.alternate)?;
@@ -420,10 +423,12 @@ impl PsiFormat {
                             data: chunk.data,
                             weak_mask: None,
                             hole_mask: None,
-                            address_crc_error: ctx.address_crc_error,
-                            data_crc_error: ctx.data_crc_error,
-                            deleted_mark: false,
-                            missing_data: false,
+                            attributes: SectorAttributes {
+                                address_crc_valid: !ctx.address_crc_error,
+                                data_crc_valid: !ctx.data_crc_error,
+                                deleted_mark: ctx.deleted,
+                                no_dam: ctx.no_dam,
+                            },
                         };
 
                         track.add_sector(&sd, ctx.alternate)?;

@@ -35,6 +35,7 @@ pub mod metasector;
 
 use crate::{
     bitstream::TrackDataStream,
+    chs::DiskChsnQuery,
     diskimage::{
         ReadSectorResult,
         ReadTrackResult,
@@ -213,18 +214,24 @@ pub trait Track: Any {
     /// read operation.
     fn read_sector(
         &mut self,
-        chs: DiskChs,
+        id: DiskChsnQuery,
         n: Option<u8>,
+        offset: Option<usize>,
         scope: RwSectorScope,
         debug: bool,
     ) -> Result<ReadSectorResult, DiskImageError>;
 
-    fn scan_sector(&self, chs: DiskChs, n: Option<u8>) -> Result<ScanSectorResult, DiskImageError>;
+    fn scan_sector(
+        &self,
+        id: DiskChsnQuery,
+        n: Option<u8>,
+        offset: Option<usize>,
+    ) -> Result<ScanSectorResult, DiskImageError>;
 
     fn write_sector(
         &mut self,
-        chs: DiskChs,
-        n: Option<u8>,
+        id: DiskChsnQuery,
+        offset: Option<usize>,
         write_data: &[u8],
         scope: RwSectorScope,
         write_deleted: bool,

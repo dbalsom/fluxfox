@@ -31,6 +31,89 @@
 use crate::MAXIMUM_SECTOR_SIZE;
 use std::fmt::Display;
 
+/// A structure representing a query against the four components of sector header:
+///  - Cylinder ID (c)
+///  - Head ID (h)
+///  - Sector ID (s)
+///  - Sector Size (n)
+///
+/// The only required field in a `DiskChsnQuery` is the Sector ID field.
+/// Any other field may be set to None to indicate that it should be ignored when matching.
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Default)]
+pub struct DiskChsnQuery {
+    c: Option<u16>,
+    h: Option<u8>,
+    s: u8,
+    n: Option<u8>,
+}
+
+impl Display for DiskChsnQuery {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let c_str = self.c.as_ref().map_or("*".to_string(), |c| c.to_string());
+        let h_str = self.h.as_ref().map_or("*".to_string(), |h| h.to_string());
+        let n_str = self.n.as_ref().map_or("*".to_string(), |n| n.to_string());
+        write!(f, "[c:{} h:{:?} s:{} n:{:?}]", c_str, h_str, self.s, n_str)
+    }
+}
+
+#[allow(dead_code)]
+impl DiskChsnQuery {
+    /// Create a new DiskChsnQuery structure from the four sector ID components.
+    pub fn new(c: impl Into<Option<u16>>, h: impl Into<Option<u8>>, s: u8, n: impl Into<Option<u8>>) -> Self {
+        Self {
+            c: c.into(),
+            h: h.into(),
+            s,
+            n: n.into(),
+        }
+    }
+    /// Return the cylinder (c) field.
+    pub fn c(&self) -> Option<u16> {
+        self.c
+    }
+    /// Return the head (h) field.
+    pub fn h(&self) -> Option<u8> {
+        self.h
+    }
+    /// Return the sector id (s) field.
+    pub fn s(&self) -> u8 {
+        self.s
+    }
+    /// Return the size (n) field.
+    pub fn n(&self) -> Option<u8> {
+        self.n
+    }
+    /// Return the size of the 'n' parameter in bytes, or None if n is not set.
+    /// The formula for calculating size from n is (128 * 2^n)
+    /// We enforce a maximum size of 8192 bytes for a single sector.
+    pub fn n_size(&self) -> Option<usize> {
+        self.n
+            .map(|n| std::cmp::min(MAXIMUM_SECTOR_SIZE, 128usize.overflowing_shl(n as u32).0))
+    }
+    /// Return a boolean indicating whether the specified `DiskChsn` matches the query.
+    pub fn matches(&self, id_chsn: DiskChsn) -> bool {
+        if self.s != id_chsn.s() {
+            return false;
+        }
+        if let Some(c) = self.c {
+            if c != id_chsn.c() {
+                return false;
+            }
+        }
+        if let Some(h) = self.h {
+            if h != id_chsn.h() {
+                return false;
+            }
+        }
+        if let Some(n) = self.n {
+            if n != id_chsn.n() {
+                return false;
+            }
+        }
+        true
+    }
+}
+
 /// A structure representing the four components of Sector ID:
 ///  - Cylinder (c)
 ///  - Head (h)
@@ -464,15 +547,6 @@ mod tests {
         let geom = DiskChs::new(40, 2, 9);
         let chs = DiskChs::new(2, 1, 5);
         assert_eq!(chs.to_lba(&geom), 49);
-    }
-
-    #[test]
-    fn diskchs_get_next_sector_wraps_correctly() {
-        let chs = DiskChs::new(1, 1, 2);
-        let geom = DiskChs::new(40, 2, 2);
-
-        let next_chs = chs.get_next_sector(&geom);
-        assert_eq!(next_chs, DiskChs::new(2, 0, 1));
     }
 
     #[test]

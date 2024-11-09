@@ -36,6 +36,7 @@ use crate::diskimage::{
     ReadTrackResult,
     RwSectorScope,
     ScanSectorResult,
+    SectorAttributes,
     SectorDescriptor,
     SharedDiskContext,
     WriteSectorResult,
@@ -45,6 +46,7 @@ use crate::structure_parsers::{system34::System34Standard, DiskStructureMetadata
 
 use crate::{
     bitstream::TrackDataStream,
+    chs::DiskChsnQuery,
     track::{bitstream::BitStreamTrack, fluxstream::FluxStreamTrack},
     DiskCh,
     DiskChs,
@@ -161,7 +163,7 @@ pub(crate) struct MetaSector {
     address_crc_error: bool,
     data_crc_error: bool,
     deleted_mark: bool,
-    missing_data: bool,
+    no_dam: bool,
     data: Vec<u8>,
     weak_mask: MetaMask,
     hole_mask: MetaMask,
@@ -169,7 +171,7 @@ pub(crate) struct MetaSector {
 
 impl MetaSector {
     pub fn read_data(&self) -> Vec<u8> {
-        if self.missing_data {
+        if self.no_dam {
             return Vec::new();
         }
         let mut data = self.data.clone();
@@ -271,10 +273,12 @@ impl Track for MetaSectorTrack {
             .iter()
             .map(|s| SectorMapEntry {
                 chsn: s.id_chsn,
-                address_crc_valid: !s.address_crc_error,
-                data_crc_valid: !s.data_crc_error,
-                deleted_mark: s.deleted_mark,
-                no_dam: false,
+                attributes: SectorAttributes {
+                    address_crc_valid: !s.address_crc_error,
+                    data_crc_valid: !s.data_crc_error,
+                    deleted_mark: s.deleted_mark,
+                    no_dam: false,
+                },
             })
             .collect()
     }
@@ -293,10 +297,10 @@ impl Track for MetaSectorTrack {
 
         let new_sector = MetaSector {
             id_chsn: sd.id_chsn,
-            address_crc_error: sd.address_crc_error,
-            data_crc_error: sd.data_crc_error,
-            deleted_mark: sd.deleted_mark,
-            missing_data: sd.missing_data,
+            address_crc_error: !sd.attributes.address_crc_valid,
+            data_crc_error: !sd.attributes.data_crc_valid,
+            deleted_mark: sd.attributes.deleted_mark,
+            no_dam: sd.attributes.no_dam,
             data: sd.data.clone(),
             weak_mask,
             hole_mask,
@@ -335,21 +339,22 @@ impl Track for MetaSectorTrack {
     /// read operation.
     fn read_sector(
         &mut self,
-        chs: DiskChs,
-        n: Option<u8>,
+        id: DiskChsnQuery,
+        _n: Option<u8>,
+        _offset: Option<usize>,
         scope: RwSectorScope,
         debug: bool,
     ) -> Result<ReadSectorResult, DiskImageError> {
         match scope {
             // Add 4 bytes for address mark and 2 bytes for CRC.
-            RwSectorScope::DataElement => unimplemented!("DataBlock scope not supported for ByteStream"),
+            RwSectorScope::DataElement => unimplemented!("DataElement scope not supported for ByteStream"),
             RwSectorScope::DataOnly => {}
         };
 
-        let sm = self.match_sectors(chs, n, debug);
+        let sm = self.match_sectors(id, debug);
 
         if sm.len() == 0 {
-            log::debug!("read_sector(): No sector found for chs: {} n: {:?}", chs, n);
+            log::debug!("read_sector(): No sector found for id: {}", id);
             Ok(ReadSectorResult {
                 id_chsn: None,
                 data_idx: 0,
@@ -368,9 +373,9 @@ impl Track for MetaSectorTrack {
         else {
             if sm.len() > 1 {
                 log::warn!(
-                    "read_sector(): Found {} sector ids matching chs: {} (with {} different sizes). Using first.",
+                    "read_sector(): Found {} sector ids matching id query: {} (with {} different sizes). Using first.",
                     sm.len(),
-                    chs,
+                    id,
                     sm.sizes.len()
                 );
             }
@@ -393,11 +398,16 @@ impl Track for MetaSectorTrack {
         }
     }
 
-    fn scan_sector(&self, chs: DiskChs, n: Option<u8>) -> Result<ScanSectorResult, DiskImageError> {
-        let sm = self.match_sectors(chs, n, false);
+    fn scan_sector(
+        &self,
+        id: DiskChsnQuery,
+        _n: Option<u8>,
+        _offset: Option<usize>,
+    ) -> Result<ScanSectorResult, DiskImageError> {
+        let sm = self.match_sectors(id, false);
 
         if sm.len() == 0 {
-            log::debug!("scan_sector(): No sector found for chs: {} n: {:?}", chs, n);
+            log::debug!("scan_sector(): No sector found for id query: {}", id);
             Ok(ScanSectorResult {
                 not_found: true,
                 no_dam: false,
@@ -411,9 +421,9 @@ impl Track for MetaSectorTrack {
         }
         else {
             log::warn!(
-                "read_sector(): Found {} sector ids matching chs: {} (with {} different sizes). Using first.",
+                "scan_sector(): Found {} sector ids matching query: {} (with {} different sizes). Using first.",
                 sm.len(),
-                chs,
+                id,
                 sm.sizes.len()
             );
             let s = sm.sectors[0];
@@ -433,26 +443,25 @@ impl Track for MetaSectorTrack {
 
     fn write_sector(
         &mut self,
-        chs: DiskChs,
-        n: Option<u8>,
+        id: DiskChsnQuery,
+        _offset: Option<usize>,
         write_data: &[u8],
         _scope: RwSectorScope,
         write_deleted: bool,
         debug: bool,
     ) -> Result<WriteSectorResult, DiskImageError> {
-        let mut sm = self.match_sectors_mut(chs, n, debug);
+        let mut sm = self.match_sectors_mut(id, debug);
 
         if sm.len() > 1 {
             log::error!(
-                "write_sector(): Could not identify unique target sector. (Found {} sector ids matching chs: {} n: {:?})",
+                "write_sector(): Could not identify unique target sector. (Found {} sector ids matching query: {})",
                 sm.len(),
-                chs,
-                n
+                id,
             );
             return Err(DiskImageError::UniqueIdError);
         }
         else if sm.len() == 0 {
-            log::debug!("write_sector(): No sector found for chs: {} n: {:?}", chs, n);
+            log::debug!("write_sector(): No sector found for id query: {}", id);
             return Ok(WriteSectorResult {
                 not_found: false,
                 no_dam: false,
@@ -474,7 +483,7 @@ impl Track for MetaSectorTrack {
             return Err(DiskImageError::ParameterError);
         }
 
-        if sm.sectors[0].missing_data || sm.sectors[0].address_crc_error {
+        if sm.sectors[0].no_dam || sm.sectors[0].address_crc_error {
             log::debug!(
                 "write_sector(): Sector {} is unwritable due to no DAM or bad address CRC.",
                 sm.sectors[0].id_chsn
@@ -489,7 +498,7 @@ impl Track for MetaSectorTrack {
 
         Ok(WriteSectorResult {
             not_found: false,
-            no_dam: sm.sectors[0].missing_data,
+            no_dam: sm.sectors[0].no_dam,
             address_crc_error: sm.sectors[0].address_crc_error,
             wrong_cylinder: sm.wrong_cylinder,
             bad_cylinder: sm.bad_cylinder,
@@ -661,7 +670,7 @@ impl MetaSectorTrack {
         self.shared.lock().unwrap().writes += 1;
     }
 
-    fn match_sectors(&self, chs: DiskChs, n: Option<u8>, debug: bool) -> SectorMatch {
+    fn match_sectors(&self, id: DiskChsnQuery, _debug: bool) -> SectorMatch {
         let mut wrong_cylinder = false;
         let mut bad_cylinder = false;
         let mut wrong_head = false;
@@ -671,19 +680,17 @@ impl MetaSectorTrack {
             .sectors
             .iter()
             .filter(|s| {
-                let matched_s = s.id_chsn.s() == chs.s();
-                if s.id_chsn.c() != chs.c() {
+                if id.c().is_some() && s.id_chsn.c() != id.c().unwrap() {
                     wrong_cylinder = true;
                 }
                 if s.id_chsn.c() == 0xFF {
                     bad_cylinder = true;
                 }
-                if s.id_chsn.h() != chs.h() {
+                if id.h().is_some() && s.id_chsn.h() != id.h().unwrap() {
                     wrong_head = true;
                 }
                 sizes.insert(s.id_chsn.n());
-                (debug && matched_s)
-                    || ((DiskChs::from(s.id_chsn) == chs) && (n.is_none() || s.id_chsn.n() == n.unwrap()))
+                id.matches(s.id_chsn)
             })
             .collect();
 
@@ -696,7 +703,7 @@ impl MetaSectorTrack {
         }
     }
 
-    fn match_sectors_mut(&mut self, chs: DiskChs, n: Option<u8>, debug: bool) -> SectorMatchMut {
+    fn match_sectors_mut(&mut self, id: DiskChsnQuery, _debug: bool) -> SectorMatchMut {
         let mut wrong_cylinder = false;
         let mut bad_cylinder = false;
         let mut wrong_head = false;
@@ -706,19 +713,17 @@ impl MetaSectorTrack {
             .sectors
             .iter_mut()
             .filter(|s| {
-                let matched_s = s.id_chsn.s() == chs.s();
-                if s.id_chsn.c() != chs.c() {
+                if id.c().is_some() && s.id_chsn.c() != id.c().unwrap() {
                     wrong_cylinder = true;
                 }
                 if s.id_chsn.c() == 0xFF {
                     bad_cylinder = true;
                 }
-                if s.id_chsn.h() != chs.h() {
+                if id.h().is_some() && s.id_chsn.h() != id.h().unwrap() {
                     wrong_head = true;
                 }
                 sizes.insert(s.id_chsn.n());
-                (debug && matched_s)
-                    || ((DiskChs::from(s.id_chsn) == chs) && (n.is_none() || s.id_chsn.n() == n.unwrap()))
+                id.matches(s.id_chsn)
             })
             .collect();
 

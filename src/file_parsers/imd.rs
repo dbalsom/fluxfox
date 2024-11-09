@@ -26,7 +26,7 @@
 */
 use crate::{
     chs::{DiskCh, DiskChsn},
-    diskimage::{DiskDescriptor, SectorDescriptor},
+    diskimage::{DiskDescriptor, SectorAttributes, SectorDescriptor},
     file_parsers::{FormatCaps, ParserWriteCompatibility},
     io::{ReadSeek, ReadWriteSeek},
     util::{get_length, read_ascii},
@@ -177,7 +177,7 @@ impl ImdFormat {
             }
         }
 
-        let mut header_offset = read_buf.stream_position().unwrap();
+        let mut header_offset = read_buf.stream_position()?;
         let mut heads_seen: FoxHashSet<u8> = FoxHashSet::new();
 
         let mut rate_opt = None;
@@ -292,10 +292,12 @@ impl ImdFormat {
                             data: data.data,
                             weak_mask: None,
                             hole_mask: None,
-                            address_crc_error: false,
-                            data_crc_error: data.error,
-                            deleted_mark: data.deleted,
-                            missing_data: false,
+                            attributes: SectorAttributes {
+                                address_crc_valid: true,
+                                data_crc_valid: !data.error,
+                                deleted_mark: data.deleted,
+                                no_dam: false,
+                            },
                         };
 
                         new_track.add_sector(&sd, false)?;

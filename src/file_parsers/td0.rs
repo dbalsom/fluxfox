@@ -37,7 +37,7 @@
 
 */
 use crate::{
-    diskimage::{DiskDescriptor, SectorDescriptor},
+    diskimage::{DiskDescriptor, SectorAttributes, SectorDescriptor},
     file_parsers::{
         compression::lzhuf::{expand, TD0_READ_OPTIONS},
         FormatCaps,
@@ -425,10 +425,12 @@ impl Td0Format {
                         data: sector_data_vec,
                         weak_mask: None,
                         hole_mask: None,
-                        address_crc_error: false,
-                        data_crc_error: sector_header.flags & SECTOR_CRC_ERROR != 0,
-                        deleted_mark: sector_header.flags & SECTOR_DELETED != 0,
-                        missing_data: false,
+                        attributes: SectorAttributes {
+                            address_crc_valid: true,
+                            data_crc_valid: !(sector_header.flags & SECTOR_CRC_ERROR != 0),
+                            deleted_mark: sector_header.flags & SECTOR_DELETED != 0,
+                            no_dam: false,
+                        },
                     };
 
                     new_track.add_sector(&sd, false)?;

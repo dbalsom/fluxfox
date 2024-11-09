@@ -49,6 +49,7 @@ use crate::{
 };
 
 use crate::{
+    chs::DiskChsnQuery,
     format_us,
     structure_parsers::{system34::System34Standard, DiskStructureMetadata},
     track::{bitstream::BitStreamTrack, metasector::MetaSectorTrack},
@@ -184,28 +185,34 @@ impl Track for FluxStreamTrack {
     /// read operation.
     fn read_sector(
         &mut self,
-        chs: DiskChs,
+        id: DiskChsnQuery,
         n: Option<u8>,
+        offset: Option<usize>,
         scope: RwSectorScope,
         debug: bool,
     ) -> Result<ReadSectorResult, DiskImageError> {
         if let Some(resolved) = self.get_bitstream_mut() {
-            return resolved.read_sector(chs, n, scope, debug);
+            return resolved.read_sector(id, n, offset, scope, debug);
         }
         Err(DiskImageError::ResolveError)
     }
 
-    fn scan_sector(&self, chs: DiskChs, n: Option<u8>) -> Result<ScanSectorResult, DiskImageError> {
+    fn scan_sector(
+        &self,
+        id: DiskChsnQuery,
+        n: Option<u8>,
+        offset: Option<usize>,
+    ) -> Result<ScanSectorResult, DiskImageError> {
         if let Some(resolved) = self.get_bitstream() {
-            return resolved.scan_sector(chs, n);
+            return resolved.scan_sector(id, n, offset);
         }
         Err(DiskImageError::ResolveError)
     }
 
     fn write_sector(
         &mut self,
-        chs: DiskChs,
-        n: Option<u8>,
+        id: DiskChsnQuery,
+        offset: Option<usize>,
         write_data: &[u8],
         scope: RwSectorScope,
         write_deleted: bool,
@@ -214,7 +221,7 @@ impl Track for FluxStreamTrack {
         let old_dirty = self.dirty;
         self.dirty = true;
         if let Some(resolved) = self.get_bitstream_mut() {
-            return resolved.write_sector(chs, n, write_data, scope, write_deleted, debug);
+            return resolved.write_sector(id, offset, write_data, scope, write_deleted, debug);
         }
         self.dirty = old_dirty;
         Err(DiskImageError::ResolveError)
@@ -576,7 +583,11 @@ impl FluxStreamTrack {
         for (i, bitstream) in self.decoded_revolutions.iter().enumerate() {
             if let Some(track) = bitstream {
                 let score = track.calc_quality_score();
-                let bad_sectors = track.get_sector_list().iter().filter(|s| !s.data_crc_valid).count();
+                let bad_sectors = track
+                    .get_sector_list()
+                    .iter()
+                    .filter(|s| !s.attributes.data_crc_valid)
+                    .count();
 
                 log::debug!(
                     "FluxStreamTrack::analyze_revolutions(): Revolution {}, ft_ct: {} bitcells: {} bad sectors: {} score: {}",
