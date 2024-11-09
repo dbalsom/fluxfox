@@ -112,6 +112,11 @@ so is a complicated process.
 
 ### Raw Flux Images
 
+* **PCE Flux Image** (PFI)
+    * One of several image formats developed by Hampa Hug for use with his emulator, [PCE](http://www.hampa.ch/pce/).
+      Contains raw flux stream data, for an arbitrary number of revolutions. Similar to Kryoflux, but in a single-file
+      container.
+
 * **SuperCardPro Image** (SCP)
     * A format designed for the [SuperCardPro](https://www.cbmstuff.com/index.php?route=product/product&product_id=52)
       flux imaging hardware, this format has become quite popular as a single-file flux container. The format supports
@@ -136,13 +141,19 @@ so is a complicated process.
 
 ### Disk Encodings
 
-Most floppy images used on the IBM PC used [MFM](https://en.wikipedia.org/wiki/Modified_frequency_modulation) encoding.
-Some early, 8-inch floppies used FM encoding instead, however certain disk duplicators or copy protection methods may
-have included FM-encoded tracks on otherwise MFM-encoded diskettes. FM-encoded tracks are not currently supported, but
-are planned.
+* **MFM**
+    * Most floppy images used on the IBM PC
+      primarily use [MFM](https://en.wikipedia.org/wiki/Modified_frequency_modulation) encoding. These disks are
+      commonly referred to as 'double density'.
+* **FM**
+    * Earlier 8-inch floppies used FM encoding instead and were referred to as 'standard density'.
+    * Commercial disk duplicators would sometimes include an FM-encoded track at the end of an otherwise MFM-encoded
+      diskette, containing duplication info. Sometimes these "duplication marks" contain useful clues as to the type
+      of copy-protection used.
 
 Other common encodings, such as Apple's [GCR encoding](https://en.wikipedia.org/wiki/Group_coded_recording), are not
-supported as this library concentrates on support for the IBM PC.
+supported, as this library concentrates on support
+for the IBM PC.
 
 ## Logging
 
@@ -160,8 +171,7 @@ very early stages.
 
 ## Visualization
 
-fluxfox can produce a graphical visualization of a disk image if the image is of bitstream resolution or higher and
-includes MFM-encoded data. This currently encompasses PRI, MFM and HFE disk image formats.
+fluxfox can produce a graphical visualization of a disk image if the image is of bitstream resolution or higher.
 
 Visualization requires the `viz` feature to be specified.
 
@@ -190,6 +200,8 @@ cargo run -r -p imgviz -- -i "input.pri" -o="output.png" --angle=2.88 --hole_rat
   this width or more.
 * `ss` specifies a supersampling factor. The image will be rendered at this multiple of the specified `resolution` and
   down-sampled using the [fast_image_resize](https://github.com/Cykooz/fast_image_resize) crate.
+* `errors` will render any decoding errors as the final layer on top of the visualization. This is useful for seeing the
+  quality of the resolved image, spotting weak bits, etc.
 
 Be sure to provide the `-r` parameter to cargo run, to run imgviz in release mode. Debug mode will be very slow and use
 a lot more memory!
