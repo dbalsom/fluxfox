@@ -115,8 +115,9 @@ pub struct PriTrackHeader {
 
 #[binrw]
 #[brw(big)]
-pub struct PriWeakMask {
+pub struct PriWeakMaskEntry {
     pub bit_offset: u32,
+    pub bit_mask:   u32,
 }
 
 #[binrw]
@@ -142,6 +143,12 @@ pub struct PriChunk {
     pub chunk_type: PriChunkType,
     pub size: u32,
     pub data: Vec<u8>,
+}
+
+#[derive(Default)]
+pub struct TrackContext {
+    phys_ch:   DiskCh,
+    bit_clock: u32,
 }
 
 pub(crate) fn pri_crc(buf: &[u8]) -> u32 {
@@ -427,17 +434,13 @@ impl PriFormat {
         log::trace!("Read PRI file header. Format version: {}", file_header.version);
 
         let mut comment_string = String::new();
-        let mut current_ch = DiskCh::default();
-        let current_crc_error = false;
-
         let mut heads_seen: FoxHashSet<u8> = FoxHashSet::new();
         let mut cylinders_seen: FoxHashSet<u16> = FoxHashSet::new();
-
         let mut default_bit_clock = 0;
-        let mut current_bit_clock = 0;
         let mut expected_data_size = 0;
         let mut track_header = PriTrackHeader::default();
 
+        let mut ctx = TrackContext::default();
         let mut disk_data_rate = None;
 
         while chunk.chunk_type != PriChunkType::End {
@@ -460,62 +463,83 @@ impl PriFormat {
                     default_bit_clock = track_header.clock_rate;
                     cylinders_seen.insert(track_header.cylinder as u16);
                     heads_seen.insert(track_header.head as u8);
-                    current_ch = ch;
+                    ctx.phys_ch = ch;
                 }
                 PriChunkType::AlternateBitClock => {
                     let alt_clock = PriAlternateClock::read(&mut Cursor::new(&chunk.data))
                         .map_err(|_| DiskImageError::FormatParseError)?;
 
                     if alt_clock.new_clock == 0 {
-                        current_bit_clock = default_bit_clock;
+                        ctx.bit_clock = default_bit_clock;
                     }
                     else {
                         let new_bit_clock =
                             ((alt_clock.new_clock as f64 / u16::MAX as f64) * default_bit_clock as f64) as u32;
 
-                        current_bit_clock = new_bit_clock;
+                        ctx.bit_clock = new_bit_clock;
                     }
                     log::trace!(
                         "Alternate bit clock. Bit offset: {} New clock: {}",
                         alt_clock.bit_offset,
-                        current_bit_clock
+                        ctx.bit_clock
                     );
                 }
                 PriChunkType::TrackData => {
                     log::trace!(
-                        "Track data chunk: {} size: {} expected size: {} crc_error: {}",
-                        current_ch,
+                        "Track data chunk: {} size: {} expected size: {}",
+                        ctx.phys_ch,
                         chunk.size,
-                        expected_data_size,
-                        current_crc_error
+                        expected_data_size
                     );
 
                     // Set the global disk data rate once.
                     if disk_data_rate.is_none() {
-                        disk_data_rate = Some(DiskDataRate::from(current_bit_clock));
+                        disk_data_rate = Some(DiskDataRate::from(ctx.bit_clock));
                     }
 
                     let params = BitStreamTrackParams {
                         encoding: DiskDataEncoding::Mfm,
-                        data_rate: DiskDataRate::from(current_bit_clock),
+                        data_rate: DiskDataRate::from(ctx.bit_clock),
                         rpm: None,
-                        ch: current_ch,
+                        ch: ctx.phys_ch,
                         bitcell_ct: Some(track_header.bit_length as usize),
                         data: &chunk.data,
                         weak: None,
                         hole: None,
                         detect_weak: false,
                     };
+
                     disk_image.add_track_bitstream(params)?;
                 }
                 PriChunkType::WeakMask => {
-                    let weak_mask = PriWeakMask::read(&mut Cursor::new(&chunk.data))
-                        .map_err(|_| DiskImageError::FormatParseError)?;
-                    log::trace!(
-                        "Weak mask chunk. Size: {} Bit offset: {}",
-                        chunk.size,
-                        weak_mask.bit_offset
-                    );
+                    let weak_table_len = chunk.size / 8;
+                    if chunk.size % 8 != 0 {
+                        log::error!("Weak mask chunk size is not a multiple of 8.");
+                        return Err(DiskImageError::FormatParseError);
+                    }
+
+                    let mut cursor = Cursor::new(&chunk.data);
+
+                    let track = disk_image
+                        .track_mut(ctx.phys_ch)
+                        .ok_or(DiskImageError::FormatParseError)?;
+                    let bit_track = track
+                        .as_any_mut()
+                        .downcast_mut::<BitStreamTrack>()
+                        .ok_or(DiskImageError::FormatParseError)?;
+
+                    for _i in 0..weak_table_len {
+                        let weak_mask =
+                            PriWeakMaskEntry::read(&mut cursor).map_err(|_| DiskImageError::FormatParseError)?;
+
+                        log::trace!(
+                            "Weak mask entry. Bit offset: {} Mask: {:08X}",
+                            weak_mask.bit_offset,
+                            weak_mask.bit_mask
+                        );
+
+                        bit_track.write_weak_mask_u32(weak_mask.bit_mask, weak_mask.bit_offset as usize);
+                    }
                 }
                 PriChunkType::Text => {
                     // PSI docs:
@@ -599,30 +623,32 @@ impl PriFormat {
                 let track_data = track.data.data();
                 PriFormat::write_chunk(output, PriChunkType::TrackData, &track_data)?;
 
-                // Write the weak mask, if any bits are set in the weak bit mask.
-                if track.data.weak_mask().any() {
-                    // At least one bit is set in the weak bit mask, so let's export it.
-                    let weak_data = track.data.weak_data();
+                // TODO: Fix this with correct weak mask logic
 
-                    // Optimization: PRI supports supplying a bit offset for the weak bit mask.
-                    // Determine the slice of the weak mask that contains the first and last
-                    // set bits.
-                    let (slice_start, slice_end) = pri_weak_bounds(&weak_data);
-                    let weak_header = PriWeakMask {
-                        bit_offset: (slice_start * 8) as u32,
-                    };
-
-                    // Create a buffer for our weak mask.
-                    let mut weak_buffer = Cursor::new(Vec::new());
-
-                    // Write the weak mask header.
-                    weak_header.write(&mut weak_buffer)?;
-
-                    // Write the weak mask data.
-                    weak_buffer.write_all(&weak_data[slice_start..slice_end])?;
-
-                    PriFormat::write_chunk_raw(output, PriChunkType::WeakMask, weak_buffer.get_ref())?;
-                }
+                // // Write the weak mask, if any bits are set in the weak bit mask.
+                // if track.data.weak_mask().any() {
+                //     // At least one bit is set in the weak bit mask, so let's export it.
+                //     let weak_data = track.data.weak_data();
+                //
+                //     // Optimization: PRI supports supplying a bit offset for the weak bit mask.
+                //     // Determine the slice of the weak mask that contains the first and last
+                //     // set bits.
+                //     let (slice_start, slice_end) = pri_weak_bounds(&weak_data);
+                //     let weak_header = PriWeakMask {
+                //         bit_offset: (slice_start * 8) as u32,
+                //     };
+                //
+                //     // Create a buffer for our weak mask.
+                //     let mut weak_buffer = Cursor::new(Vec::new());
+                //
+                //     // Write the weak mask header.
+                //     weak_header.write(&mut weak_buffer)?;
+                //
+                //     // Write the weak mask data.
+                //     weak_buffer.write_all(&weak_data[slice_start..slice_end])?;
+                //
+                //     PriFormat::write_chunk_raw(output, PriChunkType::WeakMask, weak_buffer.get_ref())?;
+                // }
             }
             else {
                 unreachable!("Expected only BitStream variants");

@@ -142,6 +142,14 @@ impl TrackCodec for MfmCodec {
         self.weak_mask.bits()
     }
 
+    fn weak_mask_mut(&mut self) -> &mut BitVec {
+        self.weak_mask.bits_mut()
+    }
+
+    fn set_weak_mask(&mut self, new: BitVec) {
+        self.weak_mask = new.into();
+    }
+
     fn error_map(&self) -> &BitVec {
         self.error_map.bits()
     }

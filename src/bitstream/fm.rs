@@ -146,6 +146,14 @@ impl TrackCodec for FmCodec {
         &self.weak_mask
     }
 
+    fn weak_mask_mut(&mut self) -> &mut BitVec {
+        &mut self.weak_mask
+    }
+
+    fn set_weak_mask(&mut self, new: BitVec) {
+        self.weak_mask = new;
+    }
+
     fn error_map(&self) -> &BitVec {
         &self.error_map
     }

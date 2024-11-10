@@ -1236,6 +1236,31 @@ impl BitStreamTrack {
         }
     }
 
+    pub fn set_weak_mask(&mut self, weak_mask: BitVec, offset: usize) {
+        let mut new_mask = self.data.weak_mask().clone();
+        for (i, bit) in weak_mask.iter().enumerate() {
+            if i + offset >= new_mask.len() {
+                break;
+            }
+            new_mask.set(i + offset, bit);
+        }
+
+        self.data.set_weak_mask(new_mask);
+    }
+
+    pub fn write_weak_mask_u32(&mut self, weak_mask: u32, offset: usize) {
+        let mask_bits = self.data.weak_mask_mut();
+
+        for i in 0..32 {
+            if weak_mask & (0x8000_0000 >> i) != 0 {
+                if i + offset >= mask_bits.len() {
+                    break;
+                }
+                mask_bits.set(i + offset, true);
+            }
+        }
+    }
+
     pub fn calc_quality_score(&self) -> i32 {
         let mut score = 0;
         for s in self.get_sector_list() {

@@ -864,7 +864,7 @@ impl DiskImage {
         mut track: FluxStreamTrack,
         clock_hint: Option<f64>,
         rpm_hint: Option<DiskRpm>,
-    ) -> Result<&DiskTrack, DiskImageError> {
+    ) -> Result<&mut DiskTrack, DiskImageError> {
         let head = ch.h() as usize;
         if head >= 2 {
             return Err(DiskImageError::SeekError);
@@ -906,7 +906,7 @@ impl DiskImage {
         // Consider adding a track to an image to be a single 'write' operation.
         self.incr_writes();
 
-        Ok(self.track_pool.last().unwrap())
+        Ok(self.track_pool.last_mut().unwrap())
     }
 
     /// Adds a new track to the disk image, of BitStream resolution.
@@ -923,7 +923,7 @@ impl DiskImage {
     /// - `Err(DiskImageError::SeekError)` if the head value in `ch` is greater than or equal to 2.
     /// - `Err(DiskImageError::ParameterError)` if the length of `data` and `weak` do not match.
     /// - `Err(DiskImageError::IncompatibleImage)` if the disk image is not compatible with `BitStream` resolution.
-    pub fn add_track_bitstream(&mut self, params: BitStreamTrackParams) -> Result<(), DiskImageError> {
+    pub fn add_track_bitstream(&mut self, params: BitStreamTrackParams) -> Result<&mut DiskTrack, DiskImageError> {
         if params.ch.h() >= 2 {
             return Err(DiskImageError::SeekError);
         }
@@ -954,7 +954,7 @@ impl DiskImage {
         // Consider adding a track to an image to be a single 'write' operation.
         self.incr_writes();
 
-        Ok(())
+        Ok(self.track_pool.last_mut().unwrap())
     }
 
     /// Adds a new track to the disk image, of `MetaSector` resolution.

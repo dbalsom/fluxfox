@@ -52,9 +52,12 @@ pub trait TrackCodec {
     fn clock_map_mut(&mut self) -> &mut BitVec;
     fn enable_weak(&mut self, enable: bool);
     fn weak_mask(&self) -> &BitVec;
-    fn error_map(&self) -> &BitVec;
-    fn has_weak_bits(&self) -> bool;
+
+    fn weak_mask_mut(&mut self) -> &mut BitVec;
     fn weak_data(&self) -> Vec<u8>;
+    fn set_weak_mask(&mut self, mask: BitVec);
+    fn has_weak_bits(&self) -> bool;
+    fn error_map(&self) -> &BitVec;
     fn set_track_padding(&mut self);
     fn read_raw_byte(&self, index: usize) -> Option<u8>;
     fn read_decoded_byte(&self, index: usize) -> Option<u8>;

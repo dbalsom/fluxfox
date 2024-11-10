@@ -2,6 +2,7 @@
 
 ### Features:
 
+- Added support for WEAK chunk in PRI images.
 - Added support for PFI (PCE Flux Image) images
 - Added support for visualization of bitstream errors
 - Added offset fields to track interface functions to support tracks with duplicate sector IDs
@@ -10,11 +11,13 @@
 
 ### Bugfixes:
 
+- Fixed bugs with 86F import when not using track absolute bitcell counts
 - Fixed and improved format tests
 - Fixed bug in Kryoflux import
 
 ### Breaking changes:
 
+- All add_track_* API functions now return a mutable reference to the new track on success
 - Track API changes
     - Implemented DiskChsnQuery struct for optional matching of Sector ID fields
     - Added bit offset field to track sector read and write functions to support tracks with duplicate sector IDs
