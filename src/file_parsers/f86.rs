@@ -611,7 +611,46 @@ impl F86Format {
                 track_data
             };
 
-            log::trace!(
+            let surface_data_vec = if has_surface_desc {
+                let mut surface_data = vec![0u8; read_length_bytes];
+                read_buf.read_exact(&mut surface_data)?;
+                Some(surface_data)
+            }
+            else {
+                None
+            };
+
+            let mut track_weak_vec = vec![0u8; read_length_bytes];
+            let mut track_hole_vec = vec![0u8; read_length_bytes];
+
+            let (track_weak_opt, track_hole_opt) = if let Some(surface_data) = surface_data_vec {
+                let mut have_weak = false;
+                let mut have_hole = false;
+                for (((weak, hole), surface), data) in track_weak_vec
+                    .iter_mut()
+                    .zip(track_hole_vec.iter_mut())
+                    .zip(surface_data.iter())
+                    .zip(track_data_vec.iter())
+                {
+                    // Weak bits are set when surface bit is 1 and data bit is 1.
+                    *weak = *surface & *data;
+                    // Hole bits are set when surface bit is 1 and data bit is 0.
+                    *hole = *surface & !*data;
+
+                    have_weak |= *weak != 0;
+                    have_hole |= *hole != 0;
+                }
+
+                let weak_opt = have_weak.then_some(track_weak_vec.as_slice());
+                let hole_opt = have_hole.then_some(track_hole_vec.as_slice());
+
+                (weak_opt, hole_opt)
+            }
+            else {
+                (None, None)
+            };
+
+            log::debug!(
                 "Adding {:?} encoded track: {}",
                 track_encoding,
                 DiskCh::from((cylinder_n, head_n))
@@ -624,8 +663,8 @@ impl F86Format {
                 ch: DiskCh::from((cylinder_n, head_n)),
                 bitcell_ct: Some(bitcell_ct),
                 data: &track_data_vec,
-                weak: None,
-                hole: None,
+                weak: track_weak_opt,
+                hole: track_hole_opt,
                 detect_weak: false,
             };
 
