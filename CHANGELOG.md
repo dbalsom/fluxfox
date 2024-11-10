@@ -11,7 +11,6 @@
 
 ### Bugfixes:
 
-- Fixed bugs with 86F import when not using track absolute bitcell counts
 - Fixed and improved format tests
 - Fixed bug in Kryoflux import
 

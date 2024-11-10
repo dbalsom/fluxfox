@@ -103,12 +103,12 @@ struct TrackHeader {
 #[brw(little)]
 struct TrackHeaderBitCells {
     flags: u16,
-    bit_cells: u32,
+    bit_cells: i32,
     index_hole: u32,
 }
 
 #[allow(clippy::enum_variant_names)]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum F86TimeShift {
     ZeroPercent,
     SlowOnePercent,
@@ -119,14 +119,71 @@ enum F86TimeShift {
     FastTwoPercent,
 }
 
+impl F86TimeShift {
+    pub(crate) fn adjust(&self, value: f64) -> f64 {
+        value
+            * match self {
+                F86TimeShift::ZeroPercent => 1.0,
+                F86TimeShift::SlowOnePercent => 1.01,
+                F86TimeShift::SlowOneAndAHalfPercent => 1.01,
+                F86TimeShift::SlowTwoPercent => 1.02,
+                F86TimeShift::FastOnePercent => 1.0 / 1.01,
+                F86TimeShift::FastOneAndAHalfPercent => 1.0 / 1.015,
+                F86TimeShift::FastTwoPercent => 1.0 / 1.02,
+            }
+    }
+}
+
 #[derive(Debug)]
 enum F86Endian {
     Little,
     Big,
 }
 
+#[derive(Debug)]
+enum F86Density {
+    Double,
+    High,
+    Extended,
+    ExtendedPlus,
+}
+
+impl F86Density {
+    fn track_length_words(&self, time_shift: F86TimeShift) -> usize {
+        match self {
+            F86Density::Double | F86Density::High => match time_shift {
+                F86TimeShift::SlowTwoPercent => 12750,
+                F86TimeShift::SlowOneAndAHalfPercent => 12687,
+                F86TimeShift::SlowOnePercent => 12625,
+                F86TimeShift::ZeroPercent => 12500,
+                F86TimeShift::FastOnePercent => 12376,
+                F86TimeShift::FastOneAndAHalfPercent => 12315,
+                F86TimeShift::FastTwoPercent => 12254,
+            },
+            F86Density::Extended => match time_shift {
+                F86TimeShift::SlowTwoPercent => 25250,
+                F86TimeShift::SlowOneAndAHalfPercent => 25375,
+                F86TimeShift::SlowOnePercent => 25250,
+                F86TimeShift::ZeroPercent => 24752,
+                F86TimeShift::FastOnePercent => 24630,
+                F86TimeShift::FastOneAndAHalfPercent => 12315,
+                F86TimeShift::FastTwoPercent => 12254,
+            },
+            F86Density::ExtendedPlus => match time_shift {
+                F86TimeShift::SlowTwoPercent => 51000,
+                F86TimeShift::SlowOneAndAHalfPercent => 50750,
+                F86TimeShift::SlowOnePercent => 50500,
+                F86TimeShift::ZeroPercent => 50000,
+                F86TimeShift::FastOnePercent => 49504,
+                F86TimeShift::FastOneAndAHalfPercent => 49261,
+                F86TimeShift::FastTwoPercent => 49019,
+            },
+        }
+    }
+}
+
 fn f86_disk_time_shift(flags: u16) -> F86TimeShift {
-    match (flags & F86_DISK_RPM_SLOWDOWN >> 5, flags & F86_DISK_SPEEDUP_FLAG != 0) {
+    match ((flags & F86_DISK_RPM_SLOWDOWN) >> 5, flags & F86_DISK_SPEEDUP_FLAG != 0) {
         (0b00, _) => F86TimeShift::ZeroPercent,
         (0b01, false) => F86TimeShift::SlowOnePercent,
         (0b10, false) => F86TimeShift::SlowOneAndAHalfPercent,
@@ -138,12 +195,22 @@ fn f86_disk_time_shift(flags: u16) -> F86TimeShift {
     }
 }
 
+fn f86_disk_density(flags: u16) -> F86Density {
+    match (flags & F86_DISK_HOLE_MASK) >> 1 {
+        0b00 => F86Density::Double,
+        0b01 => F86Density::High,
+        0b10 => F86Density::Extended,
+        0b11 => F86Density::ExtendedPlus,
+        _ => unreachable!(),
+    }
+}
+
 fn f86_track_data_rate(flags: u16) -> Option<DiskDataRate> {
     match flags & 0x07 {
         0b000 => Some(DiskDataRate::Rate500Kbps(1.0)),
         0b001 => Some(DiskDataRate::Rate300Kbps(1.0)),
         0b010 => Some(DiskDataRate::Rate250Kbps(1.0)),
-        0b011 => Some(DiskDataRate::Rate125Kbps(1.0)),
+        0b011 => Some(DiskDataRate::Rate1000Kbps(1.0)),
         _ => None,
     }
 }
@@ -175,6 +242,27 @@ fn f86_weak_to_holes(bit_data: &mut [u8], weak_data: &[u8]) {
     for (byte, &weak_byte) in bit_data.iter_mut().zip(weak_data.iter()) {
         *byte &= !weak_byte;
     }
+}
+
+/// Equivalent of 86Box's `common_get_raw_size()` function.
+fn f86_track_bit_length(
+    encoding: DiskDataEncoding,
+    data_rate: DiskDataRate,
+    rpm: DiskRpm,
+    time_shift: F86TimeShift,
+    extra_bitcells: i32,
+) -> usize {
+    let mut size = 100000.0;
+    let mut rate = u32::from(data_rate) as f64 / 1000.0;
+    if matches!(encoding, DiskDataEncoding::Fm) {
+        rate /= 2.0;
+    }
+
+    size = (size / 250.0) * rate;
+    size = (size * 300.0) / f64::from(rpm);
+    size = time_shift.adjust(size);
+    //log::debug!("f86_track_bit_length: rate: {}, rpm: {} size: {}", rate, rpm, size);
+    (size as usize).saturating_add_signed(extra_bitcells as isize)
 }
 
 pub struct F86Format {}
@@ -231,17 +319,24 @@ impl F86Format {
         if has_surface_desc {
             log::trace!("Image has surface description.");
         }
-        let hole = (header.flags & F86_DISK_HOLE_MASK) >> 1;
+
+        log::debug!(
+            "bitcell flags: {},{},{},{}",
+            header.flags >> 12 & 0x01,
+            header.flags >> 7 & 0x01,
+            header.flags >> 6 & 0x01,
+            header.flags >> 5 & 0x01
+        );
+
+        let hole = f86_disk_density(header.flags);
         let heads = if header.flags & F86_DISK_SIDES != 0 { 2 } else { 1 };
         let (image_data_rate, image_density) = match hole {
-            0 => (DiskDataRate::Rate250Kbps(1.0), DiskDensity::Double),
-            1 => (DiskDataRate::Rate500Kbps(1.0), DiskDensity::High),
-            2 => (DiskDataRate::Rate1000Kbps(1.0), DiskDensity::Extended),
-            3 => {
-                log::warn!("Unsupported hole size: {}", hole);
+            F86Density::Double => (DiskDataRate::Rate250Kbps(1.0), DiskDensity::Double),
+            F86Density::High => (DiskDataRate::Rate500Kbps(1.0), DiskDensity::High),
+            F86Density::Extended | F86Density::ExtendedPlus => {
+                log::error!("Extended density images not supported.");
                 return Err(DiskImageError::UnsupportedFormat);
             }
-            _ => unreachable!(),
         };
         log::trace!("Image data rate: {:?} density: {:?}", image_data_rate, image_density);
 
@@ -269,21 +364,13 @@ impl F86Format {
         }*/
 
         let time_shift = f86_disk_time_shift(header.flags);
-        log::trace!("Time shift: {:?}", time_shift);
+        log::debug!("Time shift: {:?}", time_shift);
         let absolute_bitcell_count = if matches!(time_shift, F86TimeShift::ZeroPercent)
             && (header.flags & F86_DISK_SPEEDUP_FLAG) != 0
             && extra_bitcell_mode
         {
             log::trace!("Extra bitcell count is an absolute count.");
             true
-        }
-        else if extra_bitcell_mode {
-            log::error!(
-                "Unsupported time shift: {:?} extra_bitcell_mode: {}",
-                time_shift,
-                extra_bitcell_mode
-            );
-            return Err(DiskImageError::UnsupportedFormat);
         }
         else {
             false
@@ -338,18 +425,24 @@ impl F86Format {
         for (track_offset, track_entry_len) in track_offsets {
             read_buf.seek(std::io::SeekFrom::Start(track_offset as u64))?;
 
-            let (track_flags, extra_bitcells) = match extra_bitcell_mode {
+            let (track_flags, extra_bitcells, index_pos) = match extra_bitcell_mode {
                 true => {
                     let track_header = TrackHeaderBitCells::read(&mut read_buf)?;
                     log::trace!("Read track header with extra bitcells: {:?}", track_header);
-                    (track_header.flags, Some(track_header.bit_cells))
+                    (
+                        track_header.flags,
+                        Some(track_header.bit_cells),
+                        track_header.index_hole,
+                    )
                 }
                 false => {
                     let track_header = TrackHeader::read(&mut read_buf)?;
                     log::trace!("Read track header: {:?}", track_header);
-                    (track_header.flags, None)
+                    (track_header.flags, None, track_header.index_hole)
                 }
             };
+
+            log::debug!("Index position: {}", index_pos);
 
             let track_rpm = match f86_track_rpm(track_flags) {
                 Some(rpm) => rpm,
@@ -383,45 +476,137 @@ impl F86Format {
             };
 
             // Read the track data
-            let track_data_size = track_entry_len
+            let raw_track_size = track_entry_len
                 - match extra_bitcell_mode {
                     true => 10, //size_of::<TrackHeaderBitCells>(),
                     false => 6, //size_of::<TrackHeader>(),
                 };
 
-            let mut track_data_length = if has_surface_desc {
-                track_data_size / 2
+            if raw_track_size & 0x01 != 0 {
+                log::error!("Invalid 86f: Track data size is not word-aligned.");
+                return Err(DiskImageError::ImageCorruptError);
+            }
+
+            let raw_track_data_size = if has_surface_desc {
+                log::debug!("Track has surface description, halving data size.");
+                raw_track_size / 2
             }
             else {
-                track_data_size
+                raw_track_size
             };
 
-            // If not using absolute bitcell count, track data is double what would be expected
-            if !absolute_bitcell_count {
-                track_data_length /= 2;
+            log::debug!(
+                "Track raw data size: {} ({} words) Extra bitcells: {}",
+                raw_track_data_size,
+                raw_track_data_size / 2,
+                extra_bitcells.unwrap_or(0)
+            );
+
+            let mut read_length_bytes = raw_track_data_size;
+
+            // Calculate the expected track length in words from the density and time shift.
+            let mut read_length_expected_words = hole.track_length_words(time_shift);
+
+            // Adjust track length in words for extra bitcells.
+            let adjusted_read_length_words = if let Some(bitcells) = extra_bitcells {
+                let track_bitcells = (read_length_expected_words * 16).saturating_add_signed(bitcells as isize);
+                if track_bitcells % 16 != 0 {
+                    (track_bitcells / 16) + 1
+                }
+                else {
+                    track_bitcells / 16
+                }
             }
+            else {
+                read_length_expected_words
+            };
 
-            log::trace!("Track data length: {}", track_data_length);
+            log::debug!(
+                "Base track word length: {} Adjusted track word length: {}",
+                read_length_expected_words,
+                adjusted_read_length_words,
+            );
 
-            let mut bitcell_ct = None;
-            if absolute_bitcell_count {
+            read_length_expected_words = adjusted_read_length_words;
+
+            let bitcell_ct = if absolute_bitcell_count {
+                // An absolute bitcell count overrides the calculated track length.
                 if let Some(absolute_count) = extra_bitcells {
                     let absolute_data_len =
                         ((absolute_count / 8) + if (absolute_count % 8) != 0 { 1 } else { 0 }) as usize;
 
                     log::trace!(
-                        "Absolute bitcell count ({}) specifies: {} bytes. Data length is: {}",
+                        "Absolute bitcell count ({}) specifies: {} bytes. Raw data length is: {}",
                         absolute_count,
                         absolute_data_len,
-                        track_data_length
+                        raw_track_data_size
                     );
 
-                    bitcell_ct = Some(absolute_count as usize);
+                    if absolute_data_len > raw_track_data_size {
+                        log::error!(
+                            "Data length calculated from absolute bitcell count is greater than track data length: {} > {}",
+                            absolute_data_len,
+                            raw_track_data_size
+                        );
+                        return Err(DiskImageError::ImageCorruptError);
+                    }
+
+                    read_length_bytes = absolute_data_len;
+                    absolute_count as usize
+                }
+                else {
+                    log::error!("Absolute bitcell count flag set, but no count provided.");
+                    return Err(DiskImageError::ImageCorruptError);
                 }
             }
+            else {
+                if raw_track_data_size < read_length_expected_words * 2 {
+                    log::error!(
+                        "Track data length is less than expected: {} < {}",
+                        read_length_bytes,
+                        read_length_expected_words * 2
+                    );
+                    return Err(DiskImageError::ImageCorruptError);
+                }
+                else if raw_track_data_size > read_length_expected_words * 2 {
+                    log::warn!(
+                        "Track data length is greater than expected: {} > {}",
+                        read_length_bytes,
+                        read_length_expected_words * 2
+                    );
+
+                    // We'll truncate the data to the expected length.
+                    read_length_bytes = read_length_expected_words * 2;
+                }
+
+                // Calculate the bitcell count from track parameters. It may be less than the
+                // track data length, especially for DD images.
+
+                let calculated_bitcell_ct = f86_track_bit_length(
+                    track_encoding,
+                    track_data_rate,
+                    track_rpm,
+                    time_shift,
+                    extra_bitcells.unwrap_or(0),
+                );
+
+                log::debug!(
+                    "Calculated bitcell count: {} Track data length: {} bits",
+                    calculated_bitcell_ct,
+                    read_length_bytes * 16
+                );
+
+                calculated_bitcell_ct
+            };
+
+            log::debug!(
+                "Data read length: {} ({} words)",
+                read_length_bytes,
+                read_length_bytes / 2
+            );
 
             let track_data_vec = {
-                let mut track_data = vec![0u8; track_data_length];
+                let mut track_data = vec![0u8; read_length_bytes];
                 read_buf.read_exact(&mut track_data)?;
                 track_data
             };
@@ -437,7 +622,7 @@ impl F86Format {
                 data_rate: track_data_rate,
                 rpm: disk_rpm,
                 ch: DiskCh::from((cylinder_n, head_n)),
-                bitcell_ct,
+                bitcell_ct: Some(bitcell_ct),
                 data: &track_data_vec,
                 weak: None,
                 hole: None,
@@ -661,7 +846,7 @@ impl F86Format {
 
                 let track_header = TrackHeaderBitCells {
                     flags: track_flags,
-                    bit_cells: absolute_bit_count as u32,
+                    bit_cells: absolute_bit_count as i32,
                     index_hole: 0,
                 };
 

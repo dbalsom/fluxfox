@@ -1,0 +1,5 @@
+# Adding 0 is basically a nop and helps line things up to make them visually more clear. Besides, it's just nitpicking.
+identity_op = false
+# Big disagree here. the suggested syntax is awkward, potentially slower, requires a reference, and we have decades of
+# the 'bad' syntax being idiomatic in almost every language
+comparison_chain = false
