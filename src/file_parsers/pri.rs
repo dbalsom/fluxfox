@@ -168,28 +168,6 @@ pub(crate) fn pri_crc(buf: &[u8]) -> u32 {
     crc & 0xffffffff
 }
 
-/// Return slice bounds for the weak bit mask.
-pub(crate) fn pri_weak_bounds(buf: &[u8]) -> (usize, usize) {
-    let mut start = 0;
-    let mut end = 0;
-
-    for i in 0..buf.len() {
-        if buf[i] != 0 {
-            start = i;
-            break;
-        }
-    }
-
-    for i in (0..buf.len()).rev() {
-        if buf[i] != 0 {
-            end = i;
-            break;
-        }
-    }
-
-    (start, end)
-}
-
 impl PriFormat {
     #[allow(dead_code)]
     fn format() -> DiskImageFileFormat {
@@ -623,32 +601,45 @@ impl PriFormat {
                 let track_data = track.data.data();
                 PriFormat::write_chunk(output, PriChunkType::TrackData, &track_data)?;
 
-                // TODO: Fix this with correct weak mask logic
+                if track.data.weak_mask().any() {
+                    // At least one bit is set in the weak bit mask, so let's export it.
+                    let weak_mask = track.data.weak_mask();
 
-                // // Write the weak mask, if any bits are set in the weak bit mask.
-                // if track.data.weak_mask().any() {
-                //     // At least one bit is set in the weak bit mask, so let's export it.
-                //     let weak_data = track.data.weak_data();
-                //
-                //     // Optimization: PRI supports supplying a bit offset for the weak bit mask.
-                //     // Determine the slice of the weak mask that contains the first and last
-                //     // set bits.
-                //     let (slice_start, slice_end) = pri_weak_bounds(&weak_data);
-                //     let weak_header = PriWeakMask {
-                //         bit_offset: (slice_start * 8) as u32,
-                //     };
-                //
-                //     // Create a buffer for our weak mask.
-                //     let mut weak_buffer = Cursor::new(Vec::new());
-                //
-                //     // Write the weak mask header.
-                //     weak_header.write(&mut weak_buffer)?;
-                //
-                //     // Write the weak mask data.
-                //     weak_buffer.write_all(&weak_data[slice_start..slice_end])?;
-                //
-                //     PriFormat::write_chunk_raw(output, PriChunkType::WeakMask, weak_buffer.get_ref())?;
-                // }
+                    // Create a buffer for our weak mask table.
+                    let mut weak_buffer = Cursor::new(Vec::new());
+
+                    let mut mask_offset;
+                    let mut bit_offset = 0;
+                    let mut iter = weak_mask.iter();
+                    while let Some(bit) = iter.next() {
+                        bit_offset += 1;
+                        if bit {
+                            mask_offset = bit_offset;
+                            // Start with a 1 in the MSB position of the shift register
+                            let mut mask_u32: u32 = 1 << 31;
+
+                            // Shift in the next 31 bits, if available
+                            for pos in 1..32 {
+                                if let Some(next_bit) = iter.next() {
+                                    bit_offset += 1;
+                                    mask_u32 |= (next_bit as u32) << (31 - pos);
+                                }
+                                else {
+                                    break;
+                                }
+                            }
+
+                            // Add an entry to the table.
+                            PriWeakMaskEntry {
+                                bit_offset: mask_offset,
+                                bit_mask:   mask_u32,
+                            }
+                            .write_be(&mut weak_buffer)?;
+                        }
+                    }
+
+                    PriFormat::write_chunk_raw(output, PriChunkType::WeakMask, weak_buffer.get_ref())?;
+                }
             }
             else {
                 unreachable!("Expected only BitStream variants");

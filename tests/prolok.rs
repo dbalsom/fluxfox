@@ -11,17 +11,13 @@ fn test_prolok() {
     use std::io::Cursor;
     init();
 
-    let disk_image_buf = std::fs::read(".\\tests\\images\\tc\\catprot.tc").unwrap();
+    let disk_image_buf = std::fs::read(".\\tests\\images\\monster_disk\\monster_disk_360k.pri").unwrap();
     let mut in_buffer = Cursor::new(disk_image_buf);
+    let mut disk = DiskImage::load(&mut in_buffer, None, None, None).unwrap();
 
-    let mut tc_image = DiskImage::load(&mut in_buffer, None, None, None).unwrap();
+    println!("Loaded PRI image of geometry {}...", disk.image_format().geometry);
 
-    println!(
-        "Loaded TransCopy image of geometry {}...",
-        tc_image.image_format().geometry
-    );
-
-    let mut read_sector_result = match tc_image.read_sector(
+    let mut read_sector_result = match disk.read_sector(
         DiskCh::new(39, 0),
         DiskChsnQuery::new(39, 0, 5, None),
         None,
@@ -47,7 +43,7 @@ fn test_prolok() {
 
     assert_eq!(sector_data.len(), 512);
 
-    match tc_image.write_sector(
+    match disk.write_sector(
         DiskCh::new(39, 0),
         DiskChsnQuery::new(39, 0, 5, 2),
         None,
@@ -64,7 +60,7 @@ fn test_prolok() {
     };
 
     // Read the sector back. It should have different data.
-    read_sector_result = match tc_image.read_sector(
+    read_sector_result = match disk.read_sector(
         DiskCh::new(39, 0),
         DiskChsnQuery::new(39, 0, 5, 2),
         None,
