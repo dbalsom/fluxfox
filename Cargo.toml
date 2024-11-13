@@ -44,6 +44,7 @@ plotly = { version = "0.10", optional = true }
 zip = { version = "2.1.3", default-features = false, features = ["bzip2", "deflate", "deflate64", "lzma", "time", "zstd"], optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
 zip = { version = "2.1.3", default-features = false, features = ["bzip2", "deflate", "deflate64", "lzma", "time"], optional = true }
 
 [dev-dependencies]
