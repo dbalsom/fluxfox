@@ -311,7 +311,9 @@ impl ImageParser for DiskImageFileFormat {
             let task = async move {
                 let mut img = image.lock().unwrap();
                 self_clone.load_image(read_buf, &mut img, callback) 
-            };
+            }.unwrap_or_else(|e| {
+                eprintln!("Error in task: {:?}", e);
+            });
             wasm_bindgen_futures::spawn_local(task);
             return Ok(());
         }
