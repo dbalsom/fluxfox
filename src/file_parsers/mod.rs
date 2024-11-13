@@ -308,7 +308,10 @@ impl ImageParser for DiskImageFileFormat {
         #[cfg(feature = "wasm")]
         {
             let self_clone = self.clone();
-            let task = async move { self_clone.load_image(read_buf, image, callback) };
+            let task = async move {
+                let mut img = image.lock().unwrap();
+                self_clone.load_image(read_buf, &mut img, callback) 
+            };
             wasm_bindgen_futures::spawn_local(task);
             return Ok(());
         }
