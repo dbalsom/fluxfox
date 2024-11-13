@@ -123,6 +123,7 @@ pub enum ParserWriteCompatibility {
 //     DiskImageFileFormat::RawSectorImage,
 // ];
 
+#[cfg(feature = "mfi")]
 pub(crate) const IMAGE_FORMATS: [Option<DiskImageFileFormat>; 13] = [
     Some(DiskImageFileFormat::ImageDisk),
     Some(DiskImageFileFormat::TeleDisk),
@@ -134,13 +135,26 @@ pub(crate) const IMAGE_FORMATS: [Option<DiskImageFileFormat>; 13] = [
     Some(DiskImageFileFormat::TransCopyImage),
     Some(DiskImageFileFormat::SuperCardPro),
     Some(DiskImageFileFormat::PceFluxImage),
-    #[cfg(feature = "mfi")]
     Some(DiskImageFileFormat::MameFloppyImage),
-    #[cfg(not(feature = "mfi"))]
-    None,  // Placeholder when the feature is not enabled
     Some(DiskImageFileFormat::KryofluxStream),
     Some(DiskImageFileFormat::RawSectorImage),
 ];
+#[cfg(not(feature = "mfi"))]
+pub(crate) const IMAGE_FORMATS: [Option<DiskImageFileFormat>; 12] = [
+    Some(DiskImageFileFormat::ImageDisk),
+    Some(DiskImageFileFormat::TeleDisk),
+    Some(DiskImageFileFormat::PceSectorImage),
+    Some(DiskImageFileFormat::PceBitstreamImage),
+    Some(DiskImageFileFormat::MfmBitstreamImage),
+    Some(DiskImageFileFormat::HfeImage),
+    Some(DiskImageFileFormat::F86Image),
+    Some(DiskImageFileFormat::TransCopyImage),
+    Some(DiskImageFileFormat::SuperCardPro),
+    Some(DiskImageFileFormat::PceFluxImage),
+    Some(DiskImageFileFormat::KryofluxStream),
+    Some(DiskImageFileFormat::RawSectorImage),
+];
+
 
 /// Returns a list of advertised file extensions supported by available image format parsers.
 /// This is a convenience function for use in file dialogs - internal image detection is not based
