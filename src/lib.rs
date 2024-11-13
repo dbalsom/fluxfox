@@ -53,7 +53,7 @@ mod detect;
 pub mod diskimage;
 mod file_parsers;
 pub mod image_builder;
-mod io;
+pub mod io;
 mod random;
 pub mod standard_format;
 pub mod structure_parsers;
@@ -72,7 +72,7 @@ use std::{
     fmt::{Display, Formatter},
     hash::RandomState,
 };
-
+use std::sync::Arc;
 use thiserror::Error;
 
 pub const MAXIMUM_SECTOR_SIZE: usize = 8192;
@@ -98,7 +98,7 @@ pub enum LoadingStatus {
     Error,
 }
 
-type LoadingCallback = Box<dyn Fn(LoadingStatus) + Send + 'static>;
+pub type LoadingCallback = Arc<dyn Fn(LoadingStatus) + Send + Sync>;
 
 #[derive(Debug, Error)]
 pub enum DiskImageError {
@@ -136,6 +136,8 @@ pub enum DiskImageError {
     ResolveError,
     #[error("An error occurred reading a multi-disk archive: {0}")]
     MultiDiskError(String),
+    #[error("An error occurred attempting to lock a resource: {0}")]
+    SyncError(String),
 }
 
 // Manually implement `From<io::Error>` for `DiskImageError`
@@ -441,7 +443,7 @@ impl DiskRpm {
 pub use crate::{
     chs::{DiskCh, DiskChs, DiskChsn, DiskChsnQuery},
     diskimage::{DiskImage, DiskImageFileFormat, SectorMapEntry},
-    file_parsers::{format_from_ext, supported_extensions, ImageParser, ParserWriteCompatibility},
+    file_parsers::{format_from_ext, supported_extensions, ParserWriteCompatibility},
     image_builder::ImageBuilder,
     image_writer::ImageWriter,
     standard_format::StandardFormat,
