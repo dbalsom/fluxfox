@@ -443,7 +443,7 @@ impl DiskRpm {
 pub use crate::{
     chs::{DiskCh, DiskChs, DiskChsn, DiskChsnQuery},
     diskimage::{DiskImage, DiskImageFileFormat, SectorMapEntry},
-    file_parsers::{format_from_ext, supported_extensions, ParserWriteCompatibility},
+    file_parsers::{format_from_ext, supported_extensions, ParserWriteCompatibility, ImageParser},
     image_builder::ImageBuilder,
     image_writer::ImageWriter,
     standard_format::StandardFormat,

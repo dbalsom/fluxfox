@@ -202,7 +202,7 @@ impl Display for DiskImageFileFormat {
             DiskImageFileFormat::SuperCardPro => "SuperCard Pro Flux".to_string(),
             DiskImageFileFormat::PceFluxImage => "PCE Flux Stream".to_string(),
             #[cfg(feature = "mfi")]
-            DiskImageFileFormat::MameFloppyImage => "MAME Floppy Image".to_string(),
+            DiskImageFileFormat::MameFloppyImage => "MAME Flux Stream".to_string(),
         };
         write!(f, "{}", str)
     }

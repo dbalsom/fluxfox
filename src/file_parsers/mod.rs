@@ -199,7 +199,7 @@ pub fn filter_writable(image: &DiskImage, formats: Vec<DiskImageFileFormat>) -> 
 }
 
 /// Currently called via enum dispatch - implement on parsers directly?
-pub(crate) trait ImageParser {
+pub trait ImageParser {
     /// Return the capability flags for this format.
     fn capabilities(&self) -> FormatCaps;
     /// Detect and return true if the image is of a format that the parser can read.
@@ -327,7 +327,7 @@ impl ImageParser for DiskImageFileFormat {
                 match self_clone.load_image(read_buf, &mut img, callback) {
                     Ok(_) => (),
                     Err(e) => log::error!("Error loading image: {:?}", e),
-                } 
+                }
             };
             wasm_bindgen_futures::spawn_local(task);
             return Ok(());

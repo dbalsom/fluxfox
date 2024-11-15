@@ -1,9 +1,9 @@
 mod common;
 
-use common::*;
-use fluxfox::{DiskImage, DiskImageFileFormat, ImageParser};
 use std::path::PathBuf;
 
+use common::*;
+use fluxfox::{DiskImage, DiskImageFileFormat, ImageParser};
 fn init() {
     let _ = env_logger::builder().is_test(true).try_init();
 }
