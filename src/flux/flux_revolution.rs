@@ -24,6 +24,7 @@
 
     --------------------------------------------------------------------------
 */
+use crate::flux::pll::PllDecodeFlags;
 use crate::{
     flux::{
         pll::{Pll, PllDecodeStatEntry},
@@ -423,7 +424,8 @@ impl FluxRevolution {
     }
 
     pub fn decode_direct(&mut self, pll: &mut Pll) -> FluxStats {
-        let mut decode_result = pll.decode(self, DiskDataEncoding::Mfm);
+        let pll_flags = PllDecodeFlags::empty();
+        let mut decode_result = pll.decode(self, DiskDataEncoding::Mfm, pll_flags);
         let encoding = decode_result
             .flux_stats
             .detect_encoding()
@@ -433,7 +435,7 @@ impl FluxRevolution {
             // If we detected FM encoding, decode again as FM
             log::warn!("FluxRevolution::decode(): No markers found. Track might be FM encoded? Re-decoding...");
 
-            let fm_result = pll.decode(self, DiskDataEncoding::Fm);
+            let fm_result = pll.decode(self, DiskDataEncoding::Fm, pll_flags);
             if fm_result.markers.is_empty() {
                 log::warn!("FluxRevolution::decode(): No markers found in FM decode. Keeping MFM.");
                 self.encoding = DiskDataEncoding::Mfm;
