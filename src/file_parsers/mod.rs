@@ -31,10 +31,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::{
     io::{ReadSeek, ReadWriteSeek},
-    DiskImage,
-    DiskImageError,
-    DiskImageFileFormat,
-    LoadingCallback,
+    DiskImage, DiskImageError, DiskImageFileFormat, LoadingCallback,
 };
 
 pub mod compression;
@@ -69,6 +66,7 @@ bitflags! {
     /// Bit flags representing the capabilities of a specific image format. Used to determine if a
     /// specific image format can represent a particular DiskImage.
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     #[rustfmt::skip]
     pub struct FormatCaps: u32 {
         const CAP_VARIABLE_SPT      = 0b0000_0000_0000_0001; // Can support variable sector counts per track
@@ -155,12 +153,15 @@ pub(crate) const IMAGE_FORMATS: [Option<DiskImageFileFormat>; 12] = [
     Some(DiskImageFileFormat::RawSectorImage),
 ];
 
-
 /// Returns a list of advertised file extensions supported by available image format parsers.
 /// This is a convenience function for use in file dialogs - internal image detection is not based
 /// on file extension, but by image file content and size.
 pub fn supported_extensions() -> Vec<&'static str> {
-    IMAGE_FORMATS.iter().filter_map(|&format| format).flat_map(|f| f.extensions()).collect()
+    IMAGE_FORMATS
+        .iter()
+        .filter_map(|&format| format)
+        .flat_map(|f| f.extensions())
+        .collect()
 }
 
 /// Returns a DiskImageFormat enum variant based on the file extension provided. If the extension
@@ -222,7 +223,7 @@ pub trait ImageParser {
         image: Arc<Mutex<DiskImage>>,
         callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError>;
-    
+
     /// Return true if the parser can write the specified disk image. Not all formats are writable
     /// at all, and not all DiskImages can be represented in the specified format.
     fn can_write(&self, image: &DiskImage) -> ParserWriteCompatibility;
@@ -341,8 +342,8 @@ impl ImageParser for DiskImageFileFormat {
                 let mut img = image.lock().unwrap();
                 self_clone.load_image(read_buf, &mut img, callback)
             })
-                .await
-                .map_err(|e| DiskImageError::IoError(e.to_string()))?
+            .await
+            .map_err(|e| DiskImageError::IoError(e.to_string()))?
         }
     }
 
@@ -384,8 +385,6 @@ impl ImageParser for DiskImageFileFormat {
         }
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {

@@ -67,12 +67,12 @@ mod track;
 #[cfg(feature = "viz")]
 pub mod visualization;
 
+use std::sync::Arc;
 use std::{
     fmt,
     fmt::{Display, Formatter},
     hash::RandomState,
 };
-use std::sync::Arc;
 use thiserror::Error;
 
 pub const MAXIMUM_SECTOR_SIZE: usize = 8192;
@@ -166,6 +166,7 @@ pub enum DiskVisualizationError {
 /// Currently only ByteStream and BitStream are implemented.
 #[repr(usize)]
 #[derive(Copy, Clone, Default, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DiskDataResolution {
     #[default]
     MetaSector = 0,
@@ -176,6 +177,7 @@ pub enum DiskDataResolution {
 /// The base bitcell encoding method of the data in a disk image.
 /// Note that some disk images may contain tracks with different encodings.
 #[derive(Default, Copy, Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DiskDataEncoding {
     #[default]
     #[doc = "Frequency Modulation encoding. Used by older 8&quot; diskettes, and duplication tracks on some 5.25&quot; diskettes."]
@@ -233,6 +235,7 @@ pub enum DiskPhysicalDimensions {
 /// * 5.25" diskettes were available in double and high densities.
 /// * 3.5" diskettes were available in double, high and extended densities.
 #[derive(Default, Copy, Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DiskDensity {
     Standard,
     #[default]
@@ -310,6 +313,7 @@ impl DiskDensity {
 /// DiskDataRate defines standard data rate categories, while storing a clock adjustment factor to
 /// make possible calculation of the exact data rate if required.
 #[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DiskDataRate {
     RateNonstandard(u32),
     Rate125Kbps(f64),
@@ -386,6 +390,7 @@ impl Display for DiskDataRate {
 ///
 /// Macintosh disk drives may have variable rotation rates while reading a single disk.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DiskRpm {
     /// A 300 RPM base rotation rate.
     #[default]
@@ -433,8 +438,7 @@ impl DiskRpm {
         // Assume a base clock of 1.5us or greater is a double density disk.
         if matches!(self, DiskRpm::Rpm360) && base_clock >= 1.5e-6 {
             base_clock * (300.0 / 360.0)
-        }
-        else {
+        } else {
             base_clock
         }
     }
@@ -443,7 +447,7 @@ impl DiskRpm {
 pub use crate::{
     chs::{DiskCh, DiskChs, DiskChsn, DiskChsnQuery},
     diskimage::{DiskImage, DiskImageFileFormat, SectorMapEntry},
-    file_parsers::{format_from_ext, supported_extensions, ParserWriteCompatibility, ImageParser},
+    file_parsers::{format_from_ext, supported_extensions, ImageParser, ParserWriteCompatibility},
     image_builder::ImageBuilder,
     image_writer::ImageWriter,
     standard_format::StandardFormat,

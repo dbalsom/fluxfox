@@ -144,9 +144,10 @@ impl From<DiskChs> for DiskChsnQuery {
 ///
 /// A DiskChsn may represent a Sector ID or an overall disk geometry.
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DiskChsn {
     chs: DiskChs,
-    n:   u8,
+    n: u8,
 }
 
 impl From<(u16, u8, u8, u8)> for DiskChsn {
@@ -289,6 +290,7 @@ impl DiskChsn {
 ///
 /// A DiskChs may represent a Sector ID, where size is ignored, or an overall disk geometry.
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DiskChs {
     c: u16,
     h: u8,
@@ -420,16 +422,13 @@ impl DiskChs {
         if self.s < geom.s {
             // Not at last sector, just return next sector
             DiskChs::from((self.c, self.h, self.s + 1))
-        }
-        else if self.h < geom.h - 1 {
+        } else if self.h < geom.h - 1 {
             // At last sector, but not at last head, go to next head, same cylinder, sector 1
             DiskChs::from((self.c, self.h + 1, 1))
-        }
-        else if self.c < geom.c - 1 {
+        } else if self.c < geom.c - 1 {
             // At last sector and last head, go to next cylinder, head 0, sector 1
             DiskChs::from((self.c + 1, 0, 1))
-        }
-        else {
+        } else {
             // Return start of drive? TODO: Research what does this do on real hardware
             DiskChs::from((0, 0, 1))
         }
@@ -456,6 +455,7 @@ impl DiskChs {
 /// A `DiskCh` is usually used as a physical track specifier. It can hold the geometry of a disk,
 /// or act as a cursor specifying a specific track on a disk.
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DiskCh {
     pub(crate) c: u16,
     pub(crate) h: u8,
@@ -519,8 +519,7 @@ impl DiskCh {
         if self.h < heads - 1 {
             // Not at least head, just return next head
             DiskCh::from((self.c, self.h + 1))
-        }
-        else {
+        } else {
             // Go to next track, head 0
             DiskCh::from((self.c + 1, 0))
         }

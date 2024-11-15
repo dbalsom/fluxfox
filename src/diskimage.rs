@@ -46,26 +46,15 @@ use crate::{
     bitstream::{fm::FmCodec, TrackDataStream},
     boot_sector::BootSector,
     chs::{DiskCh, DiskChs, DiskChsn, DiskChsnQuery},
-    containers::{
-        DiskImageContainer,
-    },
+    containers::DiskImageContainer,
     detect::detect_image_format,
     file_parsers::{filter_writable, formats_from_caps, kryoflux::KfxFormat, FormatCaps, ImageParser},
     io::ReadSeek,
     standard_format::StandardFormat,
     structure_parsers::{system34::System34Standard, DiskStructureMetadata},
     track::{fluxstream::FluxStreamTrack, metasector::MetaSectorTrack, DiskTrack, Track, TrackConsistency},
-    util,
-    DiskDataEncoding,
-    DiskDataRate,
-    DiskDataResolution,
-    DiskDensity,
-    DiskImageError,
-    DiskRpm,
-    FoxHashMap,
-    FoxHashSet,
-    LoadingCallback,
-    LoadingStatus,
+    util, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskImageError, DiskRpm, FoxHashMap,
+    FoxHashSet, LoadingCallback, LoadingStatus,
 };
 
 #[cfg(feature = "zip")]
@@ -76,6 +65,7 @@ pub(crate) const DEFAULT_BOOT_SECTOR: &[u8] = include_bytes!("../resources/boots
 bitflags! {
     /// Bit flags that can be applied to a disk image.
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     #[rustfmt::skip]
     pub struct DiskImageFlags: u32 {
         #[doc = "Disk Image source specified image is read-only"]
@@ -109,6 +99,7 @@ impl Display for DiskSelection {
 /// `DiskImageFileFormat` is an enumeration listing the various disk image file formats that can be
 /// read or written by FluxFox.
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DiskImageFileFormat {
     /// A raw sector image. Typically, has extensions IMG, IMA, DSK.
     RawSectorImage,
@@ -264,6 +255,7 @@ pub struct SectorMapEntry {
 
 /// A DiskConsistency structure maintains information about the consistency of a disk image.
 #[derive(Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DiskConsistency {
     // A field to hold image format capability flags that this image requires in order to be represented.
     pub image_caps: FormatCaps,
@@ -300,6 +292,7 @@ impl DiskConsistency {
 
 /// A `DiskDescriptor` structure describes the basic geometry and parameters of a disk image.
 #[derive(Copy, Clone, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DiskDescriptor {
     /// The basic geometry of the disk. Not all tracks present need to conform to the specified sector count (s).
     pub geometry: DiskCh,
@@ -427,7 +420,7 @@ pub struct WriteSectorResult {
 
 pub struct TrackRegion {
     pub start: usize,
-    pub end:   usize,
+    pub end: usize,
 }
 
 pub struct BitStreamTrackParams<'a> {
@@ -457,6 +450,7 @@ pub(crate) struct SharedDiskContext {
 /// A [`DiskImage`] may be of two [`DiskDataResolution`] levels: ByteStream or BitStream. ByteStream images
 /// are sourced from sector-based disk image formats, while BitStream images are sourced from
 /// bitstream-based disk image formats.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DiskImage {
     // Flags that can be applied to a disk image.
     pub(crate) flags: DiskImageFlags,
@@ -482,7 +476,8 @@ pub struct DiskImage {
     /// number, the second is the cylinder number.
     pub(crate) track_map: [Vec<usize>; 2],
     /// A shared context for the disk image, accessible by Tracks.
-    pub(crate) shared: Arc<Mutex<SharedDiskContext>>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub(crate) shared: Option<Arc<Mutex<SharedDiskContext>>>,
 }
 
 impl Default for DiskImage {
@@ -499,7 +494,7 @@ impl Default for DiskImage {
             comment: None,
             track_pool: Vec::new(),
             track_map: [Vec::new(), Vec::new()],
-            shared: Arc::new(Mutex::new(SharedDiskContext::default())),
+            shared: Some(Arc::new(Mutex::new(SharedDiskContext::default()))),
         }
     }
 }
@@ -534,7 +529,7 @@ impl DiskImage {
             comment: None,
             track_pool: Vec::new(),
             track_map: [Vec::new(), Vec::new()],
-            shared: Arc::new(Mutex::new(SharedDiskContext::default())),
+            shared: Some(Arc::new(Mutex::new(SharedDiskContext::default()))),
         }
     }
 
@@ -658,8 +653,7 @@ impl DiskImage {
                         _ => {
                             if disks.len() == 1 {
                                 disks.get(0)
-                            }
-                            else {
+                            } else {
                                 log::error!("Multiple disks found in Kryoflux set without a selection.");
                                 return Err(DiskImageError::MultiDiskError(
                                     "No disk selection provided.".to_string(),
@@ -708,8 +702,7 @@ impl DiskImage {
 
                         image.post_load_process();
                         Ok(image)
-                    }
-                    else {
+                    } else {
                         log::error!(
                             "Disk selection {} not found in Kryoflux set.",
                             disk_selection.clone().unwrap()
@@ -775,8 +768,7 @@ impl DiskImage {
                     }
                     image.post_load_process();
                     Ok(image)
-                }
-                else {
+                } else {
                     log::error!("Path parameter required when loading Kryoflux set.");
                     Err(DiskImageError::ParameterError)
                 }
@@ -824,8 +816,7 @@ impl DiskImage {
                         _ => {
                             if disks.len() == 1 {
                                 disks.get(0)
-                            }
-                            else {
+                            } else {
                                 log::error!("Multiple disks found in Kryoflux set without a selection.");
                                 return Err(DiskImageError::MultiDiskError(
                                     "No disk selection provided.".to_string(),
@@ -844,7 +835,7 @@ impl DiskImage {
                             // Let caller know to show a progress bar
                             callback_fn(LoadingStatus::ProgressSupport(true));
                         }
-                        
+
                         let image_arc = Arc::new(Mutex::new(image));
 
                         for (fi, file_path) in disk.file_set.iter().enumerate() {
@@ -854,7 +845,7 @@ impl DiskImage {
 
                             // We won't give the callback to the kryoflux loader - instead we will call it here ourselves
                             // updating percentage complete as a fraction of files loaded.
-                            
+
                             let kfx_format = DiskImageFileFormat::KryofluxStream;
                             kfx_format.load_image_async(cursor, image_arc.clone(), None).await?;
                             //KfxFormat::load_image_async(&mut cursor, &mut image, None).await?;
@@ -874,11 +865,10 @@ impl DiskImage {
                             .map_err(|_| DiskImageError::SyncError("Failed to unwrap image from Arc".to_string()))?
                             .into_inner()
                             .map_err(|_| DiskImageError::SyncError("Failed to unlock image from Mutex".to_string()))?;
-                        
+
                         image.post_load_process();
                         Ok(image)
-                    }
-                    else {
+                    } else {
                         log::error!(
                             "Disk selection {} not found in Kryoflux set.",
                             disk_selection.clone().unwrap()
@@ -895,9 +885,7 @@ impl DiskImage {
                 }
             }
             #[cfg(feature = "wasm")]
-            DiskImageContainer::KryofluxSet => {
-                Err(DiskImageError::UnsupportedFormat)
-            }
+            DiskImageContainer::KryofluxSet => Err(DiskImageError::UnsupportedFormat),
             #[cfg(feature = "tokio-async")]
             DiskImageContainer::KryofluxSet => {
                 if let Some(image_path) = image_path {
@@ -949,15 +937,14 @@ impl DiskImage {
                     }
                     image.post_load_process();
                     Ok(image)
-                }
-                else {
+                } else {
                     log::error!("Path parameter required when loading Kryoflux set.");
                     Err(DiskImageError::ParameterError)
                 }
             }
         }
     }
-    
+
     pub fn set_volume_name(&mut self, name: String) {
         self.volume_name = Some(name);
     }
@@ -1011,7 +998,11 @@ impl DiskImage {
     }
 
     pub fn write_ct(&self) -> u64 {
-        self.shared.lock().unwrap().writes
+        if let Some(shared) = &self.shared {
+            shared.lock().unwrap().writes
+        } else {
+            0
+        }
     }
 
     pub fn source_format(&self) -> Option<DiskImageFileFormat> {
@@ -1073,7 +1064,7 @@ impl DiskImage {
         }
 
         track.set_ch(ch);
-        track.set_shared(self.shared.clone());
+        track.set_shared(self.shared.clone().expect("Shared context not found."));
         track.synthesize_revolutions(); // Create synthetic revolutions to increase chances of successful decoding.
         track.decode_revolutions(clock_hint, rpm_hint)?;
         track.analyze_revolutions();
@@ -1130,7 +1121,7 @@ impl DiskImage {
         );
 
         let head = params.ch.h() as usize;
-        let new_track = BitStreamTrack::new(params, self.shared.clone())?;
+        let new_track = BitStreamTrack::new(params, self.shared.clone().expect("Shared context not found"))?;
 
         self.track_pool.push(Box::new(new_track));
         self.track_map[head].push(self.track_pool.len() - 1);
@@ -1178,7 +1169,7 @@ impl DiskImage {
             encoding,
             data_rate,
             sectors: Vec::new(),
-            shared: self.shared.clone(),
+            shared: self.shared.clone().expect("Shared context not found"),
         }));
         self.track_map[ch.h() as usize].push(self.track_pool.len() - 1);
 
@@ -1202,8 +1193,7 @@ impl DiskImage {
         // Return the next sector as long as it is on the same track.
         if next_sector.c() == chs.c() {
             Some(next_sector)
-        }
-        else {
+        } else {
             None
         }
     }
@@ -1350,7 +1340,7 @@ impl DiskImage {
                     data: stream,
                     metadata: DiskStructureMetadata::default(),
                     sector_ids: Vec::new(),
-                    shared: self.shared.clone(),
+                    shared: Some(self.shared.clone().expect("Shared context not found")),
                 }));
 
                 new_track_index = self.track_pool.len() - 1;
@@ -1367,7 +1357,7 @@ impl DiskImage {
                     data_rate,
                     ch,
                     sectors: Vec::new(),
-                    shared: self.shared.clone(),
+                    shared: self.shared.clone().expect("Shared context not found"),
                 }));
 
                 new_track_index = self.track_pool.len() - 1;
@@ -1538,8 +1528,7 @@ impl DiskImage {
                     bpb.write_bpb_to_buffer(&mut cursor)?;
                     self.write_boot_sector(cursor.into_inner())?;
                 }
-            }
-            else {
+            } else {
                 log::warn!("update_standard_boot_sector(): Failed to examine boot sector.");
             }
         }
@@ -1550,7 +1539,9 @@ impl DiskImage {
     /// Called after loading a disk image to perform any post-load operations.
     pub(crate) fn post_load_process(&mut self) {
         // Set writes to 1.
-        self.shared.lock().unwrap().writes = 1;
+        if let Some(shared) = &self.shared {
+            shared.lock().unwrap().writes = 1;
+        }
 
         // Normalize the disk image
         self.normalize();
@@ -1577,8 +1568,7 @@ impl DiskImage {
 
                 if self.standard_format.is_none() {
                     self.standard_format = Some(format);
-                }
-                else if self.standard_format != Some(format) {
+                } else if self.standard_format != Some(format) {
                     log::warn!("post_load_process(): Boot sector format does not match image format.");
                 }
             }
@@ -1607,11 +1597,9 @@ impl DiskImage {
         fn normalize_cylinders(c: usize) -> usize {
             if c > 80 {
                 80
-            }
-            else if c > 40 {
+            } else if c > 40 {
                 40
-            }
-            else {
+            } else {
                 c
             }
         }
@@ -1710,16 +1698,14 @@ impl DiskImage {
                 spt
             );
             self.consistency.consistent_track_length = None;
-        }
-        else {
+        } else {
             self.consistency.consistent_track_length = Some(all_consistency.sector_ct as u32);
         }
 
         if variable_sector_size {
             log::debug!("update_consistency(): Variable sector sizes detected in tracks.");
             self.consistency.consistent_sector_size = None;
-        }
-        else {
+        } else {
             self.consistency.consistent_sector_size = Some(last_track_sector_size);
         }
 
@@ -1821,8 +1807,7 @@ impl DiskImage {
                 let track_entry_opt = track_hashes.get(&self.track_pool[*track].get_hash());
                 if track_entry_opt.is_some() {
                     duplicate_tracks[head_idx].push(track_idx);
-                }
-                else {
+                } else {
                     track_hashes.insert(self.track_pool[*track].get_hash(), 1);
                 }
             }
@@ -1939,36 +1924,31 @@ impl DiskImage {
     pub fn dump_consistency<W: crate::io::Write>(&mut self, mut out: W) -> Result<(), crate::io::Error> {
         if self.consistency.bad_data_crc {
             out.write_fmt(format_args!("Disk contains sectors with bad data CRCs\n"))?;
-        }
-        else {
+        } else {
             out.write_fmt(format_args!("No sectors on disk have bad data CRCs\n"))?;
         }
 
         if self.consistency.bad_address_crc {
             out.write_fmt(format_args!("Disk contains sectors with bad address CRCs\n"))?;
-        }
-        else {
+        } else {
             out.write_fmt(format_args!("No sectors on disk have bad address CRCs\n"))?;
         }
 
         if self.consistency.deleted_data {
             out.write_fmt(format_args!("Disk contains sectors marked as deleted\n"))?;
-        }
-        else {
+        } else {
             out.write_fmt(format_args!("No sectors on disk are marked as deleted\n"))?;
         }
 
         if self.consistency.overlapped {
             out.write_fmt(format_args!("Disk contains sectors with overlapping data\n"))?;
-        }
-        else {
+        } else {
             out.write_fmt(format_args!("No sectors on disk have overlapping data\n"))?;
         }
 
         if self.consistency.weak {
             out.write_fmt(format_args!("Disk contains tracks with weak bits\n"))?;
-        }
-        else {
+        } else {
             out.write_fmt(format_args!("No tracks on disk have weak bits\n"))?;
         }
 
@@ -2126,7 +2106,9 @@ impl DiskImage {
     }
 
     pub fn incr_writes(&mut self) {
-        self.shared.lock().unwrap().writes += 1;
+        if let Some(shared) = &self.shared {
+            shared.lock().unwrap().writes += 1;
+        }
     }
 
     /// Return the last track in the track pool.

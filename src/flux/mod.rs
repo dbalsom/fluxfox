@@ -55,6 +55,7 @@ macro_rules! format_ms {
 }
 
 #[derive(PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum FluxTransition {
     Short,
     Medium,
@@ -97,7 +98,7 @@ pub struct FluxStats {
     pub too_slow_bits: u32,
 
     pub shortest_flux: f64,
-    pub longest_flux:  f64,
+    pub longest_flux: f64,
 }
 
 impl Display for FluxStats {
@@ -139,8 +140,7 @@ impl FluxStats {
     fn short_avg(&self) -> f64 {
         if self.short == 0 {
             0.0
-        }
-        else {
+        } else {
             self.short_time / self.short as f64
         }
     }
@@ -153,8 +153,7 @@ impl FluxStats {
         // If we have fewer than 5% medium transitions, it is likely an FM track
         if medium_freq > 0.05 {
             Some(DiskDataEncoding::Mfm)
-        }
-        else {
+        } else {
             Some(DiskDataEncoding::Fm)
         }
     }

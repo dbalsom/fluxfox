@@ -58,6 +58,7 @@ impl Iterator for BitRingIter<'_> {
     }
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct BitRing {
     bits: BitVec,
     wrap: usize,
@@ -155,8 +156,7 @@ impl BitRing {
     pub fn set(&mut self, index: usize, bit: bool) {
         if index < self.wrap {
             self.bits.set(index, bit);
-        }
-        else {
+        } else {
             self.bits.set(index % self.wrap, bit);
         }
     }
@@ -218,8 +218,7 @@ impl Index<usize> for BitRing {
     fn index(&self, index: usize) -> &Self::Output {
         if index < self.wrap {
             &self.bits[index]
-        }
-        else {
+        } else {
             if index == self.wrap {
                 //log::debug!("Index wrapped around at {}", index);
             }

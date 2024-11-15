@@ -37,25 +37,12 @@ use crate::{
     bitstream::TrackDataStream,
     chs::DiskChsnQuery,
     diskimage::{
-        ReadSectorResult,
-        ReadTrackResult,
-        RwSectorScope,
-        ScanSectorResult,
-        SectorDescriptor,
-        WriteSectorResult,
+        ReadSectorResult, ReadTrackResult, RwSectorScope, ScanSectorResult, SectorDescriptor, WriteSectorResult,
     },
     structure_parsers::{system34::System34Standard, DiskStructureMetadata},
     track::{bitstream::BitStreamTrack, fluxstream::FluxStreamTrack, metasector::MetaSectorTrack},
-    DiskCh,
-    DiskChs,
-    DiskChsn,
-    DiskDataEncoding,
-    DiskDataRate,
-    DiskDataResolution,
-    DiskDensity,
-    DiskImageError,
-    DiskRpm,
-    SectorMapEntry,
+    DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskImageError,
+    DiskRpm, SectorMapEntry,
 };
 use sha1_smol::Digest;
 use std::any::Any;
@@ -154,7 +141,8 @@ impl TrackConsistency {
     }
 }
 
-pub trait Track: Any {
+#[cfg_attr(feature = "serde", typetag::serde)]
+pub trait Track: Any + Send + Sync {
     /// Return the resolution of the track as a `DiskDataResolution`.
     /// This can be used to determine the track's underlying representation, especially if you wish
     /// to downcast the track to a specific type.
@@ -300,4 +288,4 @@ pub trait Track: Any {
     fn get_track_stream(&self) -> Option<&TrackDataStream>;
 }
 
-pub type DiskTrack = Box<dyn Track + Send + Sync>;
+pub type DiskTrack = Box<dyn Track>;

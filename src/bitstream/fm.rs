@@ -30,7 +30,7 @@
 
 */
 use crate::{
-    bitstream::{EncodingVariant, TrackCodec, TrackDataStreamT},
+    bitstream::{EncodingVariant, TrackCodec},
     diskimage::TrackRegion,
     io::{Error, ErrorKind, Read, Result, Seek, SeekFrom},
     range_check::RangeChecker,
@@ -56,6 +56,7 @@ macro_rules! fm_offset {
     };
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FmCodec {
     bit_vec: BitVec,
     clock_map: BitVec,
@@ -79,8 +80,7 @@ pub fn get_fm_sync_offset(track: &BitVec) -> Option<bool> {
         Some(offset) => {
             if offset % 2 == 0 {
                 Some(false)
-            }
-            else {
+            } else {
                 Some(true)
             }
         }
@@ -101,6 +101,7 @@ pub fn find_sync(track: &BitVec, start_idx: usize) -> Option<usize> {
     None
 }
 
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl TrackCodec for FmCodec {
     fn encoding(&self) -> DiskDataEncoding {
         DiskDataEncoding::Fm
@@ -150,20 +151,20 @@ impl TrackCodec for FmCodec {
         &mut self.weak_mask
     }
 
-    fn set_weak_mask(&mut self, new: BitVec) {
-        self.weak_mask = new;
+    fn weak_data(&self) -> Vec<u8> {
+        self.weak_mask.to_bytes()
     }
 
-    fn error_map(&self) -> &BitVec {
-        &self.error_map
+    fn set_weak_mask(&mut self, new: BitVec) {
+        self.weak_mask = new;
     }
 
     fn has_weak_bits(&self) -> bool {
         !self.detect_weak_bits(6).0 > 0
     }
 
-    fn weak_data(&self) -> Vec<u8> {
-        self.weak_mask.to_bytes()
+    fn error_map(&self) -> &BitVec {
+        &self.error_map
     }
 
     fn set_track_padding(&mut self) {
@@ -202,8 +203,7 @@ impl TrackCodec for FmCodec {
                 log::warn!("set_track_padding(): Unable to determine track padding.");
                 self.track_padding = 0;
             }
-        }
-        else {
+        } else {
             // Track length is not an even multiple of 8 - the only explanation is that there is no
             // track padding.
             self.track_padding = 0;
@@ -292,20 +292,17 @@ impl TrackCodec for FmCodec {
                     // 1 is encoded as 01
                     bitvec.push(false);
                     bitvec.push(true);
-                }
-                else {
+                } else {
                     // 0 is encoded as 10 if previous bit was 0, otherwise 00
                     let previous_bit = if bitvec.is_empty() {
                         prev_bit
-                    }
-                    else {
+                    } else {
                         bitvec[bitvec.len() - 1]
                     };
 
                     if previous_bit {
                         bitvec.push(false);
-                    }
-                    else {
+                    } else {
                         bitvec.push(true);
                     }
                     bitvec.push(false);
@@ -342,8 +339,7 @@ impl TrackCodec for FmCodec {
 
         let search_limit = if let Some(provided_limit) = limit {
             std::cmp::min(provided_limit, self.bit_vec.len())
-        }
-        else {
+        } else {
             self.bit_vec.len()
         };
 
@@ -394,8 +390,7 @@ impl TrackCodec for FmCodec {
     fn is_data(&self, index: usize, wrapping: bool) -> bool {
         if wrapping {
             self.data_ranges.contains(index)
-        }
-        else {
+        } else {
             self.data_ranges_filtered.contains(index)
         }
     }
@@ -484,20 +479,17 @@ impl FmCodec {
                     // 1 is encoded as 01
                     bitvec.push(false);
                     bitvec.push(true);
-                }
-                else {
+                } else {
                     // 0 is encoded as 10 if previous bit was 0, otherwise 00
                     let previous_bit = if bitvec.is_empty() {
                         prev_bit
-                    }
-                    else {
+                    } else {
                         bitvec[bitvec.len() - 1]
                     };
 
                     if previous_bit {
                         bitvec.push(false);
-                    }
-                    else {
+                    } else {
                         bitvec.push(true);
                     }
                     bitvec.push(false);
@@ -539,13 +531,11 @@ impl FmCodec {
                 if bit {
                     // 1 is encoded as 01
                     accum = (accum << 2) | 0b01;
-                }
-                else {
+                } else {
                     // 0 is encoded as 10 if previous bit was 0, otherwise 00
                     if !previous_bit {
                         accum = (accum << 2) | 0b10;
-                    }
-                    else {
+                    } else {
                         accum <<= 2;
                     }
                 }
@@ -560,8 +550,7 @@ impl FmCodec {
         if self.weak_enabled && self.weak_mask[self.bit_cursor] {
             // Weak bits return random data
             Some(rand::random())
-        }
-        else {
+        } else {
             Some(self.bit_vec[self.bit_cursor])
         }
     }
@@ -570,8 +559,7 @@ impl FmCodec {
         if self.weak_enabled && self.weak_mask[self.initial_phase + (index << 1)] {
             // Weak bits return random data
             Some(rand::random())
-        }
-        else {
+        } else {
             Some(self.bit_vec[self.initial_phase + (index << 1)])
         }
     }
@@ -582,8 +570,7 @@ impl FmCodec {
             // Weak bits return random data
             // TODO: precalculate random table and return reference to it.
             &self.bit_vec[p_off + (index << 1)]
-        }
-        else {
+        } else {
             &self.bit_vec[p_off + (index << 1)]
         }
     }
@@ -596,8 +583,7 @@ impl FmCodec {
         for bit in self.bit_vec.iter() {
             if !bit {
                 zero_ct += 1;
-            }
-            else {
+            } else {
                 if zero_ct >= run {
                     region_ct += 1;
                 }
@@ -621,12 +607,11 @@ impl FmCodec {
         for (i, bit) in self.bit_vec.iter().enumerate() {
             if !bit {
                 zero_ct += 1;
-            }
-            else {
+            } else {
                 if zero_ct >= run {
                     regions.push(TrackRegion {
                         start: region_start,
-                        end:   i - 1,
+                        end: i - 1,
                     });
                 }
                 zero_ct = 0;
@@ -650,15 +635,13 @@ impl FmCodec {
         for bit in self.bit_vec.iter() {
             if !bit {
                 zero_ct += 1;
-            }
-            else {
+            } else {
                 zero_ct = 0;
             }
 
             if zero_ct > run {
                 weak_bitvec.push(true);
-            }
-            else {
+            } else {
                 weak_bitvec.push(false);
             }
         }
@@ -688,8 +671,7 @@ impl Iterator for FmCodec {
         let decoded_bit = if self.weak_enabled && self.weak_mask[data_idx] {
             // Weak bits return random data
             rand::random()
-        }
-        else {
+        } else {
             self.bit_vec[data_idx]
         };
 
@@ -697,8 +679,7 @@ impl Iterator for FmCodec {
         if new_cursor >= (self.bit_vec.len() - self.track_padding) {
             // Wrap around to the beginning of the track
             self.bit_cursor = 0;
-        }
-        else {
+        } else {
             self.bit_cursor = new_cursor;
         }
 
@@ -763,8 +744,7 @@ impl Read for FmCodec {
             for _ in 0..8 {
                 if let Some(bit) = self.next() {
                     byte_val = (byte_val << 1) | bit as u8;
-                }
-                else {
+                } else {
                     break;
                 }
             }
@@ -787,5 +767,3 @@ impl Index<usize> for FmCodec {
         self.ref_bit_at(index)
     }
 }
-
-impl TrackDataStreamT for FmCodec {}
