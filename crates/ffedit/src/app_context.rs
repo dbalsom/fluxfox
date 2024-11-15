@@ -31,6 +31,7 @@ use crate::{
 };
 use crossbeam_channel::Sender;
 use fluxfox::DiskImage;
+use std::sync::Arc;
 use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
 // Contain mutable data for App
@@ -54,7 +55,7 @@ impl AppContext {
             match DiskImage::load_from_file(
                 inner_filename,
                 None,
-                Some(Box::new(move |status| match status {
+                Some(Arc::new(move |status| match status {
                     fluxfox::LoadingStatus::Progress(progress) => {
                         inner_sender.send(AppEvent::LoadingStatus(progress)).unwrap();
                     }

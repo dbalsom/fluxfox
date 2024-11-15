@@ -30,7 +30,7 @@ use crate::components::metadata_header::{MetaDataHeader, MetaDataType};
 use crate::widget::{FoxWidget, ScrollableWidget, TabSelectableWidget, WidgetState};
 use anyhow::{anyhow, Error};
 use fluxfox::diskimage::RwSectorScope;
-use fluxfox::DiskImage;
+use fluxfox::{DiskChsnQuery, DiskImage};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Scrollbar, ScrollbarOrientation, ScrollbarState, WidgetRef};
 use std::cell::RefCell;
@@ -131,7 +131,14 @@ impl DataBlock {
                 let ch = selection.into_ch()?;
                 let chs = selection.into_chs()?;
 
-                let rsr = disk.read_sector(ch, chs, None, RwSectorScope::DataOnly, true)?;
+                let rsr = disk.read_sector(
+                    ch,
+                    DiskChsnQuery::new(chs.c(), chs.h(), chs.s(), None),
+                    None,
+                    None,
+                    RwSectorScope::DataOnly,
+                    true,
+                )?;
 
                 self.head = ch.h();
                 self.cylinder = ch.c();

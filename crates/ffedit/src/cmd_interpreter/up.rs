@@ -27,7 +27,6 @@
 use crate::app::{AppContext, AppEvent};
 use crate::cmd_interpreter::{Command, CommandArgs, CommandResult};
 use crate::disk_selection::SelectionLevel;
-use fluxfox::DiskCh;
 
 pub(crate) struct UpCommand;
 
