@@ -29,12 +29,15 @@
     Implements an output helper for writing disk images to a file.
 
 */
-use crate::{io::Cursor, DiskImage, DiskImageError, DiskImageFileFormat, ImageParser};
+
 use std::path::PathBuf;
+
+use crate::{io::Cursor, DiskImage, DiskImageError, DiskImageFileFormat};
+use crate::file_parsers::ImageParser;
 
 #[derive(Debug, Default)]
 pub struct ImageWriter {
-    pub path:   Option<PathBuf>,
+    pub path: Option<PathBuf>,
     pub format: Option<DiskImageFileFormat>,
 }
 

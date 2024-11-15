@@ -57,6 +57,7 @@ use bit_vec::BitVec;
 
 /// A `DiskStructureMetadata` structure represents a collection of metadata items found in a track.
 #[derive(Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DiskStructureMetadata {
     pub items: Vec<DiskStructureMetadataItem>,
 }
@@ -91,8 +92,7 @@ impl DiskStructureMetadata {
 
         if ref_stack.is_empty() {
             None
-        }
-        else {
+        } else {
             // Sort by smallest element to allow address markers to have highest
             // priority.
             ref_stack.sort_by(|a, b| a.start.cmp(&b.start));
@@ -152,6 +152,7 @@ pub struct DiskStructureMarkerItem {
 /// address marker or data marker. It encodes the start and end of the element (as raw bitstream
 /// offsets) as well as optionally the status of any CRC field (valid for IDAM and DAM marks)
 #[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DiskStructureMetadataItem {
     pub(crate) elem_type: DiskStructureElement,
     pub(crate) start: usize,
@@ -163,6 +164,7 @@ pub struct DiskStructureMetadataItem {
 /// A `DiskStructureCrc` represents a 16-bit CRC value related to a region of a track. It contains
 /// both the stored CRC value read from the disk and the calculated CRC value.
 #[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DiskStructureCrc {
     stored: u16,
     calculated: u16,
@@ -176,12 +178,14 @@ impl DiskStructureCrc {
 }
 
 #[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DiskStructureMarker {
     System34(System34Marker),
     Placeholder,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DiskStructureGenericElement {
     NoElement,
     Marker,
@@ -194,6 +198,7 @@ pub enum DiskStructureGenericElement {
 }
 
 #[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DiskStructureElement {
     System34(System34Element),
     Placeholder,

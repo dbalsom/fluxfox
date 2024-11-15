@@ -40,7 +40,8 @@ pub enum EncodingVariant {
     AddressMark,
 }
 
-pub trait TrackCodec {
+#[cfg_attr(feature = "serde", typetag::serde(tag = "type"))]
+pub trait TrackCodec: Read + Seek + Index<usize, Output = bool> + Send + Sync {
     fn encoding(&self) -> DiskDataEncoding;
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool;
@@ -72,8 +73,4 @@ pub trait TrackCodec {
     fn debug_decode(&self, index: usize) -> String;
 }
 
-//pub trait TrackDataStreamT: TrackCodec + Iterator + Read + Seek + Index<usize> {}
-pub trait TrackDataStreamT: TrackCodec + Read + Seek + Index<usize> {}
-
-//pub type TrackDataStream = Box<dyn TrackDataStreamT<Item = bool, Output = bool>>;
-pub type TrackDataStream = Box<dyn TrackDataStreamT<Output = bool> + Send + Sync>;
+pub type TrackDataStream = Box<dyn TrackCodec<Output = bool>>;

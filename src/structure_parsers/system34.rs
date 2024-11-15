@@ -43,12 +43,8 @@ use crate::{
     io::{Read, Seek, SeekFrom},
     mfm_offset,
     structure_parsers::{
-        DiskStructureElement,
-        DiskStructureGenericElement,
-        DiskStructureMarker,
-        DiskStructureMarkerItem,
-        DiskStructureMetadataItem,
-        DiskStructureParser,
+        DiskStructureElement, DiskStructureGenericElement, DiskStructureMarker, DiskStructureMarkerItem,
+        DiskStructureMetadataItem, DiskStructureParser,
     },
     util::crc_ibm_3740,
     DiskImageError,
@@ -128,6 +124,7 @@ impl System34Standard {
 }
 
 #[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum System34Marker {
     Iam,
     Idam,
@@ -163,6 +160,7 @@ impl TryInto<System34Marker> for u16 {
 }
 
 #[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum System34Element {
     Gap1,
     Gap2,
@@ -306,8 +304,7 @@ impl System34Parser {
             track_bytes.extend_from_slice(&[GAP_BYTE; IBM_GAP4A]); // GAP0
             track_bytes.extend_from_slice(&[SYNC_BYTE; SYNC_LEN]); // Sync
             markers.push((System34Marker::Iam, track_bytes.len()));
-        }
-        else {
+        } else {
             // Just write Gap1 for ISO standard, there is no IAM marker.
             track_bytes.extend_from_slice(&[GAP_BYTE; ISO_GAP1]);
         }
@@ -345,15 +342,13 @@ impl System34Parser {
             // Write sector data using provided pattern buffer.
             if fill_pattern.len() == 1 {
                 track_bytes.extend_from_slice(&vec![fill_pattern[0]; sector.n_size()]);
-            }
-            else {
+            } else {
                 let mut sector_buffer = Vec::with_capacity(sector.n_size());
                 while sector_buffer.len() < sector.n_size() {
                     let remain = sector.n_size() - sector_buffer.len();
                     let copy_pat = if pat_cursor + remain <= fill_pattern.len() {
                         &fill_pattern[pat_cursor..pat_cursor + remain]
-                    }
-                    else {
+                    } else {
                         &fill_pattern[pat_cursor..]
                     };
 

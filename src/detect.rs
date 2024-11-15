@@ -26,18 +26,24 @@
 */
 use crate::{
     chs::DiskChs,
-    containers::{zip, DiskImageContainer},
-    file_parsers::{kryoflux::KfxFormat, ImageParser, IMAGE_FORMATS},
+    containers::{DiskImageContainer},
+    file_parsers::{ImageParser, IMAGE_FORMATS},
 };
-
 use crate::{
-    containers::KryoFluxSet,
     io::ReadSeek,
     standard_format::StandardFormat,
     util::natural_sort,
     DiskImageError,
     DiskImageFileFormat,
 };
+
+#[cfg(feature = "zip")]
+use crate::{
+    containers::{zip, KryoFluxSet},
+    file_parsers::{kryoflux::KfxFormat},
+};
+
+#[cfg(feature = "zip")]
 use std::path::PathBuf;
 
 /// Attempt to detect the format of a disk image. If the format cannot be determined, UnknownFormat is returned.
@@ -74,9 +80,9 @@ pub fn detect_image_format<T: ReadSeek>(image_io: &mut T) -> Result<DiskImageCon
 
                 // Wrap buffer in Cursor, and send it through all the format detectors.
                 let mut file_io = std::io::Cursor::new(file_buf);
-                for format in IMAGE_FORMATS.iter() {
+                for format in IMAGE_FORMATS.iter().filter_map(|&format| format) {
                     if format.detect(&mut file_io) {
-                        return Ok(DiskImageContainer::Zip(*format));
+                        return Ok(DiskImageContainer::Zip(format));
                     }
                 }
 
@@ -142,12 +148,12 @@ pub fn detect_image_format<T: ReadSeek>(image_io: &mut T) -> Result<DiskImageCon
         }
     }
 
-    for format in IMAGE_FORMATS.iter() {
+    for format in IMAGE_FORMATS.iter().filter_map(|&format| format) {
         if format.detect(&mut *image_io) {
             if let DiskImageFileFormat::KryofluxStream = format {
                 return Ok(DiskImageContainer::KryofluxSet);
             }
-            return Ok(DiskImageContainer::Raw(*format));
+            return Ok(DiskImageContainer::Raw(format));
         }
     }
     Err(DiskImageError::UnknownFormat)

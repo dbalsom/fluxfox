@@ -24,15 +24,15 @@
 
     --------------------------------------------------------------------------
 */
+use std::io::Write;
+
+use bit_vec::BitVec;
+use bitflags::bitflags;
+
 use crate::{
     flux::{flux_revolution::FluxRevolution, FluxStats, FluxTransition},
-    format_ms,
-    format_us,
-    DiskDataEncoding,
-    DiskDataRate,
+    format_ms, format_us, DiskDataEncoding, DiskDataRate,
 };
-use bit_vec::BitVec;
-use std::io::Write;
 
 const BASE_CLOCK: f64 = 2e-6; // Represents the default clock for a 300RPM, 250Kbps disk.
 
@@ -41,6 +41,16 @@ const MEDIUM_TRANSITION: f64 = 6.0e-6; // 6 µs
 const LONG_TRANSITION: f64 = 8.0e-6; // 8 µs
 const TOLERANCE: f64 = 0.5e-6; // 0.5 µs Tolerance for time deviation
 
+bitflags! {
+    /// Bit flags representing loading options passed to a disk image file parser.
+    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    #[rustfmt::skip]
+    pub struct PllDecodeFlags: u32 {
+        const COLLECT_FLUX_STATS     = 0b0000_0000_0000_0001; // Collect flux statistics. Memory intensive!
+    }
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PllDecodeStatEntry {
     pub time: f64,
     pub len: f64,
@@ -66,6 +76,7 @@ pub struct PllDecodeResult {
     pub markers: Vec<usize>,
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Pll {
     pub pll_default_rate: f64,
     pub pll_rate: f64,
@@ -188,31 +199,33 @@ impl Pll {
 
         if (duration - SHORT_TRANSITION).abs() <= TOLERANCE {
             FluxTransition::Short
-        }
-        else if (duration - MEDIUM_TRANSITION).abs() <= TOLERANCE {
+        } else if (duration - MEDIUM_TRANSITION).abs() <= TOLERANCE {
             FluxTransition::Medium
-        }
-        else if (duration - LONG_TRANSITION).abs() <= TOLERANCE {
+        } else if (duration - LONG_TRANSITION).abs() <= TOLERANCE {
             FluxTransition::Long
-        }
-        else {
+        } else {
             //log::trace!("unclassified duration: {}", duration);
             FluxTransition::Other
         }
     }
 
-    pub fn decode(&mut self, stream: &FluxRevolution, encoding: DiskDataEncoding) -> PllDecodeResult {
+    pub fn decode(
+        &mut self,
+        stream: &FluxRevolution,
+        encoding: DiskDataEncoding,
+        flags: PllDecodeFlags,
+    ) -> PllDecodeResult {
         match encoding {
-            DiskDataEncoding::Mfm => self.decode_mfm(stream),
-            DiskDataEncoding::Fm => self.decode_fm(stream),
+            DiskDataEncoding::Mfm => self.decode_mfm(stream, flags),
+            DiskDataEncoding::Fm => self.decode_fm(stream, flags),
             _ => {
                 log::error!("Unsupported encoding: {:?}", encoding);
-                self.decode_mfm(stream)
+                self.decode_mfm(stream, flags)
             }
         }
     }
 
-    fn decode_mfm(&mut self, stream: &FluxRevolution) -> PllDecodeResult {
+    fn decode_mfm(&mut self, stream: &FluxRevolution, flags: PllDecodeFlags) -> PllDecodeResult {
         let mut output_bits = BitVec::with_capacity(stream.flux_deltas.len() * 3);
         let mut error_bits = BitVec::with_capacity(stream.flux_deltas.len() * 3);
         let mut pll_stats = Vec::with_capacity(stream.flux_deltas.len());
@@ -296,8 +309,7 @@ impl Pll {
             if flux_length < 2 {
                 //log::warn!("too fast flux: {} @({})", clock_ticks_since_flux, time);
                 flux_stats.too_short += 1;
-            }
-            else if flux_length > 4 {
+            } else if flux_length > 4 {
                 log::trace!(
                     "decode_mfm(): Too slow flux detected: #{} @({}), dt: {}, clocks: {}",
                     flux_ct,
@@ -384,17 +396,14 @@ impl Pll {
                 // If delta is negative...
                 if adjust_gate < 0 {
                     adjust_gate -= 1;
-                }
-                else {
+                } else {
                     adjust_gate = -1;
                 }
-            }
-            else if phase_error >= 0.0 {
+            } else if phase_error >= 0.0 {
                 // If delta is positive...
                 if adjust_gate > 0 {
                     adjust_gate += 1;
-                }
-                else {
+                } else {
                     adjust_gate = 1;
                 }
             }
@@ -419,21 +428,22 @@ impl Pll {
             // problem. So we use the minimum phase error to adjust phase instead of directly.
             let min_phase_error = if phase_error.abs() < last_phase_error.abs() {
                 phase_error
-            }
-            else {
+            } else {
                 last_phase_error
             };
 
-            pll_stats.push(PllDecodeStatEntry {
-                time,
-                len: delta_time,
-                predicted: window_min + phase_adjust,
-                clk: self.working_period,
-                window_min,
-                window_max,
-                phase_err: phase_error,
-                phase_err_i: phase_adjust,
-            });
+            if flags.contains(PllDecodeFlags::COLLECT_FLUX_STATS) {
+                pll_stats.push(PllDecodeStatEntry {
+                    time,
+                    len: delta_time,
+                    predicted: window_min + phase_adjust,
+                    clk: self.working_period,
+                    window_min,
+                    window_max,
+                    phase_err: phase_error,
+                    phase_err_i: phase_adjust,
+                });
+            }
 
             // Validate that flux is within expected window. if these fail our logic is bad.
             // log::warn!(
@@ -504,7 +514,7 @@ impl Pll {
         }
     }
 
-    fn decode_fm(&mut self, stream: &FluxRevolution) -> PllDecodeResult {
+    fn decode_fm(&mut self, stream: &FluxRevolution, _flags: PllDecodeFlags) -> PllDecodeResult {
         let mut output_bits = BitVec::with_capacity(stream.flux_deltas.len() * 3);
         let pll_stats = Vec::with_capacity(stream.flux_deltas.len());
 
@@ -611,8 +621,7 @@ impl Pll {
             // Emit 0's and 1's based on the number of clock ticks since last flux transition.
             if flux_length == 0 {
                 //log::error!("zero length flux detected at time: {}", time);
-            }
-            else {
+            } else {
                 for _ in 0..flux_length.saturating_sub(1) {
                     output_bits.push(false);
                     shift_reg <<= 1;

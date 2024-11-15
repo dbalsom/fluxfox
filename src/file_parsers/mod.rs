@@ -24,20 +24,22 @@
 
     --------------------------------------------------------------------------
 */
+use bitflags::bitflags;
+
+#[cfg(feature = "async")]
+use std::sync::{Arc, Mutex};
+
 use crate::{
     io::{ReadSeek, ReadWriteSeek},
-    DiskImage,
-    DiskImageError,
-    DiskImageFileFormat,
-    LoadingCallback,
+    DiskImage, DiskImageError, DiskImageFileFormat, LoadingCallback,
 };
-use bitflags::bitflags;
 
 pub mod compression;
 pub mod f86;
 pub mod hfe;
 pub mod imd;
 pub mod kryoflux;
+#[cfg(feature = "mfi")]
 mod mfi;
 pub mod mfm;
 pub mod pfi;
@@ -64,6 +66,7 @@ bitflags! {
     /// Bit flags representing the capabilities of a specific image format. Used to determine if a
     /// specific image format can represent a particular DiskImage.
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     #[rustfmt::skip]
     pub struct FormatCaps: u32 {
         const CAP_VARIABLE_SPT      = 0b0000_0000_0000_0001; // Can support variable sector counts per track
@@ -102,35 +105,71 @@ pub enum ParserWriteCompatibility {
     UnsupportedFormat,
 }
 
-pub(crate) const IMAGE_FORMATS: [DiskImageFileFormat; 13] = [
-    DiskImageFileFormat::ImageDisk,
-    DiskImageFileFormat::TeleDisk,
-    DiskImageFileFormat::PceSectorImage,
-    DiskImageFileFormat::PceBitstreamImage,
-    DiskImageFileFormat::MfmBitstreamImage,
-    DiskImageFileFormat::HfeImage,
-    DiskImageFileFormat::F86Image,
-    DiskImageFileFormat::TransCopyImage,
-    DiskImageFileFormat::SuperCardPro,
-    DiskImageFileFormat::PceFluxImage,
-    DiskImageFileFormat::MameFloppyImage,
-    DiskImageFileFormat::KryofluxStream,
-    DiskImageFileFormat::RawSectorImage,
+// pub(crate) const IMAGE_FORMATS: [DiskImageFileFormat; 13] = [
+//     DiskImageFileFormat::ImageDisk,
+//     DiskImageFileFormat::TeleDisk,
+//     DiskImageFileFormat::PceSectorImage,
+//     DiskImageFileFormat::PceBitstreamImage,
+//     DiskImageFileFormat::MfmBitstreamImage,
+//     DiskImageFileFormat::HfeImage,
+//     DiskImageFileFormat::F86Image,
+//     DiskImageFileFormat::TransCopyImage,
+//     DiskImageFileFormat::SuperCardPro,
+//     DiskImageFileFormat::PceFluxImage,
+//     DiskImageFileFormat::MameFloppyImage,
+//     DiskImageFileFormat::KryofluxStream,
+//     DiskImageFileFormat::RawSectorImage,
+// ];
+
+#[cfg(feature = "mfi")]
+pub(crate) const IMAGE_FORMATS: [Option<DiskImageFileFormat>; 13] = [
+    Some(DiskImageFileFormat::ImageDisk),
+    Some(DiskImageFileFormat::TeleDisk),
+    Some(DiskImageFileFormat::PceSectorImage),
+    Some(DiskImageFileFormat::PceBitstreamImage),
+    Some(DiskImageFileFormat::MfmBitstreamImage),
+    Some(DiskImageFileFormat::HfeImage),
+    Some(DiskImageFileFormat::F86Image),
+    Some(DiskImageFileFormat::TransCopyImage),
+    Some(DiskImageFileFormat::SuperCardPro),
+    Some(DiskImageFileFormat::PceFluxImage),
+    Some(DiskImageFileFormat::MameFloppyImage),
+    Some(DiskImageFileFormat::KryofluxStream),
+    Some(DiskImageFileFormat::RawSectorImage),
+];
+#[cfg(not(feature = "mfi"))]
+pub(crate) const IMAGE_FORMATS: [Option<DiskImageFileFormat>; 12] = [
+    Some(DiskImageFileFormat::ImageDisk),
+    Some(DiskImageFileFormat::TeleDisk),
+    Some(DiskImageFileFormat::PceSectorImage),
+    Some(DiskImageFileFormat::PceBitstreamImage),
+    Some(DiskImageFileFormat::MfmBitstreamImage),
+    Some(DiskImageFileFormat::HfeImage),
+    Some(DiskImageFileFormat::F86Image),
+    Some(DiskImageFileFormat::TransCopyImage),
+    Some(DiskImageFileFormat::SuperCardPro),
+    Some(DiskImageFileFormat::PceFluxImage),
+    Some(DiskImageFileFormat::KryofluxStream),
+    Some(DiskImageFileFormat::RawSectorImage),
 ];
 
 /// Returns a list of advertised file extensions supported by available image format parsers.
 /// This is a convenience function for use in file dialogs - internal image detection is not based
 /// on file extension, but by image file content and size.
 pub fn supported_extensions() -> Vec<&'static str> {
-    IMAGE_FORMATS.iter().flat_map(|f| f.extensions()).collect()
+    IMAGE_FORMATS
+        .iter()
+        .filter_map(|&format| format)
+        .flat_map(|f| f.extensions())
+        .collect()
 }
 
 /// Returns a DiskImageFormat enum variant based on the file extension provided. If the extension
 /// is not recognized, None is returned.
 pub fn format_from_ext(ext: &str) -> Option<DiskImageFileFormat> {
-    for format in IMAGE_FORMATS.iter() {
+    for format in IMAGE_FORMATS.iter().filter_map(|&format| format) {
         if format.extensions().contains(&ext.to_lowercase().as_str()) {
-            return Some(*format);
+            return Some(format);
         }
     }
     None
@@ -145,8 +184,9 @@ pub fn formats_from_caps(caps: FormatCaps) -> Vec<(DiskImageFileFormat, Vec<Stri
 
     let format_vec = IMAGE_FORMATS
         .iter()
+        .filter_map(|&format| format)
         .filter(|f| caps.is_empty() || f.capabilities().contains(caps))
-        .map(|f| (*f, f.extensions().iter().map(|s| s.to_string()).collect()))
+        .map(|f| (f, f.extensions().iter().map(|s| s.to_string()).collect()))
         .collect();
 
     format_vec
@@ -175,6 +215,16 @@ pub trait ImageParser {
         image: &mut DiskImage,
         callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError>;
+
+    #[cfg(feature = "async")]
+    #[allow(async_fn_in_trait)]
+    async fn load_image_async<RWS: ReadSeek + Send + 'static>(
+        &self,
+        read_buf: RWS,
+        image: Arc<Mutex<DiskImage>>,
+        callback: Option<LoadingCallback>,
+    ) -> Result<(), DiskImageError>;
+
     /// Return true if the parser can write the specified disk image. Not all formats are writable
     /// at all, and not all DiskImages can be represented in the specified format.
     fn can_write(&self, image: &DiskImage) -> ParserWriteCompatibility;
@@ -196,6 +246,7 @@ impl ImageParser for DiskImageFileFormat {
             DiskImageFileFormat::SuperCardPro => scp::ScpFormat::capabilities(),
             DiskImageFileFormat::PceFluxImage => pfi::PfiFormat::capabilities(),
             DiskImageFileFormat::KryofluxStream => kryoflux::KfxFormat::capabilities(),
+            #[cfg(feature = "mfi")]
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::capabilities(),
         }
     }
@@ -214,6 +265,7 @@ impl ImageParser for DiskImageFileFormat {
             DiskImageFileFormat::SuperCardPro => scp::ScpFormat::detect(image_buf),
             DiskImageFileFormat::PceFluxImage => pfi::PfiFormat::detect(image_buf),
             DiskImageFileFormat::KryofluxStream => kryoflux::KfxFormat::detect(image_buf),
+            #[cfg(feature = "mfi")]
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::detect(image_buf),
         }
     }
@@ -232,6 +284,7 @@ impl ImageParser for DiskImageFileFormat {
             DiskImageFileFormat::SuperCardPro => scp::ScpFormat::extensions(),
             DiskImageFileFormat::PceFluxImage => pfi::PfiFormat::extensions(),
             DiskImageFileFormat::KryofluxStream => kryoflux::KfxFormat::extensions(),
+            #[cfg(feature = "mfi")]
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::extensions(),
         }
     }
@@ -255,7 +308,43 @@ impl ImageParser for DiskImageFileFormat {
             DiskImageFileFormat::SuperCardPro => scp::ScpFormat::load_image(read_buf, image, callback),
             DiskImageFileFormat::PceFluxImage => pfi::PfiFormat::load_image(read_buf, image, callback),
             DiskImageFileFormat::KryofluxStream => kryoflux::KfxFormat::load_image(read_buf, image, callback),
+            #[cfg(feature = "mfi")]
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::load_image(read_buf, image, callback),
+        }
+    }
+
+    #[cfg(feature = "async")]
+    async fn load_image_async<RWS: ReadSeek + Send + 'static>(
+        &self,
+        read_buf: RWS,
+        image: Arc<Mutex<DiskImage>>,
+        callback: Option<LoadingCallback>,
+    ) -> Result<(), DiskImageError> {
+        // For WASM, use `spawn_local` to run synchronously on the main thread
+        #[cfg(feature = "wasm")]
+        {
+            let self_clone = self.clone();
+            let task = async move {
+                let mut img = image.lock().unwrap();
+                match self_clone.load_image(read_buf, &mut img, callback) {
+                    Ok(_) => (),
+                    Err(e) => log::error!("Error loading image: {:?}", e),
+                }
+            };
+            wasm_bindgen_futures::spawn_local(task);
+            return Ok(());
+        }
+
+        // For non-WASM, use `tokio::task::spawn_blocking` to avoid blocking the async runtime
+        #[cfg(feature = "tokio-async")]
+        {
+            let self_clone = self.clone();
+            tokio::task::spawn_blocking(move || {
+                let mut img = image.lock().unwrap();
+                self_clone.load_image(read_buf, &mut img, callback)
+            })
+            .await
+            .map_err(|e| DiskImageError::IoError(e.to_string()))?
         }
     }
 
@@ -273,6 +362,7 @@ impl ImageParser for DiskImageFileFormat {
             DiskImageFileFormat::SuperCardPro => scp::ScpFormat::can_write(image),
             DiskImageFileFormat::PceFluxImage => pfi::PfiFormat::can_write(image),
             DiskImageFileFormat::KryofluxStream => kryoflux::KfxFormat::can_write(image),
+            #[cfg(feature = "mfi")]
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::can_write(image),
         }
     }
@@ -291,6 +381,7 @@ impl ImageParser for DiskImageFileFormat {
             DiskImageFileFormat::SuperCardPro => scp::ScpFormat::save_image(image, write_buf),
             DiskImageFileFormat::PceFluxImage => pfi::PfiFormat::save_image(image, write_buf),
             DiskImageFileFormat::KryofluxStream => kryoflux::KfxFormat::save_image(image, write_buf),
+            #[cfg(feature = "mfi")]
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::save_image(image, write_buf),
         }
     }

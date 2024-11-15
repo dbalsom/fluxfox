@@ -48,20 +48,14 @@
 //! several standard PC disk formats.
 
 use crate::{
-    diskimage::DiskDescriptor,
-    DiskCh,
-    DiskChs,
-    DiskChsn,
-    DiskDataEncoding,
-    DiskDataRate,
-    DiskDensity,
-    DiskRpm,
+    diskimage::DiskDescriptor, DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskDensity, DiskRpm,
     DEFAULT_SECTOR_SIZE,
 };
 use std::fmt::{Display, Formatter};
 
 /// An enumeration describing one of several standard PC disk formats.
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum StandardFormat {
     /// An invalid variant
     Invalid,

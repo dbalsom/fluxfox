@@ -35,11 +35,12 @@ use crate::io::{Cursor, ReadSeek, ReadWriteSeek, Seek, SeekFrom, Write};
 use crate::{DiskImageError, StandardFormat};
 use binrw::{binrw, BinRead, BinWrite};
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct BootSector {
     pub(crate) bpb2: BiosParameterBlock2,
     pub(crate) bpb3: BiosParameterBlock3,
     pub(crate) marker: [u8; 2],
-    pub(crate) sector_buf: Cursor<[u8; 512]>,
+    pub(crate) sector_buf: Vec<u8>,
 }
 
 #[binrw]
@@ -70,7 +71,7 @@ impl BootSector {
             bpb2,
             bpb3,
             marker,
-            sector_buf: Cursor::new(sector_buf),
+            sector_buf: sector_buf.to_vec(),
         })
     }
 
@@ -82,10 +83,11 @@ impl BootSector {
         eprintln!(
             "Creator offset: {} into {} bytes",
             creator_offset,
-            self.sector_buf.get_ref().len()
+            self.sector_buf.len()
         );
 
-        match self.sector_buf.seek(SeekFrom::Start(creator_offset)) {
+        let mut cursor = Cursor::new(&mut self.sector_buf);
+        match cursor.seek(SeekFrom::Start(creator_offset)) {
             Ok(_) => {}
             Err(e) => {
                 eprintln!("Error seeking to creator offset: {:?}", e);
@@ -99,17 +101,17 @@ impl BootSector {
 
         //let creator_string = CreatorString { creator: *creator };
 
-        let creator_string = CreatorString::read(&mut self.sector_buf)?;
+        let creator_string = CreatorString::read(&mut cursor)?;
 
         if creator_string.bytes != "fluxfox ".as_bytes() {
             // We can only set the creator if we're using the included boot sector, otherwise we'd overwrite some random data.
             return Err(DiskImageError::IncompatibleImage);
         }
 
-        self.sector_buf.seek(SeekFrom::Start(creator_offset))?;
+        cursor.seek(SeekFrom::Start(creator_offset))?;
 
         let new_creator_string = CreatorString { bytes: *creator };
-        new_creator_string.write(&mut self.sector_buf)?;
+        new_creator_string.write(&mut cursor)?;
         Ok(())
     }
 
@@ -125,16 +127,17 @@ impl BootSector {
         self.bpb3 = BiosParameterBlock3::from(format);
 
         // Update the internal buffer.
-        self.sector_buf.seek(SeekFrom::Start(BPB_OFFSET))?;
+        let mut cursor = Cursor::new(&mut self.sector_buf);
+        cursor.seek(SeekFrom::Start(BPB_OFFSET))?;
 
-        self.bpb2.write(&mut self.sector_buf)?;
-        self.bpb3.write(&mut self.sector_buf)?;
+        self.bpb2.write(&mut cursor)?;
+        self.bpb3.write(&mut cursor)?;
 
         Ok(())
     }
 
-    pub(crate) fn as_bytes(&self) -> &[u8; 512] {
-        self.sector_buf.get_ref()
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        &self.sector_buf
     }
 
     /// Write a new BPB to the provided sector buffer based on the specified StandardFormat.

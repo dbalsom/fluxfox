@@ -43,6 +43,7 @@ use binrw::binrw;
 pub const BPB_OFFSET: u64 = 0x0B;
 
 #[derive(Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[binrw]
 #[brw(little)]
 pub(crate) struct BiosParameterBlock2 {
@@ -215,6 +216,7 @@ impl From<StandardFormat> for BiosParameterBlock2 {
 
 /// BIOS Parameter Block extensions introduced in MS-DOS 3.0
 #[derive(Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[binrw]
 #[brw(little)]
 pub(crate) struct BiosParameterBlock3 {

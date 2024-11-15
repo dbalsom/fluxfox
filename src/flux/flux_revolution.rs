@@ -24,14 +24,13 @@
 
     --------------------------------------------------------------------------
 */
+use crate::flux::pll::PllDecodeFlags;
 use crate::{
     flux::{
         pll::{Pll, PllDecodeStatEntry},
-        FluxStats,
-        FluxTransition,
+        FluxStats, FluxTransition,
     },
-    DiskCh,
-    DiskDataEncoding,
+    DiskCh, DiskDataEncoding,
 };
 use bit_vec::BitVec;
 use histogram::{Bucket, Histogram};
@@ -42,6 +41,7 @@ use std::cmp::Ordering;
 /// `Synthetic` is a generated revolution, usually shifting a flux from one source revolution
 ///             to another.
 #[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum FluxRevolutionType {
     Source,
     Synthetic,
@@ -68,6 +68,7 @@ pub struct FluxRevolutionStats {
 }
 
 /// A struct representing one revolution of a fluxstream track.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FluxRevolution {
     /// The type of revolution.
     pub rev_type: FluxRevolutionType,
@@ -362,8 +363,7 @@ impl FluxRevolution {
         for (i, bucket) in buckets.iter().enumerate() {
             let bar_height = if max_count > 0 {
                 (bucket.count() as f64 / max_count as f64 * height as f64).round() as usize
-            }
-            else {
+            } else {
                 0
             };
             for row in (height - bar_height)..height {
@@ -424,7 +424,8 @@ impl FluxRevolution {
     }
 
     pub fn decode_direct(&mut self, pll: &mut Pll) -> FluxStats {
-        let mut decode_result = pll.decode(self, DiskDataEncoding::Mfm);
+        let pll_flags = PllDecodeFlags::empty();
+        let mut decode_result = pll.decode(self, DiskDataEncoding::Mfm, pll_flags);
         let encoding = decode_result
             .flux_stats
             .detect_encoding()
@@ -434,12 +435,11 @@ impl FluxRevolution {
             // If we detected FM encoding, decode again as FM
             log::warn!("FluxRevolution::decode(): No markers found. Track might be FM encoded? Re-decoding...");
 
-            let fm_result = pll.decode(self, DiskDataEncoding::Fm);
+            let fm_result = pll.decode(self, DiskDataEncoding::Fm, pll_flags);
             if fm_result.markers.is_empty() {
                 log::warn!("FluxRevolution::decode(): No markers found in FM decode. Keeping MFM.");
                 self.encoding = DiskDataEncoding::Mfm;
-            }
-            else {
+            } else {
                 log::debug!("FluxRevolution::decode(): Found FM marker! Setting track to FM encoding.");
                 self.encoding = DiskDataEncoding::Fm;
                 decode_result = fm_result;

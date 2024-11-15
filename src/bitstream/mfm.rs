@@ -34,7 +34,7 @@ use std::ops::Index;
 
 use crate::{
     bit_ring::BitRing,
-    bitstream::{EncodingVariant, TrackCodec, TrackDataStreamT},
+    bitstream::{EncodingVariant, TrackCodec},
     diskimage::TrackRegion,
     io::{Error, ErrorKind, Read, Result, Seek, SeekFrom},
     range_check::RangeChecker,
@@ -54,6 +54,7 @@ macro_rules! mfm_offset {
     };
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MfmCodec {
     bits: BitRing,
     clock_map: BitRing,
@@ -72,8 +73,7 @@ pub fn get_mfm_sync_offset(track: &BitVec) -> Option<bool> {
         Some(offset) => {
             if offset % 2 == 0 {
                 Some(false)
-            }
-            else {
+            } else {
                 Some(true)
             }
         }
@@ -94,6 +94,7 @@ pub fn find_sync(track: &BitVec, start_idx: usize) -> Option<usize> {
     None
 }
 
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl TrackCodec for MfmCodec {
     fn encoding(&self) -> DiskDataEncoding {
         DiskDataEncoding::Mfm
@@ -146,20 +147,20 @@ impl TrackCodec for MfmCodec {
         self.weak_mask.bits_mut()
     }
 
-    fn set_weak_mask(&mut self, new: BitVec) {
-        self.weak_mask = new.into();
+    fn weak_data(&self) -> Vec<u8> {
+        self.weak_mask.to_bytes()
     }
 
-    fn error_map(&self) -> &BitVec {
-        self.error_map.bits()
+    fn set_weak_mask(&mut self, new: BitVec) {
+        self.weak_mask = new.into();
     }
 
     fn has_weak_bits(&self) -> bool {
         !self.detect_weak_bits(6).0 > 0
     }
 
-    fn weak_data(&self) -> Vec<u8> {
-        self.weak_mask.to_bytes()
+    fn error_map(&self) -> &BitVec {
+        self.error_map.bits()
     }
 
     fn set_track_padding(&mut self) {
@@ -198,8 +199,7 @@ impl TrackCodec for MfmCodec {
                 log::debug!("set_track_padding(): Unable to determine track padding",);
                 self.track_padding = 0;
             }
-        }
-        else {
+        } else {
             // Track length is not an even multiple of 8 - the only explanation is that there is no
             // track padding.
             self.track_padding = 0;
@@ -230,8 +230,7 @@ impl TrackCodec for MfmCodec {
             let decoded_bit = if self.weak_enabled && !self.weak_mask.is_empty() && self.weak_mask[cursor] {
                 // Weak bits return random data
                 rand::random()
-            }
-            else {
+            } else {
                 self.bits[cursor]
             };
 
@@ -292,20 +291,17 @@ impl TrackCodec for MfmCodec {
                     // 1 is encoded as 01
                     bitvec.push(false);
                     bitvec.push(true);
-                }
-                else {
+                } else {
                     // 0 is encoded as 10 if previous bit was 0, otherwise 00
                     let previous_bit = if bitvec.is_empty() {
                         prev_bit
-                    }
-                    else {
+                    } else {
                         bitvec[bitvec.len() - 1]
                     };
 
                     if previous_bit {
                         bitvec.push(false);
-                    }
-                    else {
+                    } else {
                         bitvec.push(true);
                     }
                     bitvec.push(false);
@@ -342,8 +338,7 @@ impl TrackCodec for MfmCodec {
 
         let search_limit = if let Some(provided_limit) = limit {
             std::cmp::min(provided_limit, self.bits.len())
-        }
-        else {
+        } else {
             self.bits.len()
         };
 
@@ -374,8 +369,7 @@ impl TrackCodec for MfmCodec {
     fn is_data(&self, index: usize, wrapping: bool) -> bool {
         if wrapping {
             self.data_ranges.contains(index)
-        }
-        else {
+        } else {
             self.data_ranges_filtered.contains(index)
         }
     }
@@ -471,13 +465,11 @@ impl MfmCodec {
                 if bit {
                     // 1 is encoded as 01
                     accum = (accum << 2) | 0b01;
-                }
-                else {
+                } else {
                     // 0 is encoded as 10 if previous bit was 0, otherwise 00
                     if !previous_bit {
                         accum = (accum << 2) | 0b10;
-                    }
-                    else {
+                    } else {
                         accum <<= 2;
                     }
                 }
@@ -492,8 +484,7 @@ impl MfmCodec {
         if self.weak_enabled && self.weak_mask[self.bit_cursor] {
             // Weak bits return random data
             Some(rand::random())
-        }
-        else {
+        } else {
             Some(self.bits[self.bit_cursor])
         }
     }
@@ -504,8 +495,7 @@ impl MfmCodec {
             // Weak bits return random data
             // TODO: precalculate random table and return reference to it.
             &self.bits[p_off + (index << 1)]
-        }
-        else {
+        } else {
             &self.bits[p_off + (index << 1)]
         }
     }
@@ -518,8 +508,7 @@ impl MfmCodec {
         for bit in self.bits.iter_revolution() {
             if !bit {
                 zero_ct += 1;
-            }
-            else {
+            } else {
                 if zero_ct >= run {
                     region_ct += 1;
                 }
@@ -543,12 +532,11 @@ impl MfmCodec {
         for (i, bit) in self.bits.iter().enumerate() {
             if !bit {
                 zero_ct += 1;
-            }
-            else {
+            } else {
                 if zero_ct >= run {
                     regions.push(TrackRegion {
                         start: region_start,
-                        end:   i - 1,
+                        end: i - 1,
                     });
                 }
                 zero_ct = 0;
@@ -572,15 +560,13 @@ impl MfmCodec {
         for bit in self.bits.iter_revolution() {
             if !bit {
                 zero_ct += 1;
-            }
-            else {
+            } else {
                 zero_ct = 0;
             }
 
             if zero_ct > run {
                 weak_bitvec.push(true);
-            }
-            else {
+            } else {
                 weak_bitvec.push(false);
             }
         }
@@ -608,8 +594,7 @@ impl MfmCodec {
                 if zero_ct > 3 {
                     in_bad_region = true;
                 }
-            }
-            else {
+            } else {
                 if zero_ct < 4 {
                     in_bad_region = false;
                 }
@@ -632,8 +617,7 @@ impl Iterator for MfmCodec {
         let decoded_bit = if self.weak_enabled && self.weak_mask[self.bit_cursor] {
             // Weak bits return random data
             rand::random()
-        }
-        else {
+        } else {
             self.bits[self.bit_cursor]
         };
 
@@ -677,8 +661,7 @@ impl Read for MfmCodec {
             for _ in 0..8 {
                 if let Some(bit) = self.next() {
                     byte_val = (byte_val << 1) | bit as u8;
-                }
-                else {
+                } else {
                     break;
                 }
             }
@@ -701,5 +684,3 @@ impl Index<usize> for MfmCodec {
         self.ref_bit_at(index)
     }
 }
-
-impl TrackDataStreamT for MfmCodec {}
