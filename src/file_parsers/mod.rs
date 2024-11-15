@@ -217,6 +217,7 @@ pub trait ImageParser {
     ) -> Result<(), DiskImageError>;
 
     #[cfg(feature = "async")]
+    #[allow(async_fn_in_trait)]
     async fn load_image_async<RWS: ReadSeek + Send + 'static>(
         &self,
         read_buf: RWS,
