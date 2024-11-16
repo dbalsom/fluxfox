@@ -65,6 +65,7 @@ members = [
     "examples/imgviz",
     "crates/ffedit",
     "crates/fftool",
+    "crates/ff_egui_app"
 ]
 
 [features]
@@ -81,3 +82,19 @@ plot = ["dep:plotly"]
 [lints.clippy]
 too-many-arguments = "allow"
 identity_op = "allow"
+
+[profile.release.package.ff_egui_app]
+opt-level = 2 # fast and small wasm
+
+# Optimize all dependencies even in debug builds:
+[profile.dev.package."*"]
+opt-level = 2
+
+[patch.crates-io]
+# If you want to use the bleeding edge version of egui and eframe:
+# egui = { git = "https://github.com/emilk/egui", branch = "master" }
+# eframe = { git = "https://github.com/emilk/egui", branch = "master" }
+
+# If you fork https://github.com/emilk/egui you can test with:
+# egui = { path = "../egui/crates/egui" }
+# eframe = { path = "../egui/crates/eframe" }

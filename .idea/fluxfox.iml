@@ -18,6 +18,7 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/fftool/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/examples/async/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/examples/serde_demo/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/ff_egui_app/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/venv" />
     </content>
