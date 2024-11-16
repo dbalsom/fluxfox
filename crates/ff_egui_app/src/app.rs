@@ -25,31 +25,25 @@
     --------------------------------------------------------------------------
 */
 
-use std::default::Default;
-use std::sync::{Arc};
-use std::sync::mpsc;
 use fluxfox::{DiskImage, DiskImageError, LoadingStatus};
+use std::default::Default;
+use std::sync::mpsc;
+use std::sync::Arc;
 
 use crate::viz::VisualizationState;
 
 #[cfg(not(target_arch = "wasm32"))]
-use crate::native::{
-    worker,
-    util,
-};
+use crate::native::{util, worker};
 #[cfg(not(target_arch = "wasm32"))]
 pub const APP_NAME: &str = "fluxfox-egui";
 
 #[cfg(target_arch = "wasm32")]
-use crate::wasm::{
-    worker,
-    util,
-};
+use crate::wasm::{util, worker};
 
 #[cfg(target_arch = "wasm32")]
 pub const APP_NAME: &str = "fluxfox-web";
 
-#[derive (Default)]
+#[derive(Default)]
 pub enum ThreadLoadStatus {
     #[default]
     Inactive,
@@ -88,7 +82,6 @@ pub struct App {
 
 impl Default for App {
     fn default() -> Self {
-
         let (load_sender, load_receiver) = mpsc::sync_channel(128);
         Self {
             // Example stuff:
@@ -116,7 +109,6 @@ impl App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         // This is also where you can customize the look and feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
-
 
         let mut app_state = App::default();
 
@@ -164,8 +156,7 @@ impl eframe::App for App {
                         }
                     });
                     ui.add_space(16.0);
-                }
-                else {
+                } else {
                     ui.menu_button("Image", |ui| {
                         if ui.button("Upload...").clicked() {
                             println!("TODO: upload image");
@@ -177,9 +168,7 @@ impl eframe::App for App {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             // The central panel the region left after adding TopPanels and SidePanels
-            ui.add(
-                util::get_logo_image().fit_to_original_size(1.0)
-            );
+            ui.add(util::get_logo_image().fit_to_original_size(1.0));
 
             ui.heading(format!("Welcome to {}!", APP_NAME));
 
@@ -210,7 +199,6 @@ impl eframe::App for App {
 }
 
 impl App {
-
     /// Initialize the egui context, for visuals, etc.
     /// Tried doing this in new() but it didn't take effect.
     pub fn ctx_init(&mut self, ctx: &egui::Context) {
@@ -227,7 +215,10 @@ impl App {
     fn handle_image_info(&mut self, ui: &mut egui::Ui) {
         if let Some(disk) = &self.disk_image {
             ui.group(|ui| {
-                ui.label(format!("Disk image loaded: {}", self.disk_image_name.clone().unwrap_or("unknown".to_string())));
+                ui.label(format!(
+                    "Disk image loaded: {}",
+                    self.disk_image_name.clone().unwrap_or("unknown".to_string())
+                ));
                 ui.label(format!("Image resolution: {:?}", disk.resolution()));
                 ui.label(format!("Disk geometry: {:?}", disk.geometry()));
             });
@@ -237,7 +228,6 @@ impl App {
     fn handle_load_messages(&mut self, ctx: &egui::Context) {
         // Read messages from the load thread
         if let Some(receiver) = &mut self.load_receiver {
-
             // We should keep draining the receiver until it's empty, otherwise messages arriving
             // faster than once per update() will clog the channel.
             let mut keep_polling = true;
@@ -276,7 +266,6 @@ impl App {
                             }
                             _ => {}
                         }
-
                     }
                     _ => {
                         keep_polling = false;
@@ -288,10 +277,7 @@ impl App {
 
     fn handle_loading_progress(&mut self, ui: &mut egui::Ui) {
         if let ThreadLoadStatus::Loading(progress) = &self.load_status {
-            ui.add(
-                egui::ProgressBar::new(*progress as f32)
-                    .text(format!("{:.1}%", *progress * 100.0)),
-            );
+            ui.add(egui::ProgressBar::new(*progress as f32).text(format!("{:.1}%", *progress * 100.0)));
         }
     }
 
@@ -333,7 +319,7 @@ impl App {
         // Check for new dropped files or file completion status
         ctx.input(|i| {
             if !i.raw.dropped_files.is_empty() {
-                log::debug!("New dropped files: {:?}", i.raw.dropped_files);
+                log::debug!("New dropped files: {:?}", i.raw.dropped_files.map(|f| f.name.clone()));
                 let new_dropped_file = &i.raw.dropped_files[0]; // Only take the first file
 
                 // Only process a new file if there's no file already in `self.dropped_files`
@@ -349,7 +335,6 @@ impl App {
         // Wait for bytes to be available, then process
         if let Some(file) = self.dropped_files.get(0) {
             if let Some(bytes) = &file.bytes {
-
                 // Only process if bytes are now available
                 log::info!("Processing file: {} ({} bytes)", file.name, bytes.len());
 
@@ -370,23 +355,23 @@ impl App {
                     log::debug!("Hello from worker thread!");
 
                     // callback is of type Arc<dyn Fn(LoadingStatus) + Send + Sync>
-                    let callback = Arc::new(move |status: LoadingStatus| {
-                        match status {
-                            LoadingStatus::Progress(progress) => {
-                                log::debug!("Sending Loading progress: {:.1}%", progress * 100.0);
-                                sender2.send(ThreadLoadStatus::Loading(progress)).unwrap();
-                            }
-                            _ => {}
+                    let callback = Arc::new(move |status: LoadingStatus| match status {
+                        LoadingStatus::Progress(progress) => {
+                            log::debug!("Sending Loading progress: {:.1}%", progress * 100.0);
+                            sender2.send(ThreadLoadStatus::Loading(progress)).unwrap();
                         }
+                        _ => {}
                     });
 
-                    DiskImage::load(&mut cursor, None, None, Some(callback)).map(|disk| {
-                        log::debug!("Disk image loaded successfully!");
-                        sender1.send(ThreadLoadStatus::Success(disk)).unwrap();
-                    }).unwrap_or_else(|e| {
-                        log::error!("Error loading disk image: {:?}", e);
-                        sender1.send(ThreadLoadStatus::Error(e)).unwrap();
-                    });
+                    DiskImage::load(&mut cursor, None, None, Some(callback))
+                        .map(|disk| {
+                            log::debug!("Disk image loaded successfully!");
+                            sender1.send(ThreadLoadStatus::Success(disk)).unwrap();
+                        })
+                        .unwrap_or_else(|e| {
+                            log::error!("Error loading disk image: {:?}", e);
+                            sender1.send(ThreadLoadStatus::Error(e)).unwrap();
+                        });
                 }) {
                     Ok(_) => {
                         log::debug!("Worker thread spawned successfully");
@@ -406,9 +391,5 @@ impl App {
                 ctx.request_repaint();
             }
         }
-
     }
 }
-
-
-
