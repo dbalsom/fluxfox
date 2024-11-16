@@ -19,6 +19,13 @@ jobs:
           toolchain: stable
           override: true
 
+      - name: Cache Cargo binaries
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/bin
+          key: ${{ runner.os }}-cargo-bin
+          restore-keys: ${{ runner.os }}-cargo-bin
+
       - name: Install Trunk
         run: cargo install trunk
 
@@ -28,12 +35,19 @@ jobs:
       - name: Install wasm-opt
         run: cargo install wasm-opt
 
+      - name: Cache Rust dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry
+          restore-keys: ${{ runner.os }}-cargo-registry
+
       - name: Build ff_egui_app with Trunk
-        working-directory: fluxfox/ff_egui_app
+        working-directory: crates/ff_egui_app
         run: trunk build --release
 
       - name: Optimize WASM with wasm-opt
-        working-directory: fluxfox/ff_egui_app
+        working-directory: crates/ff_egui_app
         run: wasm-opt -Oz -o dist/ff_egui_app_bg.wasm dist/ff_egui_app_bg.wasm
 
       - name: Deploy to GitHub Pages
