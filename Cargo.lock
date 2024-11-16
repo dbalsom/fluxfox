@@ -890,7 +890,6 @@ dependencies = [
  "getrandom",
  "hex",
  "histogram",
- "image",
  "log 0.4.22",
  "logger",
  "num-derive",

@@ -444,6 +444,10 @@ impl DiskRpm {
     }
 }
 
+// Re-export tiny_skia for convenience
+#[cfg(feature = "viz")]
+pub use tiny_skia;
+
 pub use crate::{
     chs::{DiskCh, DiskChs, DiskChsn, DiskChsnQuery},
     diskimage::{DiskImage, DiskImageFileFormat, SectorMapEntry},
