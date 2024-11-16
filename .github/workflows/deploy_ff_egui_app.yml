@@ -1,0 +1,43 @@
+name: deploy_ff_egui_app.yml
+
+on:
+  push:
+    branches:
+      - pages-deploy
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Install Trunk
+        run: cargo install trunk
+
+      - name: Install wasm-bindgen-cli
+        run: cargo install wasm-bindgen-cli
+
+      - name: Install wasm-opt
+        run: cargo install wasm-opt
+
+      - name: Build ff_egui_app with Trunk
+        working-directory: fluxfox/ff_egui_app
+        run: trunk build --release
+
+      - name: Optimize WASM with wasm-opt
+        working-directory: fluxfox/ff_egui_app
+        run: wasm-opt -Oz -o dist/ff_egui_app_bg.wasm dist/ff_egui_app_bg.wasm
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: fluxfox/ff_egui_app/dist

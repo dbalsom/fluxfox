@@ -83,6 +83,9 @@ plot = ["dep:plotly"]
 too-many-arguments = "allow"
 identity_op = "allow"
 
+[profile.release]
+lto = "thin"
+
 [profile.release.package.ff_egui_app]
 opt-level = 2 # fast and small wasm
 
