@@ -3,7 +3,7 @@ name: deploy_ff_egui_app.yml
 on:
   push:
     branches:
-      - pages-deploy
+      - pages_deploy
 
 jobs:
   deploy:
