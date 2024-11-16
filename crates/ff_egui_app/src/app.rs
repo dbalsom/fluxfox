@@ -319,7 +319,10 @@ impl App {
         // Check for new dropped files or file completion status
         ctx.input(|i| {
             if !i.raw.dropped_files.is_empty() {
-                log::debug!("New dropped files: {:?}", i.raw.dropped_files.map(|f| f.name.clone()));
+                log::debug!(
+                    "New dropped files: {:?}",
+                    i.raw.dropped_files.iter().map(|f| f.name.clone())
+                );
                 let new_dropped_file = &i.raw.dropped_files[0]; // Only take the first file
 
                 // Only process a new file if there's no file already in `self.dropped_files`
