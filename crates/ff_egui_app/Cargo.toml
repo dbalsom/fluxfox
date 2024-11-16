@@ -1,0 +1,51 @@
+[package]
+name = "ff_egui_app"
+version = "0.1.0"
+authors = ["Daniel Balsom"]
+edition = "2021"
+include = ["LICENSE-APACHE", "LICENSE-MIT", "**/*.rs", "Cargo.toml"]
+rust-version = "1.79"
+
+[package.metadata.docs.rs]
+all-features = true
+targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
+
+[dependencies]
+egui = "0.29"
+eframe = { version = "0.29", default-features = false, features = [
+    "accesskit",     # Make egui compatible with screen readers. NOTE: adds a lot of dependencies.
+    "default_fonts", # Embed the default egui fonts.
+    "glow",          # Use the glow rendering backend. Alternative: "wgpu".
+    "persistence",   # Enable restoring app state when restarting the app.
+]}
+egui_extras = { version = "0.29", default-features = false, features = ["http", "image"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+log = "0.4"
+fluxfox = { git = "https://github.com/dbalsom/fluxfox.git", branch = "main", default-features = false, features = ["zip", "mfi", "wasm", "viz"] }
+# We don't need tiny_skia's png support since egui is pulling in image anyway.
+tiny-skia = { version = "0.11", default-features = false, features = ["std", "simd"] }
+# You only need serde if you want app persistence:
+serde = { version = "1", features = ["derive"] }
+rayon = "1.8"
+futures = "0.3"
+bytemuck = { version = "1.7", features = ["derive"] }
+anyhow = { version = "1.0", features = ["std"] }
+
+# native:
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+egui_extras = { version = "0.29", default-features = false, features = ["file", "image"] }
+env_logger = "0.11"
+
+# web:
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# Remove AccessKit dependency for web - it is only implemented on Windows.
+eframe = { version = "0.29", default-features = false, features = [
+    "default_fonts", # Embed the default egui fonts.
+    "glow",          # Use the glow rendering backend. Alternative: "wgpu".
+    "persistence",   # Enable restoring app state when restarting the app.
+]}
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+wasm-bindgen-rayon = "1.2"
+web-sys = { version = "0.3.70", features = ["DedicatedWorkerGlobalScope", "WorkerOptions", "WorkerType"] }
+

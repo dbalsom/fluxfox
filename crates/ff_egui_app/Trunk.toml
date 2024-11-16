@@ -1,0 +1,10 @@
+[build]
+release = false
+filehash = false
+no_sri = true
+
+[serve]
+open = true
+no_autoreload = false
+headers = { "Cross-Origin-Embedder-Policy" = "require-corp", "Cross-Origin-Opener-Policy" = "same-origin", "Cross-Origin-Resource-Policy" = "same-origin" }
+
