@@ -26,10 +26,8 @@
 */
 use crate::{
     chs::DiskChs,
-    containers::{DiskImageContainer},
+    containers::DiskImageContainer,
     file_parsers::{ImageParser, IMAGE_FORMATS},
-};
-use crate::{
     io::ReadSeek,
     standard_format::StandardFormat,
     util::natural_sort,
@@ -40,7 +38,7 @@ use crate::{
 #[cfg(feature = "zip")]
 use crate::{
     containers::{zip, KryoFluxSet},
-    file_parsers::{kryoflux::KfxFormat},
+    file_parsers::kryoflux::KfxFormat,
 };
 
 #[cfg(feature = "zip")]
@@ -162,9 +160,8 @@ pub fn detect_image_format<T: ReadSeek>(image_io: &mut T) -> Result<DiskImageCon
 /// Attempt to return a DiskChs structure representing the geometry of a disk image from the size of a raw sector image.
 /// Returns None if the size does not match a known raw disk image size.
 pub fn chs_from_raw_size(size: usize) -> Option<DiskChs> {
-    let raw_size_fmt = StandardFormat::from(size);
-    if raw_size_fmt != StandardFormat::Invalid {
-        return Some(raw_size_fmt.get_chs());
+    match StandardFormat::try_from(size) {
+        Ok(fmt) => Some(fmt.get_chs()),
+        Err(_) => None,
     }
-    None
 }

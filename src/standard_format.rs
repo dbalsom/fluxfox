@@ -48,7 +48,14 @@
 //! several standard PC disk formats.
 
 use crate::{
-    diskimage::DiskDescriptor, DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskDensity, DiskRpm,
+    diskimage::DiskDescriptor,
+    DiskCh,
+    DiskChs,
+    DiskChsn,
+    DiskDataEncoding,
+    DiskDataRate,
+    DiskDensity,
+    DiskRpm,
     DEFAULT_SECTOR_SIZE,
 };
 use std::fmt::{Display, Formatter};
@@ -57,8 +64,6 @@ use std::fmt::{Display, Formatter};
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum StandardFormat {
-    /// An invalid variant
-    Invalid,
     /// A single-sided, 8-sectored, 48tpi, double-density disk.
     PcFloppy160,
     /// A single-sided, 9-sectored, 48tpi, double-density disk.
@@ -80,7 +85,6 @@ pub enum StandardFormat {
 impl Display for StandardFormat {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
-            StandardFormat::Invalid => write!(f, "Invalid"),
             StandardFormat::PcFloppy160 => write!(f, "160K 5.25\" DD"),
             StandardFormat::PcFloppy180 => write!(f, "180K 5.25\" DD"),
             StandardFormat::PcFloppy320 => write!(f, "320K 5.25\" DD"),
@@ -97,7 +101,6 @@ impl StandardFormat {
     /// Returns the geometry corresponding to the `StandardFormat` as a `DiskChsn` struct.
     pub fn get_chsn(&self) -> DiskChsn {
         match self {
-            StandardFormat::Invalid => DiskChsn::new(1, 1, 1, 2),
             StandardFormat::PcFloppy160 => DiskChsn::new(40, 1, 8, 2),
             StandardFormat::PcFloppy180 => DiskChsn::new(40, 1, 9, 2),
             StandardFormat::PcFloppy320 => DiskChsn::new(40, 2, 8, 2),
@@ -135,7 +138,6 @@ impl StandardFormat {
             StandardFormat::PcFloppy1200 => DiskDataRate::Rate500Kbps(1.0),
             StandardFormat::PcFloppy1440 => DiskDataRate::Rate500Kbps(1.0),
             StandardFormat::PcFloppy2880 => DiskDataRate::Rate1000Kbps(1.0),
-            _ => DiskDataRate::Rate250Kbps(1.0),
         }
     }
 
@@ -156,7 +158,6 @@ impl StandardFormat {
             StandardFormat::PcFloppy1200 => DiskRpm::Rpm360,
             StandardFormat::PcFloppy1440 => DiskRpm::Rpm300,
             StandardFormat::PcFloppy2880 => DiskRpm::Rpm300,
-            _ => DiskRpm::Rpm300,
         }
     }
 
@@ -171,7 +172,6 @@ impl StandardFormat {
             StandardFormat::PcFloppy1200 => 166_666,
             StandardFormat::PcFloppy1440 => 200_000,
             StandardFormat::PcFloppy2880 => 400_000,
-            _ => 100_000,
         }
     }
 
@@ -186,7 +186,6 @@ impl StandardFormat {
             StandardFormat::PcFloppy1200 => 0x54,
             StandardFormat::PcFloppy1440 => 0x6C,
             StandardFormat::PcFloppy2880 => 0x53,
-            _ => 0x54,
         }
     }
 
@@ -214,22 +213,16 @@ impl StandardFormat {
             StandardFormat::PcFloppy1200 => 1_228_800,
             StandardFormat::PcFloppy1440 => 1_474_560,
             StandardFormat::PcFloppy2880 => 2_949_120,
-            _ => 0,
         }
     }
 }
 
-impl From<StandardFormat> for usize {
-    /// Convert a `StandardFormat` variant into a size in bytes.
-    fn from(format: StandardFormat) -> Self {
-        format.size()
-    }
-}
+impl TryFrom<usize> for StandardFormat {
+    type Error = String;
 
-impl From<usize> for StandardFormat {
     /// Convert a size in bytes to a `StandardFormat` variant.
-    fn from(size: usize) -> Self {
-        match size {
+    fn try_from(size: usize) -> Result<Self, Self::Error> {
+        let size = match size {
             163_840 => StandardFormat::PcFloppy160,
             184_320 => StandardFormat::PcFloppy180,
             327_680 => StandardFormat::PcFloppy320,
@@ -238,7 +231,15 @@ impl From<usize> for StandardFormat {
             1_228_800 => StandardFormat::PcFloppy1200,
             1_474_560 => StandardFormat::PcFloppy1440,
             2_949_120 => StandardFormat::PcFloppy2880,
-            _ => StandardFormat::Invalid,
-        }
+            _ => return Err("Invalid size".to_string()),
+        };
+        Ok(size)
+    }
+}
+
+impl From<StandardFormat> for usize {
+    /// Convert a `StandardFormat` variant into a size in bytes.
+    fn from(format: StandardFormat) -> Self {
+        format.size()
     }
 }

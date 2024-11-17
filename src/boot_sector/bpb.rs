@@ -209,7 +209,6 @@ impl From<StandardFormat> for BiosParameterBlock2 {
                 media_descriptor: 0xF0,
                 sectors_per_fat: 9,
             },
-            _ => Default::default(),
         }
     }
 }
@@ -221,8 +220,8 @@ impl From<StandardFormat> for BiosParameterBlock2 {
 #[brw(little)]
 pub(crate) struct BiosParameterBlock3 {
     pub(crate) sectors_per_track: u16,
-    pub(crate) number_of_heads: u16,
-    pub(crate) hidden_sectors: u32,
+    pub(crate) number_of_heads:   u16,
+    pub(crate) hidden_sectors:    u32,
 }
 
 impl From<StandardFormat> for BiosParameterBlock3 {
@@ -230,45 +229,44 @@ impl From<StandardFormat> for BiosParameterBlock3 {
         match format {
             StandardFormat::PcFloppy160 => BiosParameterBlock3 {
                 sectors_per_track: 8,
-                number_of_heads: 1,
-                hidden_sectors: 0,
+                number_of_heads:   1,
+                hidden_sectors:    0,
             },
             StandardFormat::PcFloppy180 => BiosParameterBlock3 {
                 sectors_per_track: 9,
-                number_of_heads: 1,
-                hidden_sectors: 0,
+                number_of_heads:   1,
+                hidden_sectors:    0,
             },
             StandardFormat::PcFloppy320 => BiosParameterBlock3 {
                 sectors_per_track: 8,
-                number_of_heads: 2,
-                hidden_sectors: 0,
+                number_of_heads:   2,
+                hidden_sectors:    0,
             },
             StandardFormat::PcFloppy360 => BiosParameterBlock3 {
                 sectors_per_track: 9,
-                number_of_heads: 2,
-                hidden_sectors: 0,
+                number_of_heads:   2,
+                hidden_sectors:    0,
             },
             StandardFormat::PcFloppy720 => BiosParameterBlock3 {
                 sectors_per_track: 9,
-                number_of_heads: 2,
-                hidden_sectors: 0,
+                number_of_heads:   2,
+                hidden_sectors:    0,
             },
             StandardFormat::PcFloppy1200 => BiosParameterBlock3 {
                 sectors_per_track: 15,
-                number_of_heads: 2,
-                hidden_sectors: 0,
+                number_of_heads:   2,
+                hidden_sectors:    0,
             },
             StandardFormat::PcFloppy1440 => BiosParameterBlock3 {
                 sectors_per_track: 18,
-                number_of_heads: 2,
-                hidden_sectors: 0,
+                number_of_heads:   2,
+                hidden_sectors:    0,
             },
             StandardFormat::PcFloppy2880 => BiosParameterBlock3 {
                 sectors_per_track: 36,
-                number_of_heads: 2,
-                hidden_sectors: 0,
+                number_of_heads:   2,
+                hidden_sectors:    0,
             },
-            _ => Default::default(),
         }
     }
 }
