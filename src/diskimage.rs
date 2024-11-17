@@ -634,7 +634,7 @@ impl DiskImage {
         match container {
             DiskImageContainer::Raw(format) => {
                 let mut image = DiskImage::default();
-                format.load_image(image_io, &mut image, None)?;
+                format.load_image(image_io, &mut image, callback)?;
                 image.post_load_process();
                 Ok(image)
             }
