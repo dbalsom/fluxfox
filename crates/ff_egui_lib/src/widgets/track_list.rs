@@ -61,12 +61,21 @@ impl TrackListWidget {
 
             scroll_area.show(ui, |ui| {
                 ui.vertical(|ui| {
-                    for track in &self.track_list {
+                    for (ti, track) in self.track_list.iter().enumerate() {
                         ui.group(|ui| {
                             ui.vertical(|ui| {
                                 ui.heading(format!("Track {}", track.ch));
-                                ui.label(format!("Encoding: {}", track.info.encoding));
-                                ui.label(format!("Bitcells: {}", track.info.bit_length));
+                                egui::Grid::new(format!("track_list_grid_{}", ti))
+                                    .striped(true)
+                                    .show(ui, |ui| {
+                                        ui.label("Encoding:");
+                                        ui.label(format!("{}", track.info.encoding));
+                                        ui.end_row();
+
+                                        ui.label("Bitcells:");
+                                        ui.label(format!("{}", track.info.bit_length));
+                                        ui.end_row();
+                                    });
                             });
                         });
                     }
