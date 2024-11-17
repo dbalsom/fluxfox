@@ -1,6 +1,9 @@
 # Mac stuff:
 .DS_Store
 
+# explicitly allow everything in /assets
+!assets/*
+
 # trunk output folder
 dist
 
