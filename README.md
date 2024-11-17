@@ -6,7 +6,7 @@ A PC-focused floppy disk image library
 
 [![Crate Badge]][Crate] [![Docs Badge]][Docs] [![Deps.rs Badge]][Deps.rs] [![License Badge]](./LICENSE)
 
-## Try fluxfox in your [web browser](https://fluxfox.github.io/index.html)!
+## Try fluxfox in your [web browser](https://dbalsom.github.io/fluxfox/index.html)!
 
 [![Github Pages](https://github.com/dbalsom/fluxfox/actions/workflows/deploy_ff_egui_app.yml/badge.svg)](https://github.com/dbalsom/fluxfox/actions/workflows/deploy_ff_egui_app.yml)
 
