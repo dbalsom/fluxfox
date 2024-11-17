@@ -64,7 +64,7 @@ pub mod flux;
 mod image_writer;
 pub mod prelude;
 mod range_check;
-mod track;
+pub mod track;
 #[cfg(feature = "viz")]
 pub mod visualization;
 
