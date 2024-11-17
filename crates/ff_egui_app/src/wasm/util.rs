@@ -25,8 +25,7 @@
     --------------------------------------------------------------------------
 */
 
-use eframe::egui::Image;
-use eframe::wasm_bindgen::prelude::wasm_bindgen;
+use eframe::{egui::Image, wasm_bindgen::prelude::wasm_bindgen};
 
 #[wasm_bindgen(module = "/assets/base_url.js")]
 extern "C" {
@@ -34,21 +33,21 @@ extern "C" {
 }
 
 fn construct_full_url(relative_path: &str) -> String {
-    //unsafe {
-    let base_path = option_env!("URL_PATH");
-    //log::debug!("construct_full_url(): base_path: {:?}", base_path);
+    let mut path_components = Vec::new();
     let base_url = getBaseURL();
-    let url = format!(
-        "{}{}/{}",
-        base_url.trim_start_matches('/'),
-        base_path.unwrap_or("").trim_start_matches('/'),
-        relative_path.trim_start_matches('/')
-    );
-    //log::debug!("construct_full_url(): {}", url);
+
+    path_components.push(base_url.trim_end_matches('/'));
+    let base_path = option_env!("URL_PATH");
+    if let Some(base_path) = base_path {
+        path_components.push(base_path.trim_start_matches('/').trim_end_matches('/'));
+    }
+    path_components.push(relative_path);
+
+    let url = path_components.join("/");
     url
 }
 
 pub(crate) fn get_logo_image<'a>() -> Image<'a> {
-    let url = construct_full_url("./assets/fluxfox_logo.png");
+    let url = construct_full_url("assets/fluxfox_logo.png");
     egui::Image::new(url).fit_to_original_size(1.0)
 }
