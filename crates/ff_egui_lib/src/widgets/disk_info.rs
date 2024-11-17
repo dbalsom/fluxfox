@@ -56,31 +56,35 @@ impl DiskInfoWidget {
     }
 
     pub fn show(&self, ui: &mut egui::Ui) {
-        ui.label("Disk Info");
-        ui.horizontal(|ui| {
+        ui.heading(egui::RichText::new("Disk Info").color(ui.visuals().strong_text_color()));
+
+        egui::Grid::new("disk_info_grid").striped(true).show(ui, |ui| {
             ui.label("Filename:");
             ui.label(self.filename.as_ref().unwrap_or(&"None".to_string()));
-        });
-        ui.horizontal(|ui| {
+            ui.end_row();
+
             ui.label("Resolution:");
             ui.label(format!("{:?}", self.resolution));
-        });
-        ui.horizontal(|ui| {
+            ui.end_row();
+
             ui.label("Geometry:");
-            ui.label(format!("Heads: {}", self.geometry.h()));
-            ui.label(format!("Cylinders: {}", self.geometry.c()));
-        });
-        ui.horizontal(|ui| {
+            ui.horizontal(|ui| {
+                ui.label(format!("Heads: {}", self.geometry.h()));
+                ui.label(format!("Cylinders: {}", self.geometry.c()));
+            });
+            ui.end_row();
+
             ui.label("Data Rate:");
-            ui.label(format!("{:?}", self.rate));
-        });
-        ui.horizontal(|ui| {
+            ui.label(format!("{}", self.rate));
+            ui.end_row();
+
             ui.label("Data Encoding:");
-            ui.label(format!("{:?}", self.encoding));
-        });
-        ui.horizontal(|ui| {
+            ui.label(format!("{:?}", self.encoding).to_uppercase());
+            ui.end_row();
+
             ui.label("Density:");
             ui.label(format!("{:?}", self.density));
+            ui.end_row();
         });
     }
 }
