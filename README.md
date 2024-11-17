@@ -2,9 +2,9 @@
 
 # fluxfox
 
-[![Crate Badge]][Crate] [![Docs Badge]][Docs] [![Deps.rs Badge]][Deps.rs] [![License Badge]](./LICENSE)
+A PC-focused floppy disk image library
 
-A floppy disk image library for PC emulators
+[![Crate Badge]][Crate] [![Docs Badge]][Docs] [![Deps.rs Badge]][Deps.rs] [![License Badge]](./LICENSE)
 
 ## Try fluxfox in your [web browser](https://fluxfox.github.io/index.html)!
 
