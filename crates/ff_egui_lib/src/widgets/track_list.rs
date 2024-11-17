@@ -24,6 +24,47 @@
 
     --------------------------------------------------------------------------
 */
+use fluxfox::{track::TrackInfo, DiskCh, DiskImage};
 
-pub mod disk_info;
-pub mod track_list;
+struct TrackListItem {
+    ch:   DiskCh,
+    info: TrackInfo,
+}
+
+#[derive(Default)]
+pub struct TrackListWidget {
+    track_list: Vec<TrackListItem>,
+}
+
+impl TrackListWidget {
+    pub fn new() -> Self {
+        Self { track_list: Vec::new() }
+    }
+
+    pub fn update(&mut self, disk: &DiskImage) {
+        for track in disk.track_iter() {
+            self.track_list.push(TrackListItem {
+                ch:   track.ch(),
+                info: track.info(),
+            });
+        }
+    }
+
+    pub fn show(&self, ui: &mut egui::Ui) {
+        ui.vertical_centered(|ui| {
+            ui.heading("Track List");
+            ui.separator();
+            ui.vertical(|ui| {
+                for track in &self.track_list {
+                    ui.group(|ui| {
+                        ui.vertical(|ui| {
+                            ui.heading(format!("Track {}", track.ch));
+                            ui.label(format!("Encoding: {}", track.info.encoding));
+                            ui.label(format!("Bitcells: {}", track.info.bit_length));
+                        });
+                    });
+                }
+            });
+        });
+    }
+}
