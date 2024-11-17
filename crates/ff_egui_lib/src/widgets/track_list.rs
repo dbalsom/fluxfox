@@ -24,6 +24,7 @@
 
     --------------------------------------------------------------------------
 */
+use egui::ScrollArea;
 use fluxfox::{track::TrackInfo, DiskCh, DiskImage};
 
 struct TrackListItem {
@@ -51,19 +52,25 @@ impl TrackListWidget {
     }
 
     pub fn show(&self, ui: &mut egui::Ui) {
-        ui.vertical_centered(|ui| {
-            ui.heading("Track List");
-            ui.separator();
-            ui.vertical(|ui| {
-                for track in &self.track_list {
-                    ui.group(|ui| {
-                        ui.vertical(|ui| {
-                            ui.heading(format!("Track {}", track.ch));
-                            ui.label(format!("Encoding: {}", track.info.encoding));
-                            ui.label(format!("Bitcells: {}", track.info.bit_length));
+        let scroll_area = ScrollArea::vertical()
+            .id_salt("track_list_scrollarea")
+            .auto_shrink([false; 2]);
+
+        ui.vertical(|ui| {
+            ui.heading(egui::RichText::new("Track List").color(ui.visuals().strong_text_color()));
+
+            scroll_area.show(ui, |ui| {
+                ui.vertical(|ui| {
+                    for track in &self.track_list {
+                        ui.group(|ui| {
+                            ui.vertical(|ui| {
+                                ui.heading(format!("Track {}", track.ch));
+                                ui.label(format!("Encoding: {}", track.info.encoding));
+                                ui.label(format!("Bitcells: {}", track.info.bit_length));
+                            });
                         });
-                    });
-                }
+                    }
+                });
             });
         });
     }
