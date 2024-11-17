@@ -25,12 +25,12 @@
     --------------------------------------------------------------------------
 */
 
+use crate::viz::VisualizationState;
 use fluxfox::{DiskImage, DiskImageError, LoadingStatus};
+use fluxfox_egui::widgets::disk_info::DiskInfoWidget;
 use std::default::Default;
 use std::sync::mpsc;
 use std::sync::Arc;
-
-use crate::viz::VisualizationState;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::native::{util, worker};
@@ -66,6 +66,11 @@ pub struct PersistentState {
     label: String,
 }
 
+#[derive(Default)]
+pub struct AppWidgets {
+    disk_info: DiskInfoWidget,
+}
+
 pub struct App {
     p_state: PersistentState,
     run_mode: RunMode,
@@ -79,6 +84,8 @@ pub struct App {
 
     pub(crate) viz_state: VisualizationState,
     supported_extensions: Vec<String>,
+
+    widgets: AppWidgets,
 }
 
 impl Default for App {
@@ -102,6 +109,8 @@ impl Default for App {
 
             viz_state: VisualizationState::default(),
             supported_extensions: Vec::new(),
+
+            widgets: AppWidgets::default(),
         }
     }
 }
@@ -218,7 +227,6 @@ impl App {
     /// Tried doing this in new() but it didn't take effect.
     pub fn ctx_init(&mut self, ctx: &egui::Context) {
         ctx.set_visuals(egui::Visuals::dark());
-
         self.ctx_init = true;
     }
 
@@ -230,12 +238,7 @@ impl App {
     fn handle_image_info(&mut self, ui: &mut egui::Ui) {
         if let Some(disk) = &self.disk_image {
             ui.group(|ui| {
-                ui.label(format!(
-                    "Disk image loaded: {}",
-                    self.disk_image_name.clone().unwrap_or("unknown".to_string())
-                ));
-                ui.label(format!("Image resolution: {:?}", disk.resolution()));
-                ui.label(format!("Disk geometry: {:?}", disk.geometry()));
+                self.widgets.disk_info.show(ui);
             });
         }
     }
@@ -271,6 +274,11 @@ impl App {
                                         log::error!("Error rendering visualization: {:?}", e);
                                     }
                                 }
+
+                                // Update widgets.
+                                self.widgets
+                                    .disk_info
+                                    .update(self.disk_image.as_ref().unwrap(), self.disk_image_name.clone());
                             }
                             ThreadLoadStatus::Error(e) => {
                                 log::error!("Error loading disk image: {:?}", e);
