@@ -24,16 +24,14 @@
 
     --------------------------------------------------------------------------
 */
-use std::path::PathBuf;
-use std::sync::Arc;
 use crate::App;
+use std::sync::Arc;
 
 impl App {
     pub(crate) fn load_dropped_files(&mut self) {
         for file in &mut self.dropped_files {
             // Check if the file needs to be loaded
             if file.bytes.is_none() && file.path.is_some() && file.path.as_ref().unwrap().is_file() {
-
                 let path = file.path.as_ref().unwrap();
 
                 // Load the file
