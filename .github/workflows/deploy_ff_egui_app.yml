@@ -6,7 +6,7 @@ on:
       - pages_deploy
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
 
     steps:
@@ -73,8 +73,29 @@ jobs:
           [ -f dist/index.html ] && echo "Found index.html" || echo "index.html missing"
           [ -f dist/ff_egui_app_bg.wasm ] && echo "Found ff_egui_app_bg.wasm" || echo "ff_egui_app_bg.wasm missing"
 
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
+      - name: Upload static files as artifact
+        id: deployment
+        uses: actions/upload-pages-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: crates/ff_egui_app/dist
+          path: crates/ff_egui_app/dist/
+
+  # Deploy job
+  deploy:
+    needs: build
+
+    permissions:
+      pages: write
+      id-token: write
+
+    # Deploy to the github-pages environment
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    # Specify runner + deployment step
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
