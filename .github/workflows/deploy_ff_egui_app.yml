@@ -19,15 +19,6 @@ jobs:
           toolchain: stable
           override: true
 
-      - name: Install Trunk
-        run: cargo install trunk
-
-      - name: Install wasm-bindgen-cli
-        run: cargo install wasm-bindgen-cli
-
-      - name: Install wasm-opt
-        run: cargo install wasm-opt
-
       - name: Cache Cargo binaries
         uses: actions/cache@v3
         with:
@@ -42,6 +33,15 @@ jobs:
           key: ${{ runner.os }}-cargo-registry
           restore-keys: ${{ runner.os }}-cargo-registry
 
+      - name: Install Trunk
+        run: cargo install trunk
+
+      - name: Install wasm-bindgen-cli
+        run: cargo install wasm-bindgen-cli
+
+      - name: Install wasm-opt
+        run: cargo install wasm-opt
+
       - name: Build ff_egui_app with Trunk
         working-directory: crates/ff_egui_app
         run: trunk build --release
@@ -54,4 +54,4 @@ jobs:
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: fluxfox/ff_egui_app/dist
+          publish_dir: crates/ff_egui_app/dist
