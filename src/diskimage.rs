@@ -53,8 +53,17 @@ use crate::{
     standard_format::StandardFormat,
     structure_parsers::{system34::System34Standard, DiskStructureMetadata},
     track::{fluxstream::FluxStreamTrack, metasector::MetaSectorTrack, DiskTrack, Track, TrackConsistency},
-    util, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskImageError, DiskRpm, FoxHashMap,
-    FoxHashSet, LoadingCallback, LoadingStatus,
+    util,
+    DiskDataEncoding,
+    DiskDataRate,
+    DiskDataResolution,
+    DiskDensity,
+    DiskImageError,
+    DiskRpm,
+    FoxHashMap,
+    FoxHashSet,
+    LoadingCallback,
+    LoadingStatus,
 };
 
 #[cfg(feature = "zip")]
@@ -420,7 +429,7 @@ pub struct WriteSectorResult {
 
 pub struct TrackRegion {
     pub start: usize,
-    pub end: usize,
+    pub end:   usize,
 }
 
 pub struct BitStreamTrackParams<'a> {
@@ -653,7 +662,8 @@ impl DiskImage {
                         _ => {
                             if disks.len() == 1 {
                                 disks.get(0)
-                            } else {
+                            }
+                            else {
                                 log::error!("Multiple disks found in Kryoflux set without a selection.");
                                 return Err(DiskImageError::MultiDiskError(
                                     "No disk selection provided.".to_string(),
@@ -702,7 +712,8 @@ impl DiskImage {
 
                         image.post_load_process();
                         Ok(image)
-                    } else {
+                    }
+                    else {
                         log::error!(
                             "Disk selection {} not found in Kryoflux set.",
                             disk_selection.clone().unwrap()
@@ -768,7 +779,8 @@ impl DiskImage {
                     }
                     image.post_load_process();
                     Ok(image)
-                } else {
+                }
+                else {
                     log::error!("Path parameter required when loading Kryoflux set.");
                     Err(DiskImageError::ParameterError)
                 }
@@ -788,7 +800,7 @@ impl DiskImage {
         match container {
             DiskImageContainer::Raw(format) => {
                 let mut image = DiskImage::default();
-                format.load_image(image_io, &mut image, None)?;
+                format.load_image(image_io, &mut image, callback)?;
                 image.post_load_process();
                 Ok(image)
             }
@@ -816,7 +828,8 @@ impl DiskImage {
                         _ => {
                             if disks.len() == 1 {
                                 disks.get(0)
-                            } else {
+                            }
+                            else {
                                 log::error!("Multiple disks found in Kryoflux set without a selection.");
                                 return Err(DiskImageError::MultiDiskError(
                                     "No disk selection provided.".to_string(),
@@ -868,7 +881,8 @@ impl DiskImage {
 
                         image.post_load_process();
                         Ok(image)
-                    } else {
+                    }
+                    else {
                         log::error!(
                             "Disk selection {} not found in Kryoflux set.",
                             disk_selection.clone().unwrap()
@@ -937,7 +951,8 @@ impl DiskImage {
                     }
                     image.post_load_process();
                     Ok(image)
-                } else {
+                }
+                else {
                     log::error!("Path parameter required when loading Kryoflux set.");
                     Err(DiskImageError::ParameterError)
                 }
@@ -1000,7 +1015,8 @@ impl DiskImage {
     pub fn write_ct(&self) -> u64 {
         if let Some(shared) = &self.shared {
             shared.lock().unwrap().writes
-        } else {
+        }
+        else {
             0
         }
     }
@@ -1193,7 +1209,8 @@ impl DiskImage {
         // Return the next sector as long as it is on the same track.
         if next_sector.c() == chs.c() {
             Some(next_sector)
-        } else {
+        }
+        else {
             None
         }
     }
@@ -1528,7 +1545,8 @@ impl DiskImage {
                     bpb.write_bpb_to_buffer(&mut cursor)?;
                     self.write_boot_sector(cursor.into_inner())?;
                 }
-            } else {
+            }
+            else {
                 log::warn!("update_standard_boot_sector(): Failed to examine boot sector.");
             }
         }
@@ -1568,7 +1586,8 @@ impl DiskImage {
 
                 if self.standard_format.is_none() {
                     self.standard_format = Some(format);
-                } else if self.standard_format != Some(format) {
+                }
+                else if self.standard_format != Some(format) {
                     log::warn!("post_load_process(): Boot sector format does not match image format.");
                 }
             }
@@ -1597,9 +1616,11 @@ impl DiskImage {
         fn normalize_cylinders(c: usize) -> usize {
             if c > 80 {
                 80
-            } else if c > 40 {
+            }
+            else if c > 40 {
                 40
-            } else {
+            }
+            else {
                 c
             }
         }
@@ -1698,14 +1719,16 @@ impl DiskImage {
                 spt
             );
             self.consistency.consistent_track_length = None;
-        } else {
+        }
+        else {
             self.consistency.consistent_track_length = Some(all_consistency.sector_ct as u32);
         }
 
         if variable_sector_size {
             log::debug!("update_consistency(): Variable sector sizes detected in tracks.");
             self.consistency.consistent_sector_size = None;
-        } else {
+        }
+        else {
             self.consistency.consistent_sector_size = Some(last_track_sector_size);
         }
 
@@ -1807,7 +1830,8 @@ impl DiskImage {
                 let track_entry_opt = track_hashes.get(&self.track_pool[*track].get_hash());
                 if track_entry_opt.is_some() {
                     duplicate_tracks[head_idx].push(track_idx);
-                } else {
+                }
+                else {
                     track_hashes.insert(self.track_pool[*track].get_hash(), 1);
                 }
             }
@@ -1924,31 +1948,36 @@ impl DiskImage {
     pub fn dump_consistency<W: crate::io::Write>(&mut self, mut out: W) -> Result<(), crate::io::Error> {
         if self.consistency.bad_data_crc {
             out.write_fmt(format_args!("Disk contains sectors with bad data CRCs\n"))?;
-        } else {
+        }
+        else {
             out.write_fmt(format_args!("No sectors on disk have bad data CRCs\n"))?;
         }
 
         if self.consistency.bad_address_crc {
             out.write_fmt(format_args!("Disk contains sectors with bad address CRCs\n"))?;
-        } else {
+        }
+        else {
             out.write_fmt(format_args!("No sectors on disk have bad address CRCs\n"))?;
         }
 
         if self.consistency.deleted_data {
             out.write_fmt(format_args!("Disk contains sectors marked as deleted\n"))?;
-        } else {
+        }
+        else {
             out.write_fmt(format_args!("No sectors on disk are marked as deleted\n"))?;
         }
 
         if self.consistency.overlapped {
             out.write_fmt(format_args!("Disk contains sectors with overlapping data\n"))?;
-        } else {
+        }
+        else {
             out.write_fmt(format_args!("No sectors on disk have overlapping data\n"))?;
         }
 
         if self.consistency.weak {
             out.write_fmt(format_args!("Disk contains tracks with weak bits\n"))?;
-        } else {
+        }
+        else {
             out.write_fmt(format_args!("No tracks on disk have weak bits\n"))?;
         }
 
