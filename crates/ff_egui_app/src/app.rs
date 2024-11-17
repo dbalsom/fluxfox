@@ -78,6 +78,7 @@ pub struct App {
     pub(crate) disk_image: Option<DiskImage>,
 
     pub(crate) viz_state: VisualizationState,
+    supported_extensions: Vec<String>,
 }
 
 impl Default for App {
@@ -100,6 +101,7 @@ impl Default for App {
             disk_image: None,
 
             viz_state: VisualizationState::default(),
+            supported_extensions: Vec::new(),
         }
     }
 }
@@ -119,11 +121,20 @@ impl App {
         }
 
         app_state.viz_state = VisualizationState::new(cc.egui_ctx.clone(), 512);
-
         egui_extras::install_image_loaders(&cc.egui_ctx);
         // Set dark mode. This doesn't seem to work for some reason.
         // So we'll use a flag in state and do it on the first update().
         //cc.egui_ctx.set_visuals(egui::Visuals::dark());
+
+        // Get and store the list of supported extensions
+        fluxfox::supported_extensions()
+            .iter()
+            .filter(|ext| **ext != "raw")
+            .for_each(|ext| {
+                app_state.supported_extensions.push(ext.to_string().to_uppercase());
+            });
+
+        app_state.supported_extensions.sort();
 
         app_state
     }
@@ -172,8 +183,12 @@ impl eframe::App for App {
 
             ui.heading(format!("Welcome to {}!", APP_NAME));
 
-            ui.horizontal(|ui| {
-                ui.label("Drag disk image files to this window to load. Zip kryoflux sets.");
+            ui.vertical(|ui| {
+                ui.label("Drag disk image files to this window to load. Kryoflux sets should be in single-disk ZIP archives.");
+                ui.label(format!(
+                    "Image types supported: {}",
+                    self.supported_extensions.join(", ")
+                ));
             });
 
             ui.separator();
