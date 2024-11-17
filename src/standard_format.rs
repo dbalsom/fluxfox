@@ -98,6 +98,20 @@ impl Display for StandardFormat {
 }
 
 impl StandardFormat {
+    /// Return a vector of all StandardFormat variants.
+    pub fn list(&self) -> Vec<StandardFormat> {
+        vec![
+            StandardFormat::PcFloppy160,
+            StandardFormat::PcFloppy180,
+            StandardFormat::PcFloppy320,
+            StandardFormat::PcFloppy360,
+            StandardFormat::PcFloppy720,
+            StandardFormat::PcFloppy1200,
+            StandardFormat::PcFloppy1440,
+            StandardFormat::PcFloppy2880,
+        ]
+    }
+
     /// Returns the geometry corresponding to the `StandardFormat` as a `DiskChsn` struct.
     pub fn get_chsn(&self) -> DiskChsn {
         match self {
