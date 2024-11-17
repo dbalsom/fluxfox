@@ -670,7 +670,7 @@ impl DiskImage {
 
                         if let Some(ref callback_fn) = callback {
                             // Let caller know to show a progress bar
-                            callback_fn(LoadingStatus::ProgressSupport(true));
+                            callback_fn(LoadingStatus::ProgressSupport);
                         }
 
                         for (fi, file_path) in disk.file_set.iter().enumerate() {
@@ -833,7 +833,7 @@ impl DiskImage {
 
                         if let Some(ref callback_fn) = callback {
                             // Let caller know to show a progress bar
-                            callback_fn(LoadingStatus::ProgressSupport(true));
+                            callback_fn(LoadingStatus::ProgressSupport);
                         }
 
                         let image_arc = Arc::new(Mutex::new(image));
