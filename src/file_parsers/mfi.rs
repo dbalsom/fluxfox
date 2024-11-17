@@ -41,17 +41,12 @@ use crate::{
     file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility},
     io::{ReadSeek, ReadWriteSeek},
     track::fluxstream::FluxStreamTrack,
+    LoadingStatus,
 };
 
 use crate::{
     flux::pll::{Pll, PllPreset},
-    DiskDataEncoding,
-    DiskDataRate,
-    DiskDensity,
-    DiskImage,
-    DiskImageError,
-    DiskImageFileFormat,
-    LoadingCallback,
+    DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFileFormat, LoadingCallback,
     DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, BinRead};
@@ -85,7 +80,7 @@ pub struct MfiTrackHeader {
 }
 
 pub struct MfiTrackData {
-    pub ch:   DiskCh,
+    pub ch: DiskCh,
     pub data: Vec<u8>,
 }
 
@@ -100,7 +95,7 @@ pub enum FluxEntryType {
 #[allow(dead_code)]
 pub struct MfiTrackZone {
     start: u32,
-    end:   u32,
+    end: u32,
 }
 
 impl MfiFormat {
@@ -139,10 +134,14 @@ impl MfiFormat {
     pub(crate) fn load_image<RWS: ReadSeek>(
         mut read_buf: RWS,
         disk_image: &mut DiskImage,
-        _callback: Option<LoadingCallback>,
+        callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
-        disk_image.set_source_format(DiskImageFileFormat::MameFloppyImage);
+        if let Some(ref callback_fn) = callback {
+            // Let caller know to show a progress bar
+            callback_fn(LoadingStatus::ProgressSupport);
+        }
 
+        disk_image.set_source_format(DiskImageFileFormat::MameFloppyImage);
         let disk_len = read_buf.seek(std::io::SeekFrom::End(0))?;
 
         // Seek to start of image.
@@ -227,7 +226,7 @@ impl MfiFormat {
 
             // Push uncompressed trackdata
             tracks.push(MfiTrackData {
-                ch:   DiskCh::new(c, h),
+                ch: DiskCh::new(c, h),
                 data: decompressed_data.to_vec(),
             });
 
@@ -241,7 +240,8 @@ impl MfiFormat {
 
         let mut disk_density = None;
 
-        for track in tracks {
+        let total_tracks = tracks.len();
+        for (ti, track) in tracks.iter().enumerate() {
             let flux_track = Self::process_track_data_new(&track)?;
 
             if disk_density.is_none() {
@@ -251,8 +251,7 @@ impl MfiFormat {
             if flux_track.is_empty() {
                 log::warn!("Track contains less than 100 bits. Adding empty track.");
                 disk_image.add_empty_track(track.ch, DiskDataEncoding::Mfm, data_rate, 100_000)?;
-            }
-            else {
+            } else {
                 let stream = flux_track.revolution(0).unwrap();
                 let (stream_bytes, stream_bit_ct) = stream.bitstream_data();
                 log::debug!(
@@ -273,6 +272,10 @@ impl MfiFormat {
                     detect_weak: false,
                 };
                 disk_image.add_track_bitstream(params)?;
+                if let Some(ref callback_fn) = callback {
+                    let progress = ti as f64 / total_tracks as f64;
+                    callback_fn(LoadingStatus::Progress(progress));
+                }
             }
         }
 
@@ -320,12 +323,11 @@ impl MfiFormat {
                         if current_hole_zone.is_some() {
                             log::error!("HOLE entry found while already in NFA zone.");
                         }
-                    }
-                    else {
+                    } else {
                         // Start NFA zone
                         current_nfa_zone = Some(MfiTrackZone {
                             start: flux_delta,
-                            end:   0,
+                            end: 0,
                         });
                     }
                 }
@@ -336,12 +338,11 @@ impl MfiFormat {
                         if current_nfa_zone.is_some() {
                             log::error!("NFA entry found while already in HOLE zone.");
                         }
-                    }
-                    else {
+                    } else {
                         // Start HOLE zone
                         current_hole_zone = Some(MfiTrackZone {
                             start: flux_delta,
-                            end:   0,
+                            end: 0,
                         });
                     }
                 }
@@ -351,13 +352,11 @@ impl MfiFormat {
                         // End NFA zone
                         current_nfa_zone.as_mut().unwrap().end = flux_delta;
                         nfa_zones.push(current_nfa_zone.take().unwrap());
-                    }
-                    else if current_hole_zone.is_some() {
+                    } else if current_hole_zone.is_some() {
                         // End HOLE zone
                         current_hole_zone.as_mut().unwrap().end = flux_delta;
                         hole_zones.push(current_hole_zone.take().unwrap());
-                    }
-                    else {
+                    } else {
                         log::warn!("END ZONE entry found without an active zone.");
                     }
                 }
