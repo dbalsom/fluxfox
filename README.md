@@ -8,6 +8,8 @@ A floppy disk image library for PC emulators
 
 ## Try fluxfox in your [web browser](https://fluxfox.github.io/index.html)!
 
+[![Github Pages](https://github.com/dbalsom/fluxfox/actions/workflows/deploy_ff_egui_app.yml/badge.svg)](https://github.com/dbalsom/fluxfox/actions/workflows/deploy_ff_egui_app.yml)
+
 **This library is under heavy initial development. The API is incredibly unstable, the internal disk representation
 is not final, and there are probably a million bugs. I do not recommend using this library until it reaches a more
 stable state.**
