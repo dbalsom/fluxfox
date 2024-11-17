@@ -38,7 +38,7 @@ fn construct_full_url(relative_path: &str) -> String {
     let base_path = env!("URL_PATH", "URL_PATH not set during build");
     let base_url = getBaseURL(); // Get the base URL from JS
     format!(
-        "{}/{}",
+        "{}/{}/{}",
         base_url.trim_end_matches('/'),
         base_path.trim_end_matches('/'),
         relative_path.trim_start_matches('/')
