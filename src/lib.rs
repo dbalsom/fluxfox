@@ -62,6 +62,7 @@ pub mod util;
 mod copy_protection;
 pub mod flux;
 mod image_writer;
+pub mod prelude;
 mod range_check;
 mod track;
 #[cfg(feature = "viz")]
@@ -457,4 +458,6 @@ pub use crate::{
     standard_format::StandardFormat,
 };
 
+pub type SectorId = DiskChsn;
+pub type SectorIdQuery = DiskChsnQuery;
 pub type DiskSectorMap = Vec<Vec<Vec<SectorMapEntry>>>;
