@@ -319,6 +319,7 @@ impl App {
                             ThreadLoadStatus::Loading(progress) => {
                                 log::debug!("Loading progress: {:.1}%", progress * 100.0);
                                 self.load_status = ThreadLoadStatus::Loading(progress);
+                                self.widgets = AppWidgets::default();
                                 self.viz_window_open = false;
                                 ctx.request_repaint();
                             }
