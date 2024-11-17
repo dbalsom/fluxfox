@@ -43,13 +43,7 @@ use crate::{
     file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility},
     io::{Cursor, ReadBytesExt, ReadSeek, ReadWriteSeek},
     track::fluxstream::FluxStreamTrack,
-    DiskDataEncoding,
-    DiskDensity,
-    DiskImage,
-    DiskImageError,
-    DiskImageFileFormat,
-    FoxHashSet,
-    LoadingCallback,
+    DiskDataEncoding, DiskDensity, DiskImage, DiskImageError, DiskImageFileFormat, FoxHashSet, LoadingCallback,
     DEFAULT_SECTOR_SIZE,
 };
 
@@ -60,7 +54,7 @@ pub const MAXIMUM_CHUNK_SIZE: usize = 0x1000000; // Reasonable 10MB limit for ch
 #[binrw]
 #[brw(big)]
 pub struct PfiChunkHeader {
-    pub id:   [u8; 4],
+    pub id: [u8; 4],
     pub size: u32,
 }
 
@@ -68,7 +62,7 @@ pub struct PfiChunkHeader {
 #[binrw]
 #[brw(big)]
 pub struct PfiHeader {
-    pub version:  u16,
+    pub version: u16,
     pub reserved: u16,
 }
 
@@ -113,8 +107,7 @@ pub(crate) fn pfi_crc(buf: &[u8]) -> u32 {
         for _j in 0..8 {
             if crc & 0x80000000 != 0 {
                 crc = (crc << 1) ^ 0x1edc6f41;
-            }
-            else {
+            } else {
                 crc <<= 1;
             }
         }
@@ -133,7 +126,7 @@ pub struct TrackContext {
 #[derive(Default)]
 pub struct PfiRevolution {
     transitions: Vec<f64>,
-    index_time:  f64,
+    index_time: f64,
 }
 
 impl PfiFormat {
@@ -147,8 +140,7 @@ impl PfiFormat {
     }
 
     pub(crate) fn extensions() -> Vec<&'static str> {
-        //vec!["pfi"]
-        Vec::new()
+        vec!["pfi"]
     }
 
     pub(crate) fn detect<RWS: ReadSeek>(mut image: RWS) -> bool {
@@ -177,8 +169,7 @@ impl PfiFormat {
 
         if let Ok(id) = std::str::from_utf8(&chunk_header.id) {
             log::trace!("Chunk ID: {} Size: {}", id, chunk_header.size);
-        }
-        else {
+        } else {
             log::trace!("Chunk ID: {:?} Size: {}", chunk_header.id, chunk_header.size);
         }
 
@@ -308,8 +299,7 @@ impl PfiFormat {
                     let next_ch = if disk_image.track_ch_iter().count() == 0 {
                         log::debug!("No tracks in image, starting at c:0 h:0");
                         DiskCh::new(0, 0)
-                    }
-                    else {
+                    } else {
                         let mut last_ch = disk_image.track_ch_iter().last().unwrap_or(DiskCh::new(0, 0));
                         log::debug!("Previous track in image: {} heads: {}", last_ch, heads_seen.len());
 
@@ -335,8 +325,7 @@ impl PfiFormat {
                             Some(disk_image.descriptor.density.base_clock(disk_image.descriptor.rpm)),
                             disk_image.descriptor.rpm,
                         )
-                    }
-                    else {
+                    } else {
                         (None, None)
                     };
 
@@ -346,8 +335,7 @@ impl PfiFormat {
                     let (new_density, new_rpm) = if new_track.get_sector_ct() == 0 {
                         log::warn!("Track did not decode any sectors. Not updating disk image descriptor.");
                         (disk_image.descriptor.density, disk_image.descriptor.rpm)
-                    }
-                    else {
+                    } else {
                         let info = new_track.info();
                         log::debug!(
                             "Updating disk descriptor with density: {:?} and RPM: {:?}",
@@ -444,7 +432,7 @@ impl PfiFormat {
                 next_index = index_times[current_rev_idx];
                 revs.push(PfiRevolution {
                     transitions: Vec::with_capacity(225_000),
-                    index_time:  0.0,
+                    index_time: 0.0,
                 });
 
                 current_rev = revs.last_mut().unwrap();

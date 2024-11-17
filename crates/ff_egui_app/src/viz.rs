@@ -24,17 +24,17 @@
 
     --------------------------------------------------------------------------
 */
-use std::default::Default;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use crate::widgets::texture::{PixelCanvas, PixelCanvasDepth};
+use crate::App;
 use anyhow::{anyhow, Error};
-use fluxfox::{tiny_skia, DiskImage};
 use fluxfox::structure_parsers::DiskStructureGenericElement;
 use fluxfox::tiny_skia::{Color, Pixmap};
-use fluxfox::visualization::RenderTrackMetadataParams;
 use fluxfox::visualization::render_track_metadata_quadrant;
-use crate::App;
-use crate::widgets::texture::{PixelCanvas, PixelCanvasDepth};
+use fluxfox::visualization::RenderTrackMetadataParams;
+use fluxfox::{tiny_skia, DiskImage};
+use std::collections::HashMap;
+use std::default::Default;
+use std::sync::{Arc, Mutex};
 
 pub const VIZ_RESOLUTION: u32 = 512;
 
@@ -42,25 +42,29 @@ pub struct VisualizationState {
     pub meta_pixmap_pool: Vec<Arc<Mutex<Pixmap>>>,
     pub metadata_img: [Pixmap; 2],
     pub meta_palette: HashMap<DiskStructureGenericElement, Color>,
-    pub have_render: bool,
-    pub canvas: Option<PixelCanvas>,
+    pub have_render: [bool; 2],
+    pub canvas: [Option<PixelCanvas>; 2],
+    pub sides: usize,
 }
 
 impl Default for VisualizationState {
     fn default() -> Self {
         Self {
             meta_pixmap_pool: Vec::new(),
-            metadata_img: [Pixmap::new(VIZ_RESOLUTION, VIZ_RESOLUTION).unwrap(), Pixmap::new(VIZ_RESOLUTION, VIZ_RESOLUTION).unwrap()],
+            metadata_img: [
+                Pixmap::new(VIZ_RESOLUTION, VIZ_RESOLUTION).unwrap(),
+                Pixmap::new(VIZ_RESOLUTION, VIZ_RESOLUTION).unwrap(),
+            ],
             meta_palette: HashMap::new(),
-            have_render: false,
-            canvas: None,
+            have_render: [false; 2],
+            canvas: [None, None],
+            sides: 1,
         }
     }
 }
 
 impl VisualizationState {
     pub fn new(ctx: egui::Context, resolution: u32) -> Self {
-
         assert_eq!(resolution % 2, 0);
 
         let viz_light_red: Color = Color::from_rgba8(180, 0, 0, 255);
@@ -85,8 +89,10 @@ impl VisualizationState {
             meta_pixmap_pool.push(pixmap);
         }
 
-        let mut canvas = PixelCanvas::new((resolution, resolution), ctx.clone());
-        canvas.set_bpp(PixelCanvasDepth::Rgba);
+        let mut canvas0 = PixelCanvas::new((resolution, resolution), ctx.clone(), "head0_canvas".to_string());
+        canvas0.set_bpp(PixelCanvasDepth::Rgba);
+        let mut canvas1 = PixelCanvas::new((resolution, resolution), ctx.clone(), "head1_canvas".to_string());
+        canvas1.set_bpp(PixelCanvasDepth::Rgba);
 
         Self {
             meta_pixmap_pool,
@@ -99,13 +105,16 @@ impl VisualizationState {
                 (DiskStructureGenericElement::SectorBadHeader, pal_medium_blue),
                 (DiskStructureGenericElement::Marker, vis_purple),
             ]),
-            canvas: Some(canvas),
+            canvas: [Some(canvas0), Some(canvas1)],
             ..VisualizationState::default()
         }
     }
 
-    pub(crate) fn render_visualization(&mut self, disk_image: Option<&mut DiskImage>, side: usize) -> Result<(), Error> {
-
+    pub(crate) fn render_visualization(
+        &mut self,
+        disk_image: Option<&mut DiskImage>,
+        side: usize,
+    ) -> Result<(), Error> {
         if let Some(disk) = disk_image {
             let head = side as u8;
             let quadrant = 0;
@@ -113,8 +122,11 @@ impl VisualizationState {
             let min_radius_fraction = 0.333;
             let render_track_gap = 0.10;
             let direction = fluxfox::visualization::RotationDirection::CounterClockwise;
-
             let track_ct = disk.get_track_ct(side.into());
+
+            // Clear pixmap before rendering
+            self.metadata_img[side].fill(Color::TRANSPARENT);
+
             let mut render_params = RenderTrackMetadataParams {
                 quadrant,
                 head,
@@ -129,7 +141,6 @@ impl VisualizationState {
             };
 
             for quadrant in 0..4 {
-
                 render_params.quadrant = quadrant as u8;
                 let mut pixmap = self.meta_pixmap_pool[quadrant].lock().unwrap();
 
@@ -167,36 +178,47 @@ impl VisualizationState {
                 );
 
                 // Clear pixmap after compositing
-                self.meta_pixmap_pool[quadrant].lock().unwrap().as_mut().fill(Color::TRANSPARENT);
+                self.meta_pixmap_pool[quadrant]
+                    .lock()
+                    .unwrap()
+                    .as_mut()
+                    .fill(Color::TRANSPARENT);
             }
 
-            if let Some(canvas) = &mut self.canvas {
+            if let Some(canvas) = &mut self.canvas[side] {
                 if canvas.has_texture() {
                     log::debug!("Updating canvas...");
                     log::debug!("pixmap data slice: {:0X?}", &self.metadata_img[side].data()[0..16]);
                     canvas.update_data(self.metadata_img[side].data());
-                    self.have_render = true;
-                }
-                else {
+                    self.have_render[side] = true;
+                } else {
                     log::debug!("Canvas not initialized, deferring update...");
                     //self.draw_deferred = true;
                 }
             }
-
         }
         Ok(())
     }
 
+    pub(crate) fn set_sides(&mut self, sides: usize) {
+        self.sides = sides;
+    }
+
+    pub(crate) fn is_open(&self) -> bool {
+        self.have_render[0]
+    }
+
     pub(crate) fn show(&mut self, ui: &mut egui::Ui) {
-        if self.have_render {
-            if let Some(canvas) = &mut self.canvas {
-                canvas.draw(ui);
+        ui.horizontal(|ui| {
+            for side in 0..self.sides {
+                if self.have_render[side] {
+                    if let Some(canvas) = &mut self.canvas[side] {
+                        canvas.draw(ui);
+                    }
+                }
             }
-        }
+        });
     }
 }
 
-impl App {
-
-}
-
+impl App {}

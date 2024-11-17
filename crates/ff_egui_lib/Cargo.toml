@@ -1,0 +1,20 @@
+[package]
+name = "fluxfox_egui"
+description = "A library crate providing egui widgets that interface with fluxfox."
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+fluxfox = { git = "https://github.com/dbalsom/fluxfox.git", branch = "main", default-features = false }
+egui = {  version = "0.29", optional = true }
+egui_v28 = { package = "egui", version = "0.28", optional = true } # Lower version for MartyPC support
+
+[features]
+default = ["egui"]
+egui = ["dep:egui"]
+egui28 = ["dep:egui_v28"]

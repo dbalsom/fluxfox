@@ -62,6 +62,7 @@ pub mod util;
 mod copy_protection;
 pub mod flux;
 mod image_writer;
+pub mod prelude;
 mod range_check;
 mod track;
 #[cfg(feature = "viz")]
@@ -86,8 +87,9 @@ type FoxHashSet<T, S = RandomState> = std::collections::HashSet<T, S>;
 
 /// The status of a disk image loading operation, for file parsers that support progress reporting.
 pub enum LoadingStatus {
-    /// Emitted by all file parsers to inform the caller whether the parser will send progress updates.
-    ProgressSupport(bool),
+    /// Emitted by file parsers that support progress updates. This is sent before any other task
+    /// is performed, to allow the caller time to prepare and display a progress bar.
+    ProgressSupport,
     /// Emitted by file parsers that support progress updates to inform the caller of the current progress.
     /// The value is a floating-point number between 0.0 and 1.0, where 1.0 represents full completion.
     /// Note: The value 1.0 is not guaranteed to be emitted.
@@ -457,4 +459,6 @@ pub use crate::{
     standard_format::StandardFormat,
 };
 
+pub type SectorId = DiskChsn;
+pub type SectorIdQuery = DiskChsnQuery;
 pub type DiskSectorMap = Vec<Vec<Vec<SectorMapEntry>>>;

@@ -25,6 +25,12 @@
     --------------------------------------------------------------------------
 */
 
-pub(crate) fn get_logo_image<'a>() -> egui::Image<'a> {
-    egui::Image::new(egui::include_image!("../../assets/fluxfox_logo.png")).fit_to_original_size(1.0)
-}
+pub use crate::{
+    chs::{DiskCh, DiskChs, DiskChsn, DiskChsnQuery},
+    diskimage::{DiskImage, DiskImageFileFormat, SectorMapEntry},
+    file_parsers::{format_from_ext, supported_extensions, ImageParser, ParserWriteCompatibility},
+    image_builder::ImageBuilder,
+    image_writer::ImageWriter,
+    standard_format::StandardFormat,
+    DiskDataEncoding, DiskDataRate, DiskDataResolution, SectorId, SectorIdQuery,
+};

@@ -25,12 +25,12 @@
     --------------------------------------------------------------------------
 */
 
+use crate::viz::VisualizationState;
 use fluxfox::{DiskImage, DiskImageError, LoadingStatus};
+use fluxfox_egui::widgets::disk_info::DiskInfoWidget;
 use std::default::Default;
 use std::sync::mpsc;
 use std::sync::Arc;
-
-use crate::viz::VisualizationState;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::native::{util, worker};
@@ -66,6 +66,11 @@ pub struct PersistentState {
     label: String,
 }
 
+#[derive(Default)]
+pub struct AppWidgets {
+    disk_info: DiskInfoWidget,
+}
+
 pub struct App {
     p_state: PersistentState,
     run_mode: RunMode,
@@ -78,6 +83,10 @@ pub struct App {
     pub(crate) disk_image: Option<DiskImage>,
 
     pub(crate) viz_state: VisualizationState,
+    supported_extensions: Vec<String>,
+
+    widgets: AppWidgets,
+    viz_window_open: bool,
 }
 
 impl Default for App {
@@ -100,6 +109,10 @@ impl Default for App {
             disk_image: None,
 
             viz_state: VisualizationState::default(),
+            supported_extensions: Vec::new(),
+
+            widgets: AppWidgets::default(),
+            viz_window_open: false,
         }
     }
 }
@@ -119,11 +132,20 @@ impl App {
         }
 
         app_state.viz_state = VisualizationState::new(cc.egui_ctx.clone(), 512);
-
         egui_extras::install_image_loaders(&cc.egui_ctx);
         // Set dark mode. This doesn't seem to work for some reason.
         // So we'll use a flag in state and do it on the first update().
         //cc.egui_ctx.set_visuals(egui::Visuals::dark());
+
+        // Get and store the list of supported extensions
+        fluxfox::supported_extensions()
+            .iter()
+            .filter(|ext| **ext != "raw")
+            .for_each(|ext| {
+                app_state.supported_extensions.push(ext.to_string().to_uppercase());
+            });
+
+        app_state.supported_extensions.sort();
 
         app_state
     }
@@ -170,10 +192,14 @@ impl eframe::App for App {
             // The central panel the region left after adding TopPanels and SidePanels
             ui.add(util::get_logo_image().fit_to_original_size(1.0));
 
-            ui.heading(format!("Welcome to {}!", APP_NAME));
+            ui.heading(egui::RichText::new(format!("Welcome to {}!", APP_NAME)).color(ui.visuals().strong_text_color()));
 
-            ui.horizontal(|ui| {
-                ui.label("Drag disk image files to this window to load. Zip kryoflux sets.");
+            ui.vertical(|ui| {
+                ui.label("Drag disk image files to this window to load. Kryoflux sets should be in single-disk ZIP archives.");
+                ui.label(format!(
+                    "Image types supported: {}",
+                    self.supported_extensions.join(", ")
+                ));
             });
 
             ui.separator();
@@ -184,12 +210,19 @@ impl eframe::App for App {
             self.handle_image_info(ui);
             self.handle_load_messages(ctx);
 
-            self.viz_state.show(ui);
-
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                 egui::warn_if_debug_build(ui);
             });
         });
+
+        // Show windows
+        self.viz_window_open = self.viz_state.is_open();
+
+        if self.viz_window_open {
+            egui::Window::new("Visualization").fade_in(true).show(ctx, |ui| {
+                self.viz_state.show(ui);
+            });
+        }
     }
 
     /// Called by the framework to save persistent state before shutdown.
@@ -203,7 +236,6 @@ impl App {
     /// Tried doing this in new() but it didn't take effect.
     pub fn ctx_init(&mut self, ctx: &egui::Context) {
         ctx.set_visuals(egui::Visuals::dark());
-
         self.ctx_init = true;
     }
 
@@ -213,14 +245,9 @@ impl App {
     }
 
     fn handle_image_info(&mut self, ui: &mut egui::Ui) {
-        if let Some(disk) = &self.disk_image {
+        if self.disk_image.is_some() {
             ui.group(|ui| {
-                ui.label(format!(
-                    "Disk image loaded: {}",
-                    self.disk_image_name.clone().unwrap_or("unknown".to_string())
-                ));
-                ui.label(format!("Image resolution: {:?}", disk.resolution()));
-                ui.label(format!("Disk geometry: {:?}", disk.geometry()));
+                self.widgets.disk_info.show(ui);
             });
         }
     }
@@ -238,10 +265,13 @@ impl App {
                             ThreadLoadStatus::Loading(progress) => {
                                 log::debug!("Loading progress: {:.1}%", progress * 100.0);
                                 self.load_status = ThreadLoadStatus::Loading(progress);
+                                self.viz_window_open = false;
                                 ctx.request_repaint();
                             }
                             ThreadLoadStatus::Success(disk) => {
                                 log::info!("Disk image loaded successfully!");
+
+                                let heads = disk.geometry().h();
                                 self.disk_image = Some(disk);
                                 self.load_status = ThreadLoadStatus::Inactive;
                                 ctx.request_repaint();
@@ -256,6 +286,24 @@ impl App {
                                         log::error!("Error rendering visualization: {:?}", e);
                                     }
                                 }
+
+                                if heads > 1 {
+                                    match self.viz_state.render_visualization(self.disk_image.as_mut(), 1) {
+                                        Ok(_) => {
+                                            log::info!("Visualization rendered successfully!");
+                                        }
+                                        Err(e) => {
+                                            log::error!("Error rendering visualization: {:?}", e);
+                                        }
+                                    }
+                                }
+
+                                self.viz_state.set_sides(heads as usize);
+
+                                // Update widgets.
+                                self.widgets
+                                    .disk_info
+                                    .update(self.disk_image.as_ref().unwrap(), self.disk_image_name.clone());
                             }
                             ThreadLoadStatus::Error(e) => {
                                 log::error!("Error loading disk image: {:?}", e);

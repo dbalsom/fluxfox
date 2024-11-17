@@ -65,7 +65,8 @@ members = [
     "examples/imgviz",
     "crates/ffedit",
     "crates/fftool",
-    "crates/ff_egui_app"
+    "crates/ff_egui_app", 
+    "crates/ff_egui_lib"
 ]
 
 [features]

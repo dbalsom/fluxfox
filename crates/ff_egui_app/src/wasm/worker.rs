@@ -29,12 +29,12 @@
 // https://www.tweag.io/blog/2022-11-24-wasm-threads-and-messages/
 
 use eframe::wasm_bindgen;
-use eframe::wasm_bindgen::{JsCast, JsValue};
 use eframe::wasm_bindgen::closure::Closure;
 use eframe::wasm_bindgen::prelude::wasm_bindgen;
+use eframe::wasm_bindgen::{JsCast, JsValue};
 
 // Spawn a worker and communicate with it.
-#[allow (dead_code)]
+#[allow(dead_code)]
 pub(crate) fn spawn_worker() {
     let worker_opts = web_sys::WorkerOptions::new();
     worker_opts.set_type(web_sys::WorkerType::Module);
@@ -68,7 +68,7 @@ pub(crate) fn spawn_worker() {
 }
 
 // Spawn a worker and communicate with it.
-#[allow (dead_code)]
+#[allow(dead_code)]
 pub(crate) fn spawn_loading_worker(bytes: &[u8]) {
     let worker_opts = web_sys::WorkerOptions::new();
     worker_opts.set_type(web_sys::WorkerType::Module);
@@ -85,7 +85,10 @@ pub(crate) fn spawn_loading_worker(bytes: &[u8]) {
     // });
 
     let callback = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(|msg: web_sys::MessageEvent| {
-        log::debug!("Worker reports it received {} bytes.", msg.data().as_f64().unwrap_or(0.0));
+        log::debug!(
+            "Worker reports it received {} bytes.",
+            msg.data().as_f64().unwrap_or(0.0)
+        );
     });
 
     // Set up a callback to be invoked whenever we receive a message from the worker.
@@ -96,7 +99,6 @@ pub(crate) fn spawn_loading_worker(bytes: &[u8]) {
     //let data_array = unsafe { web_sys::js_sys::Uint8Array::view(bytes) };
     log::debug!("Creating Uint8Array from {} bytes.", bytes.len());
     let data_array = web_sys::js_sys::Uint8Array::from(bytes);
-
 
     // Send the data to the worker.
     worker.post_message(&data_array).expect("failed to post");
@@ -146,7 +148,6 @@ pub fn closure_worker_entry_point(ptr: u32) {
 // An entry point for the JavaScript worker to call back into WASM.
 #[wasm_bindgen]
 pub fn load_worker_entry_point(data: web_sys::js_sys::Uint8Array) {
-
     log::debug!("In worker: received {} bytes.", data.length());
     let rust_data: Vec<u8> = data.to_vec();
 

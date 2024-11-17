@@ -25,6 +25,6 @@
     --------------------------------------------------------------------------
 */
 
-pub(crate) mod worker;
-pub(crate) mod util;
 pub(crate) mod app;
+pub(crate) mod util;
+pub(crate) mod worker;

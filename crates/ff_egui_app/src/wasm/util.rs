@@ -35,15 +35,17 @@ extern "C" {
 
 fn construct_full_url(relative_path: &str) -> String {
     //unsafe {
-    let base_path = env!("URL_PATH", "URL_PATH not set during build");
-    let base_url = getBaseURL(); // Get the base URL from JS
-    format!(
-        "{}/{}/{}",
-        base_url.trim_end_matches('/'),
-        base_path.trim_end_matches('/'),
+    let base_path = option_env!("URL_PATH");
+    //log::debug!("construct_full_url(): base_path: {:?}", base_path);
+    let base_url = getBaseURL();
+    let url = format!(
+        "{}{}/{}",
+        base_url.trim_start_matches('/'),
+        base_path.unwrap_or("").trim_start_matches('/'),
         relative_path.trim_start_matches('/')
-    )
-    //}
+    );
+    //log::debug!("construct_full_url(): {}", url);
+    url
 }
 
 pub(crate) fn get_logo_image<'a>() -> Image<'a> {

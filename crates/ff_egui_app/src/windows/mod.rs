@@ -25,6 +25,4 @@
     --------------------------------------------------------------------------
 */
 
-pub(crate) fn get_logo_image<'a>() -> egui::Image<'a> {
-    egui::Image::new(egui::include_image!("../../assets/fluxfox_logo.png")).fit_to_original_size(1.0)
-}
+pub mod viz;

@@ -26,19 +26,9 @@
 */
 #![allow(dead_code)]
 
-use std::path::Path;
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
-use egui::{
-    Color32,
-    ColorImage,
-    Context,
-    ImageData,
-    Rect,
-    ScrollArea,
-    TextureHandle,
-    TextureOptions,
-};
+use egui::{Color32, ColorImage, Context, ImageData, Rect, ScrollArea, TextureHandle, TextureOptions};
 
 use anyhow::Error;
 
@@ -124,6 +114,7 @@ pub struct PixelCanvasPalette {
 }
 
 pub struct PixelCanvas {
+    id: String,
     data_buf: Vec<u8>,
     backing_buf: Vec<Color32>,
     view_dimensions: (u32, u32),
@@ -145,6 +136,7 @@ pub struct PixelCanvas {
 impl Default for PixelCanvas {
     fn default() -> Self {
         Self {
+            id: String::from("pixel_canvas"),
             data_buf: Vec::new(),
             backing_buf: Vec::new(),
             view_dimensions: (DEFAULT_WIDTH, DEFAULT_HEIGHT),
@@ -179,14 +171,20 @@ impl Default for PixelCanvas {
 
 #[allow(dead_code)]
 impl PixelCanvas {
-    pub fn new(dims: (u32, u32), ctx: Context) -> Self {
+    pub fn new(dims: (u32, u32), ctx: Context, id: String) -> Self {
         let mut pc = PixelCanvas::default();
+        pc.id = id;
         pc.view_dimensions = dims;
         pc.data_buf = vec![0; PixelCanvas::calc_slice_size(dims, pc.bpp)];
         pc.backing_buf = vec![Color32::WHITE; (dims.0 * dims.1) as usize];
         pc.ctx = ctx.clone();
         pc.texture = Some(PixelCanvas::create_texture(&mut pc));
         pc
+    }
+
+    pub fn clear(&mut self) {
+        self.backing_buf = vec![Color32::BLACK; (self.view_dimensions.0 * self.view_dimensions.1) as usize];
+        self.update_texture();
     }
 
     pub fn create_default_colorimage(dims: (u32, u32)) -> ColorImage {
@@ -240,7 +238,7 @@ impl PixelCanvas {
             ui.vertical(|ui| {
                 // Draw background rect
                 //ui.painter().rect_filled(ui.max_rect(), egui::Rounding::default(), egui::Color32::BLACK);
-                let scroll_area = ScrollArea::vertical().auto_shrink([false; 2]);
+                let scroll_area = ScrollArea::vertical().id_salt(&self.id).auto_shrink([false; 2]);
                 let img_w = self.view_dimensions.0 as f32 * self.zoom;
                 let img_h = self.view_dimensions.1 as f32 * self.zoom;
                 ui.shrink_width_to_current();
@@ -283,7 +281,11 @@ impl PixelCanvas {
 
     pub fn update_data(&mut self, data: &[u8]) {
         let slice_size = PixelCanvas::calc_slice_size(self.view_dimensions, self.bpp);
-        log::debug!("PixelCanvas::update_data(): Updating data with {} bytes for slice of {}", data.len(), slice_size);
+        log::debug!(
+            "PixelCanvas::update_data(): Updating data with {} bytes for slice of {}",
+            data.len(),
+            slice_size
+        );
         let shortfall = slice_size.saturating_sub(data.len());
         self.data_buf.clear();
         self.data_buf
