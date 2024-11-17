@@ -68,11 +68,11 @@ mod track;
 #[cfg(feature = "viz")]
 pub mod visualization;
 
-use std::sync::Arc;
 use std::{
     fmt,
     fmt::{Display, Formatter},
     hash::RandomState,
+    sync::Arc,
 };
 use thiserror::Error;
 
@@ -102,7 +102,7 @@ pub enum LoadingStatus {
 
 pub type LoadingCallback = Arc<dyn Fn(LoadingStatus) + Send + Sync>;
 
-#[derive(Debug, Error)]
+#[derive(Clone, Debug, Error)]
 pub enum DiskImageError {
     #[error("An IO error occurred reading or writing the disk image: {0}")]
     IoError(String),
@@ -440,7 +440,8 @@ impl DiskRpm {
         // Assume a base clock of 1.5us or greater is a double density disk.
         if matches!(self, DiskRpm::Rpm360) && base_clock >= 1.5e-6 {
             base_clock * (300.0 / 360.0)
-        } else {
+        }
+        else {
             base_clock
         }
     }
