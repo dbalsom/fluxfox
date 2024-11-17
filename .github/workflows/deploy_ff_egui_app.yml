@@ -19,13 +19,6 @@ jobs:
           toolchain: stable
           override: true
 
-      - name: Cache Cargo binaries
-        uses: actions/cache@v3
-        with:
-          path: ~/.cargo/bin
-          key: ${{ runner.os }}-cargo-bin
-          restore-keys: ${{ runner.os }}-cargo-bin
-
       - name: Install Trunk
         run: cargo install trunk
 
@@ -34,6 +27,13 @@ jobs:
 
       - name: Install wasm-opt
         run: cargo install wasm-opt
+
+      - name: Cache Cargo binaries
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/bin
+          key: ${{ runner.os }}-cargo-bin
+          restore-keys: ${{ runner.os }}-cargo-bin
 
       - name: Cache Rust dependencies
         uses: actions/cache@v3
