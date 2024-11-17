@@ -34,13 +34,28 @@ jobs:
           restore-keys: ${{ runner.os }}-cargo-registry
 
       - name: Install Trunk
-        run: cargo install trunk
+        run: |
+          if ! command -v trunk &> /dev/null; then
+            cargo install trunk
+          else
+            echo "Trunk is cached and already installed."
+          fi
 
       - name: Install wasm-bindgen-cli
-        run: cargo install wasm-bindgen-cli
+        run: |
+          if ! command -v wasm-bindgen &> /dev/null; then
+            cargo install wasm-bindgen-cli
+          else
+            echo "wasm-bindgen-cli is cached and already installed."
+          fi
 
       - name: Install wasm-opt
-        run: cargo install wasm-opt
+        run: |
+          if ! command -v wasm-opt &> /dev/null; then
+            cargo install wasm-opt
+          else
+            echo "wasm-opt is cached and already installed."
+          fi
 
       - name: Build ff_egui_app with Trunk
         working-directory: crates/ff_egui_app
