@@ -74,7 +74,7 @@ jobs:
           [ -f dist/ff_egui_app_bg.wasm ] && echo "Found ff_egui_app_bg.wasm" || echo "ff_egui_app_bg.wasm missing"
 
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+        uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: crates/ff_egui_app/dist
