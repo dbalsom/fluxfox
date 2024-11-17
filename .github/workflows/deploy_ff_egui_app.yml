@@ -58,7 +58,8 @@ jobs:
 
       - name: Build ff_egui_app with Trunk
         working-directory: crates/ff_egui_app
-        run: trunk build --release
+        # Note: --public-url is set to /fluxfox/ as a personal github pages site is hosted at /repo-name/
+        run: trunk build --release --public-url /fluxfox/
 
       - name: Optimize WASM with wasm-opt
         working-directory: crates/ff_egui_app
