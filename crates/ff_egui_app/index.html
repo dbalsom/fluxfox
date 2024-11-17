@@ -16,6 +16,7 @@
 
     <link data-trunk rel="icon" href="assets/favicon.ico">
 
+    <link data-trunk rel="copy-file" href="assets/coi-serviceworker.min.js"/>
     <link data-trunk rel="copy-file" href="assets/sw.js"/>
     <link data-trunk rel="copy-file" href="assets/base_url.js"/>
     <link data-trunk rel="copy-file" href="assets/worker.js"/>
@@ -132,6 +133,9 @@
     </p>
     <div class="lds-dual-ring"></div>
 </div>
+
+<!--COI Service Worker. this will reload the page and set the appropriate COI headers -->
+<script src="coi-serviceworker.js"></script>
 
 <!--Register Service Worker. this will cache the wasm / js scripts for offline use (for PWA functionality). -->
 <!-- Force refresh (Ctrl + F5) to load the latest files instead of cached files  -->
