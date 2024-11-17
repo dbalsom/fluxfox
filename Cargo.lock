@@ -1694,7 +1694,7 @@ dependencies = [
  "egui_extras",
  "env_logger",
  "fluxfox 0.2.0 (git+https://github.com/dbalsom/fluxfox.git?branch=main)",
- "fluxfox_egui",
+ "fluxfox_egui 0.2.0 (git+https://github.com/dbalsom/fluxfox.git?branch=main)",
  "futures",
  "image",
  "log 0.4.22",
@@ -1781,7 +1781,7 @@ dependencies = [
 [[package]]
 name = "fluxfox"
 version = "0.2.0"
-source = "git+https://github.com/dbalsom/fluxfox.git?branch=main#7458a4600242406096dd920b3027fee68e4f3d27"
+source = "git+https://github.com/dbalsom/fluxfox.git?branch=main#4f528246cea6d7e5f14dd686b1ef98934c80872f"
 dependencies = [
  "binrw",
  "bit-vec",
@@ -1809,6 +1809,15 @@ name = "fluxfox_egui"
 version = "0.2.0"
 dependencies = [
  "egui 0.28.1",
+ "egui 0.29.1",
+ "fluxfox 0.2.0 (git+https://github.com/dbalsom/fluxfox.git?branch=main)",
+]
+
+[[package]]
+name = "fluxfox_egui"
+version = "0.2.0"
+source = "git+https://github.com/dbalsom/fluxfox.git?branch=main#4f528246cea6d7e5f14dd686b1ef98934c80872f"
+dependencies = [
  "egui 0.29.1",
  "fluxfox 0.2.0 (git+https://github.com/dbalsom/fluxfox.git?branch=main)",
 ]
