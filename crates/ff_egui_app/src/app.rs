@@ -86,6 +86,7 @@ pub struct App {
     supported_extensions: Vec<String>,
 
     widgets: AppWidgets,
+    viz_window_open: bool,
 }
 
 impl Default for App {
@@ -111,6 +112,7 @@ impl Default for App {
             supported_extensions: Vec::new(),
 
             widgets: AppWidgets::default(),
+            viz_window_open: false,
         }
     }
 }
@@ -190,7 +192,7 @@ impl eframe::App for App {
             // The central panel the region left after adding TopPanels and SidePanels
             ui.add(util::get_logo_image().fit_to_original_size(1.0));
 
-            ui.heading(format!("Welcome to {}!", APP_NAME));
+            ui.heading(egui::RichText::new(format!("Welcome to {}!", APP_NAME)).color(ui.visuals().strong_text_color()));
 
             ui.vertical(|ui| {
                 ui.label("Drag disk image files to this window to load. Kryoflux sets should be in single-disk ZIP archives.");
@@ -208,12 +210,19 @@ impl eframe::App for App {
             self.handle_image_info(ui);
             self.handle_load_messages(ctx);
 
-            self.viz_state.show(ui);
-
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                 egui::warn_if_debug_build(ui);
             });
         });
+
+        // Show windows
+        self.viz_window_open = self.viz_state.is_open();
+
+        if self.viz_window_open {
+            egui::Window::new("Visualization").fade_in(true).show(ctx, |ui| {
+                self.viz_state.show(ui);
+            });
+        }
     }
 
     /// Called by the framework to save persistent state before shutdown.
@@ -236,7 +245,7 @@ impl App {
     }
 
     fn handle_image_info(&mut self, ui: &mut egui::Ui) {
-        if let Some(disk) = &self.disk_image {
+        if self.disk_image.is_some() {
             ui.group(|ui| {
                 self.widgets.disk_info.show(ui);
             });
@@ -256,10 +265,13 @@ impl App {
                             ThreadLoadStatus::Loading(progress) => {
                                 log::debug!("Loading progress: {:.1}%", progress * 100.0);
                                 self.load_status = ThreadLoadStatus::Loading(progress);
+                                self.viz_window_open = false;
                                 ctx.request_repaint();
                             }
                             ThreadLoadStatus::Success(disk) => {
                                 log::info!("Disk image loaded successfully!");
+
+                                let heads = disk.geometry().h();
                                 self.disk_image = Some(disk);
                                 self.load_status = ThreadLoadStatus::Inactive;
                                 ctx.request_repaint();
@@ -274,6 +286,19 @@ impl App {
                                         log::error!("Error rendering visualization: {:?}", e);
                                     }
                                 }
+
+                                if heads > 1 {
+                                    match self.viz_state.render_visualization(self.disk_image.as_mut(), 1) {
+                                        Ok(_) => {
+                                            log::info!("Visualization rendered successfully!");
+                                        }
+                                        Err(e) => {
+                                            log::error!("Error rendering visualization: {:?}", e);
+                                        }
+                                    }
+                                }
+
+                                self.viz_state.set_sides(heads as usize);
 
                                 // Update widgets.
                                 self.widgets

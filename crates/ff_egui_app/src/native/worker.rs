@@ -24,15 +24,13 @@
 
     --------------------------------------------------------------------------
 */
-use std::thread::JoinHandle;
 use anyhow::Error;
+use std::thread::JoinHandle;
 
 pub(crate) fn spawn_closure_worker<F, T>(f: F) -> Result<JoinHandle<T>, Error>
-    where
-        F: FnOnce() -> T + Send + 'static,
-        T: Send + 'static
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
 {
-
     Ok(std::thread::spawn(f))
-
 }

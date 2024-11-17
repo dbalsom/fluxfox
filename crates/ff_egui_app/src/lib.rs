@@ -31,10 +31,11 @@ pub(crate) mod app;
 pub(crate) mod viz;
 pub(crate) mod widgets;
 
-#[cfg(target_arch = "wasm32")]
-pub(crate) mod wasm;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod native;
+#[cfg(target_arch = "wasm32")]
+pub(crate) mod wasm;
+mod windows;
 
 pub use app::App;
 pub use app::APP_NAME;
