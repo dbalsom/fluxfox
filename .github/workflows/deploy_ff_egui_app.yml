@@ -11,27 +11,26 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Set up Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Cargo binaries
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cargo/bin
-          key: ${{ runner.os }}-cargo-bin
-          restore-keys: ${{ runner.os }}-cargo-bin
+          key: ${{ runner.os }}-cargo-bin-trunk-0.21.4
+          restore-keys: |
+            ${{ runner.os }}-cargo-bin
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry
-          restore-keys: ${{ runner.os }}-cargo-registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
 
       - name: Install Trunk
         run: |
@@ -64,6 +63,15 @@ jobs:
       - name: Optimize WASM with wasm-opt
         working-directory: crates/ff_egui_app
         run: wasm-opt -Oz -o dist/ff_egui_app_bg.wasm dist/ff_egui_app_bg.wasm
+
+      - name: Verify dist directory contents
+        working-directory: crates/ff_egui_app
+        run: |
+          echo "Verifying dist directory:"
+          ls -R dist
+          echo "Checking specific expected files:"
+          [ -f dist/index.html ] && echo "Found index.html" || echo "index.html missing"
+          [ -f dist/ff_egui_app_bg.wasm ] && echo "Found ff_egui_app_bg.wasm" || echo "ff_egui_app_bg.wasm missing"
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
