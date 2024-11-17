@@ -60,7 +60,7 @@ jobs:
         working-directory: crates/ff_egui_app
         # Note: --public-url is set to /fluxfox/ as a personal GitHub pages site is hosted at /repo-name/
         env:
-          URL_PATH: "fluxfox/" # URL_PATH should match public-url
+          URL_PATH: "/fluxfox" # URL_PATH should match public-url
         run: trunk build --release --public-url /fluxfox/
 
       - name: Optimize WASM with wasm-opt
