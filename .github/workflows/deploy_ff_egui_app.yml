@@ -26,6 +26,13 @@ jobs:
           key: ${{ runner.os }}-cargo-bin
           restore-keys: ${{ runner.os }}-cargo-bin
 
+      - name: Cache Rust dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry
+          restore-keys: ${{ runner.os }}-cargo-registry
+
       - name: Install Trunk
         run: cargo install trunk
 
@@ -34,13 +41,6 @@ jobs:
 
       - name: Install wasm-opt
         run: cargo install wasm-opt
-
-      - name: Cache Rust dependencies
-        uses: actions/cache@v3
-        with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry
-          restore-keys: ${{ runner.os }}-cargo-registry
 
       - name: Build ff_egui_app with Trunk
         working-directory: crates/ff_egui_app
@@ -54,4 +54,4 @@ jobs:
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: fluxfox/ff_egui_app/dist
+          publish_dir: crates/ff_egui_app/dist
