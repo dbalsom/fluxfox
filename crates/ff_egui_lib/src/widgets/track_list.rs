@@ -83,7 +83,10 @@ impl TrackListWidget {
                                 ui.label("Sectors:");
                                 ui.horizontal(|ui| {
                                     for sector in &track.sectors {
-                                        sector_status(ui, sector, true);
+                                        ui.vertical_centered(|ui| {
+                                            ui.label(format!("{}", sector.chsn.s()));
+                                            sector_status(ui, sector, true);
+                                        });
                                     }
                                 });
                             });
