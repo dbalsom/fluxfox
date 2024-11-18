@@ -81,7 +81,7 @@ impl TrackListWidget {
                                     });
 
                                 ui.label("Sectors:");
-                                ui.horizontal(|ui| {
+                                egui::Grid::new(format!("track_list_sector_grid_{}", ti)).show(ui, |ui| {
                                     for sector in &track.sectors {
                                         ui.vertical_centered(|ui| {
                                             ui.label(format!("{}", sector.chsn.s()));
