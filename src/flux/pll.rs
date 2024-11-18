@@ -31,7 +31,10 @@ use bitflags::bitflags;
 
 use crate::{
     flux::{flux_revolution::FluxRevolution, FluxStats, FluxTransition},
-    format_ms, format_us, DiskDataEncoding, DiskDataRate,
+    format_ms,
+    format_us,
+    DiskDataEncoding,
+    DiskDataRate,
 };
 
 const BASE_CLOCK: f64 = 2e-6; // Represents the default clock for a 300RPM, 250Kbps disk.
@@ -199,11 +202,14 @@ impl Pll {
 
         if (duration - SHORT_TRANSITION).abs() <= TOLERANCE {
             FluxTransition::Short
-        } else if (duration - MEDIUM_TRANSITION).abs() <= TOLERANCE {
+        }
+        else if (duration - MEDIUM_TRANSITION).abs() <= TOLERANCE {
             FluxTransition::Medium
-        } else if (duration - LONG_TRANSITION).abs() <= TOLERANCE {
+        }
+        else if (duration - LONG_TRANSITION).abs() <= TOLERANCE {
             FluxTransition::Long
-        } else {
+        }
+        else {
             //log::trace!("unclassified duration: {}", duration);
             FluxTransition::Other
         }
@@ -309,7 +315,8 @@ impl Pll {
             if flux_length < 2 {
                 //log::warn!("too fast flux: {} @({})", clock_ticks_since_flux, time);
                 flux_stats.too_short += 1;
-            } else if flux_length > 4 {
+            }
+            else if flux_length > 4 {
                 log::trace!(
                     "decode_mfm(): Too slow flux detected: #{} @({}), dt: {}, clocks: {}",
                     flux_ct,
@@ -396,14 +403,17 @@ impl Pll {
                 // If delta is negative...
                 if adjust_gate < 0 {
                     adjust_gate -= 1;
-                } else {
+                }
+                else {
                     adjust_gate = -1;
                 }
-            } else if phase_error >= 0.0 {
+            }
+            else if phase_error >= 0.0 {
                 // If delta is positive...
                 if adjust_gate > 0 {
                     adjust_gate += 1;
-                } else {
+                }
+                else {
                     adjust_gate = 1;
                 }
             }
@@ -428,7 +438,8 @@ impl Pll {
             // problem. So we use the minimum phase error to adjust phase instead of directly.
             let min_phase_error = if phase_error.abs() < last_phase_error.abs() {
                 phase_error
-            } else {
+            }
+            else {
                 last_phase_error
             };
 
@@ -613,7 +624,7 @@ impl Pll {
                 }
                 _ => {
                     flux_stats.too_long += 1;
-                    flux_stats.too_slow_bits += (flux_length - 4) as u32;
+                    flux_stats.too_slow_bits += (flux_length - 3) as u32;
                     //print!("X");
                 }
             }
@@ -621,7 +632,8 @@ impl Pll {
             // Emit 0's and 1's based on the number of clock ticks since last flux transition.
             if flux_length == 0 {
                 //log::error!("zero length flux detected at time: {}", time);
-            } else {
+            }
+            else {
                 for _ in 0..flux_length.saturating_sub(1) {
                     output_bits.push(false);
                     shift_reg <<= 1;
