@@ -1782,7 +1782,7 @@ dependencies = [
 [[package]]
 name = "fluxfox"
 version = "0.2.0"
-source = "git+https://github.com/dbalsom/fluxfox.git?branch=main#477de9788383b015429312b5cb2c35b6af541035"
+source = "git+https://github.com/dbalsom/fluxfox.git?branch=main#98630ef2dd26164964e94cc3da9f026ece4405b2"
 dependencies = [
  "binrw",
  "bit-vec",
@@ -1817,7 +1817,7 @@ dependencies = [
 [[package]]
 name = "fluxfox_egui"
 version = "0.2.0"
-source = "git+https://github.com/dbalsom/fluxfox.git?branch=main#477de9788383b015429312b5cb2c35b6af541035"
+source = "git+https://github.com/dbalsom/fluxfox.git?branch=main#98630ef2dd26164964e94cc3da9f026ece4405b2"
 dependencies = [
  "egui 0.29.1",
  "fluxfox 0.2.0 (git+https://github.com/dbalsom/fluxfox.git?branch=main)",

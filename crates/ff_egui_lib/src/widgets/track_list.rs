@@ -82,11 +82,10 @@ impl TrackListWidget {
 
                                 ui.label("Sectors:");
                                 egui::Grid::new(format!("track_list_sector_grid_{}", ti))
-                                    .spacing(egui::Vec2::new(0.1, 0.1))
+                                    .min_col_width(0.0)
                                     .show(ui, |ui| {
                                         for sector in &track.sectors {
                                             ui.vertical_centered(|ui| {
-                                                ui.spacing_mut().item_spacing = egui::Vec2::new(0.1, 0.1);
                                                 ui.label(format!("{}", sector.chsn.s()));
                                                 sector_status(ui, sector, true);
                                             });
