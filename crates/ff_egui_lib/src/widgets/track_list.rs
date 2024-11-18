@@ -28,7 +28,7 @@ use crate::widgets::sector_status::sector_status;
 use egui::ScrollArea;
 use fluxfox::{track::TrackInfo, DiskCh, DiskImage, SectorMapEntry};
 
-pub const SECTOR_STATUS_WRAP: usize = 10;
+pub const SECTOR_STATUS_WRAP: usize = 16;
 
 struct TrackListItem {
     ch: DiskCh,
@@ -92,7 +92,7 @@ impl TrackListWidget {
                                                 ui.label(format!("{}", sector.chsn.s()));
                                                 sector_status(ui, sector, true);
                                             });
-                                            if si % SECTOR_STATUS_WRAP == 0 {
+                                            if si > 0 && si % SECTOR_STATUS_WRAP == 0 {
                                                 ui.end_row();
                                             }
                                         }
