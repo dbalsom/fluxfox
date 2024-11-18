@@ -30,9 +30,12 @@
 
 */
 
-use crate::boot_sector::bpb::{BiosParameterBlock2, BiosParameterBlock3, BPB_OFFSET};
-use crate::io::{Cursor, ReadSeek, ReadWriteSeek, Seek, SeekFrom, Write};
-use crate::{DiskImageError, StandardFormat};
+use crate::{
+    boot_sector::bpb::{BiosParameterBlock2, BiosParameterBlock3, BPB_OFFSET},
+    io::{Cursor, ReadSeek, ReadWriteSeek, Seek, SeekFrom, Write},
+    DiskImageError,
+    StandardFormat,
+};
 use binrw::{binrw, BinRead, BinWrite};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -120,9 +123,6 @@ impl BootSector {
     }
 
     pub(crate) fn update_bpb_from_format(&mut self, format: StandardFormat) -> Result<(), DiskImageError> {
-        if format == StandardFormat::Invalid {
-            return Err(DiskImageError::IncompatibleImage);
-        }
         self.bpb2 = BiosParameterBlock2::from(format);
         self.bpb3 = BiosParameterBlock3::from(format);
 
@@ -181,7 +181,8 @@ impl BootSector {
         let fmt = self.get_standard_format();
         if fmt.is_err() {
             writeln!(buffer, "Standard disk format not detected.")?;
-        } else {
+        }
+        else {
             writeln!(
                 buffer,
                 "Best standard disk format guess: {:?}",

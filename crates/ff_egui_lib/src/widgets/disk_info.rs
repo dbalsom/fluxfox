@@ -28,8 +28,7 @@
 
     Disk Info widget for displaying basic disk information.
 */
-use fluxfox::prelude::*;
-use fluxfox::DiskDensity;
+use fluxfox::{prelude::*, DiskDensity};
 
 #[derive(Default)]
 pub struct DiskInfoWidget {
@@ -56,35 +55,37 @@ impl DiskInfoWidget {
     }
 
     pub fn show(&self, ui: &mut egui::Ui) {
-        ui.heading(egui::RichText::new("Disk Info").color(ui.visuals().strong_text_color()));
+        ui.vertical(|ui| {
+            ui.heading(egui::RichText::new("Disk Info").color(ui.visuals().strong_text_color()));
 
-        egui::Grid::new("disk_info_grid").striped(true).show(ui, |ui| {
-            ui.label("Filename:");
-            ui.label(self.filename.as_ref().unwrap_or(&"None".to_string()));
-            ui.end_row();
+            egui::Grid::new("disk_info_grid").striped(true).show(ui, |ui| {
+                ui.label("Filename:");
+                ui.label(self.filename.as_ref().unwrap_or(&"None".to_string()));
+                ui.end_row();
 
-            ui.label("Resolution:");
-            ui.label(format!("{:?}", self.resolution));
-            ui.end_row();
+                ui.label("Resolution:");
+                ui.label(format!("{:?}", self.resolution));
+                ui.end_row();
 
-            ui.label("Geometry:");
-            ui.horizontal(|ui| {
-                ui.label(format!("Heads: {}", self.geometry.h()));
-                ui.label(format!("Cylinders: {}", self.geometry.c()));
+                ui.label("Geometry:");
+                ui.horizontal(|ui| {
+                    ui.label(format!("Heads: {}", self.geometry.h()));
+                    ui.label(format!("Cylinders: {}", self.geometry.c()));
+                });
+                ui.end_row();
+
+                ui.label("Data Rate:");
+                ui.label(format!("{}", self.rate));
+                ui.end_row();
+
+                ui.label("Data Encoding:");
+                ui.label(format!("{:?}", self.encoding).to_uppercase());
+                ui.end_row();
+
+                ui.label("Density:");
+                ui.label(format!("{:?}", self.density));
+                ui.end_row();
             });
-            ui.end_row();
-
-            ui.label("Data Rate:");
-            ui.label(format!("{}", self.rate));
-            ui.end_row();
-
-            ui.label("Data Encoding:");
-            ui.label(format!("{:?}", self.encoding).to_uppercase());
-            ui.end_row();
-
-            ui.label("Density:");
-            ui.label(format!("{:?}", self.density));
-            ui.end_row();
         });
     }
 }

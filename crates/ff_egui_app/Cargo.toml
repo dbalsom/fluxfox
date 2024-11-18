@@ -23,6 +23,8 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 log = "0.4"
 fluxfox = { git = "https://github.com/dbalsom/fluxfox.git", branch = "main", default-features = false, features = ["zip", "mfi", "wasm", "viz"] }
 fluxfox_egui = { git = "https://github.com/dbalsom/fluxfox.git", branch = "main" }
+fluxfox_eugui_local = { path = "../ff_egui_lib", package = "fluxfox_egui", optional = true }
+
 # We don't need tiny_skia's png support since egui is pulling in image anyway.
 tiny-skia = { version = "0.11", default-features = false, features = ["std", "simd"] }
 # You only need serde if you want app persistence:
@@ -50,3 +52,5 @@ wasm-bindgen-futures = "0.4"
 wasm-bindgen-rayon = "1.2"
 web-sys = { version = "0.3.70", features = ["DedicatedWorkerGlobalScope", "WorkerOptions", "WorkerType"] }
 
+[features]
+local-dev = ["dep:fluxfox_eugui_local"]

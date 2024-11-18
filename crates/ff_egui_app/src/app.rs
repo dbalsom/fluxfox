@@ -28,9 +28,10 @@
 use crate::viz::VisualizationState;
 use fluxfox::{DiskImage, DiskImageError, LoadingStatus};
 use fluxfox_egui::widgets::disk_info::DiskInfoWidget;
-use std::default::Default;
-use std::sync::mpsc;
-use std::sync::Arc;
+use std::{
+    default::Default,
+    sync::{mpsc, Arc},
+};
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::native::{util, worker};
@@ -39,9 +40,10 @@ pub const APP_NAME: &str = "fluxfox-egui";
 
 #[cfg(target_arch = "wasm32")]
 use crate::wasm::{util, worker};
-
 #[cfg(target_arch = "wasm32")]
 pub const APP_NAME: &str = "fluxfox-web";
+
+use fluxfox_egui::widgets::track_list::TrackListWidget;
 
 #[derive(Default)]
 pub enum ThreadLoadStatus {
@@ -68,7 +70,15 @@ pub struct PersistentState {
 
 #[derive(Default)]
 pub struct AppWidgets {
-    disk_info: DiskInfoWidget,
+    disk_info:  DiskInfoWidget,
+    track_list: TrackListWidget,
+}
+
+impl AppWidgets {
+    pub fn update(&mut self, disk: &DiskImage, name: Option<String>) {
+        self.disk_info.update(disk, name);
+        self.track_list.update(disk);
+    }
 }
 
 pub struct App {
@@ -87,6 +97,8 @@ pub struct App {
 
     widgets: AppWidgets,
     viz_window_open: bool,
+
+    error_msg: Option<String>,
 }
 
 impl Default for App {
@@ -101,8 +113,8 @@ impl Default for App {
             ctx_init: false,
             dropped_files: Vec::new(),
 
-            load_status: ThreadLoadStatus::Inactive,
-            load_sender: Some(load_sender),
+            load_status:   ThreadLoadStatus::Inactive,
+            load_sender:   Some(load_sender),
             load_receiver: Some(load_receiver),
 
             disk_image_name: None,
@@ -113,6 +125,8 @@ impl Default for App {
 
             widgets: AppWidgets::default(),
             viz_window_open: false,
+
+            error_msg: None,
         }
     }
 }
@@ -178,7 +192,8 @@ impl eframe::App for App {
                         }
                     });
                     ui.add_space(16.0);
-                } else {
+                }
+                else {
                     ui.menu_button("Image", |ui| {
                         if ui.button("Upload...").clicked() {
                             println!("TODO: upload image");
@@ -204,10 +219,13 @@ impl eframe::App for App {
 
             ui.separator();
 
+            self.show_error(ui);
+
             // Show dropped files (if any):
             self.handle_dropped_files(ctx, None);
             self.handle_loading_progress(ui);
             self.handle_image_info(ui);
+            self.handle_track_info(ui);
             self.handle_load_messages(ctx);
 
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
@@ -239,9 +257,37 @@ impl App {
         self.ctx_init = true;
     }
 
+    pub fn reset(&mut self) {
+        self.disk_image = None;
+        self.disk_image_name = None;
+        self.error_msg = None;
+        self.load_status = ThreadLoadStatus::Inactive;
+        self.run_mode = RunMode::Reactive;
+        self.viz_window_open = false;
+        self.viz_state = VisualizationState::default();
+    }
+
     // Optional: clear dropped files when done
     fn clear_dropped_files(&mut self) {
         self.dropped_files.clear();
+    }
+
+    fn show_error(&mut self, ui: &mut egui::Ui) {
+        if let Some(msg) = &self.error_msg {
+            egui::Frame::none()
+                .fill(egui::Color32::DARK_RED)
+                .rounding(8.0)
+                .inner_margin(8.0)
+                .stroke(egui::Stroke::new(1.0, egui::Color32::GRAY))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("🗙").color(egui::Color32::WHITE).size(32.0));
+                        ui.add(egui::Label::new(
+                            egui::RichText::new(msg).color(egui::Color32::WHITE).size(24.0),
+                        ));
+                    });
+                });
+        }
     }
 
     fn handle_image_info(&mut self, ui: &mut egui::Ui) {
@@ -252,9 +298,17 @@ impl App {
         }
     }
 
+    fn handle_track_info(&mut self, ui: &mut egui::Ui) {
+        if self.disk_image.is_some() {
+            ui.group(|ui| {
+                self.widgets.track_list.show(ui);
+            });
+        }
+    }
+
     fn handle_load_messages(&mut self, ctx: &egui::Context) {
         // Read messages from the load thread
-        if let Some(receiver) = &mut self.load_receiver {
+        if let Some(receiver) = &self.load_receiver {
             // We should keep draining the receiver until it's empty, otherwise messages arriving
             // faster than once per update() will clog the channel.
             let mut keep_polling = true;
@@ -265,6 +319,7 @@ impl App {
                             ThreadLoadStatus::Loading(progress) => {
                                 log::debug!("Loading progress: {:.1}%", progress * 100.0);
                                 self.load_status = ThreadLoadStatus::Loading(progress);
+                                self.widgets = AppWidgets::default();
                                 self.viz_window_open = false;
                                 ctx.request_repaint();
                             }
@@ -302,12 +357,12 @@ impl App {
 
                                 // Update widgets.
                                 self.widgets
-                                    .disk_info
                                     .update(self.disk_image.as_ref().unwrap(), self.disk_image_name.clone());
                             }
                             ThreadLoadStatus::Error(e) => {
                                 log::error!("Error loading disk image: {:?}", e);
-                                self.load_status = ThreadLoadStatus::Error(e);
+                                self.load_status = ThreadLoadStatus::Error(e.clone());
+                                self.error_msg = Some(e.to_string());
                                 ctx.request_repaint();
                                 // Return to reactive mode
                                 self.run_mode = RunMode::Reactive;
@@ -337,9 +392,11 @@ impl App {
                 if let Some(file) = self.dropped_files.get(0) {
                     let mut info = if let Some(path) = &file.path {
                         path.display().to_string()
-                    } else if !file.name.is_empty() {
+                    }
+                    else if !file.name.is_empty() {
                         file.name.clone()
-                    } else {
+                    }
+                    else {
                         "???".to_owned()
                     };
 
@@ -349,7 +406,8 @@ impl App {
                     }
                     if let Some(bytes) = &file.bytes {
                         additional_info.push(format!("{} bytes", bytes.len()));
-                    } else {
+                    }
+                    else {
                         additional_info.push("loading...".to_string());
                     }
 
@@ -358,7 +416,8 @@ impl App {
                     }
 
                     ui.label(info);
-                } else {
+                }
+                else {
                     ui.label("No file currently dropped.");
                 }
             });
@@ -436,7 +495,8 @@ impl App {
 
                 // Clear the dropped file after processing
                 self.clear_dropped_files();
-            } else {
+            }
+            else {
                 // Request a repaint until the file's bytes are loaded
                 ctx.request_repaint();
             }

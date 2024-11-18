@@ -2,6 +2,7 @@
 
 ### Features:
 
+- Added progress reporting for MFI loader.
 - Added support for WEAK chunk in PRI images.
 - Added support for PFI (PCE Flux Image) images
 - Added support for visualization of bitstream errors
@@ -16,6 +17,7 @@
 
 ### Breaking changes:
 
+- Removed Invalid variant of StandardFormat. Removed From<> and implemented TryFrom<usize>
 - All add_track_* API functions now return a mutable reference to the new track on success
 - Track API changes
     - Implemented DiskChsnQuery struct for optional matching of Sector ID fields

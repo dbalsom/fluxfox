@@ -86,13 +86,16 @@ impl RawFormat {
         // Assign the disk geometry or return error.
         let raw_len = get_length(&mut raw).map_err(|_e| DiskImageError::UnknownFormat)? as usize;
 
-        let floppy_format = StandardFormat::from(raw_len);
-        if floppy_format == StandardFormat::Invalid {
-            return Err(DiskImageError::UnknownFormat);
-        }
-        else {
-            log::trace!("Raw::load_image(): Detected format {}", floppy_format);
-        }
+        let floppy_format = match StandardFormat::try_from(raw_len) {
+            Ok(floppy_format) => {
+                log::trace!("Raw::load_image(): Detected format {}", floppy_format);
+                floppy_format
+            }
+            Err(e) => {
+                log::error!("Raw::load_image(): Error detecting format: {}", e);
+                return Err(DiskImageError::UnknownFormat);
+            }
+        };
 
         let disk_chs = floppy_format.get_chs();
         log::trace!("Raw::load_image(): Disk CHS: {}", disk_chs);
