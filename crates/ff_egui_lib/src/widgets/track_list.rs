@@ -86,6 +86,7 @@ impl TrackListWidget {
                                     .show(ui, |ui| {
                                         for sector in &track.sectors {
                                             ui.vertical_centered(|ui| {
+                                                ui.spacing_mut().item_spacing = egui::Vec2::new(0.1, 0.1);
                                                 ui.label(format!("{}", sector.chsn.s()));
                                                 sector_status(ui, sector, true);
                                             });
