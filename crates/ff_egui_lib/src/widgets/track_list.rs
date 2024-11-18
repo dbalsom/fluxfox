@@ -66,8 +66,8 @@ impl TrackListWidget {
                 ui.vertical(|ui| {
                     for (ti, track) in self.track_list.iter().enumerate() {
                         ui.group(|ui| {
-                            ui.set_min_width(150.0);
                             ui.vertical(|ui| {
+                                ui.set_min_width(400.0);
                                 ui.heading(format!("Track {}", track.ch));
                                 egui::Grid::new(format!("track_list_grid_{}", ti))
                                     .striped(true)
