@@ -24,7 +24,7 @@
 
     --------------------------------------------------------------------------
 */
-use crate::widgets::sector_status::sector_status;
+use crate::{widgets::sector_status::sector_status, SectorSelection, TrackListSelection};
 use egui::ScrollArea;
 use fluxfox::{track::TrackInfo, DiskCh, DiskImage, SectorMapEntry};
 
@@ -46,7 +46,12 @@ impl TrackListWidget {
         Self { track_list: Vec::new() }
     }
 
+    pub fn reset(&mut self) {
+        self.track_list.clear();
+    }
+
     pub fn update(&mut self, disk: &DiskImage) {
+        self.track_list.clear();
         for track in disk.track_iter() {
             self.track_list.push(TrackListItem {
                 ch: track.ch(),
@@ -56,7 +61,9 @@ impl TrackListWidget {
         }
     }
 
-    pub fn show(&self, ui: &mut egui::Ui) {
+    pub fn show(&self, ui: &mut egui::Ui) -> Option<TrackListSelection> {
+        let mut new_selection = None;
+
         let scroll_area = ScrollArea::vertical()
             .id_salt("track_list_scrollarea")
             .auto_shrink([false; 2]);
@@ -90,7 +97,14 @@ impl TrackListWidget {
                                         for (si, sector) in track.sectors.iter().enumerate() {
                                             ui.vertical_centered(|ui| {
                                                 ui.label(format!("{}", sector.chsn.s()));
-                                                sector_status(ui, sector, true);
+                                                if sector_status(ui, sector, true).clicked() {
+                                                    log::debug!("Sector clicked!");
+                                                    new_selection = Some(TrackListSelection::Sector(SectorSelection {
+                                                        phys_ch:    track.ch,
+                                                        sector_id:  sector.chsn,
+                                                        bit_offset: None,
+                                                    }));
+                                                }
                                             });
 
                                             if (si + 1) % SECTOR_STATUS_WRAP == 0 {
@@ -104,5 +118,7 @@ impl TrackListWidget {
                 });
             });
         });
+
+        new_selection
     }
 }
