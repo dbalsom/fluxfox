@@ -143,11 +143,20 @@ impl From<DiskChs> for DiskChsnQuery {
 ///  - Sector Size (n)
 ///
 /// A DiskChsn may represent a Sector ID or an overall disk geometry.
-#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Default)]
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DiskChsn {
     chs: DiskChs,
-    n: u8,
+    n:   u8,
+}
+
+impl Default for DiskChsn {
+    fn default() -> Self {
+        Self {
+            chs: DiskChs::default(),
+            n:   2,
+        }
+    }
 }
 
 impl From<(u16, u8, u8, u8)> for DiskChsn {
@@ -422,13 +431,16 @@ impl DiskChs {
         if self.s < geom.s {
             // Not at last sector, just return next sector
             DiskChs::from((self.c, self.h, self.s + 1))
-        } else if self.h < geom.h - 1 {
+        }
+        else if self.h < geom.h - 1 {
             // At last sector, but not at last head, go to next head, same cylinder, sector 1
             DiskChs::from((self.c, self.h + 1, 1))
-        } else if self.c < geom.c - 1 {
+        }
+        else if self.c < geom.c - 1 {
             // At last sector and last head, go to next cylinder, head 0, sector 1
             DiskChs::from((self.c + 1, 0, 1))
-        } else {
+        }
+        else {
             // Return start of drive? TODO: Research what does this do on real hardware
             DiskChs::from((0, 0, 1))
         }
@@ -519,7 +531,8 @@ impl DiskCh {
         if self.h < heads - 1 {
             // Not at least head, just return next head
             DiskCh::from((self.c, self.h + 1))
-        } else {
+        }
+        else {
             // Go to next track, head 0
             DiskCh::from((self.c + 1, 0))
         }
