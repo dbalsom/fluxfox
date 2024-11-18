@@ -81,14 +81,16 @@ impl TrackListWidget {
                                     });
 
                                 ui.label("Sectors:");
-                                egui::Grid::new(format!("track_list_sector_grid_{}", ti)).show(ui, |ui| {
-                                    for sector in &track.sectors {
-                                        ui.vertical_centered(|ui| {
-                                            ui.label(format!("{}", sector.chsn.s()));
-                                            sector_status(ui, sector, true);
-                                        });
-                                    }
-                                });
+                                egui::Grid::new(format!("track_list_sector_grid_{}", ti))
+                                    .spacing(egui::Vec2::new(0.5, 0.5))
+                                    .show(ui, |ui| {
+                                        for sector in &track.sectors {
+                                            ui.vertical_centered(|ui| {
+                                                ui.label(format!("{}", sector.chsn.s()));
+                                                sector_status(ui, sector, true);
+                                            });
+                                        }
+                                    });
                             });
                         });
                     }
