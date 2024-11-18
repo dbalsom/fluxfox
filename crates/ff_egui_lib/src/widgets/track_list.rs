@@ -25,7 +25,7 @@
     --------------------------------------------------------------------------
 */
 use crate::{widgets::sector_status::sector_status, SectorSelection, TrackListSelection};
-use egui::ScrollArea;
+use egui::{ScrollArea, TextStyle};
 use fluxfox::{track::TrackInfo, DiskCh, DiskImage, SectorMapEntry};
 
 pub const SECTOR_STATUS_WRAP: usize = 16;
@@ -77,26 +77,59 @@ impl TrackListWidget {
                         ui.group(|ui| {
                             ui.vertical(|ui| {
                                 ui.set_min_width(400.0);
-                                ui.heading(format!("Track {}", track.ch));
+                                ui.heading(format!("{} Track {}", track.info.encoding, track.ch));
                                 egui::Grid::new(format!("track_list_grid_{}", ti))
                                     .striped(true)
                                     .show(ui, |ui| {
-                                        ui.label("Encoding:");
-                                        ui.label(format!("{}", track.info.encoding));
-                                        ui.end_row();
-
                                         ui.label("Bitcells:");
                                         ui.label(format!("{}", track.info.bit_length));
                                         ui.end_row();
                                     });
 
-                                ui.label("Sectors:");
+                                ui.label(format!("Sectors ({}):", track.sectors.len()));
                                 egui::Grid::new(format!("track_list_sector_grid_{}", ti))
                                     .min_col_width(0.0)
                                     .show(ui, |ui| {
+                                        let mut previous_id: Option<u8> = None;
                                         for (si, sector) in track.sectors.iter().enumerate() {
                                             ui.vertical_centered(|ui| {
-                                                ui.label(format!("{}", sector.chsn.s()));
+                                                let sid = sector.chsn.s();
+                                                let consecutive_sector = match previous_id {
+                                                    Some(prev) => sid == prev + 1,
+                                                    None => sid == 1,
+                                                };
+                                                previous_id = Some(sid);
+
+                                                let label_height = TextStyle::Body.resolve(&ui.style()).size; // Use the normal label height for consistency
+                                                let small_size = TextStyle::Small.resolve(&ui.style()).size;
+                                                let padding = ui.spacing().item_spacing.y;
+
+                                                ui.vertical(|ui| {
+                                                    ui.set_min_height(label_height + padding);
+                                                    ui.allocate_ui_with_layout(
+                                                        egui::Vec2::new(ui.available_width(), label_height + padding),
+                                                        egui::Layout::centered_and_justified(egui::Direction::TopDown),
+                                                        |ui| {
+                                                            if sid > 99 {
+                                                                let mut text =
+                                                                    egui::RichText::new(format!("{:03}", sid))
+                                                                        .size(small_size);
+                                                                if !consecutive_sector {
+                                                                    text = text.color(ui.visuals().warn_fg_color);
+                                                                }
+                                                                ui.label(text);
+                                                            }
+                                                            else {
+                                                                let mut text = egui::RichText::new(format!("{}", sid));
+                                                                if !consecutive_sector {
+                                                                    text = text.color(ui.visuals().warn_fg_color);
+                                                                }
+                                                                ui.label(text);
+                                                            }
+                                                        },
+                                                    );
+                                                });
+
                                                 if sector_status(ui, sector, true).clicked() {
                                                     log::debug!("Sector clicked!");
                                                     new_selection = Some(TrackListSelection::Sector(SectorSelection {
