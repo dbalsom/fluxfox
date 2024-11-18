@@ -24,5 +24,24 @@
 
     --------------------------------------------------------------------------
 */
+use fluxfox::{DiskCh, SectorId};
 
 pub mod widgets;
+
+#[derive(Debug, Clone, Default)]
+pub struct SectorSelection {
+    pub phys_ch:    DiskCh,
+    pub sector_id:  SectorId,
+    pub bit_offset: Option<usize>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct TrackSelection {
+    pub phys_ch: DiskCh,
+}
+
+#[derive(Debug, Clone)]
+pub enum TrackListSelection {
+    Track(TrackSelection),
+    Sector(SectorSelection),
+}

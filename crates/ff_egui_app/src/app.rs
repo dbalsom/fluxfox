@@ -25,16 +25,15 @@
     --------------------------------------------------------------------------
 */
 
+#[cfg(not(target_arch = "wasm32"))]
+use crate::native::{util, worker};
 use crate::viz::VisualizationState;
 use fluxfox::{DiskImage, DiskImageError, LoadingStatus};
-use fluxfox_egui::widgets::disk_info::DiskInfoWidget;
+use fluxfox_egui::{widgets::disk_info::DiskInfoWidget, SectorSelection, TrackListSelection};
 use std::{
     default::Default,
     sync::{mpsc, Arc},
 };
-
-#[cfg(not(target_arch = "wasm32"))]
-use crate::native::{util, worker};
 #[cfg(not(target_arch = "wasm32"))]
 pub const APP_NAME: &str = "fluxfox-egui";
 
@@ -43,6 +42,7 @@ use crate::wasm::{util, worker};
 #[cfg(target_arch = "wasm32")]
 pub const APP_NAME: &str = "fluxfox-web";
 
+use crate::windows::sector_viewer::SectorViewer;
 use fluxfox_egui::widgets::track_list::TrackListWidget;
 
 #[derive(Default)]
@@ -81,6 +81,17 @@ impl AppWidgets {
     }
 }
 
+#[derive(Default)]
+pub struct AppWindows {
+    sector_viewer: SectorViewer,
+}
+
+pub enum AppEvent {
+    Reset,
+    ImageLoaded,
+    SectorSelected(SectorSelection),
+}
+
 pub struct App {
     p_state: PersistentState,
     run_mode: RunMode,
@@ -97,6 +108,10 @@ pub struct App {
 
     widgets: AppWidgets,
     viz_window_open: bool,
+    windows: AppWindows,
+
+    events: Vec<AppEvent>,
+    sector_selection: Option<SectorSelection>,
 
     error_msg: Option<String>,
 }
@@ -125,6 +140,11 @@ impl Default for App {
 
             widgets: AppWidgets::default(),
             viz_window_open: false,
+
+            windows: AppWindows::default(),
+
+            events: Vec::new(),
+            sector_selection: None,
 
             error_msg: None,
         }
@@ -194,11 +214,13 @@ impl eframe::App for App {
                     ui.add_space(16.0);
                 }
                 else {
+                    /*
                     ui.menu_button("Image", |ui| {
                         if ui.button("Upload...").clicked() {
                             println!("TODO: upload image");
                         }
-                    });
+                    })
+                     */
                 }
             });
         });
@@ -241,6 +263,11 @@ impl eframe::App for App {
                 self.viz_state.show(ui);
             });
         }
+
+        self.windows.sector_viewer.set_open(true);
+        self.windows.sector_viewer.show(ctx);
+
+        self.handle_events();
     }
 
     /// Called by the framework to save persistent state before shutdown.
@@ -290,6 +317,32 @@ impl App {
         }
     }
 
+    fn handle_events(&mut self) {
+        while let Some(event) = self.events.pop() {
+            match event {
+                AppEvent::Reset => {
+                    self.reset();
+                }
+                AppEvent::ImageLoaded => {
+                    // Update widgets.
+                    self.widgets
+                        .update(self.disk_image.as_ref().unwrap(), self.disk_image_name.clone());
+
+                    self.windows
+                        .sector_viewer
+                        .update(self.disk_image.as_mut().unwrap(), SectorSelection::default());
+                    self.sector_selection = Some(SectorSelection::default());
+                }
+                AppEvent::SectorSelected(selection) => {
+                    self.windows
+                        .sector_viewer
+                        .update(self.disk_image.as_mut().unwrap(), selection.clone());
+                    self.sector_selection = Some(selection);
+                }
+            }
+        }
+    }
+
     fn handle_image_info(&mut self, ui: &mut egui::Ui) {
         if self.disk_image.is_some() {
             ui.group(|ui| {
@@ -301,7 +354,17 @@ impl App {
     fn handle_track_info(&mut self, ui: &mut egui::Ui) {
         if self.disk_image.is_some() {
             ui.group(|ui| {
-                self.widgets.track_list.show(ui);
+                if let Some(selection) = self.widgets.track_list.show(ui) {
+                    log::debug!("TrackList selection: {:?}", selection);
+                    match selection {
+                        TrackListSelection::Track(track) => {
+                            //self.events.push(AppEvent::SectorSelected(SectorSelection::Track(track)));
+                        }
+                        TrackListSelection::Sector(sector) => {
+                            self.events.push(AppEvent::SectorSelected(sector));
+                        }
+                    }
+                }
             });
         }
     }
@@ -322,6 +385,8 @@ impl App {
                                 self.widgets = AppWidgets::default();
                                 self.viz_window_open = false;
                                 ctx.request_repaint();
+
+                                self.events.push(AppEvent::Reset);
                             }
                             ThreadLoadStatus::Success(disk) => {
                                 log::info!("Disk image loaded successfully!");
@@ -354,6 +419,7 @@ impl App {
                                 }
 
                                 self.viz_state.set_sides(heads as usize);
+                                self.events.push(AppEvent::ImageLoaded);
 
                                 // Update widgets.
                                 self.widgets

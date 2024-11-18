@@ -25,6 +25,7 @@
     --------------------------------------------------------------------------
 */
 
+pub mod data_table;
 pub mod disk_info;
 pub mod sector_status;
 pub mod track_list;

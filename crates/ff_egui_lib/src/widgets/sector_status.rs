@@ -45,7 +45,7 @@ pub fn sector_status(ui: &mut Ui, entry: &SectorMapEntry, open: bool) -> Respons
     let (rect, response) = ui.allocate_exact_size(
         size,
         Sense {
-            click: false,
+            click: true,
             drag: false,
             focusable: false,
         },
