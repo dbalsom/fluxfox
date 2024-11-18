@@ -9,3 +9,5 @@ open = true
 no_autoreload = false
 headers = { "Cross-Origin-Embedder-Policy" = "require-corp", "Cross-Origin-Opener-Policy" = "same-origin", "Cross-Origin-Resource-Policy" = "same-origin" }
 
+[watch]
+include = ["../ff_egui_lib/src/**/*.rs"]

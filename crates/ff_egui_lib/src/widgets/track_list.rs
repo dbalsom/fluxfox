@@ -24,12 +24,14 @@
 
     --------------------------------------------------------------------------
 */
+use crate::widgets::sector_status::sector_status;
 use egui::ScrollArea;
-use fluxfox::{track::TrackInfo, DiskCh, DiskImage};
+use fluxfox::{track::TrackInfo, DiskCh, DiskImage, SectorMapEntry};
 
 struct TrackListItem {
-    ch:   DiskCh,
+    ch: DiskCh,
     info: TrackInfo,
+    sectors: Vec<SectorMapEntry>,
 }
 
 #[derive(Default)]
@@ -45,8 +47,9 @@ impl TrackListWidget {
     pub fn update(&mut self, disk: &DiskImage) {
         for track in disk.track_iter() {
             self.track_list.push(TrackListItem {
-                ch:   track.ch(),
+                ch: track.ch(),
                 info: track.info(),
+                sectors: track.get_sector_list(),
             });
         }
     }
@@ -76,6 +79,13 @@ impl TrackListWidget {
                                         ui.label(format!("{}", track.info.bit_length));
                                         ui.end_row();
                                     });
+
+                                ui.label("Sectors:");
+                                ui.horizontal(|ui| {
+                                    for sector in &track.sectors {
+                                        sector_status(ui, sector, true);
+                                    }
+                                });
                             });
                         });
                     }
