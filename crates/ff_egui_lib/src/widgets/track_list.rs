@@ -92,7 +92,8 @@ impl TrackListWidget {
                                                 ui.label(format!("{}", sector.chsn.s()));
                                                 sector_status(ui, sector, true);
                                             });
-                                            if si > 0 && si % SECTOR_STATUS_WRAP == 0 {
+
+                                            if (si + 1) % SECTOR_STATUS_WRAP == 0 {
                                                 ui.end_row();
                                             }
                                         }
