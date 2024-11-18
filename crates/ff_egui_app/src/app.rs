@@ -264,7 +264,6 @@ impl eframe::App for App {
             });
         }
 
-        self.windows.sector_viewer.set_open(true);
         self.windows.sector_viewer.show(ctx);
 
         self.handle_events();
@@ -338,6 +337,8 @@ impl App {
                         .sector_viewer
                         .update(self.disk_image.as_mut().unwrap(), selection.clone());
                     self.sector_selection = Some(selection);
+
+                    self.windows.sector_viewer.set_open(true);
                 }
             }
         }
