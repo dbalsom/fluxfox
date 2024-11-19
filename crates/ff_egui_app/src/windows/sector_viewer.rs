@@ -40,6 +40,7 @@ pub struct SectorViewer {
 }
 
 impl SectorViewer {
+    #[allow(dead_code)]
     pub fn new(phys_ch: DiskCh, sector_id: SectorId) -> Self {
         Self {
             phys_ch,
