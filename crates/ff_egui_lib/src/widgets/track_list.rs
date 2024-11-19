@@ -25,9 +25,10 @@
     --------------------------------------------------------------------------
 */
 use crate::{widgets::sector_status::sector_status, SectorSelection, TrackListSelection};
-use egui::{ScrollArea, TextStyle};
+use egui::{Pos2, Rect, Rounding, ScrollArea, Stroke, TextStyle, Ui, Vec2};
 use fluxfox::{track::TrackInfo, DiskCh, DiskImage, SectorMapEntry};
 
+pub const TRACK_ENTRY_WIDTH: f32 = 420.0;
 pub const SECTOR_STATUS_WRAP: usize = 16;
 
 struct TrackListItem {
@@ -61,6 +62,67 @@ impl TrackListWidget {
         }
     }
 
+    fn custom_group(ui: &mut Ui, heading: &str, content: impl FnOnce(&mut Ui)) {
+        // Add some margin space for the group
+        let margin = ui.style().spacing.window_margin;
+
+        // Begin the group
+        let response = ui.scope(|ui| {
+            ui.horizontal(|ui| {
+                ui.add_space(margin.left); // Left margin
+                ui.vertical(|ui| {
+                    // Paint the heading
+                    ui.add_space(margin.top); // Top margin
+                    ui.heading(heading);
+                    ui.add_space(margin.top); // Top margin
+
+                    // Draw the custom content
+                    content(ui);
+                    ui.add_space(margin.bottom); // Bottom margin
+                });
+            });
+        });
+
+        // Get the rect for the entire group we just created
+        let group_rect = response.response.rect;
+
+        // Paint the header background
+        if ui.is_rect_visible(group_rect) {
+            let header_height = ui.fonts(|fonts| fonts.row_height(&TextStyle::Heading.resolve(&ui.style())));
+            let header_rect = Rect::from_min_size(
+                group_rect.min,
+                Vec2::new(group_rect.width(), header_height + margin.top * 2.0), // Include padding for margins
+            );
+            let painter = ui.painter();
+            let visuals = ui.visuals();
+            let bg_color = visuals.faint_bg_color.gamma_multiply(1.2); // Slightly brighter than the default background
+            let rounding = Rounding {
+                nw: 4.0, // Top-left corner
+                ne: 4.0, // Top-right corner
+                sw: 0.0, // Bottom-left corner
+                se: 0.0, // Bottom-right corner
+            };
+            painter.rect_filled(header_rect, rounding, bg_color);
+
+            // Draw a light line at the bottom of the header
+            let line_color = visuals.widgets.inactive.bg_fill; // Use a lighter color for the line
+            let line_stroke = Stroke::new(1.0, line_color);
+            let bottom_line_start = Pos2::new(header_rect.min.x, header_rect.max.y);
+            let bottom_line_end = Pos2::new(header_rect.max.x, header_rect.max.y);
+            painter.line_segment([bottom_line_start, bottom_line_end], line_stroke);
+        }
+
+        // Draw the overall border for the group
+        if ui.is_rect_visible(group_rect) {
+            let painter = ui.painter();
+            let visuals = ui.visuals();
+            let border_color = visuals.widgets.noninteractive.bg_stroke.color;
+            let stroke = Stroke::new(1.0, border_color);
+            let rounding = Rounding::same(6.0); // Overall group rounding
+            painter.rect_stroke(group_rect, rounding, stroke);
+        }
+    }
+
     pub fn show(&self, ui: &mut egui::Ui) -> Option<TrackListSelection> {
         let mut new_selection = None;
 
@@ -69,15 +131,15 @@ impl TrackListWidget {
             .auto_shrink([false; 2]);
 
         ui.vertical(|ui| {
-            ui.heading(egui::RichText::new("Track List").color(ui.visuals().strong_text_color()));
+            //ui.heading(egui::RichText::new("Track List").color(ui.visuals().strong_text_color()));
+            ui.heading(egui::RichText::new("Track List").strong());
 
             scroll_area.show(ui, |ui| {
                 ui.vertical(|ui| {
                     for (ti, track) in self.track_list.iter().enumerate() {
-                        ui.group(|ui| {
+                        Self::custom_group(ui, &format!("{} Track {}", track.info.encoding, track.ch), |ui| {
                             ui.vertical(|ui| {
-                                ui.set_min_width(400.0);
-                                ui.heading(format!("{} Track {}", track.info.encoding, track.ch));
+                                ui.set_min_width(TRACK_ENTRY_WIDTH);
                                 egui::Grid::new(format!("track_list_grid_{}", ti))
                                     .striped(true)
                                     .show(ui, |ui| {
@@ -91,7 +153,7 @@ impl TrackListWidget {
                                     .min_col_width(0.0)
                                     .show(ui, |ui| {
                                         let mut previous_id: Option<u8> = None;
-                                        for (si, sector) in track.sectors.iter().enumerate() {
+                                        for sector in track.sectors.iter() {
                                             ui.vertical_centered(|ui| {
                                                 let sid = sector.chsn.s();
                                                 let consecutive_sector = match previous_id {
@@ -139,14 +201,11 @@ impl TrackListWidget {
                                                     }));
                                                 }
                                             });
-
-                                            if (si + 1) % SECTOR_STATUS_WRAP == 0 {
-                                                ui.end_row();
-                                            }
                                         }
                                     });
                             });
                         });
+                        ui.add_space(8.0);
                     }
                 });
             });
