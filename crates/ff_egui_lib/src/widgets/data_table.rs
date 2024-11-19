@@ -58,28 +58,8 @@ impl Default for DataTableWidget {
     }
 }
 
-const NUM_MANUAL_ROWS: usize = 20;
-
 impl DataTableWidget {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
-        // Leave room for the source code link after the table demo:
-        // let body_text_size = TextStyle::Body.resolve(ui.style()).size;
-        // use egui_extras::{Size, StripBuilder};
-        // StripBuilder::new(ui)
-        //     .size(Size::remainder().at_least(100.0)) // for the table
-        //     .size(Size::exact(body_text_size)) // for the source code link
-        //     .vertical(|mut strip| {
-        //         strip.cell(|ui| {
-        //             egui::ScrollArea::horizontal().show(ui, |ui| {
-        //                 self.table_ui(ui, reset);
-        //             });
-        //         });
-        //         strip.cell(|ui| {
-        //             ui.vertical_centered(|ui| {
-        //                 ui.add(crate::egui_github_link_file!());
-        //             });
-        //         });
-        //     });
         self.table_ui(ui, false);
     }
 
@@ -215,18 +195,4 @@ impl DataTableWidget {
             }
         }
     }
-}
-
-fn expanding_content(ui: &mut egui::Ui) {
-    ui.add(egui::Separator::default().horizontal());
-}
-
-fn long_text(row_index: usize) -> String {
-    format!(
-        "Row {row_index} has some long text that you may want to clip, or it will take up too much horizontal space!"
-    )
-}
-
-fn thick_row(row_index: usize) -> bool {
-    row_index % 6 == 0
 }
