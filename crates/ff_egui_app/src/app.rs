@@ -60,12 +60,23 @@ enum RunMode {
     Continuous,
 }
 
-/// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
-#[serde(default)] // if we add new fields, give them default values when deserializing old state
+#[serde(default)]
+pub struct AppUserOptions {
+    auto_show_viz: bool,
+}
+
+impl Default for AppUserOptions {
+    fn default() -> Self {
+        Self { auto_show_viz: true }
+    }
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(default)]
 #[derive(Default)]
 pub struct PersistentState {
-    label: String,
+    user_opts: AppUserOptions,
 }
 
 #[derive(Default)]
@@ -122,7 +133,7 @@ impl Default for App {
         Self {
             // Example stuff:
             p_state: PersistentState {
-                label: "Hello World!".to_owned(),
+                user_opts: AppUserOptions::default(),
             },
             run_mode: RunMode::Reactive,
             ctx_init: false,
@@ -358,7 +369,7 @@ impl App {
                 if let Some(selection) = self.widgets.track_list.show(ui) {
                     log::debug!("TrackList selection: {:?}", selection);
                     match selection {
-                        TrackListSelection::Track(track) => {
+                        TrackListSelection::Track(_track) => {
                             //self.events.push(AppEvent::SectorSelected(SectorSelection::Track(track)));
                         }
                         TrackListSelection::Sector(sector) => {
