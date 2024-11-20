@@ -9,9 +9,11 @@
 - Added offset fields to track interface functions to support tracks with duplicate sector IDs
 - Implemented DiskChsnQuery struct to enable optional matching of Sector ID fields when scanning, reading, or writing
   a sector.
+    - Type aliased to SectorIdQuery
 
 ### Bugfixes:
 
+- Create empty MFM and FM tracks with valid clock bits
 - Fixed and improved format tests
 - Fixed bug in Kryoflux import
 

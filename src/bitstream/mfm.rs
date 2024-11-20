@@ -73,7 +73,8 @@ pub fn get_mfm_sync_offset(track: &BitVec) -> Option<bool> {
         Some(offset) => {
             if offset % 2 == 0 {
                 Some(false)
-            } else {
+            }
+            else {
                 Some(true)
             }
         }
@@ -199,7 +200,8 @@ impl TrackCodec for MfmCodec {
                 log::debug!("set_track_padding(): Unable to determine track padding",);
                 self.track_padding = 0;
             }
-        } else {
+        }
+        else {
             // Track length is not an even multiple of 8 - the only explanation is that there is no
             // track padding.
             self.track_padding = 0;
@@ -230,7 +232,8 @@ impl TrackCodec for MfmCodec {
             let decoded_bit = if self.weak_enabled && !self.weak_mask.is_empty() && self.weak_mask[cursor] {
                 // Weak bits return random data
                 rand::random()
-            } else {
+            }
+            else {
                 self.bits[cursor]
             };
 
@@ -291,17 +294,20 @@ impl TrackCodec for MfmCodec {
                     // 1 is encoded as 01
                     bitvec.push(false);
                     bitvec.push(true);
-                } else {
+                }
+                else {
                     // 0 is encoded as 10 if previous bit was 0, otherwise 00
                     let previous_bit = if bitvec.is_empty() {
                         prev_bit
-                    } else {
+                    }
+                    else {
                         bitvec[bitvec.len() - 1]
                     };
 
                     if previous_bit {
                         bitvec.push(false);
-                    } else {
+                    }
+                    else {
                         bitvec.push(true);
                     }
                     bitvec.push(false);
@@ -338,7 +344,8 @@ impl TrackCodec for MfmCodec {
 
         let search_limit = if let Some(provided_limit) = limit {
             std::cmp::min(provided_limit, self.bits.len())
-        } else {
+        }
+        else {
             self.bits.len()
         };
 
@@ -369,7 +376,8 @@ impl TrackCodec for MfmCodec {
     fn is_data(&self, index: usize, wrapping: bool) -> bool {
         if wrapping {
             self.data_ranges.contains(index)
-        } else {
+        }
+        else {
             self.data_ranges_filtered.contains(index)
         }
     }
@@ -415,10 +423,11 @@ impl MfmCodec {
         }
 
         let error_bits = MfmCodec::create_error_map(&bits);
-        log::warn!(
-            "MfmCodec::new(): created error map with {} error bits",
-            error_bits.count_ones()
-        );
+        let error_bit_ct = error_bits.count_ones();
+
+        if error_bit_ct > 16 {
+            log::warn!("MfmCodec::new(): created error map with {} error bits", error_bit_ct);
+        }
         let error_map = BitRing::from(error_bits);
 
         MfmCodec {
@@ -465,11 +474,13 @@ impl MfmCodec {
                 if bit {
                     // 1 is encoded as 01
                     accum = (accum << 2) | 0b01;
-                } else {
+                }
+                else {
                     // 0 is encoded as 10 if previous bit was 0, otherwise 00
                     if !previous_bit {
                         accum = (accum << 2) | 0b10;
-                    } else {
+                    }
+                    else {
                         accum <<= 2;
                     }
                 }
@@ -484,7 +495,8 @@ impl MfmCodec {
         if self.weak_enabled && self.weak_mask[self.bit_cursor] {
             // Weak bits return random data
             Some(rand::random())
-        } else {
+        }
+        else {
             Some(self.bits[self.bit_cursor])
         }
     }
@@ -495,7 +507,8 @@ impl MfmCodec {
             // Weak bits return random data
             // TODO: precalculate random table and return reference to it.
             &self.bits[p_off + (index << 1)]
-        } else {
+        }
+        else {
             &self.bits[p_off + (index << 1)]
         }
     }
@@ -508,7 +521,8 @@ impl MfmCodec {
         for bit in self.bits.iter_revolution() {
             if !bit {
                 zero_ct += 1;
-            } else {
+            }
+            else {
                 if zero_ct >= run {
                     region_ct += 1;
                 }
@@ -532,11 +546,12 @@ impl MfmCodec {
         for (i, bit) in self.bits.iter().enumerate() {
             if !bit {
                 zero_ct += 1;
-            } else {
+            }
+            else {
                 if zero_ct >= run {
                     regions.push(TrackRegion {
                         start: region_start,
-                        end: i - 1,
+                        end:   i - 1,
                     });
                 }
                 zero_ct = 0;
@@ -560,13 +575,15 @@ impl MfmCodec {
         for bit in self.bits.iter_revolution() {
             if !bit {
                 zero_ct += 1;
-            } else {
+            }
+            else {
                 zero_ct = 0;
             }
 
             if zero_ct > run {
                 weak_bitvec.push(true);
-            } else {
+            }
+            else {
                 weak_bitvec.push(false);
             }
         }
@@ -594,7 +611,8 @@ impl MfmCodec {
                 if zero_ct > 3 {
                     in_bad_region = true;
                 }
-            } else {
+            }
+            else {
                 if zero_ct < 4 {
                     in_bad_region = false;
                 }
@@ -617,7 +635,8 @@ impl Iterator for MfmCodec {
         let decoded_bit = if self.weak_enabled && self.weak_mask[self.bit_cursor] {
             // Weak bits return random data
             rand::random()
-        } else {
+        }
+        else {
             self.bits[self.bit_cursor]
         };
 
@@ -661,7 +680,8 @@ impl Read for MfmCodec {
             for _ in 0..8 {
                 if let Some(bit) = self.next() {
                     byte_val = (byte_val << 1) | bit as u8;
-                } else {
+                }
+                else {
                     break;
                 }
             }
