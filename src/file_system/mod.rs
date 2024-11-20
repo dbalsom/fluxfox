@@ -24,9 +24,22 @@
 
     --------------------------------------------------------------------------
 */
+use thiserror::Error;
 
-pub mod data_table;
-pub mod disk_info;
-pub mod file_list;
-pub mod sector_status;
-pub mod track_list;
+#[cfg(feature = "fat")]
+pub mod fat;
+
+#[derive(Clone, Debug, Error)]
+pub enum FileSystemError {
+    #[error("An IO error occurred reading or writing the disk image: {0}")]
+    IoError(String),
+    #[error("The filesystem is not mounted")]
+    NotMountedError,
+    #[error("An error occurred mounting the file system: {0}")]
+    MountError(String),
+}
+
+pub struct FileEntry {
+    pub name: String,
+    pub size: u64,
+}

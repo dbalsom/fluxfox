@@ -60,6 +60,7 @@ pub mod structure_parsers;
 pub mod util;
 
 mod copy_protection;
+pub mod file_system;
 pub mod flux;
 mod image_writer;
 pub mod prelude;

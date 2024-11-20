@@ -28,12 +28,18 @@
 #[cfg(not(target_arch = "wasm32"))]
 use crate::native::{util, worker};
 use crate::viz::VisualizationState;
-use fluxfox::{DiskImage, DiskImageError, LoadingStatus};
-use fluxfox_egui::{widgets::disk_info::DiskInfoWidget, SectorSelection, TrackListSelection};
+use egui::Layout;
+use fluxfox::{file_system::fat::fat::FatFileSystem, DiskImage, DiskImageError, LoadingStatus};
+use fluxfox_egui::{
+    widgets::{disk_info::DiskInfoWidget, file_list::FileListWidget},
+    SectorSelection,
+    TrackListSelection,
+};
 use std::{
     default::Default,
     sync::{mpsc, Arc},
 };
+
 #[cfg(not(target_arch = "wasm32"))]
 pub const APP_NAME: &str = "fluxfox-egui";
 
@@ -83,12 +89,38 @@ pub struct PersistentState {
 pub struct AppWidgets {
     disk_info:  DiskInfoWidget,
     track_list: TrackListWidget,
+    file_list:  FileListWidget,
 }
 
 impl AppWidgets {
     pub fn update(&mut self, disk: &DiskImage, name: Option<String>) {
         self.disk_info.update(disk, name);
         self.track_list.update(disk);
+
+        //self.file_list.update(disk);
+    }
+
+    pub fn update_mut(&mut self, disk: &mut DiskImage) {
+        let mut fs = match FatFileSystem::mount(disk) {
+            Ok(fs) => {
+                log::debug!("FAT filesystem mounted successfully!");
+                Some(fs)
+            }
+            Err(e) => {
+                log::error!("Error mounting FAT filesystem: {:?}", e);
+                None
+            }
+        };
+
+        if let Some(fs) = &mut fs {
+            self.file_list.update(fs);
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.disk_info = DiskInfoWidget::default();
+        self.track_list = TrackListWidget::default();
+        self.file_list = FileListWidget::default();
     }
 }
 
@@ -99,6 +131,7 @@ pub struct AppWindows {
 
 pub enum AppEvent {
     Reset,
+    ResetDisk,
     ImageLoaded,
     SectorSelected(SectorSelection),
 }
@@ -258,7 +291,23 @@ impl eframe::App for App {
             self.handle_dropped_files(ctx, None);
             self.handle_loading_progress(ui);
             self.handle_image_info(ui);
-            self.handle_track_info(ui);
+
+            ui.with_layout(egui::Layout::top_down_justified(egui::Align::Center), |ui| {
+                let available_height = ui.available_height(); // Get the remaining vertical space
+
+                ui.allocate_ui(
+                    egui::Vec2::new(ui.available_width(), available_height),
+                    |ui| {
+                        ui.horizontal(|ui| {
+                            ui.set_height(available_height); // Ensure items match the allocated height
+                            self.handle_track_info(ui);
+                            self.handle_fs_info(ui);
+                        });
+                    },
+                );
+            });
+
+
             self.handle_load_messages(ctx);
 
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
@@ -294,7 +343,17 @@ impl App {
         self.ctx_init = true;
     }
 
+    pub fn new_disk(&mut self) {
+        log::debug!("Resetting application state for new disk...");
+        self.disk_image = None;
+        self.disk_image_name = None;
+        self.error_msg = None;
+        self.viz_window_open = false;
+        self.widgets.reset()
+    }
+
     pub fn reset(&mut self) {
+        log::debug!("Resetting application state...");
         self.disk_image = None;
         self.disk_image_name = None;
         self.error_msg = None;
@@ -302,6 +361,7 @@ impl App {
         self.run_mode = RunMode::Reactive;
         self.viz_window_open = false;
         self.viz_state = VisualizationState::default();
+        self.widgets.reset();
     }
 
     // Optional: clear dropped files when done
@@ -331,12 +391,21 @@ impl App {
         while let Some(event) = self.events.pop() {
             match event {
                 AppEvent::Reset => {
+                    log::debug!("Got AppEvent::Reset");
                     self.reset();
                 }
+                AppEvent::ResetDisk => {
+                    self.new_disk();
+                }
                 AppEvent::ImageLoaded => {
+                    // Attempt to mount a FAT filesystem
+
+                    self.error_msg = None;
+
                     // Update widgets.
                     self.widgets
                         .update(self.disk_image.as_ref().unwrap(), self.disk_image_name.clone());
+                    self.widgets.update_mut(self.disk_image.as_mut().unwrap());
 
                     self.windows
                         .sector_viewer
@@ -381,6 +450,14 @@ impl App {
         }
     }
 
+    fn handle_fs_info(&mut self, ui: &mut egui::Ui) {
+        if self.disk_image.is_some() {
+            ui.group(|ui| {
+                self.widgets.file_list.show(ui);
+            });
+        }
+    }
+
     fn handle_load_messages(&mut self, ctx: &egui::Context) {
         // Read messages from the load thread
         if let Some(receiver) = &self.load_receiver {
@@ -393,18 +470,27 @@ impl App {
                         match status {
                             ThreadLoadStatus::Loading(progress) => {
                                 log::debug!("Loading progress: {:.1}%", progress * 100.0);
-                                self.load_status = ThreadLoadStatus::Loading(progress);
+
                                 self.widgets = AppWidgets::default();
                                 self.viz_window_open = false;
                                 ctx.request_repaint();
 
-                                self.events.push(AppEvent::Reset);
+                                match self.load_status {
+                                    ThreadLoadStatus::Inactive => {
+                                        //log::debug!("Inactive->Loading. Sending AppEvent::ResetDisk");
+                                        self.events.push(AppEvent::ResetDisk);
+                                    }
+                                    _ => {}
+                                };
+
+                                self.load_status = ThreadLoadStatus::Loading(progress);
                             }
                             ThreadLoadStatus::Success(disk) => {
                                 log::info!("Disk image loaded successfully!");
 
                                 let heads = disk.geometry().h();
                                 self.disk_image = Some(disk);
+                                //log::debug!("ThreadLoadStatus -> Inactive");
                                 self.load_status = ThreadLoadStatus::Inactive;
                                 ctx.request_repaint();
                                 // Return to reactive mode
@@ -432,10 +518,6 @@ impl App {
 
                                 self.viz_state.set_sides(heads as usize);
                                 self.events.push(AppEvent::ImageLoaded);
-
-                                // Update widgets.
-                                self.widgets
-                                    .update(self.disk_image.as_ref().unwrap(), self.disk_image_name.clone());
                             }
                             ThreadLoadStatus::Error(e) => {
                                 log::error!("Error loading disk image: {:?}", e);
@@ -453,6 +535,9 @@ impl App {
                     }
                 }
             }
+        }
+        else {
+            log::error!("No load receiver available!");
         }
     }
 

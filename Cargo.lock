@@ -1706,6 +1706,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "486f806e73c5707928240ddc295403b1b93c96a02038563881c4a2fd84b81ac4"
 
 [[package]]
+name = "fatfs"
+version = "0.4.0"
+source = "git+https://github.com/dbalsom/fluxfox_fat.git?branch=bpb_fix#e098397c0d83c2a55a851b1d76b6e1ac10c5a6d5"
+dependencies = [
+ "bitflags 2.6.0",
+ "log 0.4.22",
+]
+
+[[package]]
 name = "fdeflate"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1786,6 +1795,7 @@ dependencies = [
  "bit-vec",
  "bitflags 2.6.0",
  "env_logger",
+ "fatfs",
  "flate2",
  "getrandom",
  "hex",
