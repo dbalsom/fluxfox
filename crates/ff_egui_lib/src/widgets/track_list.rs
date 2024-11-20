@@ -128,7 +128,7 @@ impl TrackListWidget {
 
         let scroll_area = ScrollArea::vertical()
             .id_salt("track_list_scrollarea")
-            .auto_shrink([false; 2]);
+            .auto_shrink([true, false]);
 
         ui.vertical(|ui| {
             //ui.heading(egui::RichText::new("Track List").color(ui.visuals().strong_text_color()));
@@ -148,7 +148,7 @@ impl TrackListWidget {
                                         ui.end_row();
                                     });
 
-                                ui.label(format!("Sectors ({}):", track.sectors.len()));
+                                ui.label(format!("{} Sectors:", track.sectors.len()));
                                 egui::Grid::new(format!("track_list_sector_grid_{}", ti))
                                     .min_col_width(0.0)
                                     .show(ui, |ui| {
