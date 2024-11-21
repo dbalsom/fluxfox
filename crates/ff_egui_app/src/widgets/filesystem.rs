@@ -72,15 +72,10 @@ impl FileSystemWidget {
             }
             ui.separator();
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
-                //ui.set_min_height(ui.available_height());
-                self.tree_widget.show(ui);
-                ui.separator();
-
-                let selected_path = self.tree_widget.selection();
-                if self.path_selection != selected_path {
-                    self.update_selection(selected_path);
+                if let Some(selected_path) = self.tree_widget.show(ui) {
+                    self.update_selection(Some(selected_path));
                 }
-
+                ui.separator();
                 if let Some(selected_file) = self.list_widget.show(ui) {
                     log::debug!("Selected file: {:?}", selected_file);
 
@@ -124,5 +119,6 @@ impl FileSystemWidget {
         });
 
         self.tree_widget.update(self.tree.clone());
+        self.update_selection(Some("/".to_string()));
     }
 }

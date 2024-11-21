@@ -61,19 +61,31 @@ impl DirTreeWidget {
         self.selected_path = selection;
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui) {
+    pub fn show(&mut self, ui: &mut egui::Ui) -> Option<String> {
         let mut selected_path = self.selected_path.clone();
-
+        let mut new_selection = None;
         ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
             ui.set_min_width(MIN_TREE_WIDTH);
 
-            self.tree_ui(ui, &self.tree, &mut selected_path, true);
+            new_selection = self.tree_ui(ui, &self.tree, &mut selected_path, true);
             ui.set_min_height(ui.available_height());
         });
-        self.selected_path = selected_path;
+
+        if let Some(new_selection) = new_selection.clone() {
+            self.selected_path = Some(new_selection);
+        }
+        new_selection
     }
 
-    pub fn tree_ui(&self, ui: &mut egui::Ui, node: &FileTreeNode, selected_path: &mut Option<String>, root: bool) {
+    pub fn tree_ui(
+        &self,
+        ui: &mut egui::Ui,
+        node: &FileTreeNode,
+        selected_path: &Option<String>,
+        root: bool,
+    ) -> Option<String> {
+        let mut new_selection = None;
+
         fn dir_icon(ui: &mut egui::Ui, openness: f32, response: &egui::Response) {
             let rect = response.rect;
 
@@ -93,12 +105,10 @@ impl DirTreeWidget {
         }
 
         match node {
-            FileTreeNode::File(_) => {
-                return;
-            }
+            FileTreeNode::File(_) => {}
             FileTreeNode::Directory { fs, children } => {
                 //log::debug!("Drawing directory: {} with {:?} children", fs.name, children);
-                let is_selected = Some(&fs.path) == self.selected_path.as_ref();
+                let is_selected = Some(&fs.path) == selected_path.as_ref();
 
                 //ui.visuals_mut().collapsing_header_frame = true;
 
@@ -131,9 +141,10 @@ impl DirTreeWidget {
 
                 header_response.clicked().then(|| {
                     log::debug!("Selected path: {}", fs.path);
-                    *selected_path = Some(fs.path.clone());
+                    new_selection = Some(fs.path.clone());
                 });
             }
         }
+        new_selection
     }
 }
