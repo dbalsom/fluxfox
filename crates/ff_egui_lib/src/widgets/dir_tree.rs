@@ -29,10 +29,15 @@ use fluxfox::file_system::FileTreeNode;
 
 pub const MIN_TREE_WIDTH: f32 = 120.0;
 
-#[derive(Default)]
 pub struct DirTreeWidget {
     pub tree: FileTreeNode,
     pub selected_path: Option<String>,
+}
+
+impl Default for DirTreeWidget {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DirTreeWidget {
