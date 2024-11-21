@@ -26,6 +26,9 @@
 */
 
 pub mod data_table;
+pub mod dir_tree;
 pub mod disk_info;
+pub mod file_list;
+pub mod path_selection;
 pub mod sector_status;
 pub mod track_list;

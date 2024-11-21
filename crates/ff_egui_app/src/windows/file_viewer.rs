@@ -24,62 +24,41 @@
 
     --------------------------------------------------------------------------
 */
-
-use fluxfox::{diskimage::RwSectorScope, DiskCh, DiskImage, SectorId, SectorIdQuery};
-use fluxfox_egui::{widgets::data_table::DataTableWidget, SectorSelection};
+use egui::Grid;
+use fluxfox::file_system::fat::fat::FatFileSystem;
+use fluxfox_egui::widgets::data_table::DataTableWidget;
 
 #[derive(Default)]
-pub struct SectorViewer {
-    phys_ch:   DiskCh,
-    sector_id: SectorId,
-
+pub struct FileViewer {
+    path: String,
     table: DataTableWidget,
     open: bool,
-    valid: bool,
     error_string: Option<String>,
 }
 
-impl SectorViewer {
+impl FileViewer {
     #[allow(dead_code)]
-    pub fn new(phys_ch: DiskCh, sector_id: SectorId) -> Self {
+    pub fn new() -> Self {
         Self {
-            phys_ch,
-            sector_id,
-
+            path: String::new(),
             table: DataTableWidget::default(),
             open: false,
-            valid: false,
             error_string: None,
         }
     }
 
-    pub fn update(&mut self, disk: &mut DiskImage, selection: SectorSelection) {
-        self.phys_ch = selection.phys_ch;
-        let query = SectorIdQuery::new(
-            selection.sector_id.c(),
-            selection.sector_id.h(),
-            selection.sector_id.s(),
-            selection.sector_id.n(),
-        );
-        let rsr = match disk.read_sector(self.phys_ch, query, None, None, RwSectorScope::DataOnly, false) {
-            Ok(rsr) => rsr,
+    pub fn update(&mut self, fs: &FatFileSystem, path: String) {
+        self.path = path;
+
+        let data = match fs.read_file(&self.path) {
+            Ok(data) => data,
             Err(e) => {
-                eprintln!("Error reading sector: {:?}", e);
-                self.error_string = Some(e.to_string());
-                self.valid = false;
+                self.error_string = Some(format!("Error reading file: {}", e));
                 return;
             }
         };
 
-        if rsr.not_found {
-            self.error_string = Some("Sector not found".to_string());
-            self.valid = false;
-            return;
-        }
-
-        self.sector_id = rsr.id_chsn.unwrap();
-        self.table.set_data(rsr.read_buf);
-        self.valid = true;
+        self.table.set_data(data);
     }
 
     pub fn set_open(&mut self, open: bool) {
@@ -87,13 +66,18 @@ impl SectorViewer {
     }
 
     pub fn show(&mut self, ctx: &egui::Context) {
-        egui::Window::new("Sector Viewer").open(&mut self.open).show(ctx, |ui| {
-            ui.vertical(|ui| {
-                ui.label(format!("Physical Track: {}", self.phys_ch));
-                ui.label(format!("Sector ID: {}", self.sector_id));
+        egui::Window::new("File Viewer").open(&mut self.open).show(ctx, |ui| {
+            Grid::new("file_viewer_grid").striped(true).show(ui, |ui| {
+                ui.label("Path:");
+                ui.label(self.path.to_string());
+                ui.end_row();
 
-                self.table.ui(ui);
+                ui.label("Size:");
+                ui.label(self.table.data_len().to_string());
+                ui.end_row();
             });
+            ui.separator();
+            self.table.ui(ui);
         });
     }
 }

@@ -1344,8 +1344,12 @@ impl DiskImage {
                 }
 
                 let stream: TrackDataStream = match encoding {
-                    DiskDataEncoding::Mfm => Box::new(MfmCodec::new(BitVec::from_elem(bitcells, false), None, None)),
-                    DiskDataEncoding::Fm => Box::new(FmCodec::new(BitVec::from_elem(bitcells, false), None, None)),
+                    DiskDataEncoding::Mfm => {
+                        Box::new(MfmCodec::new(BitVec::from_fn(bitcells, |i| i % 2 == 0), None, None))
+                    }
+                    DiskDataEncoding::Fm => {
+                        Box::new(FmCodec::new(BitVec::from_fn(bitcells, |i| i % 2 == 0), None, None))
+                    }
                     _ => return Err(DiskImageError::UnsupportedFormat),
                 };
 

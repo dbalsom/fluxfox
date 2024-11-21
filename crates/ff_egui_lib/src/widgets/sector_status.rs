@@ -34,7 +34,7 @@ use fluxfox::SectorMapEntry;
 const COLOR_SECTOR_OK: Color32 = Color32::from_rgb(0x38, 0xb7, 0x64);
 const COLOR_BAD_CRC: Color32 = Color32::from_rgb(0xef, 0x7d, 0x57);
 const COLOR_DELETED_DATA: Color32 = Color32::from_rgb(0x25, 0x71, 0x79);
-const COLOR_BAD_DELETED_DATA: Color32 = Color32::from_rgb(0xb1, 0x3e, 0x53);
+//const COLOR_BAD_DELETED_DATA: Color32 = Color32::from_rgb(0xb1, 0x3e, 0x53);
 const COLOR_BAD_HEADER: Color32 = Color32::RED;
 const COLOR_NO_DAM: Color32 = Color32::GRAY;
 
@@ -90,5 +90,38 @@ pub fn sector_status(ui: &mut Ui, entry: &SectorMapEntry, open: bool) -> Respons
         ui.painter().rect_stroke(rect, rounding, (2.0, visuals.bg_fill)); // fill is intentional, because default style has no border
     }
 
-    response
+    // Add hover UI
+    response.on_hover_ui(|ui| {
+        Grid::new("popup_sector_attributes_grid").show(ui, |ui| {
+            ui.label("ID:");
+            ui.label(entry.chsn.to_string());
+            ui.end_row();
+
+            ui.label("Size:");
+            ui.label(entry.chsn.n_size().to_string());
+            ui.end_row();
+
+            let good_color = ui.visuals().text_color();
+            let bad_color = ui.visuals().warn_fg_color;
+
+            match entry.attributes.address_crc_valid {
+                true => ui.colored_label(good_color, "Address CRC is valid"),
+                false => ui.colored_label(bad_color, "Address CRC is invalid"),
+            };
+            ui.end_row();
+
+            match entry.attributes.data_crc_valid {
+                true => ui.colored_label(good_color, "Data CRC is valid"),
+                false => ui.colored_label(bad_color, "Data CRC is invalid"),
+            };
+            ui.end_row();
+
+            match (entry.attributes.no_dam, entry.attributes.deleted_mark) {
+                (true, _) => ui.colored_label(bad_color, "Sector has no data"),
+                (false, true) => ui.colored_label(bad_color, "Deleted data marker"),
+                (false, false) => ui.colored_label(good_color, "Normal data marker"),
+            };
+            ui.end_row();
+        });
+    })
 }

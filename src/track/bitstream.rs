@@ -34,24 +34,49 @@ use crate::{
     bitstream::{
         fm::FmCodec,
         mfm::{MfmCodec, MFM_BYTE_LEN},
-        EncodingVariant, TrackDataStream,
+        EncodingVariant,
+        TrackDataStream,
     },
     chs::DiskChsnQuery,
     diskimage::{
-        BitStreamTrackParams, ReadSectorResult, ReadTrackResult, RwSectorScope, ScanSectorResult, SectorAttributes,
-        SectorDescriptor, SharedDiskContext, WriteSectorResult,
+        BitStreamTrackParams,
+        ReadSectorResult,
+        ReadTrackResult,
+        RwSectorScope,
+        ScanSectorResult,
+        SectorAttributes,
+        SectorDescriptor,
+        SharedDiskContext,
+        WriteSectorResult,
     },
     io::SeekFrom,
     structure_parsers::{
         system34::{
-            System34Element, System34Marker, System34Parser, System34Standard, DAM_MARKER_BYTES, DDAM_MARKER_BYTES,
+            System34Element,
+            System34Marker,
+            System34Parser,
+            System34Standard,
+            DAM_MARKER_BYTES,
+            DDAM_MARKER_BYTES,
         },
-        DiskStructureElement, DiskStructureMetadata, DiskStructureMetadataItem, DiskStructureParser,
+        DiskStructureElement,
+        DiskStructureMetadata,
+        DiskStructureMetadataItem,
+        DiskStructureParser,
     },
     track::{fluxstream::FluxStreamTrack, metasector::MetaSectorTrack},
     util::crc_ibm_3740,
-    DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskImageError,
-    DiskRpm, FoxHashSet, SectorMapEntry,
+    DiskCh,
+    DiskChs,
+    DiskChsn,
+    DiskDataEncoding,
+    DiskDataRate,
+    DiskDataResolution,
+    DiskDensity,
+    DiskImageError,
+    DiskRpm,
+    FoxHashSet,
+    SectorMapEntry,
 };
 use bit_vec::BitVec;
 use sha1_smol::Digest;
@@ -287,7 +312,8 @@ impl Track for BitStreamTrack {
                 if let Some(n_value) = n {
                     if debug {
                         data_len = DiskChsn::n_to_bytes(n_value);
-                    } else {
+                    }
+                    else {
                         if sector_chsn.n() != n_value {
                             log::error!(
                                 "read_sector(): Sector size mismatch, expected: {} got: {}",
@@ -298,7 +324,8 @@ impl Track for BitStreamTrack {
                         }
                         data_len = sector_chsn.n_size();
                     }
-                } else {
+                }
+                else {
                     data_len = sector_chsn.n_size();
                 }
                 data_idx = scope_data_off;
@@ -312,11 +339,11 @@ impl Track for BitStreamTrack {
                     read_vec.len()
                 );
 
-                log::debug!("read_sector(): Seeking to offset: {}", element_start + scope_read_off);
+                log::trace!("read_sector(): Seeking to offset: {}", element_start + scope_read_off);
                 self.data
                     .seek(SeekFrom::Start((element_start + scope_read_off) as u64))
                     .map_err(|_| DiskImageError::BitstreamError)?;
-                log::debug!("read_sector(): Reading {} bytes.", read_vec.len());
+                log::trace!("read_sector(): Reading {} bytes.", read_vec.len());
                 self.data
                     .read_exact(&mut read_vec)
                     .map_err(|_| DiskImageError::BitstreamError)?;
@@ -411,7 +438,8 @@ impl Track for BitStreamTrack {
                         bad_cylinder,
                         wrong_head,
                     })
-                } else {
+                }
+                else {
                     Ok(ScanSectorResult {
                         deleted_mark: deleted,
                         not_found: false,
@@ -699,7 +727,8 @@ impl Track for BitStreamTrack {
         // sector as we wrap around the track.
         if sector_matched {
             Some(first_sector)
-        } else {
+        }
+        else {
             log::warn!("get_next_id(): Sector not found: {:?}", chs);
             None
         }
@@ -783,7 +812,8 @@ impl Track for BitStreamTrack {
         let markers = System34Parser::scan_track_markers(&self.data);
         if markers.is_empty() {
             log::error!("TrackData::format(): No markers found in track data post-format.");
-        } else {
+        }
+        else {
             log::trace!("TrackData::format(): Found {} markers in track data.", markers.len());
         }
         System34Parser::create_clock_map(&markers, self.data.clock_map_mut());
@@ -828,7 +858,8 @@ impl Track for BitStreamTrack {
         if n_set.len() > 1 {
             //log::warn!("get_track_consistency(): Variable sector sizes detected: {:?}", n_set);
             consistency.consistent_sector_size = None;
-        } else {
+        }
+        else {
             //log::warn!("get_track_consistency(): Consistent sector size: {}", last_n);
             consistency.consistent_sector_size = Some(last_n);
         }
@@ -893,7 +924,8 @@ impl BitStreamTrack {
                 // Otherwise, if 'detect_weak' is set we will try to detect weak bits from the MFM stream.
                 if weak_bitvec_opt.is_some() {
                     codec = MfmCodec::new(data, params.bitcell_ct, weak_bitvec_opt);
-                } else {
+                }
+                else {
                     codec = MfmCodec::new(data, params.bitcell_ct, None);
                     if params.detect_weak {
                         log::debug!("add_track_bitstream(): detecting weak bits...");
@@ -928,7 +960,8 @@ impl BitStreamTrack {
                 // Otherwise, we will try to detect weak bits from the MFM stream.
                 if weak_bitvec_opt.is_some() {
                     codec = FmCodec::new(data, params.bitcell_ct, weak_bitvec_opt);
-                } else {
+                }
+                else {
                     codec = FmCodec::new(data, params.bitcell_ct, None);
                     // let weak_regions = codec.detect_weak_bits(9);
                     // log::trace!(
@@ -989,7 +1022,8 @@ impl BitStreamTrack {
                 if let DiskStructureElement::System34(System34Element::Data { .. }) = i.elem_type {
                     //log::trace!("Got Data element, returning start address: {}", i.start);
                     Some(i.start)
-                } else {
+                }
+                else {
                     None
                 }
             })

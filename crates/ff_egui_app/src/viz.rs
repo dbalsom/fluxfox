@@ -24,17 +24,23 @@
 
     --------------------------------------------------------------------------
 */
-use crate::widgets::texture::{PixelCanvas, PixelCanvasDepth};
-use crate::App;
+use crate::{
+    widgets::texture::{PixelCanvas, PixelCanvasDepth},
+    App,
+};
 use anyhow::{anyhow, Error};
-use fluxfox::structure_parsers::DiskStructureGenericElement;
-use fluxfox::tiny_skia::{Color, Pixmap};
-use fluxfox::visualization::render_track_metadata_quadrant;
-use fluxfox::visualization::RenderTrackMetadataParams;
-use fluxfox::{tiny_skia, DiskImage};
-use std::collections::HashMap;
-use std::default::Default;
-use std::sync::{Arc, Mutex};
+use fluxfox::{
+    structure_parsers::DiskStructureGenericElement,
+    tiny_skia,
+    tiny_skia::{Color, Pixmap},
+    visualization::{render_track_metadata_quadrant, RenderTrackMetadataParams},
+    DiskImage,
+};
+use std::{
+    collections::HashMap,
+    default::Default,
+    sync::{Arc, Mutex},
+};
 
 pub const VIZ_RESOLUTION: u32 = 512;
 
@@ -115,6 +121,10 @@ impl VisualizationState {
         disk_image: Option<&mut DiskImage>,
         side: usize,
     ) -> Result<(), Error> {
+        if self.meta_pixmap_pool.len() < 4 {
+            return Err(anyhow!("Pixmap pool not initialized"));
+        }
+
         if let Some(disk) = disk_image {
             let head = side as u8;
             let quadrant = 0;
@@ -191,7 +201,8 @@ impl VisualizationState {
                     log::debug!("pixmap data slice: {:0X?}", &self.metadata_img[side].data()[0..16]);
                     canvas.update_data(self.metadata_img[side].data());
                     self.have_render[side] = true;
-                } else {
+                }
+                else {
                     log::debug!("Canvas not initialized, deferring update...");
                     //self.draw_deferred = true;
                 }

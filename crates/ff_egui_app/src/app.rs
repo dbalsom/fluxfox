@@ -28,12 +28,14 @@
 #[cfg(not(target_arch = "wasm32"))]
 use crate::native::{util, worker};
 use crate::viz::VisualizationState;
-use fluxfox::{DiskImage, DiskImageError, LoadingStatus};
+use egui::Layout;
+use fluxfox::{file_system::fat::fat::FatFileSystem, DiskImage, DiskImageError, LoadingStatus};
 use fluxfox_egui::{widgets::disk_info::DiskInfoWidget, SectorSelection, TrackListSelection};
 use std::{
     default::Default,
     sync::{mpsc, Arc},
 };
+
 #[cfg(not(target_arch = "wasm32"))]
 pub const APP_NAME: &str = "fluxfox-egui";
 
@@ -42,8 +44,13 @@ use crate::wasm::{util, worker};
 #[cfg(target_arch = "wasm32")]
 pub const APP_NAME: &str = "fluxfox-web";
 
-use crate::windows::sector_viewer::SectorViewer;
+use crate::{
+    widgets::filesystem::FileSystemWidget,
+    windows::{file_viewer::FileViewer, sector_viewer::SectorViewer},
+};
 use fluxfox_egui::widgets::track_list::TrackListWidget;
+
+pub const DEMO_IMAGE: &[u8] = include_bytes!("../../../resources/demo.imz");
 
 #[derive(Default)]
 pub enum ThreadLoadStatus {
@@ -60,34 +67,81 @@ enum RunMode {
     Continuous,
 }
 
-/// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
-#[serde(default)] // if we add new fields, give them default values when deserializing old state
+#[serde(default)]
+pub struct AppUserOptions {
+    auto_show_viz: bool,
+}
+
+impl Default for AppUserOptions {
+    fn default() -> Self {
+        Self { auto_show_viz: true }
+    }
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(default)]
 #[derive(Default)]
 pub struct PersistentState {
-    label: String,
+    user_opts: AppUserOptions,
 }
 
 #[derive(Default)]
 pub struct AppWidgets {
-    disk_info:  DiskInfoWidget,
-    track_list: TrackListWidget,
+    disk_info:   DiskInfoWidget,
+    track_list:  TrackListWidget,
+    file_system: FileSystemWidget,
 }
 
 impl AppWidgets {
     pub fn update(&mut self, disk: &DiskImage, name: Option<String>) {
         self.disk_info.update(disk, name);
         self.track_list.update(disk);
+
+        //self.file_list.update(disk);
+    }
+
+    pub fn update_mut(&mut self, disk: &mut DiskImage) {
+        let mut fs = match FatFileSystem::mount(disk) {
+            Ok(fs) => {
+                log::debug!("FAT filesystem mounted successfully!");
+                Some(fs)
+            }
+            Err(e) => {
+                log::error!("Error mounting FAT filesystem: {:?}", e);
+                None
+            }
+        };
+
+        if let Some(fs) = &mut fs {
+            self.file_system.update(fs);
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.disk_info = DiskInfoWidget::default();
+        self.track_list = TrackListWidget::default();
+        self.file_system = FileSystemWidget::default();
     }
 }
 
 #[derive(Default)]
 pub struct AppWindows {
     sector_viewer: SectorViewer,
+    file_viewer:   FileViewer,
+}
+
+impl AppWindows {
+    pub fn reset(&mut self) {
+        self.sector_viewer = SectorViewer::default();
+        self.file_viewer = FileViewer::default();
+    }
 }
 
 pub enum AppEvent {
+    #[allow(dead_code)]
     Reset,
+    ResetDisk,
     ImageLoaded,
     SectorSelected(SectorSelection),
 }
@@ -122,7 +176,7 @@ impl Default for App {
         Self {
             // Example stuff:
             p_state: PersistentState {
-                label: "Hello World!".to_owned(),
+                user_opts: AppUserOptions::default(),
             },
             run_mode: RunMode::Reactive,
             ctx_init: false,
@@ -199,6 +253,18 @@ impl eframe::App for App {
             ctx.request_repaint();
         }
 
+        // Show windows
+        self.viz_window_open = self.viz_state.is_open();
+
+        if self.viz_window_open {
+            egui::Window::new("Visualization").fade_in(true).show(ctx, |ui| {
+                self.viz_state.show(ui);
+            });
+        }
+
+        self.windows.sector_viewer.show(ctx);
+        self.windows.file_viewer.show(ctx);
+
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             // The top panel is often a good place for a menu bar:
 
@@ -214,13 +280,26 @@ impl eframe::App for App {
                     ui.add_space(16.0);
                 }
                 else {
-                    /*
+                    //log::debug!("Running on web platform, showing Image menu");
                     ui.menu_button("Image", |ui| {
-                        if ui.button("Upload...").clicked() {
-                            println!("TODO: upload image");
+                        if ui.button("Load demo image...").clicked() {
+                            let mut cursor = std::io::Cursor::new(DEMO_IMAGE);
+                            DiskImage::load(&mut cursor, None, None, None)
+                                .map(|disk| {
+                                    log::debug!("Disk image loaded successfully!");
+                                    self.disk_image = Some(disk);
+                                    self.disk_image_name = Some("demo.imz".to_string());
+                                    ctx.request_repaint();
+                                    self.events.push(AppEvent::ImageLoaded);
+                                })
+                                .unwrap_or_else(|e| {
+                                    log::error!("Error loading disk image: {:?}", e);
+                                    self.error_msg = Some(e.to_string());
+                                });
+
+                            ui.close_menu();
                         }
-                    })
-                     */
+                    });
                 }
             });
         });
@@ -247,24 +326,25 @@ impl eframe::App for App {
             self.handle_dropped_files(ctx, None);
             self.handle_loading_progress(ui);
             self.handle_image_info(ui);
-            self.handle_track_info(ui);
+
+            ui.with_layout(egui::Layout::top_down_justified(egui::Align::Center), |ui| {
+
+                ui.allocate_ui_with_layout(
+                    ui.available_size(),
+                    Layout::left_to_right(egui::Align::Min),
+                    |ui| {
+                        self.handle_track_info(ui);
+                        self.handle_fs_info(ui);
+                    },
+                );
+            });
+
             self.handle_load_messages(ctx);
 
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                 egui::warn_if_debug_build(ui);
             });
         });
-
-        // Show windows
-        self.viz_window_open = self.viz_state.is_open();
-
-        if self.viz_window_open {
-            egui::Window::new("Visualization").fade_in(true).show(ctx, |ui| {
-                self.viz_state.show(ui);
-            });
-        }
-
-        self.windows.sector_viewer.show(ctx);
 
         self.handle_events();
     }
@@ -283,7 +363,16 @@ impl App {
         self.ctx_init = true;
     }
 
+    pub fn new_disk(&mut self) {
+        log::debug!("Resetting application state for new disk...");
+        self.error_msg = None;
+        self.viz_window_open = false;
+        self.widgets.reset();
+        self.windows.reset();
+    }
+
     pub fn reset(&mut self) {
+        log::debug!("Resetting application state...");
         self.disk_image = None;
         self.disk_image_name = None;
         self.error_msg = None;
@@ -291,6 +380,7 @@ impl App {
         self.run_mode = RunMode::Reactive;
         self.viz_window_open = false;
         self.viz_state = VisualizationState::default();
+        self.widgets.reset();
     }
 
     // Optional: clear dropped files when done
@@ -320,12 +410,46 @@ impl App {
         while let Some(event) = self.events.pop() {
             match event {
                 AppEvent::Reset => {
+                    log::debug!("Got AppEvent::Reset");
                     self.reset();
                 }
+                AppEvent::ResetDisk => {
+                    log::debug!("Got AppEvent::ResetDisk");
+                    self.new_disk();
+                }
                 AppEvent::ImageLoaded => {
+                    log::debug!("Got AppEvent::ImageLoaded");
+                    // Return to reactive mode
+                    self.run_mode = RunMode::Reactive;
+
+                    self.error_msg = None;
+
+                    match self.viz_state.render_visualization(self.disk_image.as_mut(), 0) {
+                        Ok(_) => {
+                            log::info!("Visualization rendered successfully!");
+                        }
+                        Err(e) => {
+                            log::error!("Error rendering visualization: {:?}", e);
+                        }
+                    }
+
+                    let heads = self.disk_image.as_ref().unwrap().geometry().h();
+                    if heads > 1 {
+                        match self.viz_state.render_visualization(self.disk_image.as_mut(), 1) {
+                            Ok(_) => {
+                                log::info!("Visualization rendered successfully!");
+                            }
+                            Err(e) => {
+                                log::error!("Error rendering visualization: {:?}", e);
+                            }
+                        }
+                    }
+
+                    self.viz_state.set_sides(heads as usize);
                     // Update widgets.
                     self.widgets
                         .update(self.disk_image.as_ref().unwrap(), self.disk_image_name.clone());
+                    self.widgets.update_mut(self.disk_image.as_mut().unwrap());
 
                     self.windows
                         .sector_viewer
@@ -358,7 +482,7 @@ impl App {
                 if let Some(selection) = self.widgets.track_list.show(ui) {
                     log::debug!("TrackList selection: {:?}", selection);
                     match selection {
-                        TrackListSelection::Track(track) => {
+                        TrackListSelection::Track(_track) => {
                             //self.events.push(AppEvent::SectorSelected(SectorSelection::Track(track)));
                         }
                         TrackListSelection::Sector(sector) => {
@@ -370,7 +494,34 @@ impl App {
         }
     }
 
+    fn handle_fs_info(&mut self, ui: &mut egui::Ui) {
+        if let Some(disk) = &mut self.disk_image {
+            // egui::Window::new("Test Table").resizable(true).show(ui.ctx(), |ui| {
+            //     self.widgets.file_list.show(ui);
+            // });
+
+            ui.group(|ui| {
+                self.widgets.file_system.show(ui);
+            });
+
+            if let Some(selected_file) = self.widgets.file_system.new_file_selection() {
+                log::debug!("Selected file: {:?}", selected_file);
+                match FatFileSystem::mount(disk) {
+                    Ok(fs) => {
+                        log::debug!("FAT filesystem mounted successfully!");
+                        self.windows.file_viewer.update(&fs, selected_file);
+                        self.windows.file_viewer.set_open(true);
+                    }
+                    Err(e) => {
+                        log::error!("Error mounting FAT filesystem: {:?}", e);
+                    }
+                };
+            }
+        }
+    }
+
     fn handle_load_messages(&mut self, ctx: &egui::Context) {
+        let mut new_disk = false;
         // Read messages from the load thread
         if let Some(receiver) = &self.load_receiver {
             // We should keep draining the receiver until it's empty, otherwise messages arriving
@@ -382,49 +533,32 @@ impl App {
                         match status {
                             ThreadLoadStatus::Loading(progress) => {
                                 log::debug!("Loading progress: {:.1}%", progress * 100.0);
-                                self.load_status = ThreadLoadStatus::Loading(progress);
+
                                 self.widgets = AppWidgets::default();
                                 self.viz_window_open = false;
                                 ctx.request_repaint();
 
-                                self.events.push(AppEvent::Reset);
+                                match self.load_status {
+                                    ThreadLoadStatus::Inactive => {
+                                        //log::debug!("Inactive->Loading. Sending AppEvent::ResetDisk");
+                                        self.events.push(AppEvent::ResetDisk);
+                                    }
+                                    _ => {}
+                                };
+
+                                self.load_status = ThreadLoadStatus::Loading(progress);
                             }
                             ThreadLoadStatus::Success(disk) => {
                                 log::info!("Disk image loaded successfully!");
 
-                                let heads = disk.geometry().h();
                                 self.disk_image = Some(disk);
+                                //log::debug!("ThreadLoadStatus -> Inactive");
+                                if let ThreadLoadStatus::Inactive = self.load_status {
+                                    new_disk = true;
+                                }
                                 self.load_status = ThreadLoadStatus::Inactive;
                                 ctx.request_repaint();
-                                // Return to reactive mode
-                                self.run_mode = RunMode::Reactive;
-
-                                match self.viz_state.render_visualization(self.disk_image.as_mut(), 0) {
-                                    Ok(_) => {
-                                        log::info!("Visualization rendered successfully!");
-                                    }
-                                    Err(e) => {
-                                        log::error!("Error rendering visualization: {:?}", e);
-                                    }
-                                }
-
-                                if heads > 1 {
-                                    match self.viz_state.render_visualization(self.disk_image.as_mut(), 1) {
-                                        Ok(_) => {
-                                            log::info!("Visualization rendered successfully!");
-                                        }
-                                        Err(e) => {
-                                            log::error!("Error rendering visualization: {:?}", e);
-                                        }
-                                    }
-                                }
-
-                                self.viz_state.set_sides(heads as usize);
                                 self.events.push(AppEvent::ImageLoaded);
-
-                                // Update widgets.
-                                self.widgets
-                                    .update(self.disk_image.as_ref().unwrap(), self.disk_image_name.clone());
                             }
                             ThreadLoadStatus::Error(e) => {
                                 log::error!("Error loading disk image: {:?}", e);
@@ -442,6 +576,14 @@ impl App {
                     }
                 }
             }
+        }
+        else {
+            log::error!("No load receiver available!");
+        }
+
+        if new_disk {
+            log::debug!("Resetting disk due to new disk without loading notification...");
+            self.new_disk();
         }
     }
 
