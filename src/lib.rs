@@ -82,7 +82,7 @@ pub const DEFAULT_SECTOR_SIZE: usize = 512;
 pub const ASCII_EOF: u8 = 0x1A;
 
 #[allow(unused)]
-type FoxHashMap<K, V, S = RandomState> = std::collections::HashMap<K, V, S>;
+pub type FoxHashMap<K, V, S = RandomState> = std::collections::HashMap<K, V, S>;
 #[allow(unused)]
 type FoxHashSet<T, S = RandomState> = std::collections::HashSet<T, S>;
 

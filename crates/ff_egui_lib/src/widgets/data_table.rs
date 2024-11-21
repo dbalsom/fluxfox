@@ -64,76 +64,82 @@ impl DataTableWidget {
     }
 
     fn table_ui(&mut self, ui: &mut egui::Ui, reset: bool) {
-        use egui_extras::{Column, TableBuilder};
+        ui.vertical(|ui| {
+            use egui_extras::{Column, TableBuilder};
 
-        let text_height = egui::TextStyle::Body
-            .resolve(ui.style())
-            .size
-            .max(ui.spacing().interact_size.y);
+            let text_height = egui::TextStyle::Body
+                .resolve(ui.style())
+                .size
+                .max(ui.spacing().interact_size.y);
 
-        let available_height = ui.available_height();
-        let mut table = TableBuilder::new(ui)
-            .striped(false)
-            .resizable(false)
-            .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-            .column(Column::auto())
-            .column(Column::auto())
-            .column(Column::auto())
-            .min_scrolled_height(0.0)
-            .max_scroll_height(available_height);
+            let available_height = ui.available_height();
+            let mut table = TableBuilder::new(ui)
+                .striped(false)
+                .resizable(false)
+                .cell_layout(egui::Layout::left_to_right(egui::Align::LEFT))
+                .column(Column::auto())
+                .column(Column::auto())
+                .column(Column::auto())
+                .min_scrolled_height(0.0)
+                .max_scroll_height(available_height);
 
-        // if self.clickable {
-        //     table = table.sense(egui::Sense::click());
-        // }
+            // if self.clickable {
+            //     table = table.sense(egui::Sense::click());
+            // }
 
-        if let Some(row_index) = self.scroll_to_row.take() {
-            table = table.scroll_to_row(row_index, None);
-        }
+            if let Some(row_index) = self.scroll_to_row.take() {
+                table = table.scroll_to_row(row_index, None);
+            }
 
-        if reset {
-            table.reset();
-        }
+            if reset {
+                table.reset();
+            }
 
-        table
-            .header(20.0, |mut header| {
-                header.col(|ui| {
-                    ui.strong("Addr");
-                });
-                header.col(|ui| {
-                    ui.strong("Hex View");
-                });
-                header.col(|ui| {
-                    ui.strong("ASCII View");
-                });
-            })
-            .body(|body| {
-                body.rows(text_height, self.num_rows, |mut row| {
-                    let row_index = row.index();
-                    row.set_selected(self.selection.contains(&row_index));
-
-                    row.col(|ui| {
-                        let formatted = format!(
-                            "{:0width$X}",
-                            row_index * self.num_columns,
-                            width = self.row_string_width
-                        );
-                        ui.label(egui::RichText::new(formatted).monospace());
+            table
+                .header(20.0, |mut header| {
+                    header.col(|ui| {
+                        ui.strong("Addr");
                     });
-                    row.col(|ui| {
-                        ui.label(self.row_string_hex(row_index));
+                    header.col(|ui| {
+                        ui.strong("Hex View");
                     });
-                    row.col(|ui| {
-                        ui.label(self.row_string_ascii(row_index));
+                    header.col(|ui| {
+                        ui.strong("ASCII View");
                     });
+                })
+                .body(|body| {
+                    body.rows(text_height, self.num_rows, |mut row| {
+                        let row_index = row.index();
+                        row.set_selected(self.selection.contains(&row_index));
 
-                    self.toggle_row_selection(row_index, &row.response());
+                        row.col(|ui| {
+                            let formatted = format!(
+                                "{:0width$X}",
+                                row_index * self.num_columns,
+                                width = self.row_string_width
+                            );
+                            ui.label(egui::RichText::new(formatted).monospace());
+                        });
+                        row.col(|ui| {
+                            ui.label(self.row_string_hex(row_index));
+                        });
+                        row.col(|ui| {
+                            ui.label(self.row_string_ascii(row_index));
+                        });
+
+                        self.toggle_row_selection(row_index, &row.response());
+                    });
                 });
-            });
+        });
     }
 
     pub fn set_data(&mut self, data: Vec<u8>) {
         self.data = data;
         self.calc_layout();
+    }
+
+    pub fn data_len(&self) -> usize {
+        self.data.len()
     }
 
     fn row_string_hex(&mut self, row_index: usize) -> egui::RichText {
