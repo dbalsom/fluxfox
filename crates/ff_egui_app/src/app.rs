@@ -289,6 +289,7 @@ impl eframe::App for App {
                                     log::debug!("Disk image loaded successfully!");
                                     self.disk_image = Some(disk);
                                     self.disk_image_name = Some("demo.imz".to_string());
+                                    self.new_disk();
                                     ctx.request_repaint();
                                     self.events.push(AppEvent::ImageLoaded);
                                 })
