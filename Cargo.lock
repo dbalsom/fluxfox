@@ -1830,6 +1830,8 @@ dependencies = [
  "fluxfox",
  "log 0.4.22",
  "serde",
+ "strum",
+ "strum_macros",
 ]
 
 [[package]]

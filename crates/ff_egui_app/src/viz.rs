@@ -24,10 +24,7 @@
 
     --------------------------------------------------------------------------
 */
-use crate::{
-    widgets::texture::{PixelCanvas, PixelCanvasDepth},
-    App,
-};
+use crate::App;
 use anyhow::{anyhow, Error};
 use fluxfox::{
     structure_parsers::DiskStructureGenericElement,
@@ -36,6 +33,7 @@ use fluxfox::{
     visualization::{render_track_metadata_quadrant, RenderTrackMetadataParams},
     DiskImage,
 };
+use fluxfox_egui::widgets::texture::{PixelCanvas, PixelCanvasDepth};
 use std::{
     collections::HashMap,
     default::Default,
@@ -95,9 +93,9 @@ impl VisualizationState {
             meta_pixmap_pool.push(pixmap);
         }
 
-        let mut canvas0 = PixelCanvas::new((resolution, resolution), ctx.clone(), "head0_canvas".to_string());
+        let mut canvas0 = PixelCanvas::new((resolution, resolution), ctx.clone(), "head0_canvas");
         canvas0.set_bpp(PixelCanvasDepth::Rgba);
-        let mut canvas1 = PixelCanvas::new((resolution, resolution), ctx.clone(), "head1_canvas".to_string());
+        let mut canvas1 = PixelCanvas::new((resolution, resolution), ctx.clone(), "head1_canvas");
         canvas1.set_bpp(PixelCanvasDepth::Rgba);
 
         Self {

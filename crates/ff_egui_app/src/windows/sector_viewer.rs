@@ -92,7 +92,7 @@ impl SectorViewer {
                 ui.label(format!("Physical Track: {}", self.phys_ch));
                 ui.label(format!("Sector ID: {}", self.sector_id));
 
-                self.table.ui(ui);
+                self.table.show(ui);
             });
         });
     }

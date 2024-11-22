@@ -35,6 +35,7 @@ pub struct FileSystemWidget {
     path_selection: Option<String>,
     file_selection: Option<String>,
     new_file_selection: Cell<bool>,
+
     tree: FileTreeNode,
 }
 
