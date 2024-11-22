@@ -26,12 +26,10 @@
 */
 #![allow(dead_code)]
 
-use std::{path::Path, sync::Arc};
-
 use egui::{Color32, ColorImage, Context, ImageData, Rect, ScrollArea, TextureHandle, TextureOptions};
+use std::sync::Arc;
 
-use anyhow::Error;
-
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[repr(u8)]
 pub enum PixelCanvasZoom {
     One,
@@ -83,6 +81,7 @@ pub const PALETTE_4BPP: [Color32; 16] = [
     Color32::from_rgb(0xFFu8, 0xFFu8, 0xFFu8),
 ];
 
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[derive(Copy, Clone, PartialEq, Default, Debug)]
 pub enum PixelCanvasDepth {
     #[default]
@@ -171,9 +170,9 @@ impl Default for PixelCanvas {
 
 #[allow(dead_code)]
 impl PixelCanvas {
-    pub fn new(dims: (u32, u32), ctx: Context, id: String) -> Self {
+    pub fn new(dims: (u32, u32), ctx: Context, id: &str) -> Self {
         let mut pc = PixelCanvas::default();
-        pc.id = id;
+        pc.id = id.to_string();
         pc.view_dimensions = dims;
         pc.data_buf = vec![0; PixelCanvas::calc_slice_size(dims, pc.bpp)];
         pc.backing_buf = vec![Color32::WHITE; (dims.0 * dims.1) as usize];
@@ -281,7 +280,7 @@ impl PixelCanvas {
 
     pub fn update_data(&mut self, data: &[u8]) {
         let slice_size = PixelCanvas::calc_slice_size(self.view_dimensions, self.bpp);
-        log::debug!(
+        log::trace!(
             "PixelCanvas::update_data(): Updating data with {} bytes for slice of {}",
             data.len(),
             slice_size
@@ -328,7 +327,7 @@ impl PixelCanvas {
     pub fn update_texture(&mut self) {
         self.update_imagedata();
         if let Some(texture) = &mut self.texture {
-            log::debug!("PixelCanvas::update_texture(): Updating texture with new data...");
+            //log::trace!("PixelCanvas::update_texture(): Updating texture with new data...");
             texture.set(self.image_data.clone(), self.texture_opts);
         }
     }
@@ -351,17 +350,17 @@ impl PixelCanvas {
         self.data_unpacked = false;
     }
 
-    pub fn save_buffer(&mut self, path: &Path) -> Result<(), Error> {
-        let byte_slice: &[u8] = bytemuck::cast_slice(&self.backing_buf);
-        image::save_buffer(
-            path,
-            byte_slice,
-            self.view_dimensions.0,
-            self.view_dimensions.1,
-            image::ColorType::Rgba8,
-        )?;
-        Ok(())
-    }
+    // pub fn save_buffer(&mut self, path: &Path) -> Result<(), Error> {
+    //     let byte_slice: &[u8] = bytemuck::cast_slice(&self.backing_buf);
+    //     image::save_buffer(
+    //         path,
+    //         byte_slice,
+    //         self.view_dimensions.0,
+    //         self.view_dimensions.1,
+    //         image::ColorType::Rgba8,
+    //     )?;
+    //     Ok(())
+    // }
 
     fn unpack_pixels(&mut self) {
         //let dims = self.view_dimensions.0 * self.view_dimensions.1;

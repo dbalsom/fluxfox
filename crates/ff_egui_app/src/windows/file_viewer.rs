@@ -77,7 +77,7 @@ impl FileViewer {
                 ui.end_row();
             });
             ui.separator();
-            self.table.ui(ui);
+            self.table.show(ui);
         });
     }
 }
