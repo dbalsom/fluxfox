@@ -24,8 +24,11 @@
 
     --------------------------------------------------------------------------
 */
-use crate::App;
+
 use std::sync::Arc;
+
+use crate::App;
+use anyhow::Result;
 
 impl App {
     pub(crate) fn load_dropped_files(&mut self) {
@@ -44,5 +47,9 @@ impl App {
                 };
             }
         }
+    }
+
+    pub(crate) fn save_file_as(&mut self, _path: &str, _bytes: &[u8]) -> Result<()> {
+        Ok(())
     }
 }

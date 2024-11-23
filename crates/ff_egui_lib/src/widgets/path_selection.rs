@@ -24,6 +24,7 @@
 
     --------------------------------------------------------------------------
 */
+use crate::UiEvent;
 
 #[derive(Default)]
 pub struct PathSelectionWidget {
@@ -50,7 +51,7 @@ impl PathSelectionWidget {
         }
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui) -> Option<String> {
+    pub fn show(&mut self, ui: &mut egui::Ui) -> Option<UiEvent> {
         let path = self.path.clone();
         let mut changed = false;
 
@@ -84,7 +85,7 @@ impl PathSelectionWidget {
         });
 
         if changed {
-            Some(self.get())
+            Some(UiEvent::SelectPath(self.get()))
         }
         else {
             None

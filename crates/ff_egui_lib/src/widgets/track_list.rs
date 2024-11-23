@@ -133,6 +133,7 @@ impl TrackListWidget {
         ui.vertical(|ui| {
             //ui.heading(egui::RichText::new("Track List").color(ui.visuals().strong_text_color()));
             ui.heading(egui::RichText::new("Track List").strong());
+            //ui.separator();
 
             scroll_area.show(ui, |ui| {
                 ui.vertical(|ui| {

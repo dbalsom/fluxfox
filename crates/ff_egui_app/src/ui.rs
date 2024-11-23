@@ -24,5 +24,27 @@
 
     --------------------------------------------------------------------------
 */
+use std::fmt::{Display, Formatter, Result};
 
-pub mod hello;
+#[allow(dead_code)]
+pub enum UiTerm {
+    SaveFile,
+    OpenFile,
+}
+
+impl Display for UiTerm {
+    #[cfg(not(target_arch = "wasm32"))]
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self {
+            UiTerm::SaveFile => write!(f, "Save File"),
+            UiTerm::OpenFile => write!(f, "Open File"),
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self {
+            UiTerm::SaveFile => write!(f, "Download File"),
+            UiTerm::OpenFile => write!(f, "Upload File"),
+        }
+    }
+}

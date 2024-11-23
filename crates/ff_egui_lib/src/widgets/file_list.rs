@@ -24,13 +24,15 @@
 
     --------------------------------------------------------------------------
 */
-use egui::{CursorIcon, Label, Sense};
+use crate::UiEvent;
+use egui::{Label, Sense};
 use egui_extras::{Column, TableBuilder};
 use fluxfox::file_system::FileEntry;
 
 pub const GENERIC_FILE_ICON: &str = "🗋";
 
 pub struct FileListWidget {
+    is_web:    bool,
     file_list: Vec<FileEntry>,
     icon_map:  fluxfox::FoxHashMap<&'static str, &'static str>,
 }
@@ -45,6 +47,16 @@ impl FileListWidget {
     pub fn new() -> Self {
         log::warn!("FileListWidget::new()");
         Self {
+            is_web:    {
+                #[cfg(target_arch = "wasm32")]
+                {
+                    true
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    false
+                }
+            },
             file_list: Vec::new(),
             icon_map:  FileListWidget::icon_map(),
         }
@@ -90,16 +102,16 @@ impl FileListWidget {
         self.file_list = files.to_vec();
     }
 
-    pub fn show(&self, ui: &mut egui::Ui) -> Option<FileEntry> {
+    pub fn show(&self, ui: &mut egui::Ui) -> Option<UiEvent> {
         self.show_dir_table(ui)
     }
 
-    fn show_dir_table(&self, ui: &mut egui::Ui) -> Option<FileEntry> {
+    fn show_dir_table(&self, ui: &mut egui::Ui) -> Option<UiEvent> {
         // if self.dir_list.is_empty() {
         //     return None;
         // }
 
-        let mut selected_file = None;
+        let mut new_event = None;
         let num_rows = self.file_list.len();
 
         let text_height = egui::TextStyle::Body
@@ -143,20 +155,34 @@ impl FileListWidget {
 
                         let icon = self.get_icon(&self.file_list[row_index]);
 
+                        // First column - file icon and filename.
+                        // Filename is clickable to select the file, right clickable to open context menu.
                         row.col(|ui| {
                             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                                ui.label(icon);
-                                if ui
-                                    .add(
-                                        Label::new(egui::RichText::new(&self.file_list[row_index].name).monospace())
-                                            .sense(Sense::click()),
-                                    )
-                                    .on_hover_cursor(CursorIcon::PointingHand)
-                                    .clicked()
-                                {
-                                    selected_file = Some(self.file_list[row_index].clone());
-                                    //log::debug!("Selected file: {:?}", selected_file);
+                                //ui.label(icon);
+
+                                let file_name = format!("{} {}", icon, self.file_list[row_index].name);
+                                let item_response = ui
+                                    .add(Label::new(egui::RichText::new(file_name).monospace()).sense(Sense::click()));
+
+                                if item_response.clicked() {
+                                    log::debug!(
+                                        "show_dir_table(): Clicked on {:?}",
+                                        self.file_list[row_index].path.clone()
+                                    );
+                                    new_event = Some(UiEvent::SelectFile(self.file_list[row_index].clone()));
                                 }
+
+                                item_response.context_menu(|ui| {
+                                    let save_label_text = match self.is_web {
+                                        true => "Download",
+                                        false => "Save As...",
+                                    };
+                                    if ui.button(save_label_text).clicked() {
+                                        new_event = Some(UiEvent::ExportFile(self.file_list[row_index].path.clone()));
+                                        ui.close_menu();
+                                    }
+                                });
                             });
                         });
                         row.col(|ui| {
@@ -173,7 +199,7 @@ impl FileListWidget {
                     });
                 });
         });
-        selected_file
+        new_event
     }
 
     fn get_icon(&self, entry: &FileEntry) -> String {

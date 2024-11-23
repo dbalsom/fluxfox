@@ -24,6 +24,7 @@
 
     --------------------------------------------------------------------------
 */
+use crate::UiEvent;
 use egui::{CollapsingHeader, RichText, TextStyle};
 use fluxfox::file_system::FileTreeNode;
 
@@ -61,20 +62,31 @@ impl DirTreeWidget {
         self.selected_path = selection;
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui) -> Option<String> {
+    pub fn show(&mut self, ui: &mut egui::Ui) -> Option<UiEvent> {
         let mut selected_path = self.selected_path.clone();
         let mut new_selection = None;
+        let mut new_event = None;
         ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
             ui.set_min_width(MIN_TREE_WIDTH);
 
-            new_selection = self.tree_ui(ui, &self.tree, &mut selected_path, true);
+            new_event = self.tree_ui(ui, &self.tree, &mut selected_path, true);
+            //log::debug!("show(): got event from tree: {:?}", new_event);
+            if let Some(event) = &new_event {
+                match event {
+                    UiEvent::SelectPath(path) => {
+                        new_selection = Some(path.clone());
+                    }
+                    UiEvent::SelectFile(file) => {
+                        new_selection = Some(file.path.clone());
+                    }
+                    _ => {}
+                }
+            }
+
             ui.set_min_height(ui.available_height());
         });
 
-        if let Some(new_selection) = new_selection.clone() {
-            self.selected_path = Some(new_selection);
-        }
-        new_selection
+        new_event
     }
 
     pub fn tree_ui(
@@ -83,8 +95,8 @@ impl DirTreeWidget {
         node: &FileTreeNode,
         selected_path: &Option<String>,
         root: bool,
-    ) -> Option<String> {
-        let mut new_selection = None;
+    ) -> Option<UiEvent> {
+        let mut new_event = None;
 
         fn dir_icon(ui: &mut egui::Ui, openness: f32, response: &egui::Response) {
             let rect = response.rect;
@@ -128,7 +140,10 @@ impl DirTreeWidget {
                     .show(ui, |ui| {
                         // Draw children recursively
                         children.iter().for_each(|child| {
-                            self.tree_ui(ui, child, selected_path, false);
+                            if let Some(event) = self.tree_ui(ui, child, selected_path, false) {
+                                // Cascade event down from children
+                                new_event = Some(event)
+                            }
                         });
                     })
                     .header_response;
@@ -139,12 +154,13 @@ impl DirTreeWidget {
                     visuals.weak_bg_fill = egui::Color32::from_rgb(200, 200, 255);
                 }
 
-                header_response.clicked().then(|| {
-                    log::debug!("Selected path: {}", fs.path);
-                    new_selection = Some(fs.path.clone());
-                });
+                if header_response.clicked() {
+                    //log::debug!("tree_ui(): Selected path: {}", fs.path);
+                    new_event = Some(UiEvent::SelectPath(fs.path.clone()));
+                };
             }
         }
-        new_selection
+
+        new_event
     }
 }

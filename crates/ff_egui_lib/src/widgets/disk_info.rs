@@ -57,6 +57,7 @@ impl DiskInfoWidget {
     pub fn show(&self, ui: &mut egui::Ui) {
         ui.vertical(|ui| {
             ui.heading(egui::RichText::new("Disk Info").color(ui.visuals().strong_text_color()));
+            //ui.separator();
 
             egui::Grid::new("disk_info_grid").striped(true).show(ui, |ui| {
                 ui.label("Filename:");

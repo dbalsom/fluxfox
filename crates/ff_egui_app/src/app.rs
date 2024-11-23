@@ -30,7 +30,12 @@ use crate::native::{util, worker};
 use crate::viz::VisualizationState;
 use egui::Layout;
 use fluxfox::{file_system::fat::fat::FatFileSystem, DiskImage, DiskImageError, LoadingStatus};
-use fluxfox_egui::{widgets::disk_info::DiskInfoWidget, SectorSelection, TrackListSelection};
+use fluxfox_egui::{
+    widgets::{disk_info::DiskInfoWidget, filesystem::FileSystemWidget},
+    SectorSelection,
+    TrackListSelection,
+    UiEvent,
+};
 use std::{
     default::Default,
     sync::{mpsc, Arc},
@@ -45,7 +50,7 @@ use crate::wasm::{util, worker};
 pub const APP_NAME: &str = "fluxfox-web";
 
 use crate::{
-    widgets::filesystem::FileSystemWidget,
+    widgets::hello::HelloWidget,
     windows::{file_viewer::FileViewer, sector_viewer::SectorViewer},
 };
 use fluxfox_egui::widgets::track_list::TrackListWidget;
@@ -88,8 +93,9 @@ pub struct PersistentState {
 
 #[derive(Default)]
 pub struct AppWidgets {
-    disk_info:   DiskInfoWidget,
-    track_list:  TrackListWidget,
+    hello: HelloWidget,
+    disk_info: DiskInfoWidget,
+    track_list: TrackListWidget,
     file_system: FileSystemWidget,
 }
 
@@ -307,17 +313,8 @@ impl eframe::App for App {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             // The central panel the region left after adding TopPanels and SidePanels
-            ui.add(util::get_logo_image().fit_to_original_size(1.0));
 
-            ui.heading(egui::RichText::new(format!("Welcome to {}!", APP_NAME)).color(ui.visuals().strong_text_color()));
-
-            ui.vertical(|ui| {
-                ui.label("Drag disk image files to this window to load. Kryoflux sets should be in single-disk ZIP archives.");
-                ui.label(format!(
-                    "Image types supported: {}",
-                    self.supported_extensions.join(", ")
-                ));
-            });
+            self.widgets.hello.show(ui, APP_NAME, &self.supported_extensions);
 
             ui.separator();
 
@@ -329,15 +326,10 @@ impl eframe::App for App {
             self.handle_image_info(ui);
 
             ui.with_layout(egui::Layout::top_down_justified(egui::Align::Center), |ui| {
-
-                ui.allocate_ui_with_layout(
-                    ui.available_size(),
-                    Layout::left_to_right(egui::Align::Min),
-                    |ui| {
-                        self.handle_track_info(ui);
-                        self.handle_fs_info(ui);
-                    },
-                );
+                ui.allocate_ui_with_layout(ui.available_size(), Layout::left_to_right(egui::Align::Min), |ui| {
+                    self.handle_track_info(ui);
+                    self.handle_fs_info(ui);
+                });
             });
 
             self.handle_load_messages(ctx);
@@ -456,6 +448,7 @@ impl App {
                         .sector_viewer
                         .update(self.disk_image.as_mut().unwrap(), SectorSelection::default());
                     self.sector_selection = Some(SectorSelection::default());
+                    self.widgets.hello.set_small(true);
                 }
                 AppEvent::SectorSelected(selection) => {
                     self.windows
@@ -496,28 +489,55 @@ impl App {
     }
 
     fn handle_fs_info(&mut self, ui: &mut egui::Ui) {
+        let mut new_event = None;
         if let Some(disk) = &mut self.disk_image {
             // egui::Window::new("Test Table").resizable(true).show(ui.ctx(), |ui| {
             //     self.widgets.file_list.show(ui);
             // });
 
             ui.group(|ui| {
-                self.widgets.file_system.show(ui);
+                new_event = self.widgets.file_system.show(ui);
             });
 
-            if let Some(selected_file) = self.widgets.file_system.new_file_selection() {
-                log::debug!("Selected file: {:?}", selected_file);
-                match FatFileSystem::mount(disk) {
-                    Ok(fs) => {
-                        log::debug!("FAT filesystem mounted successfully!");
-                        self.windows.file_viewer.update(&fs, selected_file);
-                        self.windows.file_viewer.set_open(true);
+            if let Some(event) = new_event {
+                match event {
+                    UiEvent::ExportFile(path) => {
+                        log::debug!("Exporting file: {:?}", path);
+                        let fs = FatFileSystem::mount(disk).unwrap();
+                        let file_data = match fs.read_file(&path) {
+                            Ok(data) => data,
+                            Err(e) => {
+                                log::error!("Error reading file: {:?}", e);
+                                return;
+                            }
+                        };
+
+                        match self.save_file_as(&path, &file_data) {
+                            Ok(_) => {
+                                log::info!("File saved successfully!");
+                            }
+                            Err(e) => {
+                                log::error!("Error saving file: {:?}", e);
+                            }
+                        }
                     }
-                    Err(e) => {
-                        log::error!("Error mounting FAT filesystem: {:?}", e);
+                    UiEvent::SelectFile(file) => {
+                        let selected_file = file.path;
+                        log::debug!("Selected file: {:?}", selected_file);
+                        match FatFileSystem::mount(disk) {
+                            Ok(fs) => {
+                                log::debug!("FAT filesystem mounted successfully!");
+                                self.windows.file_viewer.update(&fs, selected_file);
+                                self.windows.file_viewer.set_open(true);
+                            }
+                            Err(e) => {
+                                log::error!("Error mounting FAT filesystem: {:?}", e);
+                            }
+                        };
                     }
-                };
-            }
+                    _ => {}
+                }
+            };
         }
     }
 
