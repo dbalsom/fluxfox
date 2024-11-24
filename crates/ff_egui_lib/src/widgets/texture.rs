@@ -26,11 +26,15 @@
 */
 #![allow(dead_code)]
 
+use crate::widgets::texture::PixelCanvasDepth::Rgba;
+
 use egui::{
+    epaint::image,
     Color32,
     ColorImage,
     Context,
     ImageData,
+    InnerResponse,
     Rect,
     Response,
     ScrollArea,
@@ -39,7 +43,7 @@ use egui::{
     TextureOptions,
     Vec2,
 };
-use std::sync::Arc;
+use std::{io::Cursor, sync::Arc};
 
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[repr(u8)]
@@ -246,7 +250,8 @@ impl PixelCanvas {
         self.view_dimensions.0 as f32 * self.zoom
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui, on_hover: Option<impl FnOnce(&Response, f32, f32)>) {
+    pub fn show(&mut self, ui: &mut egui::Ui, on_hover: Option<impl FnOnce(&Response, f32, f32)>) -> Option<Response> {
+        let mut inner_response = None;
         if let Some(texture) = &self.texture {
             ui.vertical(|ui| {
                 // Draw background rect
@@ -278,6 +283,10 @@ impl PixelCanvas {
                         );
                     }
 
+                    if response.secondary_clicked() {
+                        log::debug!("Secondary click detected!");
+                    }
+
                     if let Some(mouse_pos) = response.hover_pos() {
                         let x = mouse_pos.x - start_x;
                         let y = mouse_pos.y - start_y;
@@ -287,11 +296,15 @@ impl PixelCanvas {
                             }
                         }
                     }
+                    inner_response = Some(response);
                 });
-            });
+                inner_response
+            })
+            .inner
         }
         else {
             log::debug!("No texture to draw.");
+            None
         }
     }
 
@@ -450,5 +463,23 @@ impl PixelCanvas {
             }
         }
         self.data_unpacked = true;
+    }
+
+    pub fn to_png(&self) -> Vec<u8> {
+        use ::image::{ImageBuffer, ImageFormat, Rgba};
+
+        let mut img = ImageBuffer::new(self.view_dimensions.0, self.view_dimensions.1);
+        for (x, y, pixel) in img.enumerate_pixels_mut() {
+            let idx = (x + y * self.view_dimensions.0) as usize;
+            *pixel = Rgba([
+                self.backing_buf[idx].r(),
+                self.backing_buf[idx].g(),
+                self.backing_buf[idx].b(),
+                self.backing_buf[idx].a(),
+            ]);
+        }
+        let mut buf = Cursor::new(Vec::new());
+        img.write_to(&mut buf, ImageFormat::Png).unwrap();
+        buf.into_inner()
     }
 }

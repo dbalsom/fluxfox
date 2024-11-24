@@ -47,9 +47,13 @@ impl HelloWidget {
         ui.add(util::get_logo_image().fit_to_original_size(scale));
 
         if !self.small {
-            ui.heading(
-                egui::RichText::new(format!("Welcome to {}!", app_name)).color(ui.visuals().strong_text_color()),
-            );
+            ui.horizontal(|ui| {
+                ui.heading(
+                    egui::RichText::new(format!("Welcome to {}!", app_name)).color(ui.visuals().strong_text_color()),
+                );
+                ui.label(format!("v{}", env!("CARGO_PKG_VERSION")));
+                ui.hyperlink_to("GitHub", "https://github.com/dbalsom/fluxfox");
+            });
         }
 
         ui.vertical(|ui| {

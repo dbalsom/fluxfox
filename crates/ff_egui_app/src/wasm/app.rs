@@ -35,7 +35,7 @@ impl App {
         // The browser loads dropped files for us, so this is a stub.
     }
 
-    pub(crate) fn save_file_as(&mut self, path: &str, bytes: &[u8]) -> Result<()> {
+    pub(crate) fn save_file_as(path: &str, bytes: &[u8]) -> Result<()> {
         let filename = path.rsplit('/').next().ok_or_else(|| anyhow!("Invalid path"))?;
 
         // Convert the bytes to a `Uint8Array` for compatibility with JavaScript

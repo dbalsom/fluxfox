@@ -105,6 +105,14 @@ impl VizViewer {
                             //self.viz.set_weak_layer(self.show_weak_layer);
                         }
                     });
+
+                    ui.menu_button("Save", |ui| {
+                        for side in 0..self.viz.sides {
+                            if ui.button(format!("Save Side {} as PNG", side).as_str()).clicked() {
+                                self.viz.save_side_as(&format!("fluxfox_viz_side{}.png", side), side);
+                            }
+                        }
+                    });
                 });
                 self.viz.show(ui);
             });

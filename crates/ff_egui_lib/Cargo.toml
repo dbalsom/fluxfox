@@ -19,6 +19,8 @@ egui_extras_v28 = { package = "egui_extras", version = "0.28", optional = true }
 serde = { version = "1.0", optional = true }
 strum = { version = "0.26" }
 strum_macros = { version = "0.26" }
+# this should track with the version used by egui_extrass to avoid duplicates
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [features]
 default = ["egui", "egui_extras", "serde"]

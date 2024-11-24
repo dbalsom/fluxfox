@@ -461,6 +461,13 @@ impl VisualizationState {
         }
     }
 
+    pub(crate) fn save_side_as(&mut self, filename: &str, side: usize) {
+        if let Some(canvas) = &mut self.canvas[side] {
+            let png_data = canvas.to_png();
+            _ = App::save_file_as(filename, &png_data);
+        }
+    }
+
     pub(crate) fn show(&mut self, ui: &mut egui::Ui) {
         // Receive events
         while let Ok(msg) = self.render_receiver.try_recv() {
@@ -480,7 +487,7 @@ impl VisualizationState {
                 if self.have_render[side] {
                     if let Some(canvas) = &mut self.canvas[side] {
                         let layer_id = ui.layer_id();
-                        canvas.show(
+                        let response = canvas.show(
                             ui,
                             Some(|response: &egui::Response, x: f32, y: f32| {
                                 egui::popup::show_tooltip(
@@ -505,6 +512,18 @@ impl VisualizationState {
                                 );
                             }),
                         );
+
+                        if let Some(response) = response {
+                            response.context_menu(|ui| {
+                                if ui.button("Save as PNG").clicked() {
+                                    let png_data = canvas.to_png();
+                                    let file_name = format!("fluxfox_viz_side{}.png", side);
+
+                                    _ = App::save_file_as(&file_name, &png_data);
+                                    ui.close_menu();
+                                }
+                            });
+                        };
                     }
                 }
             }
