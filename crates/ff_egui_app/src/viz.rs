@@ -24,7 +24,13 @@
 
     --------------------------------------------------------------------------
 */
-use crate::{native::worker, App};
+
+#[cfg(not(target_arch = "wasm32"))]
+use crate::native::worker;
+#[cfg(target_arch = "wasm32")]
+use crate::wasm::worker;
+
+use crate::App;
 use anyhow::{anyhow, Error};
 use fluxfox::{
     structure_parsers::DiskStructureGenericElement,
@@ -216,8 +222,8 @@ impl VisualizationState {
             Ok(_) => {
                 log::debug!("Spawned rendering worker for data layer...");
             }
-            Err(e) => {
-                log::error!("Error spawning rendering worker for data layer: {}", e);
+            Err(_e) => {
+                log::error!("Error spawning rendering worker for data layer!");
             }
         };
 
