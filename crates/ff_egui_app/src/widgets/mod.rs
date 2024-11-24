@@ -26,3 +26,4 @@
 */
 
 pub mod hello;
+pub(crate) mod viz;

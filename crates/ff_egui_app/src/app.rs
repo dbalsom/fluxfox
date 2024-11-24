@@ -31,7 +31,6 @@ use std::{
     sync::{mpsc, Arc, RwLock},
 };
 
-use crate::viz::VisualizationState;
 use fluxfox::{file_system::fat::fat::FatFileSystem, DiskImage, DiskImageError, LoadingStatus};
 use fluxfox_egui::{
     widgets::{disk_info::DiskInfoWidget, filesystem::FileSystemWidget},
@@ -51,7 +50,7 @@ pub const APP_NAME: &str = "fluxfox-web";
 
 use crate::{
     widgets::hello::HelloWidget,
-    windows::{file_viewer::FileViewer, sector_viewer::SectorViewer},
+    windows::{file_viewer::FileViewer, sector_viewer::SectorViewer, viz::VizViewer},
 };
 use fluxfox_egui::widgets::track_list::TrackListWidget;
 
@@ -144,12 +143,14 @@ impl AppWidgets {
 
 #[derive(Default)]
 pub struct AppWindows {
+    viz_viewer:    VizViewer,
     sector_viewer: SectorViewer,
     file_viewer:   FileViewer,
 }
 
 impl AppWindows {
     pub fn reset(&mut self) {
+        self.viz_viewer.reset();
         self.sector_viewer = SectorViewer::default();
         self.file_viewer = FileViewer::default();
     }
@@ -173,7 +174,6 @@ pub struct App {
     load_receiver: Option<mpsc::Receiver<ThreadLoadStatus>>,
     disk_image_name: Option<String>,
     pub(crate) disk_image: Option<Arc<RwLock<DiskImage>>>,
-    pub(crate) viz_state: VisualizationState,
     supported_extensions: Vec<String>,
 
     widgets: AppWidgets,
@@ -206,7 +206,6 @@ impl Default for App {
             disk_image_name: None,
             disk_image: None,
 
-            viz_state: VisualizationState::default(),
             supported_extensions: Vec::new(),
 
             widgets: AppWidgets::default(),
@@ -237,7 +236,7 @@ impl App {
             app_state.p_state = eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
         }
 
-        app_state.viz_state = VisualizationState::new(cc.egui_ctx.clone(), 512);
+        app_state.windows.viz_viewer.init(cc.egui_ctx.clone(), 512);
         egui_extras::install_image_loaders(&cc.egui_ctx);
         // Set dark mode. This doesn't seem to work for some reason.
         // So we'll use a flag in state and do it on the first update().
@@ -272,14 +271,7 @@ impl eframe::App for App {
         }
 
         // Show windows
-        self.viz_window_open = self.viz_state.is_open();
-
-        if self.viz_window_open {
-            egui::Window::new("Visualization").fade_in(true).show(ctx, |ui| {
-                self.viz_state.show(ui);
-            });
-        }
-
+        self.windows.viz_viewer.show(ctx);
         self.windows.sector_viewer.show(ctx);
         self.windows.file_viewer.show(ctx);
 
@@ -320,6 +312,14 @@ impl eframe::App for App {
                         }
                     });
                 }
+
+                ui.menu_button("Windows", |ui| {
+                    ui.checkbox(self.windows.viz_viewer.open_mut(), "Visualization");
+                });
+
+                ui.menu_button("Options", |ui| {
+                    ui.checkbox(&mut self.p_state.user_opts.auto_show_viz, "Auto-show Visualization");
+                });
             });
         });
 
@@ -384,8 +384,8 @@ impl App {
         self.load_status = ThreadLoadStatus::Inactive;
         self.run_mode = RunMode::Reactive;
         self.viz_window_open = false;
-        self.viz_state = VisualizationState::default();
         self.widgets.reset();
+        self.windows.reset();
     }
 
     // Optional: clear dropped files when done
@@ -428,16 +428,10 @@ impl App {
                     self.run_mode = RunMode::Reactive;
                     self.error_msg = None;
 
-                    // Scope to ensure disk image is unlocked after retrieving heads
-                    let heads = {
-                        let disk_ref = self.disk_image.as_ref().unwrap();
-                        let disk = disk_ref.read().unwrap();
-                        disk.geometry().h()
-                    };
-
                     match self
-                        .viz_state
-                        .render_visualization(self.disk_image.as_ref().unwrap().clone(), 0)
+                        .windows
+                        .viz_viewer
+                        .render(self.disk_image.as_ref().unwrap().clone())
                     {
                         Ok(_) => {
                             log::info!("Visualization rendered successfully!");
@@ -447,19 +441,10 @@ impl App {
                         }
                     }
 
-                    match self
-                        .viz_state
-                        .render_visualization(self.disk_image.as_ref().unwrap().clone(), 1)
-                    {
-                        Ok(_) => {
-                            log::info!("Visualization rendered successfully!");
-                        }
-                        Err(e) => {
-                            log::error!("Error rendering visualization: {:?}", e);
-                        }
+                    if self.p_state.user_opts.auto_show_viz {
+                        self.windows.viz_viewer.set_open(true);
                     }
 
-                    self.viz_state.set_sides(heads as usize);
                     // Update widgets.
                     log::debug!("Updating widgets with new disk image...");
                     self.widgets
