@@ -49,7 +49,7 @@ impl App {
         }
     }
 
-    pub(crate) fn save_file_as(&mut self, _path: &str, _bytes: &[u8]) -> Result<()> {
+    pub(crate) fn save_file_as(_path: &str, _bytes: &[u8]) -> Result<()> {
         Ok(())
     }
 }

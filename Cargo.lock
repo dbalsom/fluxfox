@@ -1828,6 +1828,7 @@ dependencies = [
  "egui_extras 0.28.1",
  "egui_extras 0.29.1",
  "fluxfox",
+ "image",
  "log 0.4.22",
  "serde",
  "strum",

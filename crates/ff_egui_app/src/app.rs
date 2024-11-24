@@ -531,7 +531,7 @@ impl App {
                         };
                         fs.unmount();
 
-                        match self.save_file_as(&path, &file_data) {
+                        match App::save_file_as(&path, &file_data) {
                             Ok(_) => {
                                 log::info!("File saved successfully!");
                             }
