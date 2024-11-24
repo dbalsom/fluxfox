@@ -24,3 +24,90 @@
 
     --------------------------------------------------------------------------
 */
+use crate::widgets::viz::VisualizationState;
+use fluxfox::DiskImage;
+use std::sync::{Arc, RwLock};
+
+use anyhow::Result;
+
+pub struct VizViewer {
+    viz: VisualizationState,
+
+    show_data_layer: bool,
+    show_metadata_layer: bool,
+    show_error_layer: bool,
+    show_weak_layer: bool,
+    open: bool,
+}
+
+impl Default for VizViewer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl VizViewer {
+    pub fn new() -> Self {
+        Self {
+            viz: VisualizationState::default(),
+            open: false,
+            show_data_layer: true,
+            show_metadata_layer: true,
+            show_error_layer: false,
+            show_weak_layer: false,
+        }
+    }
+
+    /// Reset, but don't destroy the visualization state
+    pub fn reset(&mut self) {
+        //self.viz.clear();
+
+        self.open = false;
+    }
+
+    pub fn init(&mut self, ctx: egui::Context, resolution: u32) {
+        self.viz = VisualizationState::new(ctx, resolution);
+    }
+
+    pub fn set_open(&mut self, state: bool) {
+        self.open = state;
+    }
+
+    pub fn open_mut(&mut self) -> &mut bool {
+        &mut self.open
+    }
+
+    pub fn render(&mut self, disk_lock: Arc<RwLock<DiskImage>>) -> Result<()> {
+        {
+            let disk = disk_lock.read().unwrap();
+            self.viz.set_sides(disk.heads() as usize);
+        }
+        self.viz.render_visualization(disk_lock.clone(), 0)?;
+        self.viz.render_visualization(disk_lock.clone(), 1)?;
+        Ok(())
+    }
+
+    pub fn show(&mut self, ctx: &egui::Context) {
+        if self.open {
+            egui::Window::new("Visualization").open(&mut self.open).show(ctx, |ui| {
+                egui::menu::bar(ui, |ui| {
+                    ui.menu_button("Layers", |ui| {
+                        if ui.checkbox(&mut self.show_data_layer, "Data Layer").changed() {
+                            self.viz.enable_data_layer(self.show_data_layer);
+                        }
+                        if ui.checkbox(&mut self.show_metadata_layer, "Metadata Layer").changed() {
+                            self.viz.enable_metadata_layer(self.show_metadata_layer);
+                        }
+                        if ui.checkbox(&mut self.show_error_layer, "Error Layer").changed() {
+                            //self.viz.set_error_layer(self.show_error_layer);
+                        }
+                        if ui.checkbox(&mut self.show_weak_layer, "Weak Layer").changed() {
+                            //self.viz.set_weak_layer(self.show_weak_layer);
+                        }
+                    });
+                });
+                self.viz.show(ui);
+            });
+        }
+    }
+}

@@ -57,6 +57,7 @@ pub const VIZ_DATA_SUPERSAMPLE: u32 = 2;
 pub const VIZ_RESOLUTION: u32 = 512;
 pub const VIZ_SUPER_RESOLUTION: u32 = VIZ_RESOLUTION * VIZ_DATA_SUPERSAMPLE;
 
+#[allow(dead_code)]
 pub enum RenderMessage {
     DataRenderComplete(u8),
     DataRenderError(String),
@@ -75,6 +76,10 @@ pub struct VisualizationState {
     pub sides: usize,
     pub render_sender: mpsc::SyncSender<RenderMessage>,
     pub render_receiver: mpsc::Receiver<RenderMessage>,
+    pub show_data_layer: bool,
+    pub show_metadata_layer: bool,
+    pub show_error_layer: bool,
+    pub show_weak_layer: bool,
 }
 
 impl Default for VisualizationState {
@@ -109,6 +114,10 @@ impl Default for VisualizationState {
             sides: 1,
             render_sender,
             render_receiver,
+            show_data_layer: true,
+            show_metadata_layer: true,
+            show_error_layer: false,
+            show_weak_layer: false,
         }
     }
 }
@@ -363,36 +372,46 @@ impl VisualizationState {
                 let mut paint = PixmapPaint::default();
                 // Scale the data pixmap down to the composite size with bilinear filtering.
                 paint.quality = FilterQuality::Bilinear;
-                let scale = 1.0 / self.supersample as f32;
-                let transform = tiny_skia::Transform::from_scale(scale, scale);
-                self.composite_img[side].fill(Color::TRANSPARENT);
-                self.composite_img[side].draw_pixmap(0, 0, data.as_ref(), &paint, transform, None);
-                paint = PixmapPaint {
-                    opacity:    1.0,
-                    blend_mode: BlendMode::HardLight,
-                    quality:    FilterQuality::Nearest,
-                };
-                self.composite_img[side].draw_pixmap(
-                    0,
-                    0,
-                    self.metadata_img[side].as_ref(),
-                    &paint,
-                    tiny_skia::Transform::identity(),
-                    None,
-                );
+
+                if self.show_data_layer {
+                    let scale = 1.0 / self.supersample as f32;
+                    let transform = tiny_skia::Transform::from_scale(scale, scale);
+                    self.composite_img[side].fill(Color::TRANSPARENT);
+                    self.composite_img[side].draw_pixmap(0, 0, data.as_ref(), &paint, transform, None);
+                }
+                else {
+                    self.composite_img[side].fill(Color::TRANSPARENT);
+                }
+                if self.show_metadata_layer {
+                    paint = PixmapPaint {
+                        opacity:    1.0,
+                        blend_mode: BlendMode::HardLight,
+                        quality:    FilterQuality::Nearest,
+                    };
+                    self.composite_img[side].draw_pixmap(
+                        0,
+                        0,
+                        self.metadata_img[side].as_ref(),
+                        &paint,
+                        tiny_skia::Transform::identity(),
+                        None,
+                    );
+                }
             }
             Err(_) => {
                 log::debug!("Data pixmap locked, deferring compositing...");
                 let paint = tiny_skia::PixmapPaint::default();
                 self.composite_img[side].fill(Color::TRANSPARENT);
-                self.composite_img[side].draw_pixmap(
-                    0,
-                    0,
-                    self.metadata_img[side].as_ref(),
-                    &paint,
-                    tiny_skia::Transform::identity(),
-                    None,
-                );
+                if self.show_metadata_layer {
+                    self.composite_img[side].draw_pixmap(
+                        0,
+                        0,
+                        self.metadata_img[side].as_ref(),
+                        &paint,
+                        tiny_skia::Transform::identity(),
+                        None,
+                    );
+                }
             }
         }
 
@@ -409,8 +428,37 @@ impl VisualizationState {
         self.sides = sides;
     }
 
+    #[allow(dead_code)]
     pub(crate) fn is_open(&self) -> bool {
         self.have_render[0]
+    }
+
+    pub(crate) fn enable_data_layer(&mut self, state: bool) {
+        self.show_data_layer = state;
+        for side in 0..self.sides {
+            self.composite(side);
+        }
+    }
+
+    pub(crate) fn enable_metadata_layer(&mut self, state: bool) {
+        self.show_metadata_layer = state;
+        for side in 0..self.sides {
+            self.composite(side);
+        }
+    }
+
+    pub(crate) fn enable_error_layer(&mut self, state: bool) {
+        self.show_error_layer = state;
+        for side in 0..self.sides {
+            self.composite(side);
+        }
+    }
+
+    pub(crate) fn enable_weak_layer(&mut self, state: bool) {
+        self.show_weak_layer = state;
+        for side in 0..self.sides {
+            self.composite(side);
+        }
     }
 
     pub(crate) fn show(&mut self, ui: &mut egui::Ui) {

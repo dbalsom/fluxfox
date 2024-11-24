@@ -28,7 +28,6 @@
 #![warn(clippy::all, rust_2018_idioms)]
 
 pub(crate) mod app;
-pub(crate) mod viz;
 pub(crate) mod widgets;
 
 #[cfg(not(target_arch = "wasm32"))]
