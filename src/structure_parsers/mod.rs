@@ -92,7 +92,8 @@ impl DiskStructureMetadata {
 
         if ref_stack.is_empty() {
             None
-        } else {
+        }
+        else {
             // Sort by smallest element to allow address markers to have highest
             // priority.
             ref_stack.sort_by(|a, b| a.start.cmp(&b.start));
@@ -105,7 +106,7 @@ impl DiskStructureMetadata {
     pub fn sector_ct(&self) -> u8 {
         let mut sector_ct = 0;
         for item in &self.items {
-            if item.elem_type.is_sector() {
+            if item.elem_type.is_sector_data_marker() {
                 sector_ct += 1;
             }
         }
@@ -214,10 +215,32 @@ impl From<DiskStructureElement> for DiskStructureGenericElement {
 }
 
 impl DiskStructureElement {
-    pub fn is_sector(&self) -> bool {
+    pub fn is_sector_header(&self) -> bool {
         match self {
-            DiskStructureElement::System34(elem) => elem.is_sector(),
+            DiskStructureElement::System34(System34Element::SectorHeader { .. }) => true,
             _ => false,
+        }
+    }
+
+    pub fn is_sector_data_marker(&self) -> bool {
+        match self {
+            DiskStructureElement::System34(elem) => elem.is_sector_data_marker(),
+            _ => false,
+        }
+    }
+
+    pub fn is_sector_data(&self) -> bool {
+        match self {
+            DiskStructureElement::System34(elem) => elem.is_sector_data(),
+            _ => false,
+        }
+    }
+
+    pub fn chsn(&self) -> Option<DiskChsn> {
+        match self {
+            DiskStructureElement::System34(System34Element::SectorHeader { chsn, .. }) => Some(*chsn),
+            DiskStructureElement::System34(System34Element::Data { chsn, .. }) => Some(*chsn),
+            _ => None,
         }
     }
 }

@@ -32,14 +32,23 @@ use crate::{
     ImageParser,
 };
 use fluxfox_fat::{Dir, FileSystem, FsOptions, OemCpConverter, ReadWriteSeek, StdIoWrapper, TimeProvider};
-use std::{io::Read, sync::Arc};
+use std::{
+    io::Read,
+    sync::{Arc, RwLock},
+};
 
 pub struct FatFileSystem {
     fat: Option<Arc<FileSystem<StdIoWrapper<Cursor<Vec<u8>>>>>>,
 }
 
 impl FatFileSystem {
-    pub fn mount(disk: &mut DiskImage) -> Result<Self, FileSystemError> {
+    pub fn mount(disk_lock: Arc<RwLock<DiskImage>>) -> Result<Self, FileSystemError> {
+        log::debug!(
+            "FatFileSystem::mount(): Attempting to lock disk image for writing with {} references...",
+            Arc::strong_count(&disk_lock)
+        );
+        let disk = &mut disk_lock.write().unwrap();
+
         // Create a buffer to hold the disk image
         let img_buf = Vec::new();
         let mut cursor = Cursor::new(img_buf);
@@ -61,6 +70,10 @@ impl FatFileSystem {
         Ok(Self {
             fat: Some(Arc::new(fat)),
         })
+    }
+
+    pub fn unmount(&mut self) {
+        self.fat = None;
     }
 
     pub fn read_file(&self, path: &str) -> Result<Vec<u8>, FileSystemError> {

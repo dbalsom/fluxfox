@@ -24,38 +24,76 @@
 
     --------------------------------------------------------------------------
 */
-use crate::App;
+use crate::{native::worker, App};
 use anyhow::{anyhow, Error};
 use fluxfox::{
     structure_parsers::DiskStructureGenericElement,
     tiny_skia,
     tiny_skia::{Color, Pixmap},
-    visualization::{render_track_metadata_quadrant, RenderTrackMetadataParams},
+    visualization::{
+        render_track_data,
+        render_track_metadata_quadrant,
+        RenderTrackDataParams,
+        RenderTrackMetadataParams,
+        ResolutionType,
+    },
     DiskImage,
 };
 use fluxfox_egui::widgets::texture::{PixelCanvas, PixelCanvasDepth};
 use std::{
     collections::HashMap,
     default::Default,
-    sync::{Arc, Mutex},
+    sync::{mpsc, Arc, Mutex, RwLock},
 };
+use tiny_skia::{BlendMode, FilterQuality, PixmapPaint};
 
+pub const VIZ_DATA_SUPERSAMPLE: u32 = 2;
 pub const VIZ_RESOLUTION: u32 = 512;
+pub const VIZ_SUPER_RESOLUTION: u32 = VIZ_RESOLUTION * VIZ_DATA_SUPERSAMPLE;
+
+pub enum RenderMessage {
+    DataRenderComplete(u8),
+    DataRenderError(String),
+}
 
 pub struct VisualizationState {
+    pub supersample: u32,
     pub meta_pixmap_pool: Vec<Arc<Mutex<Pixmap>>>,
+    pub data_img: [Arc<Mutex<Pixmap>>; 2],
     pub metadata_img: [Pixmap; 2],
+    pub composite_img: [Pixmap; 2],
+    pub sector_lookup_img: [Pixmap; 2],
     pub meta_palette: HashMap<DiskStructureGenericElement, Color>,
     pub have_render: [bool; 2],
     pub canvas: [Option<PixelCanvas>; 2],
     pub sides: usize,
+    pub render_sender: mpsc::SyncSender<RenderMessage>,
+    pub render_receiver: mpsc::Receiver<RenderMessage>,
 }
 
 impl Default for VisualizationState {
     fn default() -> Self {
+        let (render_sender, render_receiver) = mpsc::sync_channel(2);
         Self {
+            supersample: VIZ_DATA_SUPERSAMPLE,
             meta_pixmap_pool: Vec::new(),
+            data_img: [
+                Arc::new(Mutex::new(
+                    Pixmap::new(VIZ_SUPER_RESOLUTION, VIZ_SUPER_RESOLUTION).unwrap(),
+                )),
+                Arc::new(Mutex::new(
+                    Pixmap::new(VIZ_SUPER_RESOLUTION, VIZ_SUPER_RESOLUTION).unwrap(),
+                )),
+            ],
             metadata_img: [
+                Pixmap::new(VIZ_RESOLUTION, VIZ_RESOLUTION).unwrap(),
+                Pixmap::new(VIZ_RESOLUTION, VIZ_RESOLUTION).unwrap(),
+            ],
+            composite_img: [
+                Pixmap::new(VIZ_RESOLUTION, VIZ_RESOLUTION).unwrap(),
+                Pixmap::new(VIZ_RESOLUTION, VIZ_RESOLUTION).unwrap(),
+            ],
+            sector_lookup_img: [
                 Pixmap::new(VIZ_RESOLUTION, VIZ_RESOLUTION).unwrap(),
                 Pixmap::new(VIZ_RESOLUTION, VIZ_RESOLUTION).unwrap(),
             ],
@@ -63,6 +101,8 @@ impl Default for VisualizationState {
             have_render: [false; 2],
             canvas: [None, None],
             sides: 1,
+            render_sender,
+            render_receiver,
         }
     }
 }
@@ -114,99 +154,249 @@ impl VisualizationState {
         }
     }
 
-    pub(crate) fn render_visualization(
-        &mut self,
-        disk_image: Option<&mut DiskImage>,
-        side: usize,
-    ) -> Result<(), Error> {
+    pub(crate) fn render_visualization(&mut self, disk_lock: Arc<RwLock<DiskImage>>, side: usize) -> Result<(), Error> {
         if self.meta_pixmap_pool.len() < 4 {
             return Err(anyhow!("Pixmap pool not initialized"));
         }
 
-        if let Some(disk) = disk_image {
-            let head = side as u8;
-            let quadrant = 0;
-            let angle = 0.0;
-            let min_radius_fraction = 0.333;
-            let render_track_gap = 0.10;
-            let direction = fluxfox::visualization::RotationDirection::CounterClockwise;
-            let track_ct = disk.get_track_ct(side.into());
+        let render_lock = disk_lock.clone();
+        let render_sender = self.render_sender.clone();
+        let render_target = self.data_img[side].clone();
 
-            // Clear pixmap before rendering
-            self.metadata_img[side].fill(Color::TRANSPARENT);
+        let disk = &disk_lock.read().unwrap();
+        let head = side as u8;
+        let quadrant = 0;
+        let angle = 0.0;
+        let min_radius_fraction = 0.333;
+        let render_track_gap = 0.10;
+        let direction = match head {
+            0 => fluxfox::visualization::RotationDirection::CounterClockwise,
+            _ => fluxfox::visualization::RotationDirection::Clockwise,
+        };
+        let track_ct = disk.get_track_ct(side.into());
 
-            let mut render_params = RenderTrackMetadataParams {
-                quadrant,
+        if side >= disk.heads() as usize {
+            // Ignore request for non-existent side.
+            return Ok(());
+        }
+
+        // Render the main data layer.
+        match worker::spawn_closure_worker(move || {
+            let render_params = RenderTrackDataParams {
+                bg_color: None,
+                map_color: None,
                 head,
+                image_size: (VIZ_SUPER_RESOLUTION, VIZ_SUPER_RESOLUTION),
+                image_pos: (0, 0),
                 min_radius_fraction,
                 index_angle: angle,
                 track_limit: track_ct,
                 track_gap: render_track_gap,
-                direction,
-                palette: self.meta_palette.clone(),
-                draw_empty_tracks: true,
+                direction: direction.opposite(),
+                decode: true,
+                resolution: ResolutionType::Byte,
                 pin_last_standard_track: true,
             };
 
-            for quadrant in 0..4 {
-                render_params.quadrant = quadrant as u8;
-                let mut pixmap = self.meta_pixmap_pool[quadrant].lock().unwrap();
+            let disk = render_lock.read().unwrap();
+            let mut render_pixmap = render_target.lock().unwrap();
+            render_pixmap.fill(Color::TRANSPARENT);
 
-                match render_track_metadata_quadrant(disk, &mut pixmap, &render_params) {
-                    Ok(_) => {
-                        log::debug!("...Rendered quadrant {}", quadrant);
-                    }
-                    Err(e) => {
-                        log::error!("Error rendering quadrant: {}", e);
-                        return Err(anyhow!("Error rendering metadata"));
-                    }
+            match render_track_data(&disk, &mut render_pixmap, &render_params) {
+                Ok(_) => {
+                    log::debug!("render worker: Data layer rendered for side {}", head);
+                    render_sender.send(RenderMessage::DataRenderComplete(head)).unwrap();
+                }
+                Err(e) => {
+                    log::error!("Error rendering tracks: {}", e);
+                    std::process::exit(1);
+                }
+            };
+        }) {
+            Ok(_) => {
+                log::debug!("Spawned rendering worker for data layer...");
+            }
+            Err(e) => {
+                log::error!("Error spawning rendering worker for data layer: {}", e);
+            }
+        };
+
+        // Clear pixmap before rendering
+        self.metadata_img[side].fill(Color::TRANSPARENT);
+
+        let mut render_params = RenderTrackMetadataParams {
+            quadrant,
+            head,
+            min_radius_fraction,
+            index_angle: angle,
+            track_limit: track_ct,
+            track_gap: render_track_gap,
+            direction,
+            palette: self.meta_palette.clone(),
+            draw_empty_tracks: true,
+            pin_last_standard_track: true,
+            draw_sector_lookup: false,
+        };
+
+        // Render metadata quadrants into pixmap pool.
+        for quadrant in 0..4 {
+            render_params.quadrant = quadrant as u8;
+            let mut pixmap = self.meta_pixmap_pool[quadrant].lock().unwrap();
+
+            match render_track_metadata_quadrant(disk, &mut pixmap, &render_params) {
+                Ok(_) => {
+                    log::debug!("...Rendered quadrant {}", quadrant);
+                }
+                Err(e) => {
+                    log::error!("Error rendering quadrant: {}", e);
+                    return Err(anyhow!("Error rendering metadata"));
                 }
             }
+        }
 
-            for quadrant in 0..4 {
-                log::debug!("Received quadrant {}, compositing...", quadrant);
-                let (x, y) = match quadrant {
-                    0 => (0, 0),
-                    1 => (VIZ_RESOLUTION / 2, 0),
-                    2 => (0, VIZ_RESOLUTION / 2),
-                    3 => (VIZ_RESOLUTION / 2, VIZ_RESOLUTION / 2),
-                    _ => panic!("Invalid quadrant"),
+        // Composite metadata quadrants into one complete metadata pixmap.
+        for quadrant in 0..4 {
+            log::debug!("Received quadrant {}, compositing...", quadrant);
+            let (x, y) = match quadrant {
+                0 => (0, 0),
+                1 => (VIZ_RESOLUTION / 2, 0),
+                2 => (0, VIZ_RESOLUTION / 2),
+                3 => (VIZ_RESOLUTION / 2, VIZ_RESOLUTION / 2),
+                _ => panic!("Invalid quadrant"),
+            };
+
+            let paint = tiny_skia::PixmapPaint::default();
+            //let mut pixmap = self.meta_pixmap_pool[quadrant].lock()?;
+
+            self.metadata_img[side].draw_pixmap(
+                x as i32,
+                y as i32,
+                self.meta_pixmap_pool[quadrant].lock().unwrap().as_ref(),
+                &paint,
+                tiny_skia::Transform::identity(),
+                None,
+            );
+
+            // Clear pixmap after compositing
+            self.meta_pixmap_pool[quadrant]
+                .lock()
+                .unwrap()
+                .as_mut()
+                .fill(Color::TRANSPARENT);
+        }
+
+        // Render sector lookup quadrants into pixmap pool.
+        render_params.draw_sector_lookup = true;
+        // Make it easier to select sectors by removing track gap.
+        render_params.track_gap = 0.0;
+        for quadrant in 0..4 {
+            render_params.quadrant = quadrant as u8;
+            let mut pixmap = self.meta_pixmap_pool[quadrant].lock().unwrap();
+
+            match render_track_metadata_quadrant(disk, &mut pixmap, &render_params) {
+                Ok(_) => {
+                    log::debug!("...Rendered quadrant {}", quadrant);
+                }
+                Err(e) => {
+                    log::error!("Error rendering quadrant: {}", e);
+                    return Err(anyhow!("Error rendering metadata"));
+                }
+            }
+        }
+
+        // Composite sector lookup quadrants into final pixmap.
+        for quadrant in 0..4 {
+            log::debug!("Received quadrant {}, compositing...", quadrant);
+            let (x, y) = match quadrant {
+                0 => (0, 0),
+                1 => (VIZ_RESOLUTION / 2, 0),
+                2 => (0, VIZ_RESOLUTION / 2),
+                3 => (VIZ_RESOLUTION / 2, VIZ_RESOLUTION / 2),
+                _ => panic!("Invalid quadrant"),
+            };
+
+            let paint = tiny_skia::PixmapPaint::default();
+            //let mut pixmap = self.meta_pixmap_pool[quadrant].lock()?;
+
+            self.sector_lookup_img[side].draw_pixmap(
+                x as i32,
+                y as i32,
+                self.meta_pixmap_pool[quadrant].lock().unwrap().as_ref(),
+                &paint,
+                tiny_skia::Transform::identity(),
+                None,
+            );
+
+            // Clear pixmap after compositing
+            self.meta_pixmap_pool[quadrant]
+                .lock()
+                .unwrap()
+                .as_mut()
+                .fill(Color::TRANSPARENT);
+        }
+
+        if let Some(canvas) = &mut self.canvas[side] {
+            if canvas.has_texture() {
+                log::debug!("Updating canvas...");
+                log::debug!("pixmap data slice: {:0X?}", &self.metadata_img[side].data()[0..16]);
+                canvas.update_data(self.metadata_img[side].data());
+                self.have_render[side] = true;
+            }
+            else {
+                log::debug!("Canvas not initialized, deferring update...");
+                //self.draw_deferred = true;
+            }
+        }
+        Ok(())
+    }
+
+    fn composite(&mut self, side: usize) {
+        // If we can acquire the data mutex, we can composite the data and metadata layers.
+        match self.data_img[side].try_lock() {
+            Ok(data) => {
+                let mut paint = PixmapPaint::default();
+                // Scale the data pixmap down to the composite size with bilinear filtering.
+                paint.quality = FilterQuality::Bilinear;
+                let scale = 1.0 / self.supersample as f32;
+                let transform = tiny_skia::Transform::from_scale(scale, scale);
+                self.composite_img[side].fill(Color::TRANSPARENT);
+                self.composite_img[side].draw_pixmap(0, 0, data.as_ref(), &paint, transform, None);
+                paint = PixmapPaint {
+                    opacity:    1.0,
+                    blend_mode: BlendMode::HardLight,
+                    quality:    FilterQuality::Nearest,
                 };
-
-                let paint = tiny_skia::PixmapPaint::default();
-                //let mut pixmap = self.meta_pixmap_pool[quadrant].lock()?;
-
-                self.metadata_img[side].draw_pixmap(
-                    x as i32,
-                    y as i32,
-                    self.meta_pixmap_pool[quadrant].lock().unwrap().as_ref(),
+                self.composite_img[side].draw_pixmap(
+                    0,
+                    0,
+                    self.metadata_img[side].as_ref(),
                     &paint,
                     tiny_skia::Transform::identity(),
                     None,
                 );
-
-                // Clear pixmap after compositing
-                self.meta_pixmap_pool[quadrant]
-                    .lock()
-                    .unwrap()
-                    .as_mut()
-                    .fill(Color::TRANSPARENT);
             }
-
-            if let Some(canvas) = &mut self.canvas[side] {
-                if canvas.has_texture() {
-                    log::debug!("Updating canvas...");
-                    log::debug!("pixmap data slice: {:0X?}", &self.metadata_img[side].data()[0..16]);
-                    canvas.update_data(self.metadata_img[side].data());
-                    self.have_render[side] = true;
-                }
-                else {
-                    log::debug!("Canvas not initialized, deferring update...");
-                    //self.draw_deferred = true;
-                }
+            Err(_) => {
+                log::debug!("Data pixmap locked, deferring compositing...");
+                let paint = tiny_skia::PixmapPaint::default();
+                self.composite_img[side].fill(Color::TRANSPARENT);
+                self.composite_img[side].draw_pixmap(
+                    0,
+                    0,
+                    self.metadata_img[side].as_ref(),
+                    &paint,
+                    tiny_skia::Transform::identity(),
+                    None,
+                );
             }
         }
-        Ok(())
+
+        if let Some(canvas) = &mut self.canvas[side] {
+            if canvas.has_texture() {
+                log::debug!("composite(): Updating canvas...");
+                canvas.update_data(self.composite_img[side].data());
+                self.have_render[side] = true;
+            }
+        }
     }
 
     pub(crate) fn set_sides(&mut self, sides: usize) {
@@ -218,11 +408,49 @@ impl VisualizationState {
     }
 
     pub(crate) fn show(&mut self, ui: &mut egui::Ui) {
+        // Receive events
+        while let Ok(msg) = self.render_receiver.try_recv() {
+            match msg {
+                RenderMessage::DataRenderComplete(head) => {
+                    log::debug!("Data render of head {} complete", head);
+                    self.composite(head as usize);
+                }
+                RenderMessage::DataRenderError(e) => {
+                    log::error!("Data render error: {}", e);
+                }
+            }
+        }
+
         ui.horizontal(|ui| {
             for side in 0..self.sides {
                 if self.have_render[side] {
                     if let Some(canvas) = &mut self.canvas[side] {
-                        canvas.draw(ui);
+                        let layer_id = ui.layer_id();
+                        canvas.show(
+                            ui,
+                            Some(|response: &egui::Response, x: f32, y: f32| {
+                                egui::popup::show_tooltip(
+                                    &response.ctx,
+                                    layer_id,
+                                    response.id.with("render_hover_tooltip"),
+                                    |ui| {
+                                        ui.label(format!("Hovering at: ({:.2}, {:.2})", x, y));
+
+                                        self.sector_lookup_img[side].pixel(x as u32, y as u32).map(|pixel| {
+                                            if pixel.alpha() == 0 {
+                                                ui.label("No sector");
+                                            }
+                                            else {
+                                                let head = pixel.red();
+                                                let cyl = pixel.green();
+                                                let sector = pixel.blue();
+                                                ui.label(format!("Sector lookup: {} {} {}", head, cyl, sector));
+                                            }
+                                        });
+                                    },
+                                );
+                            }),
+                        );
                     }
                 }
             }

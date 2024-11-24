@@ -49,5 +49,18 @@ eframe = { version = "0.29", default-features = false, features = [
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 wasm-bindgen-rayon = "1.2"
-web-sys = { version = "0.3.70", features = ["DedicatedWorkerGlobalScope", "WorkerOptions", "WorkerType"] }
+
+[dependencies.web-sys]
+version = "0.3.70"
+features = [
+    "DedicatedWorkerGlobalScope",
+    "WorkerOptions",
+    "WorkerType",
+    "Url",
+    "Blob",
+    "BlobPropertyBag",
+    "Window",
+    "Document",
+    "HtmlAnchorElement"
+]
 

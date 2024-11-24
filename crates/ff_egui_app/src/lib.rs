@@ -33,9 +33,9 @@ pub(crate) mod widgets;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod native;
+pub(crate) mod ui;
 #[cfg(target_arch = "wasm32")]
 pub(crate) mod wasm;
-mod windows;
+pub(crate) mod windows;
 
-pub use app::App;
-pub use app::APP_NAME;
+pub use app::{App, APP_NAME};

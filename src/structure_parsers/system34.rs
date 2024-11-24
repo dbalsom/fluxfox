@@ -43,8 +43,12 @@ use crate::{
     io::{Read, Seek, SeekFrom},
     mfm_offset,
     structure_parsers::{
-        DiskStructureElement, DiskStructureGenericElement, DiskStructureMarker, DiskStructureMarkerItem,
-        DiskStructureMetadataItem, DiskStructureParser,
+        DiskStructureElement,
+        DiskStructureGenericElement,
+        DiskStructureMarker,
+        DiskStructureMarkerItem,
+        DiskStructureMetadataItem,
+        DiskStructureParser,
     },
     util::crc_ibm_3740,
     DiskImageError,
@@ -170,7 +174,7 @@ pub enum System34Element {
     Sync,
     Marker(System34Marker, Option<bool>),
     SectorHeader { chsn: DiskChsn, address_crc: bool, data_missing: bool },
-    Data { address_crc: bool, data_crc: bool, deleted: bool },
+    Data { chsn: DiskChsn, address_crc: bool, data_crc: bool, deleted: bool },
 }
 
 impl From<System34Element> for DiskStructureGenericElement {
@@ -191,6 +195,7 @@ impl From<System34Element> for DiskStructureGenericElement {
                 address_crc,
                 data_crc,
                 deleted,
+                ..
             } => match (address_crc && data_crc, deleted) {
                 (true, false) => DiskStructureGenericElement::SectorData,
                 (false, false) => DiskStructureGenericElement::SectorBadData,
@@ -216,11 +221,12 @@ impl System34Element {
         }
     }
 
-    pub fn is_sector(&self) -> bool {
-        match self {
-            System34Element::Marker(System34Marker::Dam, _) => true,
-            _ => false,
-        }
+    pub fn is_sector_data_marker(&self) -> bool {
+        matches!(self, System34Element::Marker(System34Marker::Dam, _))
+    }
+
+    pub fn is_sector_data(&self) -> bool {
+        matches!(self, System34Element::Data { .. })
     }
 
     pub fn is_sector_id(&self) -> (u8, bool) {
@@ -304,7 +310,8 @@ impl System34Parser {
             track_bytes.extend_from_slice(&[GAP_BYTE; IBM_GAP4A]); // GAP0
             track_bytes.extend_from_slice(&[SYNC_BYTE; SYNC_LEN]); // Sync
             markers.push((System34Marker::Iam, track_bytes.len()));
-        } else {
+        }
+        else {
             // Just write Gap1 for ISO standard, there is no IAM marker.
             track_bytes.extend_from_slice(&[GAP_BYTE; ISO_GAP1]);
         }
@@ -342,13 +349,15 @@ impl System34Parser {
             // Write sector data using provided pattern buffer.
             if fill_pattern.len() == 1 {
                 track_bytes.extend_from_slice(&vec![fill_pattern[0]; sector.n_size()]);
-            } else {
+            }
+            else {
                 let mut sector_buffer = Vec::with_capacity(sector.n_size());
                 while sector_buffer.len() < sector.n_size() {
                     let remain = sector.n_size() - sector_buffer.len();
                     let copy_pat = if pat_cursor + remain <= fill_pattern.len() {
                         &fill_pattern[pat_cursor..pat_cursor + remain]
-                    } else {
+                    }
+                    else {
                         &fill_pattern[pat_cursor..]
                     };
 
@@ -684,11 +693,23 @@ impl DiskStructureParser for System34Parser {
 
                         let element = match sys34_marker {
                             System34Marker::Dam => System34Element::Data {
+                                chsn: DiskChsn::new(
+                                    last_sector_id.c as u16,
+                                    last_sector_id.h,
+                                    last_sector_id.s,
+                                    last_sector_id.b,
+                                ),
                                 address_crc: last_sector_id.crc_valid,
                                 data_crc: crc_correct,
                                 deleted: false,
                             },
                             System34Marker::Ddam => System34Element::Data {
+                                chsn: DiskChsn::new(
+                                    last_sector_id.c as u16,
+                                    last_sector_id.h,
+                                    last_sector_id.s,
+                                    last_sector_id.b,
+                                ),
                                 address_crc: last_sector_id.crc_valid,
                                 data_crc: crc_correct,
                                 deleted: true,

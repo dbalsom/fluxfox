@@ -24,7 +24,9 @@
 
     --------------------------------------------------------------------------
 */
-use fluxfox::{DiskCh, SectorId};
+
+use fluxfox::{file_system::FileEntry, DiskCh, SectorId};
+use std::fmt::{Debug, Formatter, Result};
 
 pub mod widgets;
 
@@ -44,4 +46,25 @@ pub struct TrackSelection {
 pub enum TrackListSelection {
     Track(TrackSelection),
     Sector(SectorSelection),
+}
+
+#[derive(Clone)]
+pub enum UiEvent {
+    ExportFile(String),
+    SelectPath(String),
+    SelectFile(FileEntry),
+    ExportDir(String),
+}
+
+impl Debug for UiEvent {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        // Match on the enum to display only the variant name
+        let variant_name = match self {
+            UiEvent::ExportFile(_) => "ExportFile",
+            UiEvent::SelectPath(_) => "SelectPath",
+            UiEvent::SelectFile(_) => "SelectFile",
+            UiEvent::ExportDir(_) => "ExportDir",
+        };
+        write!(f, "{}", variant_name)
+    }
 }

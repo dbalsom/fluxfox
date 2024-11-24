@@ -39,7 +39,10 @@
 use crate::{
     bitstream::TrackDataStream,
     structure_parsers::{
-        system34::System34Element, DiskStructureElement, DiskStructureGenericElement, DiskStructureMetadata,
+        system34::System34Element,
+        DiskStructureElement,
+        DiskStructureGenericElement,
+        DiskStructureMetadata,
     },
 };
 
@@ -50,8 +53,21 @@ use std::{
     f32::consts::{PI, TAU},
 };
 use tiny_skia::{
-    BlendMode, Color, FillRule, GradientStop, LineCap, LineJoin, LinearGradient, Paint, PathBuilder, Pixmap, Point,
-    PremultipliedColorU8, SpreadMode, Stroke, Transform,
+    BlendMode,
+    Color,
+    FillRule,
+    GradientStop,
+    LineCap,
+    LineJoin,
+    LinearGradient,
+    Paint,
+    PathBuilder,
+    Pixmap,
+    Point,
+    PremultipliedColorU8,
+    SpreadMode,
+    Stroke,
+    Transform,
 };
 
 /// A map type selector for visualization functions.
@@ -94,6 +110,26 @@ pub struct RenderTrackDataParams {
     pub pin_last_standard_track: bool,
 }
 
+impl Default for RenderTrackDataParams {
+    fn default() -> Self {
+        Self {
+            bg_color: None,
+            map_color: None,
+            head: 0,
+            image_size: (512, 512),
+            image_pos: (0, 0),
+            min_radius_fraction: 0.666,
+            index_angle: 0.0,
+            track_limit: 80,
+            track_gap: 0.1,
+            direction: RotationDirection::CounterClockwise,
+            decode: false,
+            resolution: ResolutionType::Byte,
+            pin_last_standard_track: true,
+        }
+    }
+}
+
 /// Parameter struct for use with disk metadata rendering functions
 pub struct RenderTrackMetadataParams {
     /// Which quadrant to render (0-3)
@@ -117,14 +153,35 @@ pub struct RenderTrackMetadataParams {
     /// Set the inner radius to the last standard track instead of last track
     /// This keeps proportions consistent between disks with different track counts
     pub pin_last_standard_track: bool,
+    /// Draw a sector lookup bitmap instead of color information
+    pub draw_sector_lookup: bool,
+}
+
+impl Default for RenderTrackMetadataParams {
+    fn default() -> Self {
+        Self {
+            quadrant: 0,
+            head: 0,
+            min_radius_fraction: 0.666,
+            index_angle: 0.0,
+            track_limit: 80,
+            track_gap: 0.1,
+            direction: RotationDirection::CounterClockwise,
+            palette: FoxHashMap::default(),
+            draw_empty_tracks: false,
+            pin_last_standard_track: true,
+            draw_sector_lookup: false,
+        }
+    }
 }
 
 /// Determines the direction of disk surface rotation for visualization functions.
 /// Typically, Side 0, the bottom-facing side of a disk, rotates counter-clockwise when viewed
 /// from the bottom, and Side 1, the top-facing side, rotates clockwise.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Default)]
 pub enum RotationDirection {
     Clockwise,
+    #[default]
     CounterClockwise,
 }
 
@@ -229,9 +286,15 @@ pub fn render_track_data(
             50.. => 80,
         };
         let track_width = (total_radius - min_radius) / normalized_track_ct as f32;
-        let overdump = num_tracks - normalized_track_ct;
+        log::debug!(
+            "render_track_data(): track ct: {} normalized track ct: {}",
+            num_tracks,
+            normalized_track_ct
+        );
+        let overdump = num_tracks.saturating_sub(normalized_track_ct);
         p.min_radius_fraction * total_radius - (overdump as f32 * track_width)
-    } else {
+    }
+    else {
         min_radius
     };
 
@@ -285,7 +348,8 @@ pub fn render_track_data(
                         ResolutionType::Bit => {
                             if rtracks[track_index][bit_index] {
                                 color_white
-                            } else {
+                            }
+                            else {
                                 color_black
                             }
                         }
@@ -316,7 +380,8 @@ pub fn render_track_data(
 
                     pix_buf[((y + y_offset) * span + (x + x_offset)) as usize] = color;
                 }
-            } else {
+            }
+            else {
                 pix_buf[((y + y_offset) * span + (x + x_offset)) as usize] = color_bg;
             }
         }
@@ -367,7 +432,8 @@ pub fn render_track_map(
         let track_width = (total_radius - min_radius) / normalized_track_ct as f32;
         let overdump = num_tracks - normalized_track_ct;
         p.min_radius_fraction * total_radius - (overdump as f32 * track_width)
-    } else {
+    }
+    else {
         min_radius
     };
 
@@ -428,7 +494,8 @@ pub fn render_track_map(
                             build_word <<= 1;
                         }
                         build_word
-                    } else {
+                    }
+                    else {
                         0
                     };
 
@@ -436,7 +503,8 @@ pub fn render_track_map(
                         pix_buf[((y + y_offset) * span + (x + x_offset)) as usize] = weak_color;
                     }
                 }
-            } else {
+            }
+            else {
                 pix_buf[((y + y_offset) * span + (x + x_offset)) as usize] = color_trans;
             }
         }
@@ -476,7 +544,8 @@ pub fn render_track_metadata_quadrant(
         let track_width = (total_radius - min_radius) / normalized_track_ct as f32;
         let overdump = num_tracks.saturating_sub(normalized_track_ct);
         p.min_radius_fraction * total_radius - (overdump as f32 * track_width)
-    } else {
+    }
+    else {
         min_radius
     };
 
@@ -515,6 +584,9 @@ pub fn render_track_metadata_quadrant(
                                end_angle: f32,
                                inner_radius: f32,
                                outer_radius: f32,
+                               sector_lookup: bool,
+                               phys_c: u16,
+                               phys_s: u8,
                                element_type: Option<DiskStructureElement>|
      -> Color {
         // Draw the outer curve
@@ -537,14 +609,27 @@ pub fn render_track_metadata_quadrant(
         let color;
 
         if let Some(element_type) = element_type {
-            let generic_elem = DiskStructureGenericElement::from(element_type);
-            color = p.palette.get(&generic_elem).unwrap_or(&null_color);
-        } else {
-            color = &Color::BLACK;
+            match sector_lookup {
+                true => {
+                    // If we're drawing a sector lookup bitmap, we encode the physical head,
+                    // cylinder, and sector index as r, g, b components.
+                    // This is so that we can retrieve a mapping of physical sector from bitmap
+                    // x,y coordinates.
+                    // Alpha must remain 255 for our values to survive pre-multiplication.
+                    color = Color::from_rgba8(p.head, phys_c as u8, phys_s, 255);
+                }
+                false => {
+                    let generic_elem = DiskStructureGenericElement::from(element_type);
+                    color = *p.palette.get(&generic_elem).unwrap_or(&null_color);
+                }
+            }
+        }
+        else {
+            color = Color::BLACK;
         }
 
-        paint.set_color(*color);
-        *color
+        paint.set_color(color);
+        color
     };
 
     let (clip_start, clip_end) = match p.direction {
@@ -559,13 +644,15 @@ pub fn render_track_metadata_quadrant(
             let inner_radius = outer_radius - (track_width * (1.0 - p.track_gap));
             let mut paint = Paint {
                 blend_mode: BlendMode::SourceOver,
+                anti_alias: !p.draw_sector_lookup,
                 ..Default::default()
             };
 
             // Look for metadata items crossing the index, and draw them first.
             // We limit the maximum index overlap as an 8192 byte sector at the end of a track will
             // wrap the index twice.
-            if !*draw_markers {
+
+            if !p.draw_sector_lookup && !*draw_markers {
                 for meta_item in track_meta.items.iter() {
                     if meta_item.end >= rtracks[ti].len() {
                         let meta_length = meta_item.end - meta_item.start;
@@ -590,7 +677,8 @@ pub fn render_track_metadata_quadrant(
                                 + ((((meta_item.start + overlap_max) % rtracks[ti].len()) as f32
                                     / rtracks[ti].len() as f32)
                                     * TAU);
-                        } else {
+                        }
+                        else {
                             start_angle = p.index_angle;
                             end_angle = p.index_angle + ((meta_item.end as f32 / rtracks[ti].len() as f32) * TAU);
                         }
@@ -629,6 +717,9 @@ pub fn render_track_metadata_quadrant(
                             end_angle,
                             inner_radius,
                             outer_radius,
+                            false,
+                            0,
+                            0,
                             Some(meta_item.elem_type),
                         );
 
@@ -672,14 +763,22 @@ pub fn render_track_metadata_quadrant(
                 }
             }
 
+            let mut phys_s: u8 = 0; // Physical sector index, 0-indexed from first sector on track
+
             // Draw non-overlapping metadata.
             for (_mi, meta_item) in track_meta.items.iter().enumerate() {
                 if let DiskStructureElement::System34(System34Element::Marker(..)) = meta_item.elem_type {
                     if !*draw_markers {
                         continue;
                     }
-                } else if *draw_markers {
+                }
+                else if *draw_markers {
                     continue;
+                }
+
+                // Advance physical sector number for each sector header encountered.
+                if meta_item.elem_type.is_sector_header() {
+                    phys_s = phys_s.wrapping_add(1);
                 }
 
                 has_elements = true;
@@ -721,6 +820,9 @@ pub fn render_track_metadata_quadrant(
                     end_angle,
                     inner_radius,
                     outer_radius,
+                    p.draw_sector_lookup,
+                    ti as u16,
+                    phys_s,
                     Some(meta_item.elem_type),
                 );
 
@@ -740,6 +842,9 @@ pub fn render_track_metadata_quadrant(
                     clip_end,
                     inner_radius,
                     outer_radius,
+                    true,
+                    0,
+                    0,
                     None,
                 );
 

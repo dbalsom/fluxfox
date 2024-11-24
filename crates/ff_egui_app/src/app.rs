@@ -25,27 +25,32 @@
     --------------------------------------------------------------------------
 */
 
-#[cfg(not(target_arch = "wasm32"))]
-use crate::native::{util, worker};
-use crate::viz::VisualizationState;
 use egui::Layout;
-use fluxfox::{file_system::fat::fat::FatFileSystem, DiskImage, DiskImageError, LoadingStatus};
-use fluxfox_egui::{widgets::disk_info::DiskInfoWidget, SectorSelection, TrackListSelection};
 use std::{
     default::Default,
-    sync::{mpsc, Arc},
+    sync::{mpsc, Arc, RwLock},
+};
+
+use crate::viz::VisualizationState;
+use fluxfox::{file_system::fat::fat::FatFileSystem, DiskImage, DiskImageError, LoadingStatus};
+use fluxfox_egui::{
+    widgets::{disk_info::DiskInfoWidget, filesystem::FileSystemWidget},
+    SectorSelection,
+    TrackListSelection,
+    UiEvent,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
 pub const APP_NAME: &str = "fluxfox-egui";
-
+#[cfg(not(target_arch = "wasm32"))]
+use crate::native::worker;
 #[cfg(target_arch = "wasm32")]
 use crate::wasm::{util, worker};
 #[cfg(target_arch = "wasm32")]
 pub const APP_NAME: &str = "fluxfox-web";
 
 use crate::{
-    widgets::filesystem::FileSystemWidget,
+    widgets::hello::HelloWidget,
     windows::{file_viewer::FileViewer, sector_viewer::SectorViewer},
 };
 use fluxfox_egui::widgets::track_list::TrackListWidget;
@@ -88,21 +93,31 @@ pub struct PersistentState {
 
 #[derive(Default)]
 pub struct AppWidgets {
-    disk_info:   DiskInfoWidget,
-    track_list:  TrackListWidget,
+    hello: HelloWidget,
+    disk_info: DiskInfoWidget,
+    track_list: TrackListWidget,
     file_system: FileSystemWidget,
 }
 
 impl AppWidgets {
-    pub fn update(&mut self, disk: &DiskImage, name: Option<String>) {
-        self.disk_info.update(disk, name);
-        self.track_list.update(disk);
+    pub fn update(&mut self, disk_lock: Arc<RwLock<DiskImage>>, name: Option<String>) {
+        log::debug!(
+            "AppWidgets::update(): Attempting to lock disk image with {} references",
+            Arc::strong_count(&disk_lock)
+        );
+        let disk = disk_lock.read().unwrap();
+        self.disk_info.update(&disk, name);
+        self.track_list.update(&disk);
 
-        //self.file_list.update(disk);
+        drop(disk);
+        log::debug!(
+            "AppWidgets::update(): Disk image lock released. {} references remaining",
+            Arc::strong_count(&disk_lock)
+        );
     }
 
-    pub fn update_mut(&mut self, disk: &mut DiskImage) {
-        let mut fs = match FatFileSystem::mount(disk) {
+    pub fn update_mut(&mut self, disk_lock: Arc<RwLock<DiskImage>>) {
+        let mut fs = match FatFileSystem::mount(disk_lock) {
             Ok(fs) => {
                 log::debug!("FAT filesystem mounted successfully!");
                 Some(fs)
@@ -116,6 +131,8 @@ impl AppWidgets {
         if let Some(fs) = &mut fs {
             self.file_system.update(fs);
         }
+
+        drop(fs);
     }
 
     pub fn reset(&mut self) {
@@ -155,8 +172,7 @@ pub struct App {
     load_sender: Option<mpsc::SyncSender<ThreadLoadStatus>>,
     load_receiver: Option<mpsc::Receiver<ThreadLoadStatus>>,
     disk_image_name: Option<String>,
-    pub(crate) disk_image: Option<DiskImage>,
-
+    pub(crate) disk_image: Option<Arc<RwLock<DiskImage>>>,
     pub(crate) viz_state: VisualizationState,
     supported_extensions: Vec<String>,
 
@@ -165,6 +181,7 @@ pub struct App {
     windows: AppWindows,
 
     events: Vec<AppEvent>,
+    deferred_file_ui_event: Option<UiEvent>,
     sector_selection: Option<SectorSelection>,
 
     error_msg: Option<String>,
@@ -198,6 +215,7 @@ impl Default for App {
             windows: AppWindows::default(),
 
             events: Vec::new(),
+            deferred_file_ui_event: None,
             sector_selection: None,
 
             error_msg: None,
@@ -287,7 +305,7 @@ impl eframe::App for App {
                             DiskImage::load(&mut cursor, None, None, None)
                                 .map(|disk| {
                                     log::debug!("Disk image loaded successfully!");
-                                    self.disk_image = Some(disk);
+                                    self.disk_image = Some(Arc::new(RwLock::new(disk)));
                                     self.disk_image_name = Some("demo.imz".to_string());
                                     self.new_disk();
                                     ctx.request_repaint();
@@ -307,17 +325,8 @@ impl eframe::App for App {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             // The central panel the region left after adding TopPanels and SidePanels
-            ui.add(util::get_logo_image().fit_to_original_size(1.0));
 
-            ui.heading(egui::RichText::new(format!("Welcome to {}!", APP_NAME)).color(ui.visuals().strong_text_color()));
-
-            ui.vertical(|ui| {
-                ui.label("Drag disk image files to this window to load. Kryoflux sets should be in single-disk ZIP archives.");
-                ui.label(format!(
-                    "Image types supported: {}",
-                    self.supported_extensions.join(", ")
-                ));
-            });
+            self.widgets.hello.show(ui, APP_NAME, &self.supported_extensions);
 
             ui.separator();
 
@@ -329,15 +338,10 @@ impl eframe::App for App {
             self.handle_image_info(ui);
 
             ui.with_layout(egui::Layout::top_down_justified(egui::Align::Center), |ui| {
-
-                ui.allocate_ui_with_layout(
-                    ui.available_size(),
-                    Layout::left_to_right(egui::Align::Min),
-                    |ui| {
-                        self.handle_track_info(ui);
-                        self.handle_fs_info(ui);
-                    },
-                );
+                ui.allocate_ui_with_layout(ui.available_size(), Layout::left_to_right(egui::Align::Min), |ui| {
+                    self.handle_track_info(ui);
+                    self.handle_fs_info(ui);
+                });
             });
 
             self.handle_load_messages(ctx);
@@ -422,10 +426,19 @@ impl App {
                     log::debug!("Got AppEvent::ImageLoaded");
                     // Return to reactive mode
                     self.run_mode = RunMode::Reactive;
-
                     self.error_msg = None;
 
-                    match self.viz_state.render_visualization(self.disk_image.as_mut(), 0) {
+                    // Scope to ensure disk image is unlocked after retrieving heads
+                    let heads = {
+                        let disk_ref = self.disk_image.as_ref().unwrap();
+                        let disk = disk_ref.read().unwrap();
+                        disk.geometry().h()
+                    };
+
+                    match self
+                        .viz_state
+                        .render_visualization(self.disk_image.as_ref().unwrap().clone(), 0)
+                    {
                         Ok(_) => {
                             log::info!("Visualization rendered successfully!");
                         }
@@ -434,33 +447,36 @@ impl App {
                         }
                     }
 
-                    let heads = self.disk_image.as_ref().unwrap().geometry().h();
-                    if heads > 1 {
-                        match self.viz_state.render_visualization(self.disk_image.as_mut(), 1) {
-                            Ok(_) => {
-                                log::info!("Visualization rendered successfully!");
-                            }
-                            Err(e) => {
-                                log::error!("Error rendering visualization: {:?}", e);
-                            }
+                    match self
+                        .viz_state
+                        .render_visualization(self.disk_image.as_ref().unwrap().clone(), 1)
+                    {
+                        Ok(_) => {
+                            log::info!("Visualization rendered successfully!");
+                        }
+                        Err(e) => {
+                            log::error!("Error rendering visualization: {:?}", e);
                         }
                     }
 
                     self.viz_state.set_sides(heads as usize);
                     // Update widgets.
+                    log::debug!("Updating widgets with new disk image...");
                     self.widgets
-                        .update(self.disk_image.as_ref().unwrap(), self.disk_image_name.clone());
-                    self.widgets.update_mut(self.disk_image.as_mut().unwrap());
+                        .update(self.disk_image.as_ref().unwrap().clone(), self.disk_image_name.clone());
+                    self.widgets.update_mut(self.disk_image.as_ref().unwrap().clone());
 
+                    log::debug!("Updating sector viewer...");
                     self.windows
                         .sector_viewer
-                        .update(self.disk_image.as_mut().unwrap(), SectorSelection::default());
+                        .update(self.disk_image.as_ref().unwrap().clone(), SectorSelection::default());
                     self.sector_selection = Some(SectorSelection::default());
+                    self.widgets.hello.set_small(true);
                 }
                 AppEvent::SectorSelected(selection) => {
                     self.windows
                         .sector_viewer
-                        .update(self.disk_image.as_mut().unwrap(), selection.clone());
+                        .update(self.disk_image.as_ref().unwrap().clone(), selection.clone());
                     self.sector_selection = Some(selection);
 
                     self.windows.sector_viewer.set_open(true);
@@ -496,28 +512,68 @@ impl App {
     }
 
     fn handle_fs_info(&mut self, ui: &mut egui::Ui) {
+        let mut new_event = None;
         if let Some(disk) = &mut self.disk_image {
             // egui::Window::new("Test Table").resizable(true).show(ui.ctx(), |ui| {
             //     self.widgets.file_list.show(ui);
             // });
 
             ui.group(|ui| {
-                self.widgets.file_system.show(ui);
+                new_event = self.widgets.file_system.show(ui);
             });
 
-            if let Some(selected_file) = self.widgets.file_system.new_file_selection() {
-                log::debug!("Selected file: {:?}", selected_file);
-                match FatFileSystem::mount(disk) {
-                    Ok(fs) => {
-                        log::debug!("FAT filesystem mounted successfully!");
-                        self.windows.file_viewer.update(&fs, selected_file);
-                        self.windows.file_viewer.set_open(true);
-                    }
-                    Err(e) => {
-                        log::error!("Error mounting FAT filesystem: {:?}", e);
-                    }
-                };
+            if Arc::strong_count(&disk) > 1 {
+                log::debug!("handle_fs_info(): Disk image is locked, deferring event...");
+                self.deferred_file_ui_event = new_event.take();
             }
+            else if new_event.is_none() && self.deferred_file_ui_event.is_some() {
+                log::debug!("handle_fs_info(): Disk image is unlocked, processing deferred event...");
+                new_event = self.deferred_file_ui_event.take();
+            }
+
+            if let Some(event) = new_event {
+                match event {
+                    UiEvent::ExportFile(path) => {
+                        log::debug!("Exporting file: {:?}", path);
+
+                        let mut fs = FatFileSystem::mount(disk.clone()).unwrap();
+                        let file_data = match fs.read_file(&path) {
+                            Ok(data) => data,
+                            Err(e) => {
+                                log::error!("Error reading file: {:?}", e);
+                                return;
+                            }
+                        };
+                        fs.unmount();
+
+                        match self.save_file_as(&path, &file_data) {
+                            Ok(_) => {
+                                log::info!("File saved successfully!");
+                            }
+                            Err(e) => {
+                                log::error!("Error saving file: {:?}", e);
+                            }
+                        }
+                    }
+                    UiEvent::SelectFile(file) => {
+                        let selected_file = file.path;
+                        log::debug!("Selected file: {:?}", selected_file);
+                        match FatFileSystem::mount(disk.clone()) {
+                            Ok(mut fs) => {
+                                log::debug!("FAT filesystem mounted successfully!");
+                                self.windows.file_viewer.update(&fs, selected_file);
+                                self.windows.file_viewer.set_open(true);
+
+                                fs.unmount();
+                            }
+                            Err(e) => {
+                                log::error!("Error mounting FAT filesystem: {:?}", e);
+                            }
+                        };
+                    }
+                    _ => {}
+                }
+            };
         }
     }
 
@@ -552,7 +608,7 @@ impl App {
                             ThreadLoadStatus::Success(disk) => {
                                 log::info!("Disk image loaded successfully!");
 
-                                self.disk_image = Some(disk);
+                                self.disk_image = Some(Arc::new(RwLock::new(disk)));
                                 //log::debug!("ThreadLoadStatus -> Inactive");
                                 if let ThreadLoadStatus::Inactive = self.load_status {
                                     new_disk = true;

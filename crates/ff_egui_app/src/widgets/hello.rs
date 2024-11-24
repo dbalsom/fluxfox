@@ -23,6 +23,40 @@
     DEALINGS IN THE SOFTWARE.
 
     --------------------------------------------------------------------------
-*/
 
-pub mod hello;
+    Implement the hello widget
+*/
+#[cfg(not(target_arch = "wasm32"))]
+use crate::native::util;
+
+#[cfg(target_arch = "wasm32")]
+use crate::wasm::util;
+
+#[derive(Default)]
+pub struct HelloWidget {
+    small: bool,
+}
+
+impl HelloWidget {
+    pub fn set_small(&mut self, state: bool) {
+        self.small = state;
+    }
+
+    pub fn show(&self, ui: &mut egui::Ui, app_name: &str, supported_extensions: &[String]) {
+        let scale = if self.small { 0.5 } else { 1.0 };
+        ui.add(util::get_logo_image().fit_to_original_size(scale));
+
+        if !self.small {
+            ui.heading(
+                egui::RichText::new(format!("Welcome to {}!", app_name)).color(ui.visuals().strong_text_color()),
+            );
+        }
+
+        ui.vertical(|ui| {
+            ui.label(
+                "Drag disk image files to this window to load. Kryoflux sets should be in single-disk ZIP archives.",
+            );
+            ui.label(format!("Image types supported: {}", supported_extensions.join(", ")));
+        });
+    }
+}
