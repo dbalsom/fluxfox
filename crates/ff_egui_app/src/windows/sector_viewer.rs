@@ -24,9 +24,9 @@
 
     --------------------------------------------------------------------------
 */
-
 use fluxfox::{diskimage::RwSectorScope, DiskCh, DiskImage, SectorId, SectorIdQuery};
 use fluxfox_egui::{widgets::data_table::DataTableWidget, SectorSelection};
+use std::sync::{Arc, RwLock};
 
 #[derive(Default)]
 pub struct SectorViewer {
@@ -53,7 +53,9 @@ impl SectorViewer {
         }
     }
 
-    pub fn update(&mut self, disk: &mut DiskImage, selection: SectorSelection) {
+    pub fn update(&mut self, disk_lock: Arc<RwLock<DiskImage>>, selection: SectorSelection) {
+        let disk = &mut disk_lock.write().unwrap();
+
         self.phys_ch = selection.phys_ch;
         let query = SectorIdQuery::new(
             selection.sector_id.c(),
@@ -77,9 +79,16 @@ impl SectorViewer {
             return;
         }
 
-        self.sector_id = rsr.id_chsn.unwrap();
-        self.table.set_data(rsr.read_buf);
-        self.valid = true;
+        // When is id_chsn None after a successful read?
+        if let Some(chsn) = rsr.id_chsn {
+            self.sector_id = chsn;
+            self.table.set_data(rsr.read_buf);
+            self.valid = true;
+        }
+        else {
+            self.error_string = Some("Sector ID not found".to_string());
+            self.valid = false;
+        }
     }
 
     pub fn set_open(&mut self, open: bool) {

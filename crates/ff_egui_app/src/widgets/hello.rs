@@ -38,10 +38,6 @@ pub struct HelloWidget {
 }
 
 impl HelloWidget {
-    pub fn new() -> Self {
-        Self { small: false }
-    }
-
     pub fn set_small(&mut self, state: bool) {
         self.small = state;
     }

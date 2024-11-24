@@ -158,7 +158,7 @@ impl Track for BitStreamTrack {
     fn get_sector_ct(&self) -> usize {
         let mut sector_ct = 0;
         for item in &self.metadata.items {
-            if item.elem_type.is_sector() {
+            if item.elem_type.is_sector_header() {
                 sector_ct += 1;
             }
         }
@@ -185,6 +185,7 @@ impl Track for BitStreamTrack {
                 address_crc,
                 data_crc,
                 deleted,
+                ..
             }) = item.elem_type
             {
                 if let Some(chsn) = item.chsn {
@@ -869,6 +870,7 @@ impl Track for BitStreamTrack {
                 address_crc,
                 data_crc,
                 deleted,
+                ..
             }) = item.elem_type
             {
                 if !address_crc {
@@ -1101,6 +1103,7 @@ impl BitStreamTrack {
                             address_crc,
                             data_crc,
                             deleted,
+                            ..
                         }),
                     ..
                 } => {
@@ -1208,6 +1211,7 @@ impl BitStreamTrack {
                     address_crc,
                     data_crc,
                     deleted,
+                    ..
                 }) => {
                     // log::trace!(
                     //     "get_sector_bit_index(): Found DAM at CHS: {:?}, index: {} last idam matched? {}",

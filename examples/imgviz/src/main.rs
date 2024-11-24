@@ -279,6 +279,7 @@ fn main() {
                         palette,
                         draw_empty_tracks: false,
                         pin_last_standard_track: true,
+                        draw_sector_lookup: false,
                     };
                     _ = render_track_metadata_quadrant(&l_disk, &mut pixmap, &render_params);
 

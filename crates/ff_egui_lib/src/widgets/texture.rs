@@ -26,7 +26,19 @@
 */
 #![allow(dead_code)]
 
-use egui::{Color32, ColorImage, Context, ImageData, Rect, ScrollArea, TextureHandle, TextureOptions};
+use egui::{
+    Color32,
+    ColorImage,
+    Context,
+    ImageData,
+    Rect,
+    Response,
+    ScrollArea,
+    Sense,
+    TextureHandle,
+    TextureOptions,
+    Vec2,
+};
 use std::sync::Arc;
 
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
@@ -38,6 +50,8 @@ pub enum PixelCanvasZoom {
     Eight,
     Sixteen,
 }
+
+pub type HoverCallback = fn(&Response, f32, f32);
 
 pub const GRAYSCALE_RAMP: [Color32; 256] = {
     let mut palette = [Color32::BLACK; 256];
@@ -232,7 +246,7 @@ impl PixelCanvas {
         self.view_dimensions.0 as f32 * self.zoom
     }
 
-    pub fn draw(&mut self, ui: &mut egui::Ui) {
+    pub fn show(&mut self, ui: &mut egui::Ui, on_hover: Option<impl FnOnce(&Response, f32, f32)>) {
         if let Some(texture) = &self.texture {
             ui.vertical(|ui| {
                 // Draw background rect
@@ -249,25 +263,32 @@ impl PixelCanvas {
                     let start_x = viewport.min.x + ui.min_rect().left();
                     let start_y = viewport.min.y + ui.min_rect().top();
 
+                    let (rect, response) = ui.allocate_exact_size(Vec2::new(img_w, img_h), Sense::click_and_drag());
                     //log::debug!("Viewport is: {:?} StartX: {} StartY: {}", viewport, start_x, start_y);
 
-                    ui.painter().image(
-                        texture.id(),
-                        Rect::from_min_max(
-                            egui::pos2(start_x, start_y),
-                            egui::pos2(start_x + img_w, start_y + img_h),
-                        ),
-                        self.default_uv,
-                        Color32::WHITE,
-                    );
+                    if ui.is_rect_visible(rect) {
+                        ui.painter().image(
+                            texture.id(),
+                            Rect::from_min_max(
+                                egui::pos2(start_x, start_y),
+                                egui::pos2(start_x + img_w, start_y + img_h),
+                            ),
+                            self.default_uv,
+                            Color32::WHITE,
+                        );
+                    }
+
+                    if let Some(mouse_pos) = response.hover_pos() {
+                        let x = mouse_pos.x - start_x;
+                        let y = mouse_pos.y - start_y;
+                        if x >= 0.0 && x < img_w && y >= 0.0 && y < img_h {
+                            if let Some(on_hover) = on_hover {
+                                on_hover(&response, x, y);
+                            }
+                        }
+                    }
                 });
             });
-        /*            log::debug!(
-            "Drawing PixelCanvas texture ({}x{}), id: {:?}",
-            texture.size()[0],
-            texture.size()[1],
-            texture.id()
-        );*/
         }
         else {
             log::debug!("No texture to draw.");
