@@ -24,19 +24,18 @@
 
     --------------------------------------------------------------------------
 
-    src/boot_sector/mod.rs
-
-    Routines for reading and modifying boot sector data - specifically the
-    BIOS Parameter block.
-
-    When creating disk images with a supplied boot sector template, we must
-    be able to patch the BPB values as appropriate for the specified floppy
-    image format, or the disk will not be bootable.
-
 */
+use anyhow::Result;
+use fluxfox::{DiskChsnQuery, DiskImage};
 
-pub mod bootsector;
-mod bpb;
-
-pub use bootsector::{BootSector, BootSignature};
-pub use bpb::{BiosParameterBlock2, BiosParameterBlock3};
+pub fn repair_crcs(disk: &mut DiskImage) -> Result<()> {
+    let tracks = disk.track_ch_iter().collect::<Vec<_>>();
+    for ch in tracks {
+        if let Some(track) = disk.track_mut(ch) {
+            for sector in track.get_sector_list() {
+                track.recalculate_sector_crc(DiskChsnQuery::from(sector.chsn), None)?;
+            }
+        }
+    }
+    Ok(())
+}

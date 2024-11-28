@@ -58,7 +58,10 @@ use crate::{
     DiskRpm,
     DEFAULT_SECTOR_SIZE,
 };
-use std::fmt::{Display, Formatter};
+use std::{
+    fmt::{Display, Formatter},
+    str::FromStr,
+};
 
 /// An enumeration describing one of several standard PC disk formats.
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
@@ -93,6 +96,25 @@ impl Display for StandardFormat {
             StandardFormat::PcFloppy1200 => write!(f, "1.2M 5.25\" HD"),
             StandardFormat::PcFloppy1440 => write!(f, "1.44M 3.5\" HD"),
             StandardFormat::PcFloppy2880 => write!(f, "2.88M 3.5\" ED"),
+        }
+    }
+}
+
+impl FromStr for StandardFormat {
+    type Err = String;
+    /// Implement FromStr for StandardFormat.
+    /// This can be used by utilities that wish to take a StandardFormat as a command-line argument.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "160k" => Ok(StandardFormat::PcFloppy160),
+            "180k" => Ok(StandardFormat::PcFloppy180),
+            "320k" => Ok(StandardFormat::PcFloppy320),
+            "360k" => Ok(StandardFormat::PcFloppy360),
+            "720k" => Ok(StandardFormat::PcFloppy720),
+            "1200k" => Ok(StandardFormat::PcFloppy1200),
+            "1440k" => Ok(StandardFormat::PcFloppy1440),
+            "2880k" => Ok(StandardFormat::PcFloppy2880),
+            _ => Err(format!("Invalid format: {}", s)),
         }
     }
 }

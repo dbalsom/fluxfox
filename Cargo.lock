@@ -3533,6 +3533,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "png2disk"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bpaf",
+ "env_logger",
+ "fluxfox",
+ "log 0.4.22",
+ "logger",
+ "tiny-skia",
+]
+
+[[package]]
 name = "polling"
 version = "3.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

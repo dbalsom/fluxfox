@@ -42,19 +42,19 @@ use binrw::binrw;
 // Offset of the bios parameter block in the boot sector.
 pub const BPB_OFFSET: u64 = 0x0B;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Copy, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[binrw]
 #[brw(little)]
-pub(crate) struct BiosParameterBlock2 {
-    pub(crate) bytes_per_sector: u16,
-    pub(crate) sectors_per_cluster: u8,
-    pub(crate) reserved_sectors: u16,
-    pub(crate) number_of_fats: u8,
-    pub(crate) root_entries: u16,
-    pub(crate) total_sectors: u16,
-    pub(crate) media_descriptor: u8,
-    pub(crate) sectors_per_fat: u16,
+pub struct BiosParameterBlock2 {
+    pub bytes_per_sector: u16,
+    pub sectors_per_cluster: u8,
+    pub reserved_sectors: u16,
+    pub number_of_fats: u8,
+    pub root_entries: u16,
+    pub total_sectors: u16,
+    pub media_descriptor: u8,
+    pub sectors_per_fat: u16,
 }
 
 impl BiosParameterBlock2 {
@@ -214,14 +214,14 @@ impl From<StandardFormat> for BiosParameterBlock2 {
 }
 
 /// BIOS Parameter Block extensions introduced in MS-DOS 3.0
-#[derive(Debug, Default)]
+#[derive(Debug, Copy, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[binrw]
 #[brw(little)]
-pub(crate) struct BiosParameterBlock3 {
-    pub(crate) sectors_per_track: u16,
-    pub(crate) number_of_heads:   u16,
-    pub(crate) hidden_sectors:    u32,
+pub struct BiosParameterBlock3 {
+    pub sectors_per_track: u16,
+    pub number_of_heads:   u16,
+    pub hidden_sectors:    u32,
 }
 
 impl From<StandardFormat> for BiosParameterBlock3 {

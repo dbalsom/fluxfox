@@ -31,8 +31,7 @@
     Allows for creation of blank or pre-formatted DiskImages.
 */
 
-use crate::diskimage::DiskImageFlags;
-use crate::{DiskCh, DiskDataResolution, DiskImage, DiskImageError, StandardFormat};
+use crate::{diskimage::DiskImageFlags, DiskCh, DiskDataResolution, DiskImage, DiskImageError, StandardFormat};
 
 /// Implements the Builder pattern for DiskImage objects.
 /// Allows for creation of blank or pre-formatted DiskImages.
@@ -97,7 +96,8 @@ impl ImageBuilder {
                 None | Some(DiskDataResolution::MetaSector) => self.build_bytestream(),
                 _ => Err(DiskImageError::UnsupportedFormat),
             }
-        } else {
+        }
+        else {
             Err(DiskImageError::UnsupportedFormat)
         }
     }

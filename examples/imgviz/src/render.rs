@@ -115,6 +115,7 @@ pub fn render_side(disk: &DiskImage, p: RenderParams) -> Result<Pixmap, anyhow::
         decode: p.decode,
         resolution: p.resolution_type,
         pin_last_standard_track: true,
+        sector_mask: p.decode,
     };
 
     println!("Rendering data layer for side {}...", p.side);

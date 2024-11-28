@@ -46,7 +46,7 @@ extern crate core;
 
 mod bit_ring;
 pub mod bitstream;
-mod boot_sector;
+pub mod boot_sector;
 mod chs;
 mod containers;
 mod detect;

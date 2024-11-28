@@ -23,20 +23,37 @@
     DEALINGS IN THE SOFTWARE.
 
     --------------------------------------------------------------------------
-
-    src/boot_sector/mod.rs
-
-    Routines for reading and modifying boot sector data - specifically the
-    BIOS Parameter block.
-
-    When creating disk images with a supplied boot sector template, we must
-    be able to patch the BPB values as appropriate for the specified floppy
-    image format, or the disk will not be bootable.
-
 */
 
-pub mod bootsector;
-mod bpb;
+use crate::{track::Track, DiskChsn};
+use std::marker::PhantomData;
 
-pub use bootsector::{BootSector, BootSignature};
-pub use bpb::{BiosParameterBlock2, BiosParameterBlock3};
+pub struct SectorSpecifier {
+    id_chsn: DiskChsn,
+    offset:  Option<usize>,
+}
+
+pub struct SectorIterator<'a, T: Track> {
+    track:   &'a T,
+    cursor:  SectorSpecifier,
+    _marker: PhantomData<&'a T>,
+}
+
+impl<'a, T: Track> Iterator for SectorIterator<'a, T> {
+    type Item = SectorSpecifier;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // Logic to find the next sector in the track
+        if let Some(current_id) = self.cursor {
+            if let Some(sector) = self.track.get_sector(current_id) {
+                // Update the iterator state
+                self.cursor = self.track.next_sector_id(current_id);
+                //self.cursor.offset = self.track.get_bit_offset(self.current_sector);
+                return Some(sector);
+            }
+        }
+
+        // No more sectors
+        None
+    }
+}

@@ -73,7 +73,7 @@ impl FileSystemWidget {
         let mut new_event = None;
         ui.vertical(|ui| {
             // Show the header. We may eventually want to make this a separate widget...
-            ui.heading("File System");
+            ui.heading(egui::RichText::new("File System").strong());
             ui.separator();
 
             // Make sure the path selection widget is set to the current path.
