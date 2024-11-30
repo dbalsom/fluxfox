@@ -49,7 +49,7 @@
 pub mod system34;
 
 use crate::{
-    bitstream::TrackDataStream,
+    bitstream::{mfm::MFM_BYTE_LEN, TrackDataStream},
     chs::DiskChsn,
     structure_parsers::system34::{System34Element, System34Marker},
 };
@@ -135,7 +135,9 @@ impl DiskStructureMetadata {
 
         for item in &self.items {
             if let DiskStructureElement::System34(System34Element::Data { .. }) = item.elem_type {
-                data_ranges.push((item.start, item.end));
+                // Should the data range for a sector include the address mark?
+                // For now we will exclude it.
+                data_ranges.push((item.start + (4 * MFM_BYTE_LEN), item.end));
             }
         }
 

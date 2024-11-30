@@ -36,6 +36,7 @@
 */
 
 pub mod bootsector;
-pub mod bpb;
+mod bpb;
 
-pub use bootsector::BootSector;
+pub use bootsector::{BootSector, BootSignature};
+pub use bpb::{BiosParameterBlock2, BiosParameterBlock3};

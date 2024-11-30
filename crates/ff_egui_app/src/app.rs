@@ -33,7 +33,12 @@ use std::{
 
 use fluxfox::{file_system::fat::fat::FatFileSystem, DiskImage, DiskImageError, LoadingStatus};
 use fluxfox_egui::{
-    widgets::{disk_info::DiskInfoWidget, filesystem::FileSystemWidget},
+    widgets::{
+        boot_sector::BootSectorWidget,
+        disk_info::DiskInfoWidget,
+        filesystem::FileSystemWidget,
+        header_group::HeaderGroup,
+    },
     SectorSelection,
     TrackListSelection,
     UiEvent,
@@ -49,7 +54,7 @@ use crate::wasm::{util, worker};
 pub const APP_NAME: &str = "fluxfox-web";
 
 use crate::{
-    widgets::hello::HelloWidget,
+    widgets::{filename::FilenameWidget, hello::HelloWidget},
     windows::{file_viewer::FileViewer, sector_viewer::SectorViewer, viz::VizViewer},
 };
 use fluxfox_egui::widgets::track_list::TrackListWidget;
@@ -75,11 +80,15 @@ enum RunMode {
 #[serde(default)]
 pub struct AppUserOptions {
     auto_show_viz: bool,
+    logo_panel:    bool,
 }
 
 impl Default for AppUserOptions {
     fn default() -> Self {
-        Self { auto_show_viz: true }
+        Self {
+            auto_show_viz: true,
+            logo_panel:    true,
+        }
     }
 }
 
@@ -94,8 +103,10 @@ pub struct PersistentState {
 pub struct AppWidgets {
     hello: HelloWidget,
     disk_info: DiskInfoWidget,
+    boot_sector: BootSectorWidget,
     track_list: TrackListWidget,
     file_system: FileSystemWidget,
+    filename: FilenameWidget,
 }
 
 impl AppWidgets {
@@ -105,7 +116,9 @@ impl AppWidgets {
             Arc::strong_count(&disk_lock)
         );
         let disk = disk_lock.read().unwrap();
-        self.disk_info.update(&disk, name);
+        self.filename.set(name);
+        self.disk_info.update(&disk, None);
+        self.boot_sector.update(&disk);
         self.track_list.update(&disk);
 
         drop(disk);
@@ -135,7 +148,9 @@ impl AppWidgets {
     }
 
     pub fn reset(&mut self) {
+        self.filename = FilenameWidget::default();
         self.disk_info = DiskInfoWidget::default();
+        self.boot_sector = BootSectorWidget::default();
         self.track_list = TrackListWidget::default();
         self.file_system = FileSystemWidget::default();
     }
@@ -271,71 +286,47 @@ impl eframe::App for App {
         }
 
         // Show windows
-        self.windows.viz_viewer.show(ctx);
+        if let Some(disk_image) = &self.disk_image {
+            self.windows.viz_viewer.show(ctx, disk_image.clone());
+        }
+
         self.windows.sector_viewer.show(ctx);
         self.windows.file_viewer.show(ctx);
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             // The top panel is often a good place for a menu bar:
 
-            egui::menu::bar(ui, |ui| {
-                // NOTE: no File->Quit on web pages!
-                let is_web = cfg!(target_arch = "wasm32");
-                if !is_web {
-                    ui.menu_button("File", |ui| {
-                        if ui.button("Quit").clicked() {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                        }
-                    });
-                    ui.add_space(16.0);
-                }
-                else {
-                    //log::debug!("Running on web platform, showing Image menu");
-                    ui.menu_button("Image", |ui| {
-                        if ui.button("Load demo image...").clicked() {
-                            let mut cursor = std::io::Cursor::new(DEMO_IMAGE);
-                            DiskImage::load(&mut cursor, None, None, None)
-                                .map(|disk| {
-                                    log::debug!("Disk image loaded successfully!");
-                                    self.disk_image = Some(Arc::new(RwLock::new(disk)));
-                                    self.disk_image_name = Some("demo.imz".to_string());
-                                    self.new_disk();
-                                    ctx.request_repaint();
-                                    self.events.push(AppEvent::ImageLoaded);
-                                })
-                                .unwrap_or_else(|e| {
-                                    log::error!("Error loading disk image: {:?}", e);
-                                    self.error_msg = Some(e.to_string());
-                                });
+            self.handle_menu(ctx, ui);
 
-                            ui.close_menu();
-                        }
-                    });
-                }
+            // Done with menu bar.
+            if self.p_state.user_opts.logo_panel {
+                self.widgets.hello.show(ui, APP_NAME, &self.supported_extensions);
+                ui.add_space(8.0);
+            }
 
-                ui.menu_button("Windows", |ui| {
-                    ui.checkbox(self.windows.viz_viewer.open_mut(), "Visualization");
-                });
+            // Show filename widget
+            self.widgets.filename.show(ui);
+        });
 
-                ui.menu_button("Options", |ui| {
-                    ui.checkbox(&mut self.p_state.user_opts.auto_show_viz, "Auto-show Visualization");
+        egui::SidePanel::left("disk_info_gallery")
+            .exact_width(250.0)
+            .show(ctx, |ui| {
+                ui.with_layout(Layout::top_down(egui::Align::Center), |ui| {
+                    ui.add_space(6.0);
+                    self.handle_image_info(ui);
+                    ui.add_space(6.0);
+                    self.handle_bootsector_info(ui);
                 });
             });
-        });
 
         egui::CentralPanel::default().show(ctx, |ui| {
             // The central panel the region left after adding TopPanels and SidePanels
-
-            self.widgets.hello.show(ui, APP_NAME, &self.supported_extensions);
-
-            ui.separator();
 
             self.show_error(ui);
 
             // Show dropped files (if any):
             self.handle_dropped_files(ctx, None);
             self.handle_loading_progress(ui);
-            self.handle_image_info(ui);
 
             ui.with_layout(egui::Layout::top_down_justified(egui::Align::Center), |ui| {
                 ui.allocate_ui_with_layout(ui.available_size(), Layout::left_to_right(egui::Align::Min), |ui| {
@@ -411,6 +402,53 @@ impl App {
         }
     }
 
+    fn handle_menu(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+        egui::menu::bar(ui, |ui| {
+            // NOTE: no File->Quit on web pages!
+            let is_web = cfg!(target_arch = "wasm32");
+            if !is_web {
+                ui.menu_button("File", |ui| {
+                    if ui.button("Quit").clicked() {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                });
+                ui.add_space(16.0);
+            }
+            else {
+                //log::debug!("Running on web platform, showing Image menu");
+                ui.menu_button("Image", |ui| {
+                    if ui.button("Load demo image...").clicked() {
+                        let mut cursor = std::io::Cursor::new(DEMO_IMAGE);
+                        DiskImage::load(&mut cursor, None, None, None)
+                            .map(|disk| {
+                                log::debug!("Disk image loaded successfully!");
+                                self.disk_image = Some(Arc::new(RwLock::new(disk)));
+                                self.disk_image_name = Some("demo.imz".to_string());
+                                self.new_disk();
+                                ctx.request_repaint();
+                                self.events.push(AppEvent::ImageLoaded);
+                            })
+                            .unwrap_or_else(|e| {
+                                log::error!("Error loading disk image: {:?}", e);
+                                self.error_msg = Some(e.to_string());
+                            });
+
+                        ui.close_menu();
+                    }
+                });
+            }
+
+            ui.menu_button("Windows", |ui| {
+                ui.checkbox(self.windows.viz_viewer.open_mut(), "Visualization");
+            });
+
+            ui.menu_button("Options", |ui| {
+                ui.checkbox(&mut self.p_state.user_opts.auto_show_viz, "Auto-show Visualization");
+                ui.checkbox(&mut self.p_state.user_opts.logo_panel, "Show fluxfox logo panel");
+            });
+        });
+    }
+
     fn handle_events(&mut self) {
         while let Some(event) = self.events.pop() {
             match event {
@@ -472,8 +510,16 @@ impl App {
 
     fn handle_image_info(&mut self, ui: &mut egui::Ui) {
         if self.disk_image.is_some() {
-            ui.group(|ui| {
+            HeaderGroup::new("Disk Info").strong().expand().show(ui, |ui| {
                 self.widgets.disk_info.show(ui);
+            });
+        }
+    }
+
+    fn handle_bootsector_info(&mut self, ui: &mut egui::Ui) {
+        if self.disk_image.is_some() {
+            HeaderGroup::new("Boot Sector").strong().expand().show(ui, |ui| {
+                self.widgets.boot_sector.show(ui);
             });
         }
     }

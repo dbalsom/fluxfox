@@ -26,15 +26,11 @@
 */
 #![allow(dead_code)]
 
-use crate::widgets::texture::PixelCanvasDepth::Rgba;
-
 use egui::{
-    epaint::image,
     Color32,
     ColorImage,
     Context,
     ImageData,
-    InnerResponse,
     Rect,
     Response,
     ScrollArea,

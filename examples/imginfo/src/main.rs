@@ -30,6 +30,7 @@
     print out some basic information about it.
 */
 use bpaf::*;
+use std::io::Cursor;
 
 use fluxfox::DiskImage;
 use std::path::PathBuf;
@@ -71,15 +72,14 @@ fn main() {
     // Get the command line options.
     let opts = opts().run();
 
-    let disk_image = match std::fs::File::open(&opts.filename) {
-        Ok(file) => file,
+    let mut file_vec = match std::fs::read(&opts.filename.clone()) {
+        Ok(file_vec) => file_vec,
         Err(e) => {
-            eprintln!("Error opening file: {}", e);
-            return;
+            eprintln!("Error reading file: {}", e);
+            std::process::exit(1);
         }
     };
-
-    let mut reader = std::io::BufReader::new(disk_image);
+    let mut reader = Cursor::new(&mut file_vec);
 
     let disk_image_type = match DiskImage::detect_format(&mut reader) {
         Ok(disk_image_type) => disk_image_type,

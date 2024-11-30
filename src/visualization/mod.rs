@@ -36,6 +36,9 @@
 //!
 //! The `imgviz` example in the repository demonstrates how to use the visualization functions.
 
+pub mod pixmap_to_disk;
+pub use pixmap_to_disk::PixmapToDiskParams;
+
 use crate::{
     bitstream::TrackDataStream,
     structure_parsers::{
@@ -44,6 +47,7 @@ use crate::{
         DiskStructureGenericElement,
         DiskStructureMetadata,
     },
+    DiskCh,
 };
 
 use crate::{DiskImage, DiskImageError, DiskVisualizationError, FoxHashMap};
@@ -103,6 +107,8 @@ pub struct RenderTrackDataParams {
     pub direction: RotationDirection,
     /// Decode data in sectors for more visual contrast
     pub decode: bool,
+    /// Mask decoding or encoding operations to sector data regions.
+    pub sector_mask: bool,
     /// Resolution to render data at (Bit or Byte)
     pub resolution: ResolutionType,
     /// Set the inner radius to the last standard track instead of last track
@@ -118,12 +124,13 @@ impl Default for RenderTrackDataParams {
             head: 0,
             image_size: (512, 512),
             image_pos: (0, 0),
-            min_radius_fraction: 0.666,
+            min_radius_fraction: 0.3,
             index_angle: 0.0,
             track_limit: 80,
             track_gap: 0.1,
             direction: RotationDirection::CounterClockwise,
             decode: false,
+            sector_mask: false,
             resolution: ResolutionType::Byte,
             pin_last_standard_track: true,
         }
@@ -162,7 +169,7 @@ impl Default for RenderTrackMetadataParams {
         Self {
             quadrant: 0,
             head: 0,
-            min_radius_fraction: 0.666,
+            min_radius_fraction: 0.3,
             index_angle: 0.0,
             track_limit: 80,
             track_gap: 0.1,
@@ -171,6 +178,55 @@ impl Default for RenderTrackMetadataParams {
             draw_empty_tracks: false,
             pin_last_standard_track: true,
             draw_sector_lookup: false,
+        }
+    }
+}
+
+#[derive(Default, Copy, Clone)]
+pub enum RenderDiskSelectionType {
+    #[default]
+    Sector,
+    Track,
+}
+
+/// Parameter struct for use with the sector selection rendering function
+pub struct RenderDiskSelectionParams {
+    /// The physical cylinder and head to render
+    pub ch: DiskCh,
+    /// The selection type (Sector or Track)
+    pub selection_type: RenderDiskSelectionType,
+    /// The physical sector index to render, 1-offset
+    pub sector_idx: usize,
+    /// Minimum inner radius as a fraction (0.0 to 1.0)
+    pub min_radius_fraction: f32,
+    /// Angle of index position / start of track
+    pub index_angle: f32,
+    /// Maximum number of tracks to render
+    pub track_limit: usize,
+    /// Width of the gap between tracks as a fraction (0.0 to 1.0)
+    pub track_gap: f32,
+    /// Rotational direction for rendering (Clockwise or CounterClockwise)
+    pub direction: RotationDirection,
+    /// Color to use to draw sector arc
+    pub color: Color,
+    /// Set the inner radius to the last standard track instead of last track
+    /// This keeps proportions consistent between disks with different track counts
+    pub pin_last_standard_track: bool,
+}
+
+impl Default for RenderDiskSelectionParams {
+    fn default() -> Self {
+        Self {
+            ch: DiskCh::new(0, 0),
+            selection_type: RenderDiskSelectionType::default(),
+            sector_idx: 1,
+            min_radius_fraction: 0.333,
+            index_angle: 0.0,
+            track_limit: 80,
+            track_gap: 0.1,
+            direction: RotationDirection::CounterClockwise,
+            color: Color::from_rgba(1.0, 1.0, 0.0, 1.0).unwrap(),
+            pin_last_standard_track: true,
         }
     }
 }
@@ -190,6 +246,15 @@ impl RotationDirection {
         match self {
             RotationDirection::Clockwise => RotationDirection::CounterClockwise,
             RotationDirection::CounterClockwise => RotationDirection::Clockwise,
+        }
+    }
+}
+
+impl From<u8> for RotationDirection {
+    fn from(val: u8) -> Self {
+        match val {
+            0 => RotationDirection::CounterClockwise,
+            _ => RotationDirection::Clockwise,
         }
     }
 }
@@ -215,10 +280,24 @@ const POPCOUNT_TABLE: [u8; 256] = {
     table
 };
 
+fn stream(ch: DiskCh, disk_image: &DiskImage) -> &TrackDataStream {
+    disk_image.track_map[ch.h() as usize]
+        .get(ch.c() as usize)
+        .map(|track_i| disk_image.track_pool[*track_i].track_stream().unwrap())
+        .unwrap()
+}
+
+fn metadata(ch: DiskCh, disk_image: &DiskImage) -> &DiskStructureMetadata {
+    disk_image.track_map[ch.h() as usize]
+        .get(ch.c() as usize)
+        .map(|track_i| disk_image.track_pool[*track_i].metadata().unwrap())
+        .unwrap()
+}
+
 fn collect_streams(head: u8, disk_image: &DiskImage) -> Vec<&TrackDataStream> {
     disk_image.track_map[head as usize]
         .iter()
-        .filter_map(|track_i| disk_image.track_pool[*track_i].get_track_stream())
+        .filter_map(|track_i| disk_image.track_pool[*track_i].track_stream())
         .collect()
 }
 
@@ -227,7 +306,7 @@ fn collect_weak_masks(head: u8, disk_image: &DiskImage) -> Vec<&BitVec> {
         .iter()
         .filter_map(|track_i| {
             disk_image.track_pool[*track_i]
-                .get_track_stream()
+                .track_stream()
                 .map(|track| track.weak_mask())
         })
         .collect()
@@ -238,7 +317,7 @@ fn collect_error_maps(head: u8, disk_image: &DiskImage) -> Vec<&BitVec> {
         .iter()
         .filter_map(|track_i| {
             disk_image.track_pool[*track_i]
-                .get_track_stream()
+                .track_stream()
                 .map(|track| track.error_map())
         })
         .collect()
@@ -853,6 +932,165 @@ pub fn render_track_metadata_quadrant(
                 }
                 path_builder = PathBuilder::new(); // Reset the path builder for the next sector
             }
+        }
+    }
+
+    Ok(())
+}
+
+/// Render a representation of a specific sector to a `tiny_skia::Pixmap`.
+/// Unlike other metadata rendering functions, this does not operate per quadrant, but should be
+/// given a composited pixmap.
+pub fn render_disk_selection(
+    disk_image: &DiskImage,
+    pixmap: &mut Pixmap,
+    p: &RenderDiskSelectionParams,
+) -> Result<(), DiskVisualizationError> {
+    let track = stream(p.ch, disk_image);
+    let track_len = track.len();
+    let rmetadata = metadata(p.ch, disk_image);
+
+    let num_tracks = min(disk_image.tracks(p.ch.h()) as usize, p.track_limit);
+    if p.ch.c() >= num_tracks as u16 {
+        return Err(DiskVisualizationError::InvalidParameter);
+    }
+
+    let image_size = pixmap.width() as f32;
+    let total_radius = image_size / 2.0;
+    let mut min_radius = p.min_radius_fraction * total_radius; // Scale min_radius to pixel value
+
+    // If pinning has been specified, adjust the minimum radius.
+    // We subtract any over-dumped tracks from the radius, so that the minimum radius fraction
+    // is consistent with the last standard track.
+    min_radius = if p.pin_last_standard_track {
+        let normalized_track_ct = match num_tracks {
+            0..50 => 40,
+            50.. => 80,
+        };
+        let track_width = (total_radius - min_radius) / normalized_track_ct as f32;
+        let overdump = num_tracks.saturating_sub(normalized_track_ct);
+        p.min_radius_fraction * total_radius - (overdump as f32 * track_width)
+    }
+    else {
+        min_radius
+    };
+
+    let track_width = (total_radius - min_radius) / num_tracks as f32;
+    let center = Point::from_xy(image_size / 2.0, image_size / 2.0);
+
+    let draw_sector_slice = |path_builder: &mut PathBuilder,
+                             paint: &mut Paint,
+                             start_angle: f32,
+                             end_angle: f32,
+                             inner_radius: f32,
+                             outer_radius: f32,
+                             color: Color|
+     -> Color {
+        // Draw the outer curve
+        add_arc(path_builder, center, inner_radius, start_angle, end_angle);
+        // Draw line segment to end angle of inner curve
+        path_builder.line_to(
+            center.x + outer_radius * end_angle.cos(),
+            center.y + outer_radius * end_angle.sin(),
+        );
+        // Draw inner curve back to start angle
+        add_arc(path_builder, center, outer_radius, end_angle, start_angle);
+        // Draw line segment back to start angle of outer curve
+        path_builder.line_to(
+            center.x + inner_radius * start_angle.cos(),
+            center.y + inner_radius * start_angle.sin(),
+        );
+        path_builder.close();
+        paint.set_color(color);
+        color
+    };
+
+    let (clip_start, clip_end) = match p.direction {
+        RotationDirection::CounterClockwise => (0.0, TAU),
+        RotationDirection::Clockwise => (TAU, 0.0),
+    };
+
+    for draw_markers in [false, true].iter() {
+        let ti = p.ch.c() as usize;
+        let track_meta = rmetadata;
+
+        let outer_radius = total_radius - (ti as f32 * track_width);
+        let inner_radius = outer_radius - (track_width * (1.0 - p.track_gap));
+        let mut paint = Paint {
+            blend_mode: BlendMode::SourceOver,
+            anti_alias: true,
+            ..Default::default()
+        };
+
+        let mut phys_s: u8 = 0; // Physical sector index, 0-indexed from first sector on track
+
+        // Draw non-overlapping metadata.
+        for (_mi, meta_item) in track_meta.items.iter().enumerate() {
+            if let DiskStructureElement::System34(System34Element::Marker(..)) = meta_item.elem_type {
+                if !*draw_markers {
+                    continue;
+                }
+            }
+            else if *draw_markers {
+                continue;
+            }
+
+            // Advance physical sector number for each sector header encountered.
+            if meta_item.elem_type.is_sector_header() {
+                phys_s = phys_s.wrapping_add(1);
+            }
+
+            if !meta_item.elem_type.is_sector_data() || ((phys_s as usize) < p.sector_idx) {
+                continue;
+            }
+
+            let mut path_builder = PathBuilder::new();
+            let mut start_angle = ((meta_item.start as f32 / track_len as f32) * TAU) + p.index_angle;
+            let mut end_angle = ((meta_item.end as f32 / track_len as f32) * TAU) + p.index_angle;
+
+            if start_angle > end_angle {
+                std::mem::swap(&mut start_angle, &mut end_angle);
+            }
+
+            (start_angle, end_angle) = match p.direction {
+                RotationDirection::CounterClockwise => (start_angle, end_angle),
+                RotationDirection::Clockwise => (TAU - start_angle, TAU - end_angle),
+            };
+
+            if start_angle > end_angle {
+                std::mem::swap(&mut start_angle, &mut end_angle);
+            }
+
+            // Skip sectors that are outside the current quadrant
+            if end_angle <= clip_start || start_angle >= clip_end {
+                continue;
+            }
+
+            // Clamp start and end angle to quadrant boundaries
+            if start_angle < clip_start {
+                start_angle = clip_start;
+            }
+
+            if end_angle > clip_end {
+                end_angle = clip_end;
+            }
+
+            draw_sector_slice(
+                &mut path_builder,
+                &mut paint,
+                start_angle,
+                end_angle,
+                inner_radius,
+                outer_radius,
+                p.color,
+            );
+
+            if let Some(path) = path_builder.finish() {
+                pixmap.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
+            }
+
+            // Rendered one sector, stop.
+            break;
         }
     }
 

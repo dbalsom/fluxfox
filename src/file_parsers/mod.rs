@@ -31,7 +31,10 @@ use std::sync::{Arc, Mutex};
 
 use crate::{
     io::{ReadSeek, ReadWriteSeek},
-    DiskImage, DiskImageError, DiskImageFileFormat, LoadingCallback,
+    DiskImage,
+    DiskImageError,
+    DiskImageFileFormat,
+    LoadingCallback,
 };
 
 pub mod compression;
@@ -40,7 +43,7 @@ pub mod hfe;
 pub mod imd;
 pub mod kryoflux;
 #[cfg(feature = "mfi")]
-mod mfi;
+pub mod mfi;
 pub mod mfm;
 pub mod pfi;
 pub mod pri;

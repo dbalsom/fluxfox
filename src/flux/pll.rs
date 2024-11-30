@@ -234,7 +234,13 @@ impl Pll {
     fn decode_mfm(&mut self, stream: &FluxRevolution, flags: PllDecodeFlags) -> PllDecodeResult {
         let mut output_bits = BitVec::with_capacity(stream.flux_deltas.len() * 3);
         let mut error_bits = BitVec::with_capacity(stream.flux_deltas.len() * 3);
-        let mut pll_stats = Vec::with_capacity(stream.flux_deltas.len());
+        let mut pll_stats = if flags.contains(PllDecodeFlags::COLLECT_FLUX_STATS) {
+            log::debug!("decode_mfm(): Collecting flux statistics...");
+            Vec::with_capacity(stream.flux_deltas.len())
+        }
+        else {
+            Vec::new()
+        };
         let mut phase_error: f64 = 0.0;
         let mut phase_adjust: f64 = 0.0;
 

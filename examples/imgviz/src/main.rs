@@ -33,15 +33,14 @@ mod args;
 mod render;
 mod text;
 
+use crossbeam::channel;
 use std::{
     collections::HashMap,
-    io::Write,
+    io::{Cursor, Write},
     sync::{Arc, Mutex},
     thread,
     time::Instant,
 };
-
-use crossbeam::channel;
 use tiny_skia::{BlendMode, Color, FilterQuality, Pixmap, PixmapPaint, Transform};
 
 use fluxfox::{
@@ -93,15 +92,14 @@ fn main() {
         }
     };
 
-    let disk_image = match std::fs::File::open(&opts.in_filename) {
-        Ok(file) => file,
+    let mut file_vec = match std::fs::read(&opts.in_filename.clone()) {
+        Ok(file_vec) => file_vec,
         Err(e) => {
-            eprintln!("Error opening file: {}", e);
+            eprintln!("Error reading file: {}", e);
             std::process::exit(1);
         }
     };
-
-    let mut reader = std::io::BufReader::new(disk_image);
+    let mut reader = Cursor::new(&mut file_vec);
 
     let disk_image_type = match DiskImage::detect_format(&mut reader) {
         Ok(disk_image_type) => disk_image_type,

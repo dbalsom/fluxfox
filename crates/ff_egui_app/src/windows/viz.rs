@@ -24,11 +24,12 @@
 
     --------------------------------------------------------------------------
 */
-use crate::widgets::viz::VisualizationState;
+use crate::widgets::viz::{VisualizationState, VizEvent};
 use fluxfox::DiskImage;
 use std::sync::{Arc, RwLock};
 
 use anyhow::Result;
+use fluxfox_egui::widgets::error_banner::ErrorBanner;
 
 pub struct VizViewer {
     viz: VisualizationState,
@@ -87,35 +88,54 @@ impl VizViewer {
         Ok(())
     }
 
-    pub fn show(&mut self, ctx: &egui::Context) {
+    pub fn show(&mut self, ctx: &egui::Context, disk_lock: Arc<RwLock<DiskImage>>) {
         if self.open {
-            egui::Window::new("Visualization").open(&mut self.open).show(ctx, |ui| {
-                egui::menu::bar(ui, |ui| {
-                    ui.menu_button("Layers", |ui| {
-                        if ui.checkbox(&mut self.show_data_layer, "Data Layer").changed() {
-                            self.viz.enable_data_layer(self.show_data_layer);
-                        }
-                        if ui.checkbox(&mut self.show_metadata_layer, "Metadata Layer").changed() {
-                            self.viz.enable_metadata_layer(self.show_metadata_layer);
-                        }
-                        if ui.checkbox(&mut self.show_error_layer, "Error Layer").changed() {
-                            //self.viz.set_error_layer(self.show_error_layer);
-                        }
-                        if ui.checkbox(&mut self.show_weak_layer, "Weak Layer").changed() {
-                            //self.viz.set_weak_layer(self.show_weak_layer);
-                        }
+            egui::Window::new("Disk Visualization")
+                .open(&mut self.open)
+                .show(ctx, |ui| {
+                    egui::menu::bar(ui, |ui| {
+                        ui.menu_button("Layers", |ui| {
+                            if ui.checkbox(&mut self.show_data_layer, "Data Layer").changed() {
+                                self.viz.enable_data_layer(self.show_data_layer);
+                            }
+                            if ui.checkbox(&mut self.show_metadata_layer, "Metadata Layer").changed() {
+                                self.viz.enable_metadata_layer(self.show_metadata_layer);
+                            }
+                            if ui.checkbox(&mut self.show_error_layer, "Error Layer").changed() {
+                                //self.viz.set_error_layer(self.show_error_layer);
+                            }
+                            if ui.checkbox(&mut self.show_weak_layer, "Weak Layer").changed() {
+                                //self.viz.set_weak_layer(self.show_weak_layer);
+                            }
+                        });
+
+                        ui.menu_button("Save", |ui| {
+                            for side in 0..self.viz.sides {
+                                if ui.button(format!("Save Side {} as PNG", side).as_str()).clicked() {
+                                    self.viz.save_side_as(&format!("fluxfox_viz_side{}.png", side), side);
+                                }
+                            }
+                        });
                     });
 
-                    ui.menu_button("Save", |ui| {
-                        for side in 0..self.viz.sides {
-                            if ui.button(format!("Save Side {} as PNG", side).as_str()).clicked() {
-                                self.viz.save_side_as(&format!("fluxfox_viz_side{}.png", side), side);
+                    if self.viz.compatible {
+                        if let Some(new_event) = self.viz.show(ui) {
+                            match new_event {
+                                VizEvent::NewSectorSelected { c, h, s_idx } => {
+                                    log::debug!("New sector selected: c:{} h:{}, s:{}", c, h, s_idx);
+
+                                    self.viz.update_selection(disk_lock, c, h, s_idx);
+                                }
+                                _ => {}
                             }
                         }
-                    });
+                    }
+                    else {
+                        ErrorBanner::new("Visualization not compatible with current disk image.")
+                            .medium()
+                            .show(ui);
+                    }
                 });
-                self.viz.show(ui);
-            });
         }
     }
 }

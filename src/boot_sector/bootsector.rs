@@ -38,11 +38,48 @@ use crate::{
 };
 use binrw::{binrw, BinRead, BinWrite};
 
+/// A simple wrapper around the last two bytes in a boot sector that comprise the boot signature.
+/// Typically, these bytes should read 0x55, 0xAA, but this isn't guaranteed, especially on older
+/// diskettes. Early PCs did not validate that these bytes were set, and DOS 1.0 didn't set them.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Copy, Clone, Debug)]
+#[repr(C)]
+pub struct BootSignature {
+    pub(crate) marker: [u8; 2],
+}
+
+impl Default for BootSignature {
+    fn default() -> Self {
+        BootSignature { marker: [0x55, 0xAA] }
+    }
+}
+
+#[allow(dead_code)]
+impl BootSignature {
+    /// Create a new BootMarker from the specified bytes.
+    /// To create a valid BootMarker without specifying the byte values, simple use BootMarker::default().
+    pub fn new(marker: [u8; 2]) -> Self {
+        BootSignature { marker }
+    }
+    /// Set the BootMarker to the specified bytes.
+    pub fn set(&mut self, marker: [u8; 2]) {
+        self.marker = marker;
+    }
+    /// Return true if the marker is 0x55, 0xAA.
+    pub fn is_valid(&self) -> bool {
+        self.marker == BootSignature::default().marker
+    }
+    /// Return a reference to the marker bytes.
+    pub fn bytes(&self) -> &[u8; 2] {
+        &self.marker
+    }
+}
+
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct BootSector {
     pub(crate) bpb2: BiosParameterBlock2,
     pub(crate) bpb3: BiosParameterBlock3,
-    pub(crate) marker: [u8; 2],
+    pub(crate) marker: BootSignature,
     pub(crate) sector_buf: Vec<u8>,
 }
 
@@ -73,7 +110,7 @@ impl BootSector {
         Ok(BootSector {
             bpb2,
             bpb3,
-            marker,
+            marker: BootSignature::new(marker),
             sector_buf: sector_buf.to_vec(),
         })
     }
@@ -122,6 +159,14 @@ impl BootSector {
         self.bpb2.is_valid()
     }
 
+    pub fn bpb2(&self) -> BiosParameterBlock2 {
+        self.bpb2
+    }
+
+    pub fn bpb3(&self) -> BiosParameterBlock3 {
+        self.bpb3
+    }
+
     pub(crate) fn update_bpb_from_format(&mut self, format: StandardFormat) -> Result<(), DiskImageError> {
         self.bpb2 = BiosParameterBlock2::from(format);
         self.bpb3 = BiosParameterBlock3::from(format);
@@ -136,8 +181,14 @@ impl BootSector {
         Ok(())
     }
 
-    pub(crate) fn as_bytes(&self) -> &[u8] {
+    pub fn as_bytes(&self) -> &[u8] {
         &self.sector_buf
+    }
+
+    /// Return the BootSignature.
+    /// This is a simple wrapper around a two byte array, but provides an is_valid() method.
+    pub fn boot_signature(&self) -> BootSignature {
+        self.marker
     }
 
     /// Write a new BPB to the provided sector buffer based on the specified StandardFormat.
@@ -151,9 +202,9 @@ impl BootSector {
     }
 
     /// Attempt to correlate the current Bios Parameter Block with a StandardFormat.
-    /// If the BPB is invalid, or no match is found, return IncompatibleImage.
-    pub(crate) fn get_standard_format(&self) -> Result<StandardFormat, DiskImageError> {
-        StandardFormat::try_from(&self.bpb2).map_err(|_e| DiskImageError::IncompatibleImage)
+    /// If the BPB is invalid, or no match is found, return None.
+    pub fn standard_format(&self) -> Option<StandardFormat> {
+        StandardFormat::try_from(&self.bpb2).ok()
     }
 
     /// Dump the BPB values to a Write implementor for debugging purposes.
@@ -173,21 +224,13 @@ impl BootSector {
         writeln!(buffer, "\tNumber of heads: {}", self.bpb3.number_of_heads)?;
         writeln!(buffer, "\tHidden sectors: {}", self.bpb3.hidden_sectors)?;
         writeln!(buffer)?;
-        writeln!(
-            buffer,
-            "Boot sector marker: 0x{:02X}{:02X}",
-            self.marker[0], self.marker[1]
-        )?;
-        let fmt = self.get_standard_format();
-        if fmt.is_err() {
-            writeln!(buffer, "Standard disk format not detected.")?;
+        writeln!(buffer, "Boot sector signature: {:02X?}", self.marker.bytes())?;
+
+        if let Some(fmt) = self.standard_format() {
+            writeln!(buffer, "Best standard disk format guess: {}", fmt)?;
         }
         else {
-            writeln!(
-                buffer,
-                "Best standard disk format guess: {:?}",
-                self.get_standard_format().unwrap()
-            )?;
+            writeln!(buffer, "Standard disk format not detected.")?;
         }
 
         buffer.flush()?;

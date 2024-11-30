@@ -37,12 +37,16 @@ use fluxfox::{
     tiny_skia,
     tiny_skia::{Color, Pixmap},
     visualization::{
+        render_disk_selection,
         render_track_data,
         render_track_metadata_quadrant,
+        RenderDiskSelectionParams,
         RenderTrackDataParams,
         RenderTrackMetadataParams,
-        ResolutionType,
+        RotationDirection,
     },
+    DiskCh,
+    DiskDataResolution,
     DiskImage,
 };
 use fluxfox_egui::widgets::texture::{PixelCanvas, PixelCanvasDepth};
@@ -63,10 +67,18 @@ pub enum RenderMessage {
     DataRenderError(String),
 }
 
+#[derive(Copy, Clone, PartialEq)]
+pub enum VizEvent {
+    NewSectorSelected { c: u8, h: u8, s_idx: u8 },
+    SectorDeselected,
+}
+
 pub struct VisualizationState {
+    pub compatible: bool,
     pub supersample: u32,
     pub meta_pixmap_pool: Vec<Arc<Mutex<Pixmap>>>,
     pub data_img: [Arc<Mutex<Pixmap>>; 2],
+    pub selection_img: [Arc<Mutex<Pixmap>>; 2],
     pub metadata_img: [Pixmap; 2],
     pub composite_img: [Pixmap; 2],
     pub sector_lookup_img: [Pixmap; 2],
@@ -78,14 +90,20 @@ pub struct VisualizationState {
     pub render_receiver: mpsc::Receiver<RenderMessage>,
     pub show_data_layer: bool,
     pub show_metadata_layer: bool,
+    #[allow(dead_code)]
     pub show_error_layer: bool,
+    #[allow(dead_code)]
     pub show_weak_layer: bool,
+    #[allow(dead_code)]
+    pub show_selection_layer: bool,
+    pub last_event: Option<VizEvent>,
 }
 
 impl Default for VisualizationState {
     fn default() -> Self {
         let (render_sender, render_receiver) = mpsc::sync_channel(2);
         Self {
+            compatible: false,
             supersample: VIZ_DATA_SUPERSAMPLE,
             meta_pixmap_pool: Vec::new(),
             data_img: [
@@ -95,6 +113,10 @@ impl Default for VisualizationState {
                 Arc::new(Mutex::new(
                     Pixmap::new(VIZ_SUPER_RESOLUTION, VIZ_SUPER_RESOLUTION).unwrap(),
                 )),
+            ],
+            selection_img: [
+                Arc::new(Mutex::new(Pixmap::new(VIZ_RESOLUTION, VIZ_RESOLUTION).unwrap())),
+                Arc::new(Mutex::new(Pixmap::new(VIZ_RESOLUTION, VIZ_RESOLUTION).unwrap())),
             ],
             metadata_img: [
                 Pixmap::new(VIZ_RESOLUTION, VIZ_RESOLUTION).unwrap(),
@@ -118,6 +140,8 @@ impl Default for VisualizationState {
             show_metadata_layer: true,
             show_error_layer: false,
             show_weak_layer: false,
+            show_selection_layer: true,
+            last_event: None,
         }
     }
 }
@@ -169,7 +193,12 @@ impl VisualizationState {
         }
     }
 
-    pub(crate) fn render_visualization(&mut self, disk_lock: Arc<RwLock<DiskImage>>, side: usize) -> Result<(), Error> {
+    #[allow(dead_code)]
+    pub fn compatible(&self) -> bool {
+        self.compatible
+    }
+
+    pub fn render_visualization(&mut self, disk_lock: Arc<RwLock<DiskImage>>, side: usize) -> Result<(), Error> {
         if self.meta_pixmap_pool.len() < 4 {
             return Err(anyhow!("Pixmap pool not initialized"));
         }
@@ -179,6 +208,16 @@ impl VisualizationState {
         let render_target = self.data_img[side].clone();
 
         let disk = &disk_lock.read().unwrap();
+
+        self.compatible = match disk.resolution() {
+            DiskDataResolution::BitStream | DiskDataResolution::FluxStream => true,
+            _ => false,
+        };
+
+        if !self.compatible {
+            return Err(anyhow!("Incompatible disk resolution"));
+        }
+
         let head = side as u8;
         let quadrant = 0;
         let angle = 0.0;
@@ -202,15 +241,15 @@ impl VisualizationState {
                 map_color: None,
                 head,
                 image_size: (VIZ_SUPER_RESOLUTION, VIZ_SUPER_RESOLUTION),
-                image_pos: (0, 0),
                 min_radius_fraction,
                 index_angle: angle,
                 track_limit: track_ct,
                 track_gap: render_track_gap,
                 direction: direction.opposite(),
                 decode: true,
-                resolution: ResolutionType::Byte,
+                sector_mask: true,
                 pin_last_standard_track: true,
+                ..Default::default()
             };
 
             let disk = render_lock.read().unwrap();
@@ -365,6 +404,60 @@ impl VisualizationState {
         Ok(())
     }
 
+    pub fn clear_selection(&mut self, side: usize) {
+        if let Ok(mut pixmap) = self.selection_img[side].try_lock() {
+            pixmap.fill(Color::TRANSPARENT);
+        }
+    }
+
+    pub fn update_selection(&mut self, disk_lock: Arc<RwLock<DiskImage>>, c: u8, h: u8, s_idx: u8) {
+        let disk = match disk_lock.try_read() {
+            Ok(disk) => disk,
+            Err(_) => {
+                log::debug!("Disk image could not be locked for reading, deferring sector selection...");
+                return;
+            }
+        };
+
+        let side = h as usize;
+        let mut do_composite = false;
+
+        self.clear_selection(side);
+
+        // If we can acquire the selection image mutex, we can composite the data and metadata layers.
+        match self.selection_img[side].try_lock() {
+            Ok(mut data) => {
+                let params = RenderDiskSelectionParams {
+                    ch: DiskCh::new(c as u16, h),
+                    sector_idx: s_idx as usize,
+                    track_limit: disk.tracks(h) as usize,
+                    direction: RotationDirection::from(h),
+                    color: Color::WHITE,
+                    pin_last_standard_track: true,
+                    ..Default::default()
+                };
+
+                match render_disk_selection(&disk, &mut data, &params) {
+                    Ok(_) => {
+                        log::debug!("Sector selection rendered for side {}", side);
+                    }
+                    Err(e) => {
+                        log::error!("Error rendering sector selection: {}", e);
+                    }
+                }
+
+                do_composite = true;
+            }
+            Err(_) => {
+                log::debug!("Data pixmap locked, deferring selection update...");
+            }
+        }
+
+        if do_composite {
+            self.composite(side);
+        }
+    }
+
     fn composite(&mut self, side: usize) {
         // If we can acquire the data mutex, we can composite the data and metadata layers.
         match self.data_img[side].try_lock() {
@@ -415,6 +508,31 @@ impl VisualizationState {
             }
         }
 
+        // Finally, composite the sector selection.
+        match self.selection_img[side].try_lock() {
+            Ok(selection) => {
+                let paint = PixmapPaint {
+                    opacity:    1.0,
+                    blend_mode: BlendMode::Overlay,
+                    quality:    FilterQuality::Nearest,
+                };
+
+                if self.show_metadata_layer {
+                    self.composite_img[side].draw_pixmap(
+                        0,
+                        0,
+                        selection.as_ref(),
+                        &paint,
+                        tiny_skia::Transform::identity(),
+                        None,
+                    );
+                }
+            }
+            Err(_) => {
+                log::debug!("Selection pixmap locked, deferring compositing...");
+            }
+        }
+
         if let Some(canvas) = &mut self.canvas[side] {
             if canvas.has_texture() {
                 log::debug!("composite(): Updating canvas...");
@@ -447,6 +565,7 @@ impl VisualizationState {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn enable_error_layer(&mut self, state: bool) {
         self.show_error_layer = state;
         for side in 0..self.sides {
@@ -454,6 +573,7 @@ impl VisualizationState {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn enable_weak_layer(&mut self, state: bool) {
         self.show_weak_layer = state;
         for side in 0..self.sides {
@@ -468,8 +588,10 @@ impl VisualizationState {
         }
     }
 
-    pub(crate) fn show(&mut self, ui: &mut egui::Ui) {
-        // Receive events
+    pub(crate) fn show(&mut self, ui: &mut egui::Ui) -> Option<VizEvent> {
+        let mut new_event = None;
+
+        // Receive render events
         while let Ok(msg) = self.render_receiver.try_recv() {
             match msg {
                 RenderMessage::DataRenderComplete(head) => {
@@ -499,6 +621,7 @@ impl VisualizationState {
 
                                         self.sector_lookup_img[side].pixel(x as u32, y as u32).map(|pixel| {
                                             if pixel.alpha() == 0 {
+                                                new_event = Some(VizEvent::SectorDeselected);
                                                 ui.label("No sector");
                                             }
                                             else {
@@ -506,6 +629,11 @@ impl VisualizationState {
                                                 let cyl = pixel.green();
                                                 let sector = pixel.blue();
                                                 ui.label(format!("Sector lookup: {} {} {}", head, cyl, sector));
+                                                new_event = Some(VizEvent::NewSectorSelected {
+                                                    c: cyl,
+                                                    h: head,
+                                                    s_idx: sector,
+                                                });
                                             }
                                         });
                                     },
@@ -528,6 +656,11 @@ impl VisualizationState {
                 }
             }
         });
+
+        if self.last_event != new_event {
+            self.last_event = new_event.clone();
+        }
+        new_event
     }
 }
 

@@ -61,6 +61,7 @@ pub trait TrackCodec: Read + Seek + Index<usize, Output = bool> + Send + Sync {
     fn error_map(&self) -> &BitVec;
     fn set_track_padding(&mut self);
     fn read_raw_byte(&self, index: usize) -> Option<u8>;
+    fn write_raw_byte(&mut self, index: usize, byte: u8);
     fn read_decoded_byte(&self, index: usize) -> Option<u8>;
     fn write_buf(&mut self, buf: &[u8], offset: usize) -> Option<usize>;
     fn write_raw_buf(&mut self, buf: &[u8], offset: usize) -> usize;

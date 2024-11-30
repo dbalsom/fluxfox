@@ -216,6 +216,12 @@ impl TrackCodec for MfmCodec {
         Some(byte)
     }
 
+    fn write_raw_byte(&mut self, index: usize, byte: u8) {
+        for (i, bi) in (index..index + 8).enumerate() {
+            self.bits.set(bi, (byte & 0x80 >> i) != 0);
+        }
+    }
+
     /// This is essentially a reimplementation of Read + Iterator that avoids mutation.
     /// This allows us to read track data through an immutable reference.
     fn read_decoded_byte(&self, index: usize) -> Option<u8> {
@@ -256,7 +262,7 @@ impl TrackCodec for MfmCodec {
         let mut bits_written = 0;
 
         let phase = !self.clock_map[offset] as usize;
-        println!("write_buf(): offset: {} phase: {}", offset, phase);
+        log::trace!("write_buf(): offset: {} phase: {}", offset, phase);
 
         for (i, bit) in encoded_buf.into_iter().enumerate().take(copy_len) {
             self.bits.set(offset + phase + i, bit);
@@ -270,16 +276,13 @@ impl TrackCodec for MfmCodec {
     fn write_raw_buf(&mut self, buf: &[u8], offset: usize) -> usize {
         let mut bytes_written = 0;
         let mut offset = offset;
-
         for byte in buf {
-            for bit_pos in (0..8).rev() {
-                let bit = byte & (0x01 << bit_pos) != 0;
-                self.bits.set(offset, bit);
+            for bit_pos in 0..8 {
+                self.bits.set(offset, byte & (0x80 >> bit_pos) != 0);
                 offset += 1;
             }
             bytes_written += 1;
         }
-
         bytes_written
     }
 
@@ -288,9 +291,9 @@ impl TrackCodec for MfmCodec {
         let mut bit_count = 0;
 
         for &byte in data {
-            for i in (0..8).rev() {
-                let bit = (byte & (1 << i)) != 0;
-                if bit {
+            for i in 0..8 {
+                //let bit = ;
+                if (byte & (0x80 >> i)) != 0 {
                     // 1 is encoded as 01
                     bitvec.push(false);
                     bitvec.push(true);

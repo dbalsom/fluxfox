@@ -24,12 +24,34 @@
 
     --------------------------------------------------------------------------
 */
-use crate::{widgets::sector_status::sector_status, SectorSelection, TrackListSelection};
-use egui::{Pos2, Rect, Rounding, ScrollArea, Stroke, TextStyle, Ui, Vec2};
+use crate::{
+    widgets::{header_group::HeaderGroup, sector_status::sector_status},
+    SectorSelection,
+    TrackListSelection,
+};
+use egui::{ScrollArea, TextStyle};
 use fluxfox::{track::TrackInfo, DiskCh, DiskImage, SectorMapEntry};
 
 pub const TRACK_ENTRY_WIDTH: f32 = 420.0;
 pub const SECTOR_STATUS_WRAP: usize = 16;
+
+#[derive(PartialEq, Default)]
+pub enum HeadFilter {
+    Zero,
+    One,
+    #[default]
+    Both,
+}
+
+impl HeadFilter {
+    pub fn predicate(&self, ch: DiskCh) -> bool {
+        match self {
+            HeadFilter::Zero => ch.h() == 0,
+            HeadFilter::One => ch.h() == 1,
+            HeadFilter::Both => true,
+        }
+    }
+}
 
 struct TrackListItem {
     ch: DiskCh,
@@ -39,12 +61,18 @@ struct TrackListItem {
 
 #[derive(Default)]
 pub struct TrackListWidget {
+    heads: u8,
+    head_filter: HeadFilter,
     track_list: Vec<TrackListItem>,
 }
 
 impl TrackListWidget {
     pub fn new() -> Self {
-        Self { track_list: Vec::new() }
+        Self {
+            heads: 2,
+            head_filter: HeadFilter::default(),
+            track_list: Vec::new(),
+        }
     }
 
     pub fn reset(&mut self) {
@@ -53,6 +81,12 @@ impl TrackListWidget {
 
     pub fn update(&mut self, disk: &DiskImage) {
         self.track_list.clear();
+
+        self.heads = disk.heads();
+        if self.heads == 1 {
+            self.head_filter = HeadFilter::Both;
+        }
+
         for track in disk.track_iter() {
             self.track_list.push(TrackListItem {
                 ch: track.ch(),
@@ -62,68 +96,7 @@ impl TrackListWidget {
         }
     }
 
-    fn custom_group(ui: &mut Ui, heading: &str, content: impl FnOnce(&mut Ui)) {
-        // Add some margin space for the group
-        let margin = ui.style().spacing.window_margin;
-
-        // Begin the group
-        let response = ui.scope(|ui| {
-            ui.horizontal(|ui| {
-                ui.add_space(margin.left); // Left margin
-                ui.vertical(|ui| {
-                    // Paint the heading
-                    ui.add_space(margin.top); // Top margin
-                    ui.heading(heading);
-                    ui.add_space(margin.top); // Top margin
-
-                    // Draw the custom content
-                    content(ui);
-                    ui.add_space(margin.bottom); // Bottom margin
-                });
-            });
-        });
-
-        // Get the rect for the entire group we just created
-        let group_rect = response.response.rect;
-
-        // Paint the header background
-        if ui.is_rect_visible(group_rect) {
-            let header_height = ui.fonts(|fonts| fonts.row_height(&TextStyle::Heading.resolve(&ui.style())));
-            let header_rect = Rect::from_min_size(
-                group_rect.min,
-                Vec2::new(group_rect.width(), header_height + margin.top * 2.0), // Include padding for margins
-            );
-            let painter = ui.painter();
-            let visuals = ui.visuals();
-            let bg_color = visuals.faint_bg_color.gamma_multiply(1.2); // Slightly brighter than the default background
-            let rounding = Rounding {
-                nw: 4.0, // Top-left corner
-                ne: 4.0, // Top-right corner
-                sw: 0.0, // Bottom-left corner
-                se: 0.0, // Bottom-right corner
-            };
-            painter.rect_filled(header_rect, rounding, bg_color);
-
-            // Draw a light line at the bottom of the header
-            let line_color = visuals.widgets.inactive.bg_fill; // Use a lighter color for the line
-            let line_stroke = Stroke::new(1.0, line_color);
-            let bottom_line_start = Pos2::new(header_rect.min.x, header_rect.max.y);
-            let bottom_line_end = Pos2::new(header_rect.max.x, header_rect.max.y);
-            painter.line_segment([bottom_line_start, bottom_line_end], line_stroke);
-        }
-
-        // Draw the overall border for the group
-        if ui.is_rect_visible(group_rect) {
-            let painter = ui.painter();
-            let visuals = ui.visuals();
-            let border_color = visuals.widgets.noninteractive.bg_stroke.color;
-            let stroke = Stroke::new(1.0, border_color);
-            let rounding = Rounding::same(6.0); // Overall group rounding
-            painter.rect_stroke(group_rect, rounding, stroke);
-        }
-    }
-
-    pub fn show(&self, ui: &mut egui::Ui) -> Option<TrackListSelection> {
+    pub fn show(&mut self, ui: &mut egui::Ui) -> Option<TrackListSelection> {
         let mut new_selection = None;
 
         let scroll_area = ScrollArea::vertical()
@@ -131,81 +104,116 @@ impl TrackListWidget {
             .auto_shrink([true, false]);
 
         ui.vertical(|ui| {
-            //ui.heading(egui::RichText::new("Track List").color(ui.visuals().strong_text_color()));
-            ui.heading(egui::RichText::new("Track List").strong());
-            //ui.separator();
+            ui.heading(egui::RichText::new("Track List").color(ui.visuals().strong_text_color()));
+            if self.heads > 1 {
+                ui.horizontal(|ui| {
+                    ui.label("Show heads:");
+                    if ui
+                        .add(egui::RadioButton::new(self.head_filter == HeadFilter::Both, "Both"))
+                        .clicked()
+                    {
+                        self.head_filter = HeadFilter::Both;
+                    }
+                    if ui
+                        .add(egui::RadioButton::new(self.head_filter == HeadFilter::Zero, "Head 0"))
+                        .clicked()
+                    {
+                        self.head_filter = HeadFilter::Zero;
+                    }
+                    if ui
+                        .add(egui::RadioButton::new(self.head_filter == HeadFilter::One, "Head 1"))
+                        .clicked()
+                    {
+                        self.head_filter = HeadFilter::One;
+                    }
+                });
+            }
 
             scroll_area.show(ui, |ui| {
                 ui.vertical(|ui| {
-                    for (ti, track) in self.track_list.iter().enumerate() {
-                        Self::custom_group(ui, &format!("{} Track {}", track.info.encoding, track.ch), |ui| {
-                            ui.vertical(|ui| {
-                                ui.set_min_width(TRACK_ENTRY_WIDTH);
-                                egui::Grid::new(format!("track_list_grid_{}", ti))
-                                    .striped(true)
-                                    .show(ui, |ui| {
-                                        ui.label("Bitcells:");
-                                        ui.label(format!("{}", track.info.bit_length));
-                                        ui.end_row();
-                                    });
+                    for (ti, track) in self
+                        .track_list
+                        .iter()
+                        .filter(|tli| self.head_filter.predicate(tli.ch))
+                        .enumerate()
+                    {
+                        HeaderGroup::new(&format!("{} Track {}", track.info.encoding, track.ch))
+                            .strong()
+                            .show(ui, |ui| {
+                                ui.vertical(|ui| {
+                                    ui.set_min_width(TRACK_ENTRY_WIDTH);
+                                    egui::Grid::new(format!("track_list_grid_{}", ti))
+                                        .striped(true)
+                                        .show(ui, |ui| {
+                                            ui.label("Bitcells:");
+                                            ui.label(format!("{}", track.info.bit_length));
+                                            ui.end_row();
+                                        });
 
-                                ui.label(format!("{} Sectors:", track.sectors.len()));
-                                egui::Grid::new(format!("track_list_sector_grid_{}", ti))
-                                    .min_col_width(0.0)
-                                    .show(ui, |ui| {
-                                        let mut previous_id: Option<u8> = None;
-                                        for sector in track.sectors.iter() {
-                                            ui.vertical_centered(|ui| {
-                                                let sid = sector.chsn.s();
-                                                let consecutive_sector = match previous_id {
-                                                    Some(prev) => sid == prev + 1,
-                                                    None => sid == 1,
-                                                };
-                                                previous_id = Some(sid);
+                                    ui.label(format!("{} Sectors:", track.sectors.len()));
+                                    egui::Grid::new(format!("track_list_sector_grid_{}", ti))
+                                        .min_col_width(0.0)
+                                        .show(ui, |ui| {
+                                            let mut previous_id: Option<u8> = None;
+                                            for sector in track.sectors.iter() {
+                                                ui.vertical_centered(|ui| {
+                                                    let sid = sector.chsn.s();
+                                                    let consecutive_sector = match previous_id {
+                                                        Some(prev) => sid == prev + 1,
+                                                        None => sid == 1,
+                                                    };
+                                                    previous_id = Some(sid);
 
-                                                let label_height = TextStyle::Body.resolve(&ui.style()).size; // Use the normal label height for consistency
-                                                let small_size = TextStyle::Small.resolve(&ui.style()).size;
-                                                let padding = ui.spacing().item_spacing.y;
+                                                    let label_height = TextStyle::Body.resolve(&ui.style()).size; // Use the normal label height for consistency
+                                                    let small_size = TextStyle::Small.resolve(&ui.style()).size;
+                                                    let padding = ui.spacing().item_spacing.y;
 
-                                                ui.vertical(|ui| {
-                                                    ui.set_min_height(label_height + padding);
-                                                    ui.allocate_ui_with_layout(
-                                                        egui::Vec2::new(ui.available_width(), label_height + padding),
-                                                        egui::Layout::centered_and_justified(egui::Direction::TopDown),
-                                                        |ui| {
-                                                            if sid > 99 {
-                                                                let mut text =
-                                                                    egui::RichText::new(format!("{:03}", sid))
-                                                                        .size(small_size);
-                                                                if !consecutive_sector {
-                                                                    text = text.color(ui.visuals().warn_fg_color);
+                                                    ui.vertical(|ui| {
+                                                        ui.set_min_height(label_height + padding);
+                                                        ui.allocate_ui_with_layout(
+                                                            egui::Vec2::new(
+                                                                ui.available_width(),
+                                                                label_height + padding,
+                                                            ),
+                                                            egui::Layout::centered_and_justified(
+                                                                egui::Direction::TopDown,
+                                                            ),
+                                                            |ui| {
+                                                                if sid > 99 {
+                                                                    let mut text =
+                                                                        egui::RichText::new(format!("{:03}", sid))
+                                                                            .size(small_size);
+                                                                    if !consecutive_sector {
+                                                                        text = text.color(ui.visuals().warn_fg_color);
+                                                                    }
+                                                                    ui.label(text);
                                                                 }
-                                                                ui.label(text);
-                                                            }
-                                                            else {
-                                                                let mut text = egui::RichText::new(format!("{}", sid));
-                                                                if !consecutive_sector {
-                                                                    text = text.color(ui.visuals().warn_fg_color);
+                                                                else {
+                                                                    let mut text =
+                                                                        egui::RichText::new(format!("{}", sid));
+                                                                    if !consecutive_sector {
+                                                                        text = text.color(ui.visuals().warn_fg_color);
+                                                                    }
+                                                                    ui.label(text);
                                                                 }
-                                                                ui.label(text);
-                                                            }
-                                                        },
-                                                    );
+                                                            },
+                                                        );
+                                                    });
+
+                                                    if sector_status(ui, sector, true).clicked() {
+                                                        log::debug!("Sector clicked!");
+                                                        new_selection =
+                                                            Some(TrackListSelection::Sector(SectorSelection {
+                                                                phys_ch:    track.ch,
+                                                                sector_id:  sector.chsn,
+                                                                bit_offset: None,
+                                                            }));
+                                                    }
                                                 });
-
-                                                if sector_status(ui, sector, true).clicked() {
-                                                    log::debug!("Sector clicked!");
-                                                    new_selection = Some(TrackListSelection::Sector(SectorSelection {
-                                                        phys_ch:    track.ch,
-                                                        sector_id:  sector.chsn,
-                                                        bit_offset: None,
-                                                    }));
-                                                }
-                                            });
-                                        }
-                                    });
+                                            }
+                                        });
+                                });
                             });
-                        });
                         ui.add_space(8.0);
                     }
                 });

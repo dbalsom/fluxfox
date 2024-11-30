@@ -223,6 +223,7 @@ pub enum DiskFormat {
     Standard(StandardFormat),
 }
 
+/// A structure that defines several flags that can apply to a sector.
 #[derive(Copy, Clone, Debug, Default)]
 pub struct SectorAttributes {
     pub address_crc_valid: bool,
@@ -326,6 +327,8 @@ pub enum RwSectorScope {
     DataElement,
     /// The operation will include only the sector data, excluding address marker and CRC bytes.
     DataOnly,
+    /// The operation will only affect the sector CRC.
+    CrcOnly,
 }
 
 /// A `ScanSectorResult` structure contains the results of a scan sector operation.
@@ -1582,7 +1585,7 @@ impl DiskImage {
         }
 
         if let Some(boot_sector) = &self.boot_sector {
-            if let Ok(format) = boot_sector.get_standard_format() {
+            if let Some(format) = boot_sector.standard_format() {
                 log::trace!(
                     "post_load_process(): Boot sector of standard format detected: {:?}",
                     format
@@ -2084,6 +2087,7 @@ impl DiskImage {
         let data_slice = match scope {
             RwSectorScope::DataOnly => &rsr.read_buf[rsr.data_idx..rsr.data_idx + rsr.data_len],
             RwSectorScope::DataElement => &rsr.read_buf,
+            _ => return Err(DiskImageError::ParameterError),
         };
 
         util::dump_slice(data_slice, 0, bytes_per_row, &mut out)

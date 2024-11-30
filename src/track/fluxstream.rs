@@ -33,8 +33,14 @@ use super::{Track, TrackConsistency, TrackInfo};
 use crate::{
     bitstream::TrackDataStream,
     diskimage::{
-        BitStreamTrackParams, ReadSectorResult, ReadTrackResult, RwSectorScope, ScanSectorResult, SectorDescriptor,
-        SharedDiskContext, WriteSectorResult,
+        BitStreamTrackParams,
+        ReadSectorResult,
+        ReadTrackResult,
+        RwSectorScope,
+        ScanSectorResult,
+        SectorDescriptor,
+        SharedDiskContext,
+        WriteSectorResult,
     },
     flux::{
         flux_revolution::FluxRevolution,
@@ -47,8 +53,16 @@ use crate::{
     format_us,
     structure_parsers::{system34::System34Standard, DiskStructureMetadata},
     track::{bitstream::BitStreamTrack, metasector::MetaSectorTrack},
-    DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskImageError,
-    DiskRpm, SectorMapEntry,
+    DiskCh,
+    DiskChs,
+    DiskChsn,
+    DiskDataEncoding,
+    DiskDataRate,
+    DiskDataResolution,
+    DiskDensity,
+    DiskImageError,
+    DiskRpm,
+    SectorMapEntry,
 };
 use sha1_smol::Digest;
 use std::{
@@ -68,7 +82,7 @@ pub struct FluxStreamTrack {
     density: DiskDensity,
     rpm: DiskRpm,
 
-    dirty: bool,
+    dirty:    bool,
     resolved: Option<BitStreamTrack>,
 
     #[cfg_attr(feature = "serde", serde(skip))]
@@ -216,6 +230,13 @@ impl Track for FluxStreamTrack {
         Err(DiskImageError::ResolveError)
     }
 
+    fn recalculate_sector_crc(&mut self, id: DiskChsnQuery, offset: Option<usize>) -> Result<(), DiskImageError> {
+        if let Some(resolved) = self.get_bitstream_mut() {
+            return resolved.recalculate_sector_crc(id, offset);
+        }
+        Err(DiskImageError::ResolveError)
+    }
+
     fn get_hash(&mut self) -> Digest {
         if let Some(resolved) = self.get_bitstream_mut() {
             return resolved.get_hash();
@@ -289,9 +310,16 @@ impl Track for FluxStreamTrack {
         Err(DiskImageError::ResolveError)
     }
 
-    fn get_track_stream(&self) -> Option<&TrackDataStream> {
+    fn track_stream(&self) -> Option<&TrackDataStream> {
         if let Some(resolved) = self.get_bitstream() {
-            return resolved.get_track_stream();
+            return resolved.track_stream();
+        }
+        None
+    }
+
+    fn track_stream_mut(&mut self) -> Option<&mut TrackDataStream> {
+        if let Some(resolved) = self.get_bitstream_mut() {
+            return resolved.track_stream_mut();
         }
         None
     }
@@ -454,7 +482,8 @@ impl FluxStreamTrack {
                 // For now, let's assume that anything higher than a 1.5us base clock is double density,
                 // in which case we will adjust the clock by the relative RPM.
                 base_rpm.adjust_clock(base_clock)
-            } else {
+            }
+            else {
                 // Try to determine the base clock and RPM based on the revolution histogram.
                 let full_hist = revolution.histogram(1.0);
                 let base_transition_time_opt = revolution.base_transition_time(&full_hist);
@@ -467,7 +496,8 @@ impl FluxStreamTrack {
                         format_us!(hist_period)
                     );
                     hist_period
-                } else {
+                }
+                else {
                     log::warn!(
                         "decode_revolutions(): Revolution {}: No base clock hint, and full histogram base period not found. Assuming 2us bitcell.",
                         i
@@ -499,7 +529,8 @@ impl FluxStreamTrack {
                         format_us!(hist_period),
                     );
                     base_clock = hist_period;
-                } else {
+                }
+                else {
                     log::warn!(
                         "decode_revolutions(): Revolution {}: Start of track histogram clock {} is too far from base {}, not adjusting clock.",
                         i,
@@ -611,7 +642,8 @@ impl FluxStreamTrack {
     fn get_bitstream(&self) -> Option<&BitStreamTrack> {
         if let Some(resolved) = &self.resolved {
             return Some(resolved);
-        } else if self.best_revolution < self.revolutions.len() {
+        }
+        else if self.best_revolution < self.revolutions.len() {
             if let Some(track) = &self.decoded_revolutions[self.best_revolution] {
                 return Some(track);
             }
@@ -628,7 +660,8 @@ impl FluxStreamTrack {
     fn get_bitstream_mut(&mut self) -> Option<&mut BitStreamTrack> {
         if let Some(resolved) = &mut self.resolved {
             return Some(resolved);
-        } else if self.best_revolution < self.revolutions.len() {
+        }
+        else if self.best_revolution < self.revolutions.len() {
             if let Some(track) = &mut self.decoded_revolutions[self.best_revolution] {
                 return Some(track);
             }

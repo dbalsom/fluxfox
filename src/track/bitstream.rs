@@ -302,6 +302,7 @@ impl Track for BitStreamTrack {
                     // Add 4 bytes for address mark and 2 bytes for CRC.
                     RwSectorScope::DataElement => (0, 4, 6),
                     RwSectorScope::DataOnly => (64, 0, 0),
+                    _ => return Err(DiskImageError::ParameterError),
                 };
 
                 // Normally we read the contents of the sector determined by N in the sector header.
@@ -486,7 +487,7 @@ impl Track for BitStreamTrack {
         id: DiskChsnQuery,
         offset: Option<usize>,
         write_data: &[u8],
-        _scope: RwSectorScope,
+        scope: RwSectorScope,
         write_deleted: bool,
         debug: bool,
     ) -> Result<WriteSectorResult, DiskImageError> {
@@ -572,8 +573,11 @@ impl Track for BitStreamTrack {
                     sector_offset + 4 * MFM_BYTE_LEN
                 );
 
-                self.data
-                    .write_buf(&write_data[0..data_len], sector_offset + 4 * MFM_BYTE_LEN);
+                // Write the sector data, if the write scope is the entire sector.
+                if !matches!(scope, RwSectorScope::CrcOnly) {
+                    self.data
+                        .write_buf(&write_data[0..data_len], sector_offset + 4 * MFM_BYTE_LEN);
+                }
 
                 // Calculate the CRC of the data address mark + data.
                 let mut crc = crc_ibm_3740(&mark_bytes, None);
@@ -619,6 +623,18 @@ impl Track for BitStreamTrack {
                 unreachable!()
             }
         }
+    }
+
+    fn recalculate_sector_crc(&mut self, id: DiskChsnQuery, offset: Option<usize>) -> Result<(), DiskImageError> {
+        // First, read the sector data.
+        let rr = self.read_sector(id, None, offset, RwSectorScope::DataOnly, false)?;
+
+        // Write the data back to the sector, which will recalculate the CRC.
+        // TODO: We may wish to optimize this in the future to just write the new CRC, but I don't expect
+        //       this function to be called heavily.
+        self.write_sector(id, offset, &rr.read_buf, RwSectorScope::CrcOnly, rr.deleted_mark, false)?;
+
+        Ok(())
     }
 
     fn get_hash(&mut self) -> Digest {
@@ -890,8 +906,12 @@ impl Track for BitStreamTrack {
         Ok(consistency)
     }
 
-    fn get_track_stream(&self) -> Option<&TrackDataStream> {
+    fn track_stream(&self) -> Option<&TrackDataStream> {
         Some(&self.data)
+    }
+
+    fn track_stream_mut(&mut self) -> Option<&mut TrackDataStream> {
+        Some(&mut self.data)
     }
 }
 

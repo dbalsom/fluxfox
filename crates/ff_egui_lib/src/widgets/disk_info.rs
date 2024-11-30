@@ -28,6 +28,7 @@
 
     Disk Info widget for displaying basic disk information.
 */
+
 use fluxfox::{prelude::*, DiskDensity};
 
 #[derive(Default)]
@@ -56,13 +57,13 @@ impl DiskInfoWidget {
 
     pub fn show(&self, ui: &mut egui::Ui) {
         ui.vertical(|ui| {
-            ui.heading(egui::RichText::new("Disk Info").color(ui.visuals().strong_text_color()));
-            //ui.separator();
-
             egui::Grid::new("disk_info_grid").striped(true).show(ui, |ui| {
-                ui.label("Filename:");
-                ui.label(self.filename.as_ref().unwrap_or(&"None".to_string()));
-                ui.end_row();
+                // Filename can be very long (think TDC title names) - maybe there is a better place to
+                // display the filename.
+
+                // ui.label("Filename:");
+                // ui.label(self.filename.as_ref().unwrap_or(&"None".to_string()));
+                // ui.end_row();
 
                 ui.label("Resolution:");
                 ui.label(format!("{:?}", self.resolution));

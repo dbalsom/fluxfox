@@ -25,5 +25,6 @@
     --------------------------------------------------------------------------
 */
 
+pub mod filename;
 pub mod hello;
-pub(crate) mod viz;
+pub mod viz;

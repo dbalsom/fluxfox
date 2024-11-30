@@ -65,6 +65,7 @@ members = [
     "examples/imginfo",
     "examples/imgdump",
     "examples/imgviz",
+    "crates/png2disk",
     "crates/ffedit",
     "crates/fftool",
     "crates/ff_egui_app", 

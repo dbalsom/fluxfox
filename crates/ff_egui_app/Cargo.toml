@@ -1,6 +1,6 @@
 [package]
 name = "ff_egui_app"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Daniel Balsom"]
 edition = "2021"
 include = ["LICENSE-APACHE", "LICENSE-MIT", "**/*.rs", "Cargo.toml"]
@@ -46,12 +46,14 @@ eframe = { version = "0.29", default-features = false, features = [
     "glow",          # Use the glow rendering backend. Alternative: "wgpu".
     "persistence",   # Enable restoring app state when restarting the app.
 ]}
-wasm-bindgen = "0.2"
+
+# We are limited to the wasm-bindgen binary version bundled with trunk
+wasm-bindgen = "=0.2.95"
 wasm-bindgen-futures = "0.4"
 wasm-bindgen-rayon = "1.2"
 
 [dependencies.web-sys]
-version = "0.3.70"
+version = "=0.3.70"
 features = [
     "DedicatedWorkerGlobalScope",
     "WorkerOptions",
