@@ -1,7 +1,7 @@
 [package]
 name = "fluxfox_egui"
+version = "0.2.0"
 description = "A library crate providing egui widgets that interface with fluxfox."
-version.workspace = true
 edition.workspace = true
 authors.workspace = true
 readme = "README.md"
@@ -11,7 +11,7 @@ license.workspace = true
 
 [dependencies]
 log = "0.4"
-fluxfox = { path = "../..", default-features = false }
+fluxfox = { path = "../..", default-features = false, features = ["fat", "viz"] }
 egui = {  version = "0.29", optional = true }
 egui_v28 = { package = "egui", version = "0.28", optional = true } # Lower version for MartyPC support
 egui_extras = { version = "0.29", optional = true }

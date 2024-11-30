@@ -1,3 +1,7 @@
+## 0.2.0 (2024-12-XX)
+
+-
+
 ## 0.1.1 (2024-11-24)
 
 - Added Boot Sector display widget

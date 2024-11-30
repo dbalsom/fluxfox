@@ -29,7 +29,7 @@ use crate::{
     SectorSelection,
     TrackListSelection,
 };
-use egui::{Pos2, Rect, Rounding, ScrollArea, Stroke, TextStyle, Ui, Vec2};
+use egui::{ScrollArea, TextStyle};
 use fluxfox::{track::TrackInfo, DiskCh, DiskImage, SectorMapEntry};
 
 pub const TRACK_ENTRY_WIDTH: f32 = 420.0;

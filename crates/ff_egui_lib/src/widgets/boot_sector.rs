@@ -75,7 +75,7 @@ impl BootSectorWidget {
     }
 
     pub fn show(&self, ui: &mut egui::Ui) -> Option<UiEvent> {
-        let mut new_event = None;
+        let new_event = None;
 
         ui.vertical(|ui| {
             if !self.loaded {

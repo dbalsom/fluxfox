@@ -54,7 +54,7 @@ use crate::wasm::{util, worker};
 pub const APP_NAME: &str = "fluxfox-web";
 
 use crate::{
-    widgets::hello::HelloWidget,
+    widgets::{filename::FilenameWidget, hello::HelloWidget},
     windows::{file_viewer::FileViewer, sector_viewer::SectorViewer, viz::VizViewer},
 };
 use fluxfox_egui::widgets::track_list::TrackListWidget;
@@ -106,6 +106,7 @@ pub struct AppWidgets {
     boot_sector: BootSectorWidget,
     track_list: TrackListWidget,
     file_system: FileSystemWidget,
+    filename: FilenameWidget,
 }
 
 impl AppWidgets {
@@ -115,7 +116,8 @@ impl AppWidgets {
             Arc::strong_count(&disk_lock)
         );
         let disk = disk_lock.read().unwrap();
-        self.disk_info.update(&disk, name);
+        self.filename.set(name);
+        self.disk_info.update(&disk, None);
         self.boot_sector.update(&disk);
         self.track_list.update(&disk);
 
@@ -146,6 +148,7 @@ impl AppWidgets {
     }
 
     pub fn reset(&mut self) {
+        self.filename = FilenameWidget::default();
         self.disk_info = DiskInfoWidget::default();
         self.boot_sector = BootSectorWidget::default();
         self.track_list = TrackListWidget::default();
@@ -300,6 +303,9 @@ impl eframe::App for App {
                 self.widgets.hello.show(ui, APP_NAME, &self.supported_extensions);
                 ui.add_space(8.0);
             }
+
+            // Show filename widget
+            self.widgets.filename.show(ui);
         });
 
         egui::SidePanel::left("disk_info_gallery")

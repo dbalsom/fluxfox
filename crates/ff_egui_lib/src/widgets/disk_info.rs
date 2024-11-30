@@ -58,9 +58,12 @@ impl DiskInfoWidget {
     pub fn show(&self, ui: &mut egui::Ui) {
         ui.vertical(|ui| {
             egui::Grid::new("disk_info_grid").striped(true).show(ui, |ui| {
-                ui.label("Filename:");
-                ui.label(self.filename.as_ref().unwrap_or(&"None".to_string()));
-                ui.end_row();
+                // Filename can be very long (think TDC title names) - maybe there is a better place to
+                // display the filename.
+
+                // ui.label("Filename:");
+                // ui.label(self.filename.as_ref().unwrap_or(&"None".to_string()));
+                // ui.end_row();
 
                 ui.label("Resolution:");
                 ui.label(format!("{:?}", self.resolution));

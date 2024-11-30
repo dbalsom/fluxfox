@@ -23,8 +23,27 @@
     DEALINGS IN THE SOFTWARE.
 
     --------------------------------------------------------------------------
+
+    Implement the filename display widget
 */
 
-pub mod filename;
-pub mod hello;
-pub mod viz;
+#[derive(Default)]
+pub struct FilenameWidget {
+    filename: Option<String>,
+}
+
+impl FilenameWidget {
+    pub fn set(&mut self, filename: Option<String>) {
+        self.filename = filename;
+    }
+
+    pub fn show(&self, ui: &mut egui::Ui) {
+        if self.filename.is_none() {
+            return;
+        }
+        ui.horizontal(|ui| {
+            ui.heading(egui::RichText::new("💾 Disk Image:").strong());
+            ui.heading(format!("{}", self.filename.as_ref().unwrap()));
+        });
+    }
+}

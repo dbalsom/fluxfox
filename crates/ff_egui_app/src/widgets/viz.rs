@@ -32,7 +32,6 @@ use crate::wasm::worker;
 
 use crate::App;
 use anyhow::{anyhow, Error};
-use egui::Key::D;
 use fluxfox::{
     structure_parsers::DiskStructureGenericElement,
     tiny_skia,
@@ -44,7 +43,6 @@ use fluxfox::{
         RenderDiskSelectionParams,
         RenderTrackDataParams,
         RenderTrackMetadataParams,
-        ResolutionType,
         RotationDirection,
     },
     DiskCh,
@@ -92,8 +90,11 @@ pub struct VisualizationState {
     pub render_receiver: mpsc::Receiver<RenderMessage>,
     pub show_data_layer: bool,
     pub show_metadata_layer: bool,
+    #[allow(dead_code)]
     pub show_error_layer: bool,
+    #[allow(dead_code)]
     pub show_weak_layer: bool,
+    #[allow(dead_code)]
     pub show_selection_layer: bool,
     pub last_event: Option<VizEvent>,
 }
@@ -192,6 +193,7 @@ impl VisualizationState {
         }
     }
 
+    #[allow(dead_code)]
     pub fn compatible(&self) -> bool {
         self.compatible
     }
@@ -563,6 +565,7 @@ impl VisualizationState {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn enable_error_layer(&mut self, state: bool) {
         self.show_error_layer = state;
         for side in 0..self.sides {
@@ -570,6 +573,7 @@ impl VisualizationState {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn enable_weak_layer(&mut self, state: bool) {
         self.show_weak_layer = state;
         for side in 0..self.sides {
