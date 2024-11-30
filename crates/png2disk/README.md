@@ -107,9 +107,14 @@ To view the resulting disk image, you have the following options.
 Yes, you can use a disk imaging device to write the image to a real floppy. I recommend the excellent and
 inexpensive [Greaseweazle](https://github.com/keirf/greaseweazle/wiki) device.
 
-The quality of the result after reading the image back from a floppy depends a lot on the calibration of the drive used
-and the
-consistency of its rotation rate.
+The quality of the result after reading the image back from a floppy may vary based on the calibration of the drive used
+and the consistency of its rotation rate.
+
+Here's an example written to and read back from a YD-380 Type 1711 drive, using a Greaseweazle 4.1:
+
+![image](doc/img/readback_01.png)
+
+I didn't even have a blank high density disk to use, so this is a high density image written to a double-density disk!
 
 ## Ew, is the cat AI generated?
 
