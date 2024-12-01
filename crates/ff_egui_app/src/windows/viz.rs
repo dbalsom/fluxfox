@@ -80,7 +80,7 @@ impl VizViewer {
 
     pub fn render(&mut self, disk_lock: Arc<RwLock<DiskImage>>) -> Result<()> {
         {
-            let disk = disk_lock.read()?;
+            let disk = disk_lock.read().unwrap();
             self.viz.set_sides(disk.heads() as usize);
         }
         self.viz.render_visualization(disk_lock.clone(), 0)?;
