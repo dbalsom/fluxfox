@@ -664,7 +664,7 @@ impl DiskImage {
                         Some(DiskSelection::Path(ref path)) => disks.iter().find(|disk| disk.base_path == *path),
                         _ => {
                             if disks.len() == 1 {
-                                disks.get(0)
+                                disks.first()
                             }
                             else {
                                 log::error!("Multiple disks found in Kryoflux set without a selection.");
@@ -830,7 +830,7 @@ impl DiskImage {
                         Some(DiskSelection::Path(ref path)) => disks.iter().find(|disk| disk.base_path == *path),
                         _ => {
                             if disks.len() == 1 {
-                                disks.get(0)
+                                disks.first()
                             }
                             else {
                                 log::error!("Multiple disks found in Kryoflux set without a selection.");
