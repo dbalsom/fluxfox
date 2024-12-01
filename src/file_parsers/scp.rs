@@ -40,11 +40,11 @@
 
 */
 use crate::{
-    diskimage::{BitStreamTrackParams, DiskDescriptor},
     file_parsers::{bitstream_flags, FormatCaps},
     flux::pll::{Pll, PllPreset},
     io::{ReadSeek, ReadWriteSeek},
     track::fluxstream::FluxStreamTrack,
+    types::{BitStreamTrackParams, DiskDescriptor},
     DiskCh,
     DiskDataEncoding,
     DiskDataRate,

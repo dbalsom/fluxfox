@@ -26,7 +26,7 @@
 */
 use crate::{args::GlobalOptions, read_file};
 use anyhow::{bail, Error};
-use fluxfox::{flux::flux_revolution::FluxRevolutionType, DiskCh, DiskDataResolution, DiskImage};
+use fluxfox::{flux::FluxRevolutionType, prelude::*};
 
 pub mod args;
 

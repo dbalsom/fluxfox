@@ -31,7 +31,7 @@ use crate::{
     widget::{FoxWidget, ScrollableWidget, TabSelectableWidget, WidgetState},
 };
 use anyhow::{anyhow, Error};
-use fluxfox::{diskimage::RwSectorScope, DiskChsnQuery, DiskImage};
+use fluxfox::prelude::*;
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Scrollbar, ScrollbarOrientation, ScrollbarState, WidgetRef},

@@ -26,7 +26,7 @@
 */
 use anyhow::{anyhow, Error};
 use core::fmt;
-use fluxfox::{DiskCh, DiskChs};
+use fluxfox::prelude::*;
 use std::fmt::Display;
 
 /// Track the selection level

@@ -47,7 +47,6 @@ extern crate core;
 mod bit_ring;
 pub mod bitstream;
 pub mod boot_sector;
-mod chs;
 mod containers;
 mod detect;
 pub mod diskimage;
@@ -55,7 +54,6 @@ mod file_parsers;
 pub mod image_builder;
 pub mod io;
 mod random;
-pub mod standard_format;
 pub mod structure_parsers;
 pub mod util;
 
@@ -66,6 +64,8 @@ mod image_writer;
 pub mod prelude;
 mod range_check;
 pub mod track;
+pub mod types;
+
 #[cfg(feature = "viz")]
 pub mod visualization;
 
@@ -449,17 +449,19 @@ impl DiskRpm {
 }
 
 // Re-export tiny_skia for convenience
-#[cfg(feature = "viz")]
-pub use tiny_skia;
-
 pub use crate::{
-    chs::{DiskCh, DiskChs, DiskChsn, DiskChsnQuery},
-    diskimage::{DiskImage, DiskImageFileFormat, SectorMapEntry},
+    diskimage::DiskImage,
     file_parsers::{format_from_ext, supported_extensions, ImageParser, ParserWriteCompatibility},
     image_builder::ImageBuilder,
     image_writer::ImageWriter,
-    standard_format::StandardFormat,
+    types::{DiskImageFileFormat, SectorMapEntry},
 };
+#[cfg(feature = "viz")]
+pub use tiny_skia;
+
+use types::{DiskCh, DiskChs, DiskChsn, DiskChsnQuery};
+// Re-export tiny_skia for convenience
+pub use types::standard_format::StandardFormat;
 
 pub type SectorId = DiskChsn;
 pub type SectorIdQuery = DiskChsnQuery;

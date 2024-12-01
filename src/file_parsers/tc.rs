@@ -53,7 +53,7 @@ use crate::{
 };
 
 use crate::{
-    diskimage::{BitStreamTrackParams, DiskDescriptor},
+    types::{BitStreamTrackParams, DiskDescriptor},
     DiskCh,
     DiskDataEncoding,
     DiskDataRate,

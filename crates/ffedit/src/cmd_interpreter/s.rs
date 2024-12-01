@@ -24,10 +24,12 @@
 
     --------------------------------------------------------------------------
 */
-use crate::app::{AppContext, AppEvent};
-use crate::cmd_interpreter::{Command, CommandArgs, CommandResult};
-use crate::disk_selection::SelectionLevel;
-use fluxfox::DiskCh;
+use crate::{
+    app::{AppContext, AppEvent},
+    cmd_interpreter::{Command, CommandArgs, CommandResult},
+    disk_selection::SelectionLevel,
+};
+use fluxfox::prelude::*;
 
 pub(crate) struct SectorCommand;
 
@@ -60,7 +62,8 @@ impl Command for SectorCommand {
             }
             app.selection.sector = Some(new_sector);
             Ok(CommandResult::Success(format!("Changed sector to: {}", new_sector)))
-        } else {
+        }
+        else {
             Err(format!("Usage: c {}", self.usage()))
         }
     }

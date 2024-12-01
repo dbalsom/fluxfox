@@ -50,8 +50,8 @@ pub mod system34;
 
 use crate::{
     bitstream::{mfm::MFM_BYTE_LEN, TrackDataStream},
-    chs::DiskChsn,
     structure_parsers::system34::{System34Element, System34Marker},
+    types::chs::DiskChsn,
 };
 use bit_vec::BitVec;
 

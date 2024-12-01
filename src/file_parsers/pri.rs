@@ -36,14 +36,14 @@
 */
 
 use crate::{
-    chs::DiskCh,
-    diskimage::{BitStreamTrackParams, DiskDescriptor},
     file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility},
     io::{Cursor, ReadSeek, ReadWriteSeek, Write},
+    types::{BitStreamTrackParams, DiskDescriptor},
 };
 
 use crate::{
     track::bitstream::BitStreamTrack,
+    types::chs::DiskCh,
     DiskDataEncoding,
     DiskDataRate,
     DiskDataResolution,

@@ -25,12 +25,16 @@
     --------------------------------------------------------------------------
 */
 use crate::{
-    chs::{DiskChsn, DiskChsnQuery},
     detect::chs_from_raw_size,
-    diskimage::{DiskDescriptor, DiskImage, RwSectorScope},
+    diskimage::DiskImage,
     file_parsers::{FormatCaps, ParserWriteCompatibility},
     io::{ReadSeek, ReadWriteSeek},
     structure_parsers::system34::System34Standard,
+    types::{
+        chs::{DiskChsn, DiskChsnQuery},
+        DiskDescriptor,
+        RwSectorScope,
+    },
     util::get_length,
     DiskCh,
     DiskDataResolution,
@@ -193,7 +197,7 @@ impl RawFormat {
 
             let track_idx = image.track_map[0][0];
             let track = &image.track_pool[track_idx];
-            track.get_sector_ct()
+            track.sector_ct()
         };
 
         log::trace!("Raw::save_image(): Using {} sectors per track.", track_sector_ct);

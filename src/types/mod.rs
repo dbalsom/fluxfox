@@ -25,25 +25,15 @@
     --------------------------------------------------------------------------
 */
 
-pub use super::DiskImageError;
-pub use crate::{
-    diskimage::DiskImage,
-    file_parsers::{format_from_ext, supported_extensions, ImageParser, ParserWriteCompatibility},
-    image_builder::ImageBuilder,
-    image_writer::ImageWriter,
-    types::{
-        DiskCh,
-        DiskChs,
-        DiskChsn,
-        DiskChsnQuery,
-        DiskImageFileFormat,
-        RwSectorScope,
-        SectorMapEntry,
-        StandardFormat,
-    },
-    DiskDataEncoding,
-    DiskDataRate,
-    DiskDataResolution,
-    SectorId,
-    SectorIdQuery,
-};
+pub mod chs;
+pub mod enums;
+pub mod flags;
+pub mod standard_format;
+pub mod structs;
+
+// Expose all types under types module namespace
+pub use chs::*;
+pub use enums::*;
+pub use flags::*;
+pub use standard_format::*;
+pub use structs::*;

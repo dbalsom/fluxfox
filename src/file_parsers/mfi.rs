@@ -36,17 +36,23 @@
 */
 
 use crate::{
-    chs::DiskCh,
-    diskimage::{BitStreamTrackParams, DiskDescriptor},
     file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility},
     io::{ReadSeek, ReadWriteSeek},
     track::fluxstream::FluxStreamTrack,
+    types::{BitStreamTrackParams, DiskDescriptor},
     LoadingStatus,
 };
 
 use crate::{
     flux::pll::{Pll, PllPreset},
-    DiskDataEncoding, DiskDataRate, DiskDensity, DiskImage, DiskImageError, DiskImageFileFormat, LoadingCallback,
+    types::chs::DiskCh,
+    DiskDataEncoding,
+    DiskDataRate,
+    DiskDensity,
+    DiskImage,
+    DiskImageError,
+    DiskImageFileFormat,
+    LoadingCallback,
     DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, BinRead};
@@ -80,7 +86,7 @@ pub struct MfiTrackHeader {
 }
 
 pub struct MfiTrackData {
-    pub ch: DiskCh,
+    pub ch:   DiskCh,
     pub data: Vec<u8>,
 }
 
@@ -95,7 +101,7 @@ pub enum FluxEntryType {
 #[allow(dead_code)]
 pub struct MfiTrackZone {
     start: u32,
-    end: u32,
+    end:   u32,
 }
 
 impl MfiFormat {
@@ -226,7 +232,7 @@ impl MfiFormat {
 
             // Push uncompressed trackdata
             tracks.push(MfiTrackData {
-                ch: DiskCh::new(c, h),
+                ch:   DiskCh::new(c, h),
                 data: decompressed_data.to_vec(),
             });
 
@@ -251,7 +257,8 @@ impl MfiFormat {
             if flux_track.is_empty() {
                 log::warn!("Track contains less than 100 bits. Adding empty track.");
                 disk_image.add_empty_track(track.ch, DiskDataEncoding::Mfm, data_rate, 100_000)?;
-            } else {
+            }
+            else {
                 let stream = flux_track.revolution(0).unwrap();
                 let (stream_bytes, stream_bit_ct) = stream.bitstream_data();
                 log::debug!(
@@ -323,11 +330,12 @@ impl MfiFormat {
                         if current_hole_zone.is_some() {
                             log::error!("HOLE entry found while already in NFA zone.");
                         }
-                    } else {
+                    }
+                    else {
                         // Start NFA zone
                         current_nfa_zone = Some(MfiTrackZone {
                             start: flux_delta,
-                            end: 0,
+                            end:   0,
                         });
                     }
                 }
@@ -338,11 +346,12 @@ impl MfiFormat {
                         if current_nfa_zone.is_some() {
                             log::error!("NFA entry found while already in HOLE zone.");
                         }
-                    } else {
+                    }
+                    else {
                         // Start HOLE zone
                         current_hole_zone = Some(MfiTrackZone {
                             start: flux_delta,
-                            end: 0,
+                            end:   0,
                         });
                     }
                 }
@@ -352,11 +361,13 @@ impl MfiFormat {
                         // End NFA zone
                         current_nfa_zone.as_mut().unwrap().end = flux_delta;
                         nfa_zones.push(current_nfa_zone.take().unwrap());
-                    } else if current_hole_zone.is_some() {
+                    }
+                    else if current_hole_zone.is_some() {
                         // End HOLE zone
                         current_hole_zone.as_mut().unwrap().end = flux_delta;
                         hole_zones.push(current_hole_zone.take().unwrap());
-                    } else {
+                    }
+                    else {
                         log::warn!("END ZONE entry found without an active zone.");
                     }
                 }

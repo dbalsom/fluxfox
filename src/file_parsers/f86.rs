@@ -34,9 +34,9 @@
 */
 
 use crate::{
-    diskimage::{BitStreamTrackParams, DiskDescriptor, DiskImageFlags},
     file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility},
     io::{ReadSeek, ReadWriteSeek},
+    types::{BitStreamTrackParams, DiskDescriptor, DiskImageFlags},
 };
 
 use crate::{

@@ -37,18 +37,6 @@ use crate::{
         EncodingVariant,
         TrackDataStream,
     },
-    chs::DiskChsnQuery,
-    diskimage::{
-        BitStreamTrackParams,
-        ReadSectorResult,
-        ReadTrackResult,
-        RwSectorScope,
-        ScanSectorResult,
-        SectorAttributes,
-        SectorDescriptor,
-        SharedDiskContext,
-        WriteSectorResult,
-    },
     io::SeekFrom,
     structure_parsers::{
         system34::{
@@ -65,6 +53,18 @@ use crate::{
         DiskStructureParser,
     },
     track::{fluxstream::FluxStreamTrack, metasector::MetaSectorTrack},
+    types::{
+        chs::DiskChsnQuery,
+        BitStreamTrackParams,
+        ReadSectorResult,
+        ReadTrackResult,
+        RwSectorScope,
+        ScanSectorResult,
+        SectorAttributes,
+        SectorDescriptor,
+        SharedDiskContext,
+        WriteSectorResult,
+    },
     util::crc_ibm_3740,
     DiskCh,
     DiskChs,
@@ -155,7 +155,7 @@ impl Track for BitStreamTrack {
         Some(&self.metadata)
     }
 
-    fn get_sector_ct(&self) -> usize {
+    fn sector_ct(&self) -> usize {
         let mut sector_ct = 0;
         for item in &self.metadata.items {
             if item.elem_type.is_sector_header() {
@@ -178,7 +178,7 @@ impl Track for BitStreamTrack {
         false
     }
 
-    fn get_sector_list(&self) -> Vec<SectorMapEntry> {
+    fn sector_list(&self) -> Vec<SectorMapEntry> {
         let mut sector_list = Vec::new();
         for item in &self.metadata.items {
             if let DiskStructureElement::System34(System34Element::Data {
@@ -637,7 +637,7 @@ impl Track for BitStreamTrack {
         Ok(())
     }
 
-    fn get_hash(&mut self) -> Digest {
+    fn hash(&mut self) -> Digest {
         let mut hasher = sha1_smol::Sha1::new();
 
         hasher.update(&self.data.data());
@@ -858,7 +858,7 @@ impl Track for BitStreamTrack {
         Ok(())
     }
 
-    fn get_track_consistency(&self) -> Result<TrackConsistency, DiskImageError> {
+    fn track_consistency(&self) -> Result<TrackConsistency, DiskImageError> {
         let sector_ct = self.sector_ids.len();
         let mut consistency = TrackConsistency::default();
         let mut n_set: FoxHashSet<u8> = FoxHashSet::new();
@@ -1296,7 +1296,7 @@ impl BitStreamTrack {
 
     pub fn calc_quality_score(&self) -> i32 {
         let mut score = 0;
-        for s in self.get_sector_list() {
+        for s in self.sector_list() {
             // Weight having a sector heavily, so that missing sectors are heavily penalized.
             score += 5;
             if !s.attributes.address_crc_valid {

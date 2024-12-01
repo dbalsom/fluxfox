@@ -32,7 +32,11 @@
 use super::{Track, TrackConsistency, TrackInfo};
 use crate::{
     bitstream::TrackDataStream,
-    diskimage::{
+    flux::{
+        flux_revolution::FluxRevolution,
+        pll::{Pll, PllPreset},
+    },
+    types::{
         BitStreamTrackParams,
         ReadSectorResult,
         ReadTrackResult,
@@ -42,17 +46,13 @@ use crate::{
         SharedDiskContext,
         WriteSectorResult,
     },
-    flux::{
-        flux_revolution::FluxRevolution,
-        pll::{Pll, PllPreset},
-    },
 };
 
 use crate::{
-    chs::DiskChsnQuery,
     format_us,
     structure_parsers::{system34::System34Standard, DiskStructureMetadata},
     track::{bitstream::BitStreamTrack, metasector::MetaSectorTrack},
+    types::chs::DiskChsnQuery,
     DiskCh,
     DiskChs,
     DiskChsn,
@@ -155,9 +155,9 @@ impl Track for FluxStreamTrack {
         None
     }
 
-    fn get_sector_ct(&self) -> usize {
+    fn sector_ct(&self) -> usize {
         if let Some(resolved) = self.get_bitstream() {
-            return resolved.get_sector_ct();
+            return resolved.sector_ct();
         }
         0
     }
@@ -169,9 +169,9 @@ impl Track for FluxStreamTrack {
         false
     }
 
-    fn get_sector_list(&self) -> Vec<SectorMapEntry> {
+    fn sector_list(&self) -> Vec<SectorMapEntry> {
         if let Some(resolved) = self.get_bitstream() {
-            return resolved.get_sector_list();
+            return resolved.sector_list();
         }
         Vec::new()
     }
@@ -237,9 +237,9 @@ impl Track for FluxStreamTrack {
         Err(DiskImageError::ResolveError)
     }
 
-    fn get_hash(&mut self) -> Digest {
+    fn hash(&mut self) -> Digest {
         if let Some(resolved) = self.get_bitstream_mut() {
-            return resolved.get_hash();
+            return resolved.hash();
         }
 
         Digest::default()
@@ -303,9 +303,9 @@ impl Track for FluxStreamTrack {
         Err(DiskImageError::ResolveError)
     }
 
-    fn get_track_consistency(&self) -> Result<TrackConsistency, DiskImageError> {
+    fn track_consistency(&self) -> Result<TrackConsistency, DiskImageError> {
         if let Some(resolved) = self.get_bitstream() {
-            return resolved.get_track_consistency();
+            return resolved.track_consistency();
         }
         Err(DiskImageError::ResolveError)
     }
@@ -601,7 +601,7 @@ impl FluxStreamTrack {
             if let Some(track) = bitstream {
                 let score = track.calc_quality_score();
                 let bad_sectors = track
-                    .get_sector_list()
+                    .sector_list()
                     .iter()
                     .filter(|s| !s.attributes.data_crc_valid)
                     .count();

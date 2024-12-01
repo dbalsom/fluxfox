@@ -31,7 +31,7 @@
     format.
 */
 use bpaf::*;
-use fluxfox::{diskimage::RwSectorScope, DiskCh, DiskChs, DiskChsn, DiskChsnQuery, DiskImage};
+use fluxfox::prelude::*;
 use std::{
     io::{BufWriter, Cursor, Write},
     path::PathBuf,

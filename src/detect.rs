@@ -25,11 +25,9 @@
     --------------------------------------------------------------------------
 */
 use crate::{
-    chs::DiskChs,
     containers::DiskImageContainer,
     file_parsers::{ImageParser, IMAGE_FORMATS},
     io::ReadSeek,
-    standard_format::StandardFormat,
     util::natural_sort,
     DiskImageError,
     DiskImageFileFormat,
@@ -41,6 +39,7 @@ use crate::{
     file_parsers::kryoflux::KfxFormat,
 };
 
+use crate::types::{chs::DiskChs, standard_format::StandardFormat};
 #[cfg(feature = "zip")]
 use std::path::PathBuf;
 

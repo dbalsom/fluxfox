@@ -30,7 +30,7 @@
 */
 #![allow(dead_code)]
 
-use fluxfox::{DiskChs, DiskImage, DiskImageFileFormat, DEFAULT_SECTOR_SIZE};
+use fluxfox::{prelude::*, DiskImage, DiskImageFileFormat, DEFAULT_SECTOR_SIZE};
 use hex::encode;
 use sha1::{Digest, Sha1};
 use std::path::{Path, PathBuf};

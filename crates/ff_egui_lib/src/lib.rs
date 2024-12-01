@@ -25,7 +25,7 @@
     --------------------------------------------------------------------------
 */
 
-use fluxfox::{file_system::FileEntry, DiskCh, SectorId};
+use fluxfox::{file_system::FileEntry, prelude::*};
 use std::fmt::{Debug, Formatter, Result};
 
 pub mod widgets;

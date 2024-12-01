@@ -25,10 +25,14 @@
     --------------------------------------------------------------------------
 */
 use crate::{
-    chs::{DiskCh, DiskChsn},
-    diskimage::{DiskDescriptor, SectorAttributes, SectorDescriptor},
     file_parsers::{FormatCaps, ParserWriteCompatibility},
     io::{ReadSeek, ReadWriteSeek},
+    types::{
+        chs::{DiskCh, DiskChsn},
+        DiskDescriptor,
+        SectorAttributes,
+        SectorDescriptor,
+    },
     util::{get_length, read_ascii},
     DiskDataEncoding,
     DiskDataRate,

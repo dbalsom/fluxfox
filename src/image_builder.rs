@@ -31,7 +31,7 @@
     Allows for creation of blank or pre-formatted DiskImages.
 */
 
-use crate::{diskimage::DiskImageFlags, DiskCh, DiskDataResolution, DiskImage, DiskImageError, StandardFormat};
+use crate::{types::DiskImageFlags, DiskCh, DiskDataResolution, DiskImage, DiskImageError, StandardFormat};
 
 /// Implements the Builder pattern for DiskImage objects.
 /// Allows for creation of blank or pre-formatted DiskImages.

@@ -35,9 +35,9 @@ use std::ops::Index;
 use crate::{
     bit_ring::BitRing,
     bitstream::{EncodingVariant, TrackCodec},
-    diskimage::TrackRegion,
     io::{Error, ErrorKind, Read, Result, Seek, SeekFrom},
     range_check::RangeChecker,
+    types::TrackRegion,
     DiskDataEncoding,
 };
 use bit_vec::BitVec;

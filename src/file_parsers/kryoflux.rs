@@ -35,12 +35,12 @@
 
 */
 use crate::{
-    diskimage::DiskDescriptor,
     file_parsers::{bitstream_flags, FormatCaps},
     format_us,
     io,
     io::{ReadBytesExt, ReadSeek, ReadWriteSeek},
     track::fluxstream::FluxStreamTrack,
+    types::DiskDescriptor,
     util::read_ascii,
     DiskCh,
     DiskDataEncoding,
@@ -440,7 +440,7 @@ impl KfxFormat {
 
         let new_track = disk_image.add_track_fluxstream(next_ch, flux_track, clock_hint, rpm_hint)?;
 
-        let (new_density, new_rpm) = if new_track.get_sector_ct() == 0 {
+        let (new_density, new_rpm) = if new_track.sector_ct() == 0 {
             log::warn!("Track did not decode any sectors. Not updating disk image descriptor.");
             (disk_image.descriptor.density, disk_image.descriptor.rpm)
         }

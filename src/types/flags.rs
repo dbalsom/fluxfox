@@ -23,27 +23,25 @@
     DEALINGS IN THE SOFTWARE.
 
     --------------------------------------------------------------------------
+
+    flags.rs
+
+    Defines common bitflags
 */
 
-pub use super::DiskImageError;
-pub use crate::{
-    diskimage::DiskImage,
-    file_parsers::{format_from_ext, supported_extensions, ImageParser, ParserWriteCompatibility},
-    image_builder::ImageBuilder,
-    image_writer::ImageWriter,
-    types::{
-        DiskCh,
-        DiskChs,
-        DiskChsn,
-        DiskChsnQuery,
-        DiskImageFileFormat,
-        RwSectorScope,
-        SectorMapEntry,
-        StandardFormat,
-    },
-    DiskDataEncoding,
-    DiskDataRate,
-    DiskDataResolution,
-    SectorId,
-    SectorIdQuery,
-};
+use bitflags::bitflags;
+
+bitflags! {
+    /// Bit flags that can be applied to a disk image.
+    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    #[rustfmt::skip]
+    pub struct DiskImageFlags: u32 {
+        #[doc = "Disk Image source specified image is read-only"]
+        const READONLY      = 0b0000_0000_0000_0001;
+        #[doc = "Disk Image has been written to since last save"]
+        const DIRTY         = 0b0000_0000_0000_0010;
+        #[doc = "Disk Image represents a PROLOK protected disk"]
+        const PROLOK        = 0b0000_0000_0000_0100;
+    }
+}

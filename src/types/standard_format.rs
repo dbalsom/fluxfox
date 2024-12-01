@@ -24,7 +24,7 @@
 
     --------------------------------------------------------------------------
 
-    src/standard_format.rs
+    types/standard_format.rs
 
     Represents information about standard (non-copy-protected) disk formats,
     such as those that can be represented with a raw sector image (IMG).
@@ -48,7 +48,7 @@
 //! several standard PC disk formats.
 
 use crate::{
-    diskimage::DiskDescriptor,
+    types::structs::DiskDescriptor,
     DiskCh,
     DiskChs,
     DiskChsn,

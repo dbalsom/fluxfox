@@ -32,9 +32,9 @@
 
 */
 use crate::{
-    diskimage::{BitStreamTrackParams, DiskDescriptor},
     file_parsers::{FormatCaps, ParserWriteCompatibility},
     io::{ReadSeek, ReadWriteSeek},
+    types::{BitStreamTrackParams, DiskDescriptor},
     DiskCh,
     DiskDataEncoding,
     DiskDataRate,

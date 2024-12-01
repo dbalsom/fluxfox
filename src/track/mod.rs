@@ -36,8 +36,10 @@ pub mod metasector;
 
 use crate::{
     bitstream::TrackDataStream,
-    chs::DiskChsnQuery,
-    diskimage::{
+    structure_parsers::{system34::System34Standard, DiskStructureMetadata},
+    track::{bitstream::BitStreamTrack, fluxstream::FluxStreamTrack, metasector::MetaSectorTrack},
+    types::{
+        chs::DiskChsnQuery,
         ReadSectorResult,
         ReadTrackResult,
         RwSectorScope,
@@ -45,8 +47,6 @@ use crate::{
         SectorDescriptor,
         WriteSectorResult,
     },
-    structure_parsers::{system34::System34Standard, DiskStructureMetadata},
-    track::{bitstream::BitStreamTrack, fluxstream::FluxStreamTrack, metasector::MetaSectorTrack},
     DiskCh,
     DiskChs,
     DiskChsn,
@@ -184,7 +184,7 @@ pub trait Track: Any + Send + Sync {
     /// Return a list of the track's metadata, or None if the track has not been scanned for metadata.
     fn metadata(&self) -> Option<&DiskStructureMetadata>;
     /// Return a count of the sectors on the track.
-    fn get_sector_ct(&self) -> usize;
+    fn sector_ct(&self) -> usize;
     /// Returns `true` if the track contains a sector with the specified ID.
     ///
     /// # Parameters
@@ -192,12 +192,12 @@ pub trait Track: Any + Send + Sync {
     /// - `id_chsn`: An optional `DiskChsn` value. If provided, the `id` parameter is ignored and
     ///              the entire `DiskChsn` value is used to search for the sector.
     fn has_sector_id(&self, id: u8, id_chsn: Option<DiskChsn>) -> bool;
-    /// Return a SectorIterator for the current track.
-    /// Warning: Reformatting the track will invalidate the iterator.
+    // Return a SectorIterator for the current track.
+    // Warning: Reformatting the track will invalidate the iterator.
     //fn sector_iter(&self) -> SectorIterator<'a, T>;
 
     /// Returns a vector of `SectorMapEntry` structs representing the sectors on the track.
-    fn get_sector_list(&self) -> Vec<SectorMapEntry>;
+    fn sector_list(&self) -> Vec<SectorMapEntry>;
     /// Adds a new sector to a track in the disk image, essentially 'formatting' a new sector,
     /// This function is only valid for tracks with `MetaSector` resolution.
     ///
@@ -250,7 +250,7 @@ pub trait Track: Any + Send + Sync {
 
     /// Return a hash that uniquely identifies the track data. Intended for use in identifying
     /// duplicate tracks.
-    fn get_hash(&mut self) -> Digest;
+    fn hash(&mut self) -> Digest;
     /// Read all sectors from the track. The data is returned within a `ReadSectorResult` struct
     /// which also sets some convenience metadata flags which are needed when handling ByteStream
     /// images.
@@ -306,7 +306,7 @@ pub trait Track: Any + Send + Sync {
     /// # Returns
     /// - `Ok(TrackConsistency)` if the track was successfully checked for consistency.
     /// - `Err(DiskImageError)` if an error occurred while checking the track for consistency.
-    fn get_track_consistency(&self) -> Result<TrackConsistency, DiskImageError>;
+    fn track_consistency(&self) -> Result<TrackConsistency, DiskImageError>;
     /// Return a reference to the underlying `TrackDataStream`.
     fn track_stream(&self) -> Option<&TrackDataStream>;
     /// Return a mutable reference to the underlying `TrackDataStream`.

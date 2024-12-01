@@ -24,10 +24,12 @@
 
     --------------------------------------------------------------------------
 */
-use crate::app::AppContext;
-use crate::cmd_interpreter::{Command, CommandArgs, CommandResult};
-use crate::disk_selection::SelectionLevel;
-use fluxfox::DiskCh;
+use crate::{
+    app::AppContext,
+    cmd_interpreter::{Command, CommandArgs, CommandResult},
+    disk_selection::SelectionLevel,
+};
+use fluxfox::prelude::*;
 
 pub(crate) struct ListCommand;
 
@@ -73,7 +75,8 @@ impl Command for ListCommand {
                 }
                 SelectionLevel::Disk => Ok(CommandResult::Success("List tracks for both heads here".into())),
             }
-        } else {
+        }
+        else {
             Err("No disk image loaded".into())
         }
     }

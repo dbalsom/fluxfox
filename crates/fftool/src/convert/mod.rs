@@ -28,7 +28,7 @@ pub mod args;
 
 use crate::{args::GlobalOptions, prompt, read_file};
 use anyhow::{bail, Error};
-use fluxfox::{diskimage::DiskImageFlags, format_from_ext, DiskImage, ImageParser, ParserWriteCompatibility};
+use fluxfox::prelude::*;
 use std::io::Cursor;
 
 pub(crate) fn run(global: &GlobalOptions, params: args::ConvertParams) -> Result<(), Error> {
@@ -82,7 +82,7 @@ pub(crate) fn run(global: &GlobalOptions, params: args::ConvertParams) -> Result
     }
 
     if params.prolok {
-        in_disk.set_flag(DiskImageFlags::PROLOK);
+        in_disk.set_flag(fluxfox::types::DiskImageFlags::PROLOK);
         println!("PROLOK holes will be created in output image.");
     }
 

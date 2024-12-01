@@ -33,6 +33,7 @@ use crate::wasm::worker;
 use crate::App;
 use anyhow::{anyhow, Error};
 use fluxfox::{
+    prelude::*,
     structure_parsers::DiskStructureGenericElement,
     tiny_skia,
     tiny_skia::{Color, Pixmap},
@@ -45,9 +46,6 @@ use fluxfox::{
         RenderTrackMetadataParams,
         RotationDirection,
     },
-    DiskCh,
-    DiskDataResolution,
-    DiskImage,
 };
 use fluxfox_egui::widgets::texture::{PixelCanvas, PixelCanvasDepth};
 use std::{

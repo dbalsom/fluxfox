@@ -24,7 +24,7 @@
 
     --------------------------------------------------------------------------
 */
-use fluxfox::{diskimage::RwSectorScope, DiskCh, DiskImage, SectorId, SectorIdQuery};
+use fluxfox::prelude::*;
 use fluxfox_egui::{widgets::data_table::DataTableWidget, SectorSelection};
 use std::sync::{Arc, RwLock};
 
