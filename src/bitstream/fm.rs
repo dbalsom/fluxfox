@@ -272,7 +272,7 @@ impl TrackCodec for FmCodec {
             bits_written += 1;
         }
 
-        let bytes_written = bits_written + 7 / 8;
+        let bytes_written = (bits_written + 7) / 8;
         Some(bytes_written)
     }
 

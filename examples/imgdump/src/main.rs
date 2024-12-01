@@ -143,7 +143,7 @@ fn main() {
 
     // Get the command line options.
     let opts = opts().run();
-    let mut file_vec = match std::fs::read(&opts.filename.clone()) {
+    let mut file_vec = match std::fs::read(opts.filename.clone()) {
         Ok(file_vec) => file_vec,
         Err(e) => {
             eprintln!("Error reading file: {}", e);
@@ -196,7 +196,8 @@ fn main() {
             //println!("Duplication mark found at {} with ID {}", dupe_ch, dupe_chsn);
             println!("{}", dump_string);
             std::process::exit(0);
-        } else {
+        }
+        else {
             println!("No duplication mark found.");
         }
     }
@@ -248,6 +249,7 @@ fn main() {
         let data_slice = match scope {
             RwSectorScope::DataOnly => &rsr.read_buf[rsr.data_idx..rsr.data_idx + rsr.data_len],
             RwSectorScope::DataElement => &rsr.read_buf,
+            RwSectorScope::CrcOnly => unreachable!(),
         };
 
         if let Some(find_string) = &opts.find {
@@ -263,7 +265,8 @@ fn main() {
             if !found {
                 _ = writeln!(&mut buf, "Did not find search string.");
             }
-        } else {
+        }
+        else {
             println!(
                 "Dumping sector from {} with id {} in hex format, with scope {:?}:",
                 phys_ch,
@@ -278,7 +281,8 @@ fn main() {
                 _ = writeln!(&mut buf, "Calculated CRC: {:04X}", calculated_crc);
             }
         }
-    } else {
+    }
+    else {
         // No sector was provided, dump the whole track.
 
         let ch = DiskCh::new(opts.cylinder.unwrap(), opts.head.unwrap());

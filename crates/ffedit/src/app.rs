@@ -25,28 +25,35 @@
     --------------------------------------------------------------------------
 */
 
-use std::cell::RefCell;
-use std::io;
-use std::path::PathBuf;
-use std::rc::Rc;
-use std::time::{Duration, Instant};
+use std::{
+    cell::RefCell,
+    io,
+    path::PathBuf,
+    rc::Rc,
+    time::{Duration, Instant},
+};
 
 pub use crate::app_context::AppContext;
-use crate::cmd_interpreter::{CommandInterpreter, CommandResult};
-use crate::components::data_block::DataBlock;
-use crate::components::history::HistoryWidget;
-use crate::disk_selection::DiskSelection;
-use crate::logger::{init_logger, LogEntry};
-use crate::modal::ModalState;
-use crate::widget::{FoxWidget, TabSelectableWidget};
-use crate::CmdParams;
+use crate::{
+    cmd_interpreter::{CommandInterpreter, CommandResult},
+    components::{data_block::DataBlock, history::HistoryWidget},
+    disk_selection::DiskSelection,
+    logger::{init_logger, LogEntry},
+    modal::ModalState,
+    widget::{FoxWidget, TabSelectableWidget},
+    CmdParams,
+};
 use crossbeam_channel::Receiver;
-use crossterm::event;
-use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind};
+use crossterm::{
+    event,
+    event::{Event, KeyCode, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind},
+};
 use fluxfox::DiskImage;
-use ratatui::prelude::*;
-use ratatui::widgets::{Gauge, Paragraph};
-use ratatui::DefaultTerminal;
+use ratatui::{
+    prelude::*,
+    widgets::{Gauge, Paragraph},
+    DefaultTerminal,
+};
 use tui_popup::{Popup, SizedWrapper};
 
 // Application state to support different modes
@@ -96,9 +103,10 @@ impl App {
         // history gets selected by default.
         history.borrow_mut().select();
 
-        let mut widgets = Vec::new();
-        widgets.push(history.clone() as Rc<RefCell<dyn FoxWidget>>);
-        widgets.push(db.clone() as Rc<RefCell<dyn FoxWidget>>);
+        let widgets = vec![
+            history.clone() as Rc<RefCell<dyn FoxWidget>>,
+            db.clone() as Rc<RefCell<dyn FoxWidget>>,
+        ];
 
         let mut app = App {
             params,
@@ -160,17 +168,19 @@ impl App {
             )
             .split(app_layout[1]);
 
-        let history_height = app_layout[0].height as usize;
+        //let history_height = app_layout[0].height as usize;
 
         let image_name = if let Some(di_name) = &self.ctx.di_name {
             format!("{}", di_name.to_string_lossy())
-        } else {
+        }
+        else {
             "No Disk Image".to_string()
         };
 
         let image_resolution = if let Some(di) = &self.ctx.di {
             format!("{:?}", di.resolution())
-        } else {
+        }
+        else {
             "".to_string()
         };
 
@@ -228,8 +238,8 @@ impl App {
                         // Display a progress bar
                         let gauge = Gauge::default().ratio(*progress);
                         let sized = SizedWrapper {
-                            inner: gauge,
-                            width: (f.area().width / 2) as usize,
+                            inner:  gauge,
+                            width:  (f.area().width / 2) as usize,
                             height: 1,
                         };
 
@@ -261,6 +271,8 @@ impl App {
                         if key.kind == KeyEventKind::Press {
                             // Check for key press event only
                             if let Some(result) = self.on_key(key.code, key.modifiers) {
+                                // We may add other options later
+                                #[allow(clippy::collapsible_match)]
                                 if let CommandResult::UserExit = result {
                                     break Ok(());
                                 }
@@ -288,7 +300,8 @@ impl App {
             ApplicationState::Modal(modal_state) => {
                 if modal_state.input_enabled() {
                     self.on_key_normal(code, modifiers)
-                } else {
+                }
+                else {
                     None
                 }
             }

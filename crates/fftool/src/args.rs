@@ -24,13 +24,14 @@
 
     --------------------------------------------------------------------------
 */
-use crate::convert::args::{convert_parser, ConvertParams};
-use crate::dump::args::{dump_parser, DumpParams};
-use crate::find::args::{find_parser, FindParams};
-use crate::info::args::{info_parser, InfoParams};
+use crate::{
+    convert::args::{convert_parser, ConvertParams},
+    dump::args::{dump_parser, DumpParams},
+    find::args::{find_parser, FindParams},
+    info::args::{info_parser, InfoParams},
+};
 use bpaf::*;
-use std::path::PathBuf;
-use std::str::FromStr;
+use std::{path::PathBuf, str::FromStr};
 
 #[derive(Debug, Clone, Copy)]
 pub enum DumpFormat {
@@ -63,7 +64,7 @@ pub(crate) enum Command {
 
 #[derive(Debug)]
 pub(crate) struct AppParams {
-    pub global: GlobalOptions,
+    pub global:  GlobalOptions,
     pub command: Command,
 }
 
@@ -187,5 +188,5 @@ pub(crate) fn row_size_parser() -> impl Parser<u8> {
     long("row-size")
         .argument::<u8>("HEAD")
         .help("Specify the number of elements per row to be dumped")
-        .guard(|&size| size >= 8 && size <= 128, "Size must be between 8 and 128")
+        .guard(|&size| (8..=128).contains(&size), "Size must be between 8 and 128")
 }

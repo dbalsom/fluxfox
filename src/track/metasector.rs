@@ -635,7 +635,7 @@ impl Track for MetaSectorTrack {
     }
 
     fn has_weak_bits(&self) -> bool {
-        self.sectors.iter().map(|s| s.weak_mask.has_bits()).any(|x| x)
+        self.sectors.iter().any(|s| s.weak_mask.has_bits())
     }
 
     fn format(

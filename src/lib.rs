@@ -40,7 +40,7 @@
 //! The main interface to fluxfox is via a [`DiskImage`] object, which can be created by loading
 //! a disk image file, or by creating a new disk image from scratch.
 //!
-//! It is recommended to use the [`image_builder::ImageBuilder`] interface to load or create a disk image.
+//! It is recommended to use the [`ImageBuilder`] interface to load or create a disk image.
 
 extern crate core;
 

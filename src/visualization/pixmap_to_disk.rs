@@ -53,7 +53,7 @@ impl Default for PixmapToDiskParams {
 /// We can't collect mutable references to the track streams, so we collect the indices into the
 /// track pool instead.
 fn collect_stream_indices(head: u8, disk_image: &mut DiskImage) -> Vec<usize> {
-    disk_image.track_map[head as usize].iter().map(|i| *i).collect()
+    disk_image.track_map[head as usize].iter().copied().collect()
 }
 
 /// The reverse of the normal visualization logic, this function takes a pixmap and writes it to
@@ -240,7 +240,6 @@ pub fn render_pixmap_to_disk_grayscale(
     // }
 
     let color_ramp_bytes = (0..256)
-        .into_iter()
         .map(|v| MFM_GRAYSCALE_RAMP[v / 16].to_be_bytes())
         .collect::<Vec<[u8; 8]>>();
 

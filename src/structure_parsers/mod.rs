@@ -218,10 +218,10 @@ impl From<DiskStructureElement> for DiskStructureGenericElement {
 
 impl DiskStructureElement {
     pub fn is_sector_header(&self) -> bool {
-        match self {
-            DiskStructureElement::System34(System34Element::SectorHeader { .. }) => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            DiskStructureElement::System34(System34Element::SectorHeader { .. })
+        )
     }
 
     pub fn is_sector_data_marker(&self) -> bool {

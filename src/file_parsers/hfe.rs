@@ -48,7 +48,8 @@ use crate::{
 use binrw::{binrw, BinRead};
 
 const fn reverse_bits(mut byte: u8) -> u8 {
-    byte = (byte >> 4) | (byte << 4);
+    //byte = (byte >> 4) | (byte << 4);
+    byte = byte.rotate_left(4);
     byte = ((byte & 0x33) << 2) | ((byte & 0xCC) >> 2);
     byte = ((byte & 0x55) << 1) | ((byte & 0xAA) >> 1);
     byte
@@ -424,8 +425,8 @@ mod tests {
     #[test]
     fn test_generate_reverse_table() {
         let table = generate_reverse_table();
-        for i in 0..256 {
-            assert_eq!(table[i], simple_reverse_bits(i as u8), "Failed at index {}", i);
+        for (ti, table_item) in table.into_iter().enumerate() {
+            assert_eq!(table_item, simple_reverse_bits(ti as u8), "Failed at index {}", ti);
         }
         println!("test_generate_reverse_table(): passed");
     }

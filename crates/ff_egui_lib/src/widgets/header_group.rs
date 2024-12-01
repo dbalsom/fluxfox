@@ -86,7 +86,7 @@ impl HeaderGroup {
 
         // Paint the header background
         if ui.is_rect_visible(group_rect) {
-            let header_height = ui.fonts(|fonts| fonts.row_height(&TextStyle::Heading.resolve(&ui.style())));
+            let header_height = ui.fonts(|fonts| fonts.row_height(&TextStyle::Heading.resolve(ui.style())));
             let header_rect = Rect::from_min_size(
                 group_rect.min,
                 Vec2::new(group_rect.width(), header_height + margin.top * 2.0), // Include padding for margins

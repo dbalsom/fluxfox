@@ -13,12 +13,14 @@
 
 ### Bugfixes:
 
+- Fix extreme memory usage when decoding flux tracks
 - Create empty MFM and FM tracks with valid clock bits
 - Fixed and improved format tests
 - Fixed bug in Kryoflux import
 
 ### Breaking changes:
 
+- Removed get_* prefixes from endpoints per Rust style guidelines.
 - Removed Invalid variant of StandardFormat. Removed From<> and implemented TryFrom<usize>
 - All add_track_* API functions now return a mutable reference to the new track on success
 - Track API changes

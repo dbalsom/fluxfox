@@ -19,3 +19,6 @@ tiny-skia = { version = "0.11", features = ["png"] }
 [features]
 default = ["viz"]
 viz = ["fluxfox/viz"]
+
+[package.metadata.docs.rs]
+build = false

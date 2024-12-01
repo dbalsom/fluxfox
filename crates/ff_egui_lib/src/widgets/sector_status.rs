@@ -41,7 +41,7 @@ const COLOR_NO_DAM: Color32 = Color32::GRAY;
 /// Simple color swatch widget. Used for palette register display.
 pub fn sector_status(ui: &mut Ui, entry: &SectorMapEntry, open: bool) -> Response {
     let size = ui.spacing().interact_size;
-    let size = egui::Vec2 { x: size.y, y: size.y }; // Make square
+    let size = Vec2 { x: size.y, y: size.y }; // Make square
     let (rect, response) = ui.allocate_exact_size(
         size,
         Sense {
@@ -52,8 +52,8 @@ pub fn sector_status(ui: &mut Ui, entry: &SectorMapEntry, open: bool) -> Respons
     );
     //response.widget_info(|| WidgetInfo::new(WidgetType::ColorButton));
 
-    ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
-    ui.spacing_mut().button_padding = egui::vec2(0.0, 0.0);
+    ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+    ui.spacing_mut().button_padding = vec2(0.0, 0.0);
 
     if ui.is_rect_visible(rect) {
         let visuals = if open {

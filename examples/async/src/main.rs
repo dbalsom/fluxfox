@@ -28,24 +28,27 @@
 
     This is a simple example of how to use FluxFox with the Tokio async runtime.
 */
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
-use tokio;
-use tokio::task;
-use tokio::time::sleep;
+use tokio::{task, time::sleep};
 
-use bpaf::*;
 use anyhow::{anyhow, Error};
+use bpaf::*;
 
-use fluxfox::io::{ReadSeek, Write, Cursor};
-use fluxfox::{DiskImage, LoadingStatus};
+use fluxfox::{
+    io::{Cursor, ReadSeek, Write},
+    DiskImage,
+    LoadingStatus,
+};
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct Opts {
-    debug: bool,
+    debug:    bool,
     filename: PathBuf,
 }
 
@@ -58,10 +61,7 @@ fn opts() -> OptionParser<Opts> {
         .help("Filename of image to read")
         .argument::<PathBuf>("FILE");
 
-    construct!(Opts {
-        debug,
-        filename
-    })
+    construct!(Opts { debug, filename })
         .to_options()
         .descr("imginfo: display info about disk image")
 }
@@ -73,7 +73,7 @@ async fn main() {
     // Get the command line options.
     let opts = opts().run();
 
-    let file_vec = match std::fs::read(&opts.filename.clone()) {
+    let file_vec = match std::fs::read(opts.filename.clone()) {
         Ok(file_vec) => file_vec,
         Err(e) => {
             eprintln!("Error reading file: {}", e);
@@ -112,27 +112,24 @@ async fn load_disk_image<RS: ReadSeek + Send + 'static>(mut reader: RS, opts: Op
 
     // Define a callback to update the progress percentage as the disk image loads.
     let progress_clone = Arc::clone(&progress);
-    let callback: Arc<dyn Fn(LoadingStatus) + Send + Sync> = Arc::new(move |status| {
-        match status {
-            LoadingStatus::Progress(p) => {
-                let mut progress = progress_clone.lock().unwrap();
-                *progress = p * 100.0;
-            }
-            LoadingStatus::Complete => {
-                let mut progress = progress_clone.lock().unwrap();
-                *progress = 100.0;
-            }
-            _ => {}
+    let callback: Arc<dyn Fn(LoadingStatus) + Send + Sync> = Arc::new(move |status| match status {
+        LoadingStatus::Progress(p) => {
+            let mut progress = progress_clone.lock().unwrap();
+            *progress = p * 100.0;
         }
+        LoadingStatus::Complete => {
+            let mut progress = progress_clone.lock().unwrap();
+            *progress = 100.0;
+        }
+        _ => {}
     });
 
     // Spawn a task for loading the disk image
-    let mut load_handle = task::spawn(async move {
-        DiskImage::load_async(&mut reader, Some(opts.filename), None, Some(callback)).await
-    });
+    let mut load_handle =
+        task::spawn(async move { DiskImage::load_async(&mut reader, Some(opts.filename), None, Some(callback)).await });
 
     // Display spinner with percentage progress
-    let spinner_chars = vec!['|', '/', '-', '\\'];
+    let spinner_chars = ['|', '/', '-', '\\'];
     let mut spinner_idx = 0;
 
     loop {

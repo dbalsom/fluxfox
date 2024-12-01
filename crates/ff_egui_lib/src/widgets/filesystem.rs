@@ -77,8 +77,7 @@ impl FileSystemWidget {
             ui.separator();
 
             // Make sure the path selection widget is set to the current path.
-            self.path_selection_widget
-                .set(self.path_selection.as_ref().map(|x| x.as_str()));
+            self.path_selection_widget.set(self.path_selection.as_deref());
 
             // Next, show the path selection widget and process any resulting event.
             // Currently, it can only return a SelectPath event so we can unwrap it directly.

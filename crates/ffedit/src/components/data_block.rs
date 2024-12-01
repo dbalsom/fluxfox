@@ -26,13 +26,16 @@
 */
 use crate::disk_selection::{DiskSelection, SelectionLevel};
 
-use crate::components::metadata_header::{MetaDataHeader, MetaDataType};
-use crate::widget::{FoxWidget, ScrollableWidget, TabSelectableWidget, WidgetState};
+use crate::{
+    components::metadata_header::{MetaDataHeader, MetaDataType},
+    widget::{FoxWidget, ScrollableWidget, TabSelectableWidget, WidgetState},
+};
 use anyhow::{anyhow, Error};
-use fluxfox::diskimage::RwSectorScope;
-use fluxfox::{DiskChsnQuery, DiskImage};
-use ratatui::prelude::*;
-use ratatui::widgets::{Block, Borders, Scrollbar, ScrollbarOrientation, ScrollbarState, WidgetRef};
+use fluxfox::{diskimage::RwSectorScope, DiskChsnQuery, DiskImage};
+use ratatui::{
+    prelude::*,
+    widgets::{Block, Borders, Scrollbar, ScrollbarOrientation, ScrollbarState, WidgetRef},
+};
 use std::cell::RefCell;
 
 #[derive(Clone, Debug)]
@@ -167,6 +170,7 @@ impl DataBlock {
         self.data_header = metadata;
     }
 
+    //noinspection RsExternalLinter
     pub fn get_line(&self, index: usize) -> Option<Line> {
         if index >= self.formatted_lines.len() {
             return None;
@@ -203,7 +207,8 @@ impl DataBlock {
                     let pad_char = if byte_count > 0 && *wrapping && !last_token_wrapped {
                         pad_style = Style::default();
                         "|"
-                    } else {
+                    }
+                    else {
                         " "
                     };
 
@@ -231,10 +236,11 @@ impl DataBlock {
             .push(Span::styled("| ", Style::default().fg(Color::DarkGray)));
         for token in line_vec {
             match token {
-                DataToken::DataByte { byte, last, wrapping } => {
+                DataToken::DataByte { byte, .. } => {
                     let ascii_span = if byte.is_ascii_graphic() {
                         Span::styled(format!("{}", *byte as char), Style::default())
-                    } else {
+                    }
+                    else {
                         Span::styled(".", Style::default().fg(Color::Gray))
                     };
                     line.spans.push(ascii_span);
@@ -348,7 +354,8 @@ impl DataBlock {
                                 last: false,
                                 wrapping: true,
                             });
-                        } else {
+                        }
+                        else {
                             token_vec.push(DataToken::Padding(2));
                         }
                     }
@@ -400,7 +407,8 @@ impl DataBlock {
         // Render a border around the widget
         let border_style = if self.tab_selected {
             Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)
-        } else {
+        }
+        else {
             Style::default()
         };
 

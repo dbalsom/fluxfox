@@ -278,7 +278,7 @@ impl DataTableWidget {
         assert!(self.num_columns > 0, "num_columns must be greater than 0");
 
         // Calculate the number of rows, including a partial row
-        let num_rows = (self.data.len() + self.num_columns - 1) / self.num_columns;
+        let num_rows = self.data.len().div_ceil(self.num_columns);
 
         // Determine the required number of hex digits for row numbers
         let max_row_index = num_rows.saturating_sub(1);

@@ -72,7 +72,7 @@ fn main() {
     // Get the command line options.
     let opts = opts().run();
 
-    let mut file_vec = match std::fs::read(&opts.filename.clone()) {
+    let mut file_vec = match std::fs::read(opts.filename.clone()) {
         Ok(file_vec) => file_vec,
         Err(e) => {
             eprintln!("Error reading file: {}", e);

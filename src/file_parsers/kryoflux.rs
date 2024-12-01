@@ -158,7 +158,7 @@ impl KfxFormat {
     }
 
     pub fn detect<RWS: ReadSeek>(mut image: RWS) -> bool {
-        if image.seek(std::io::SeekFrom::Start(0)).is_err() {
+        if image.seek(io::SeekFrom::Start(0)).is_err() {
             return false;
         }
 
@@ -345,10 +345,7 @@ impl KfxFormat {
             plot.add_trace(predicted_times);
             plot.add_trace(flux_times);
 
-            use plotly::{
-                color::Rgba,
-                layout::{Shape, ShapeLayer, ShapeLine, ShapeType},
-            };
+            use plotly::color::Rgba;
 
             // // Create a list of shapes representing each PLL window
             // let shapes: Vec<Shape> = x
@@ -373,7 +370,7 @@ impl KfxFormat {
             //     .collect();
             //
             // log::warn!("Plotting {} shapes", shapes.len());
-            let mut layout = Layout::new().y_axis(Axis::new().range(vec![-1.0e-6, 10.0e-6]));
+            let layout = Layout::new().y_axis(Axis::new().range(vec![-1.0e-6, 10.0e-6]));
             // layout = layout.shapes(shapes);
 
             plot.add_trace(clock_trace);
@@ -489,19 +486,19 @@ impl KfxFormat {
         match byte {
             0x00..=0x07 => {
                 // Flux2 block
-                image.seek(std::io::SeekFrom::Current(1))?;
+                image.seek(io::SeekFrom::Current(1))?;
                 *stream_position += 2;
             }
             0x09 => {
                 // Nop2 block
                 // Skip one byte
-                image.seek(std::io::SeekFrom::Current(1))?;
+                image.seek(io::SeekFrom::Current(1))?;
                 *stream_position += 2;
             }
             0x0A => {
                 // Nop3 block
                 // Skip two bytes
-                image.seek(std::io::SeekFrom::Current(2))?;
+                image.seek(io::SeekFrom::Current(2))?;
                 *stream_position += 3;
             }
             0x0B => {
@@ -510,7 +507,7 @@ impl KfxFormat {
             }
             0x0C => {
                 // Flux3 block
-                image.seek(std::io::SeekFrom::Current(2))?;
+                image.seek(io::SeekFrom::Current(2))?;
                 *stream_position += 3;
             }
             0x0D => {
@@ -649,13 +646,13 @@ impl KfxFormat {
             0x09 => {
                 // Nop2 block
                 // Skip one byte
-                image.seek(std::io::SeekFrom::Current(1))?;
+                image.seek(io::SeekFrom::Current(1))?;
                 *stream_position += 2;
             }
             0x0A => {
                 // Nop3 block
                 // Skip two bytes
-                image.seek(std::io::SeekFrom::Current(2))?;
+                image.seek(io::SeekFrom::Current(2))?;
                 *stream_position += 3;
             }
             0x0B => {
@@ -801,7 +798,7 @@ impl KfxFormat {
             Some(d) => d,
             None => std::fs::read_dir(base_path)?
                 .map(|res| res.map(|entry| entry.path()))
-                .collect::<Result<Vec<PathBuf>, crate::io::Error>>()?,
+                .collect::<Result<Vec<PathBuf>, io::Error>>()?,
         };
 
         //log::debug!("File listing: {:?}", file_listing);

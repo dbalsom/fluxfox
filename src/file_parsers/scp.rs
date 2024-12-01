@@ -541,7 +541,7 @@ impl ScpFormat {
         log::trace!("Read {} valid track offsets.", track_offsets.len());
 
         disk_image.descriptor = DiskDescriptor {
-            geometry: DiskCh::from((c as u16, disk_heads)),
+            geometry: DiskCh::from((c, disk_heads)),
             data_rate: disk_datarate.unwrap(),
             density: DiskDensity::from(disk_datarate.unwrap()),
             data_encoding: DiskDataEncoding::Mfm,

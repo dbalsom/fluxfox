@@ -76,15 +76,13 @@ fn main() {
         println!("Reading disk image: {}", in_disk.display());
         println!("Detected disk image type: {}", disk_image_type);
 
-        let disk = match DiskImage::load(&mut reader, Some(in_disk), None, None) {
+        match DiskImage::load(&mut reader, Some(in_disk), None, None) {
             Ok(disk) => disk,
             Err(e) => {
                 eprintln!("Error loading disk image: {}", e);
                 std::process::exit(1);
             }
-        };
-
-        disk
+        }
     }
     else {
         match ImageBuilder::new()
@@ -132,41 +130,43 @@ fn main() {
         }
     }
 
-    let mut data_params = RenderTrackDataParams::default();
-    data_params.image_size = (pixmap0.width(), pixmap0.height());
-    data_params.image_pos = (0, 0);
-    data_params.head = 0;
-    data_params.track_limit = disk.tracks(0) as usize;
-    data_params.min_radius_fraction = opts.hole_ratio.unwrap_or(match opts.applesauce {
-        false => 0.3, // Good hole ratio for HxC and fluxfox
-        true => 0.27, // Applesauce has slightly smaller hole
-    });
-
-    data_params.index_angle = opts.angle;
-    data_params.direction = RotationDirection::Clockwise;
-    data_params.sector_mask = opts.sectors_only;
+    let mut data_params = RenderTrackDataParams {
+        image_size: (pixmap0.width(), pixmap0.height()),
+        image_pos: (0, 0),
+        head: 0,
+        track_limit: disk.tracks(0) as usize,
+        min_radius_fraction: opts.hole_ratio.unwrap_or(match opts.applesauce {
+            false => 0.3, // Good hole ratio for HxC and fluxfox
+            true => 0.27, // Applesauce has slightly smaller hole
+        }),
+        index_angle: opts.angle,
+        direction: RotationDirection::Clockwise,
+        sector_mask: opts.sectors_only,
+        ..Default::default()
+    };
 
     if opts.cc {
         data_params.direction = data_params.direction.opposite();
     }
 
-    let mut pixmap_params = PixmapToDiskParams::default();
-    pixmap_params.skip_tracks = opts.skip;
+    let pixmap_params = PixmapToDiskParams {
+        skip_tracks: opts.skip,
+        ..Default::default()
+    };
 
     let render = |pixmap: &Pixmap,
                   disk: &mut DiskImage,
                   pixmap_params: &PixmapToDiskParams,
-                  data_params: &RenderTrackDataParams|
-     -> () {
+                  data_params: &RenderTrackDataParams| {
         match opts.grayscale {
-            true => match render_pixmap_to_disk_grayscale(&pixmap, disk, pixmap_params, data_params) {
+            true => match render_pixmap_to_disk_grayscale(pixmap, disk, pixmap_params, data_params) {
                 Ok(_) => (),
                 Err(e) => {
                     eprintln!("Error rendering pixmap to disk: {}", e);
                     std::process::exit(1);
                 }
             },
-            false => match render_pixmap_to_disk(&pixmap, disk, pixmap_params, data_params) {
+            false => match render_pixmap_to_disk(pixmap, disk, pixmap_params, data_params) {
                 Ok(_) => (),
                 Err(e) => {
                     eprintln!("Error rendering pixmap to disk: {}", e);
@@ -212,7 +212,7 @@ fn main() {
         .out_disk
         .extension()
         .and_then(|ext| ext.to_str())
-        .and_then(|ext_str| format_from_ext(ext_str))
+        .and_then(format_from_ext)
         .unwrap_or_else(|| {
             eprintln!("Error: Invalid or unknown output file extension!");
             std::process::exit(1);

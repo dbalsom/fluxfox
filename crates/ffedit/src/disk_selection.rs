@@ -59,7 +59,7 @@ impl Default for DiskSelection {
 }
 
 impl Display for DiskSelection {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.level {
             SelectionLevel::Disk => write!(f, ""),
             SelectionLevel::Head => write!(f, "[h:{}]", self.head.unwrap_or(0)),

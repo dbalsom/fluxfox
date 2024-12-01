@@ -1089,6 +1089,10 @@ impl BitStreamTrack {
         self.data.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+
     /// Retrieves the bit index of the first sector in the track data after the specified bit index.
     ///
     /// This function searches the metadata for the first IDAM (Index Address Mark) starting from

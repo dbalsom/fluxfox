@@ -26,13 +26,13 @@ pub struct AdaptiveHuffmanTree {
 pub struct AdaptiveHuffmanCoder {
     tree: AdaptiveHuffmanTree,
     bits: BitVec,
-    ptr: usize,
+    ptr:  usize,
 }
 
 pub struct AdaptiveHuffmanDecoder {
     tree: AdaptiveHuffmanTree,
     bits: BitVec,
-    ptr: usize,
+    ptr:  usize,
 }
 
 /// encoding table giving number of bits used to encode the
@@ -185,7 +185,8 @@ impl AdaptiveHuffmanTree {
             if k >= self.node_count {
                 // k is a leaf, connect to symbol table
                 self.symb_map[k - self.node_count] = i;
-            } else {
+            }
+            else {
                 // k=left son, k+1=right son
                 self.parent[k] = i;
                 self.parent[k + 1] = i;
@@ -222,7 +223,8 @@ impl AdaptiveHuffmanTree {
                 if i < self.node_count {
                     self.parent[i] = l;
                     self.parent[i + 1] = l;
-                } else {
+                }
+                else {
                     self.symb_map[i - self.node_count] = l;
                 }
 
@@ -232,7 +234,8 @@ impl AdaptiveHuffmanTree {
                 if j < self.node_count {
                     self.parent[j] = c;
                     self.parent[j + 1] = c;
-                } else {
+                }
+                else {
                     self.symb_map[j - self.node_count] = c;
                 }
                 self.son[c] = j;
@@ -253,7 +256,7 @@ impl AdaptiveHuffmanCoder {
         Self {
             tree: AdaptiveHuffmanTree::create(num_symbols),
             bits: BitVec::new(),
-            ptr: 0,
+            ptr:  0,
         }
     }
     /// keep the bit vector small, we don't need the bits behind us
@@ -274,12 +277,13 @@ impl AdaptiveHuffmanCoder {
             self.ptr += 1;
         }
         let bytes = self.bits.to_bytes();
-        writer.write(bytes.as_slice()).expect("write err");
+        _ = writer.write(bytes.as_slice()).expect("write err");
         if self.bits.len() % 8 > 0 {
             writer.seek(SeekFrom::Current(-1)).expect("seek err");
             self.ptr = 8 * (self.bits.len() / 8);
             self.drop_leading_bits();
-        } else {
+        }
+        else {
             self.bits = BitVec::new();
             self.ptr = 0;
         }
@@ -317,7 +321,7 @@ impl AdaptiveHuffmanDecoder {
         Self {
             tree: AdaptiveHuffmanTree::create(num_symbols),
             bits: BitVec::new(),
-            ptr: 0,
+            ptr:  0,
         }
     }
     /// keep the bit vector small, we don't need the bits behind us
