@@ -31,7 +31,7 @@ use std::{
     sync::{mpsc, Arc, RwLock},
 };
 
-use fluxfox::{file_system::fat::fat::FatFileSystem, DiskImage, DiskImageError, LoadingStatus};
+use fluxfox::{file_system::fat::fat_fs::FatFileSystem, DiskImage, DiskImageError, LoadingStatus};
 use fluxfox_egui::{
     widgets::{
         boot_sector::BootSectorWidget,
@@ -49,7 +49,7 @@ pub const APP_NAME: &str = "fluxfox-egui";
 #[cfg(not(target_arch = "wasm32"))]
 use crate::native::worker;
 #[cfg(target_arch = "wasm32")]
-use crate::wasm::{util, worker};
+use crate::wasm::worker;
 #[cfg(target_arch = "wasm32")]
 pub const APP_NAME: &str = "fluxfox-web";
 
@@ -129,7 +129,7 @@ impl AppWidgets {
     }
 
     pub fn update_mut(&mut self, disk_lock: Arc<RwLock<DiskImage>>) {
-        let mut fs = match FatFileSystem::mount(disk_lock) {
+        let mut fs = match FatFileSystem::mount(disk_lock, None) {
             Ok(fs) => {
                 log::debug!("FAT filesystem mounted successfully!");
                 Some(fs)
@@ -567,7 +567,7 @@ impl App {
                     UiEvent::ExportFile(path) => {
                         log::debug!("Exporting file: {:?}", path);
 
-                        let mut fs = FatFileSystem::mount(disk.clone()).unwrap();
+                        let mut fs = FatFileSystem::mount(disk.clone(), None).unwrap();
                         let file_data = match fs.read_file(&path) {
                             Ok(data) => data,
                             Err(e) => {
@@ -589,7 +589,7 @@ impl App {
                     UiEvent::SelectFile(file) => {
                         let selected_file = file.path;
                         log::debug!("Selected file: {:?}", selected_file);
-                        match FatFileSystem::mount(disk.clone()) {
+                        match FatFileSystem::mount(disk.clone(), None) {
                             Ok(mut fs) => {
                                 log::debug!("FAT filesystem mounted successfully!");
                                 self.windows.file_viewer.update(&fs, selected_file);

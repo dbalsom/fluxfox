@@ -1,4 +1,4 @@
-use fluxfox::{image_builder::ImageBuilder, DiskDataResolution, DiskImageFileFormat, ImageParser, StandardFormat};
+use fluxfox::{image_builder::ImageBuilder, prelude::*, DiskImageFileFormat, ImageParser, StandardFormat};
 use std::io::Cursor;
 
 mod common;

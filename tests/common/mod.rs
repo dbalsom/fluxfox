@@ -30,10 +30,14 @@
 */
 #![allow(dead_code)]
 
-use fluxfox::{prelude::*, DiskImage, DiskImageFileFormat, DEFAULT_SECTOR_SIZE};
+use fluxfox::{io::Read, prelude::*, DiskImage, DiskImageFileFormat, DEFAULT_SECTOR_SIZE};
+
 use hex::encode;
 use sha1::{Digest, Sha1};
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::{Arc, RwLock},
+};
 
 #[allow(dead_code)]
 pub fn compute_file_hash<P: AsRef<Path>>(path: P) -> String {
@@ -72,19 +76,24 @@ pub fn run_sector_test(file_path: PathBuf, fmt: DiskImageFileFormat) {
     let disk_image_buf = std::fs::read(file_path).unwrap();
     let mut in_buffer = Cursor::new(disk_image_buf);
 
-    let mut disk = match DiskImage::load(&mut in_buffer, None, None, None) {
+    let disk = match DiskImage::load(&mut in_buffer, None, None, None) {
         Ok(image) => image,
-        Err(e) => panic!("Failed to load {} image: {}", fmt.to_string(), e),
+        Err(e) => panic!("Failed to load {} image: {}", fmt, e),
     };
 
-    println!(
-        "Loaded {} image of geometry {}...",
-        fmt.to_string(),
-        disk.image_format().geometry
-    );
+    println!("Loaded {} image of geometry {}...", fmt, disk.image_format().geometry);
     println!("Verifying sectors...");
-    assert_eq!(verify_sector_test_sectors(&mut disk), true);
+    verify_sector_test_sectors(DiskImage::into_arc(disk));
     println!("Success!");
+}
+
+pub fn verify_sector_test_sectors(disk_lock: Arc<RwLock<DiskImage>>) {
+    {
+        let mut disk = disk_lock.write().unwrap();
+        verify_sector_test_sectors_direct(&mut disk);
+    }
+
+    verify_sector_test_sectors_via_view(disk_lock);
 }
 
 /// The sector test image stores a u8 value in each sector that increments for each sector, wrapping.
@@ -94,7 +103,7 @@ pub fn run_sector_test(file_path: PathBuf, fmt: DiskImageFileFormat) {
 /// This function reads the sectors of a DiskImage and verifies that the u8 values are correct and
 /// incrementing in the same way as the sector test image.
 #[allow(dead_code)]
-pub fn verify_sector_test_sectors(disk: &mut DiskImage) -> bool {
+pub fn verify_sector_test_sectors_direct(disk: &mut DiskImage) {
     let mut sector_byte: u8 = 0;
 
     // Collect indices to avoid borrowing issues
@@ -118,8 +127,8 @@ pub fn verify_sector_test_sectors(disk: &mut DiskImage) -> bool {
 
             for si in 0..rtr.sectors_read {
                 let sector = &rtr.read_buf[si as usize * 512..(si as usize + 1) * 512];
-                for bi in 0..512 {
-                    if sector[bi] != sector_byte {
+                for (bi, byte) in sector.iter().enumerate() {
+                    if *byte != sector_byte {
                         eprintln!(
                             "Sector byte mismatch at track {}, sector {}, byte [{}]: expected {}, got {}.",
                             td.ch(),
@@ -138,5 +147,49 @@ pub fn verify_sector_test_sectors(disk: &mut DiskImage) -> bool {
             }
         }
     }
-    true
+}
+
+/// The sector test image stores a u8 value in each sector that increments for each sector, wrapping.
+/// This image was written to a floppy, then read back as a Kryoflux and SCP file via Greaseweazle,
+/// then converted to other formats.
+///
+/// This function reads the sectors of a DiskImage and verifies that the u8 values are correct and
+/// incrementing in the same way as the sector test image, using a StandardSectorView.
+#[allow(dead_code)]
+pub fn verify_sector_test_sectors_via_view(disk_lock: Arc<RwLock<DiskImage>>) {
+    let format = {
+        let disk = disk_lock.read().unwrap();
+        match disk.closest_format(true) {
+            Some(f) => f,
+            None => panic!("Couldn't detect disk format."),
+        }
+    };
+
+    let mut view = match StandardSectorView::new(disk_lock.clone(), format) {
+        Ok(view) => view,
+        Err(e) => panic!("Failed to create StandardSectorView: {}", e),
+    };
+
+    let chs = DiskChs::from(format);
+    let sector_ct = chs.sector_count() as usize;
+
+    let mut sector_buf = vec![0u8; format.sector_size()];
+
+    for sector_idx in 0..sector_ct {
+        //let offset = sector_idx * format.sector_size();
+
+        // Read the sector
+        view.read_exact(&mut sector_buf) // Read the sector
+            .unwrap_or_else(|e| panic!("Failed to read sector {}: {}", sector_idx, e));
+
+        for byte in &sector_buf {
+            if *byte != sector_idx as u8 {
+                eprintln!(
+                    "Sector byte mismatch at sector {}: expected {}, got {}.",
+                    sector_idx, sector_idx, byte
+                );
+                assert_eq!(*byte, sector_idx as u8);
+            }
+        }
+    }
 }

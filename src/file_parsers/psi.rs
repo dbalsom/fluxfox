@@ -44,11 +44,11 @@ use crate::{
 use crate::{
     types::{
         chs::{DiskCh, DiskChs, DiskChsn},
+        DiskDataEncoding,
+        DiskDataRate,
+        DiskDensity,
         SectorAttributes,
     },
-    DiskDataEncoding,
-    DiskDataRate,
-    DiskDensity,
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,

@@ -52,16 +52,18 @@ use crate::{
     format_us,
     structure_parsers::{system34::System34Standard, DiskStructureMetadata},
     track::{bitstream::BitStreamTrack, metasector::MetaSectorTrack},
-    types::chs::DiskChsnQuery,
-    DiskCh,
-    DiskChs,
-    DiskChsn,
-    DiskDataEncoding,
-    DiskDataRate,
-    DiskDataResolution,
-    DiskDensity,
+    types::{
+        chs::DiskChsnQuery,
+        DiskCh,
+        DiskChs,
+        DiskChsn,
+        DiskDataEncoding,
+        DiskDataRate,
+        DiskDataResolution,
+        DiskDensity,
+        DiskRpm,
+    },
     DiskImageError,
-    DiskRpm,
     SectorMapEntry,
 };
 use sha1_smol::Digest;
@@ -187,14 +189,14 @@ impl Track for FluxStreamTrack {
     /// Offsets are provided within ReadSectorResult so these can be skipped when processing the
     /// read operation.
     fn read_sector(
-        &mut self,
+        &self,
         id: DiskChsnQuery,
         n: Option<u8>,
         offset: Option<usize>,
         scope: RwSectorScope,
         debug: bool,
     ) -> Result<ReadSectorResult, DiskImageError> {
-        if let Some(resolved) = self.get_bitstream_mut() {
+        if let Some(resolved) = self.get_bitstream() {
             return resolved.read_sector(id, n, offset, scope, debug);
         }
         Err(DiskImageError::ResolveError)
@@ -322,6 +324,12 @@ impl Track for FluxStreamTrack {
             return resolved.track_stream_mut();
         }
         None
+    }
+}
+
+impl Default for FluxStreamTrack {
+    fn default() -> Self {
+        FluxStreamTrack::new()
     }
 }
 

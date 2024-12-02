@@ -43,11 +43,7 @@ use crate::{
 
 use crate::{
     track::bitstream::BitStreamTrack,
-    types::chs::DiskCh,
-    DiskDataEncoding,
-    DiskDataRate,
-    DiskDataResolution,
-    DiskDensity,
+    types::{chs::DiskCh, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity},
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,
@@ -598,7 +594,7 @@ impl PriFormat {
                 PriFormat::write_chunk(output, PriChunkType::TrackHeader, &track_header)?;
 
                 // Write the track data.
-                let track_data = track.data.data();
+                let track_data = track.data.data_copied();
                 PriFormat::write_chunk(output, PriChunkType::TrackData, &track_data)?;
 
                 if track.data.weak_mask().any() {

@@ -225,7 +225,7 @@ impl VisualizationState {
             0 => RotationDirection::CounterClockwise,
             _ => RotationDirection::Clockwise,
         };
-        let track_ct = disk.get_track_ct(side.into());
+        let track_ct = disk.track_ct(side.into());
 
         if side >= disk.heads() as usize {
             // Ignore request for non-existent side.

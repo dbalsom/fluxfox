@@ -32,21 +32,23 @@
 mod args;
 mod disk;
 
+use std::io::Cursor;
+
 use crate::{args::opts, disk::repair_crcs};
 use fluxfox::{
     format_from_ext,
+    prelude::*,
     visualization::{
         pixmap_to_disk::{render_pixmap_to_disk, render_pixmap_to_disk_grayscale},
         PixmapToDiskParams,
         RenderTrackDataParams,
         RotationDirection,
     },
-    DiskDataResolution,
     DiskImage,
     ImageBuilder,
     ImageWriter,
 };
-use std::io::Cursor;
+
 use tiny_skia::{Pixmap, PixmapRef};
 
 fn main() {

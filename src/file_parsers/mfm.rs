@@ -33,11 +33,7 @@
 use crate::{
     file_parsers::{FormatCaps, ParserWriteCompatibility},
     io::{ReadSeek, ReadWriteSeek},
-    types::{BitStreamTrackParams, DiskDescriptor},
-    DiskCh,
-    DiskDataEncoding,
-    DiskDataRate,
-    DiskDensity,
+    types::{BitStreamTrackParams, DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskDescriptor},
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,

@@ -21,6 +21,8 @@ fn test_img() {
     let geometry = img_image.image_format().geometry;
 
     println!("Loaded IMG of geometry {}...", geometry);
+    let format = img_image.closest_format(true);
+    println!("Closest format is {:?}", format);
 
     let mut out_buffer = Cursor::new(Vec::new());
     let fmt = DiskImageFileFormat::RawSectorImage;

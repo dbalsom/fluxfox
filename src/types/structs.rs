@@ -33,10 +33,7 @@ use crate::{
     file_parsers::FormatCaps,
     prelude::{DiskCh, DiskChsn},
     track::TrackConsistency,
-    DiskDataEncoding,
-    DiskDataRate,
-    DiskDensity,
-    DiskRpm,
+    types::{DiskDataEncoding, DiskDataRate, DiskDensity, DiskRpm},
 };
 
 /// A structure that defines several flags that can apply to a sector.

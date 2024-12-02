@@ -40,6 +40,14 @@ use crate::{
     track::{bitstream::BitStreamTrack, fluxstream::FluxStreamTrack, metasector::MetaSectorTrack},
     types::{
         chs::DiskChsnQuery,
+        DiskCh,
+        DiskChs,
+        DiskChsn,
+        DiskDataEncoding,
+        DiskDataRate,
+        DiskDataResolution,
+        DiskDensity,
+        DiskRpm,
         ReadSectorResult,
         ReadTrackResult,
         RwSectorScope,
@@ -47,15 +55,7 @@ use crate::{
         SectorDescriptor,
         WriteSectorResult,
     },
-    DiskCh,
-    DiskChs,
-    DiskChsn,
-    DiskDataEncoding,
-    DiskDataRate,
-    DiskDataResolution,
-    DiskDensity,
     DiskImageError,
-    DiskRpm,
     SectorMapEntry,
 };
 use sha1_smol::Digest;
@@ -219,7 +219,7 @@ pub trait Track: Any + Send + Sync {
     /// Offsets are provided within ReadSectorResult so these can be skipped when processing the
     /// read operation.
     fn read_sector(
-        &mut self,
+        &self,
         id: DiskChsnQuery,
         n: Option<u8>,
         offset: Option<usize>,

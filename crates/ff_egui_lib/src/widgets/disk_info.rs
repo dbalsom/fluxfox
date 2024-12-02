@@ -29,7 +29,7 @@
     Disk Info widget for displaying basic disk information.
 */
 
-use fluxfox::{prelude::*, DiskDensity};
+use fluxfox::prelude::*;
 
 #[derive(Default)]
 pub struct DiskInfoWidget {

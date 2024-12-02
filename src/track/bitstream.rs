@@ -56,6 +56,14 @@ use crate::{
     types::{
         chs::DiskChsnQuery,
         BitStreamTrackParams,
+        DiskCh,
+        DiskChs,
+        DiskChsn,
+        DiskDataEncoding,
+        DiskDataRate,
+        DiskDataResolution,
+        DiskDensity,
+        DiskRpm,
         ReadSectorResult,
         ReadTrackResult,
         RwSectorScope,
@@ -66,15 +74,7 @@ use crate::{
         WriteSectorResult,
     },
     util::crc_ibm_3740,
-    DiskCh,
-    DiskChs,
-    DiskChsn,
-    DiskDataEncoding,
-    DiskDataRate,
-    DiskDataResolution,
-    DiskDensity,
     DiskImageError,
-    DiskRpm,
     FoxHashSet,
     SectorMapEntry,
 };
@@ -215,7 +215,7 @@ impl Track for BitStreamTrack {
     /// Offsets are provided within ReadSectorResult so these can be skipped when processing the
     /// read operation.
     fn read_sector(
-        &mut self,
+        &self,
         id: DiskChsnQuery,
         n: Option<u8>,
         offset: Option<usize>,
@@ -342,13 +342,18 @@ impl Track for BitStreamTrack {
                 );
 
                 log::trace!("read_sector(): Seeking to offset: {}", element_start + scope_read_off);
+
+                // 0.2: Avoid read trait, as it requires a mutable reference.
                 self.data
-                    .seek(SeekFrom::Start((element_start + scope_read_off) as u64))
-                    .map_err(|_| DiskImageError::BitstreamError)?;
-                log::trace!("read_sector(): Reading {} bytes.", read_vec.len());
-                self.data
-                    .read_exact(&mut read_vec)
-                    .map_err(|_| DiskImageError::BitstreamError)?;
+                    .read_decoded_buf(&mut read_vec, element_start + scope_read_off);
+
+                // self.data
+                //     .seek(SeekFrom::Start((element_start + scope_read_off) as u64))
+                //     .map_err(|_| DiskImageError::BitstreamError)?;
+                // log::trace!("read_sector(): Reading {} bytes.", read_vec.len());
+                // self.data
+                //     .read_exact(&mut read_vec)
+                //     .map_err(|_| DiskImageError::BitstreamError)?;
             }
             TrackSectorScanResult::NotFound {
                 wrong_cylinder: wc,
@@ -576,7 +581,7 @@ impl Track for BitStreamTrack {
                 // Write the sector data, if the write scope is the entire sector.
                 if !matches!(scope, RwSectorScope::CrcOnly) {
                     self.data
-                        .write_buf(&write_data[0..data_len], sector_offset + 4 * MFM_BYTE_LEN);
+                        .write_encoded_buf(&write_data[0..data_len], sector_offset + 4 * MFM_BYTE_LEN);
                 }
 
                 // Calculate the CRC of the data address mark + data.
@@ -585,7 +590,7 @@ impl Track for BitStreamTrack {
 
                 // Write the CRC after the data.
                 self.data
-                    .write_buf(&crc.to_be_bytes(), sector_offset + (4 + data_len) * MFM_BYTE_LEN);
+                    .write_encoded_buf(&crc.to_be_bytes(), sector_offset + (4 + data_len) * MFM_BYTE_LEN);
 
                 self.add_write(data_len);
 
@@ -640,7 +645,7 @@ impl Track for BitStreamTrack {
     fn hash(&mut self) -> Digest {
         let mut hasher = sha1_smol::Sha1::new();
 
-        hasher.update(&self.data.data());
+        hasher.update(&self.data.data_copied());
         hasher.digest()
     }
 
@@ -784,7 +789,7 @@ impl Track for BitStreamTrack {
         let data_size = self.data.len() / 8 + if self.data.len() % 8 > 0 { 1 } else { 0 };
         //let dump_size = data_size + extra_bytes;
 
-        let track_read_vec = self.data.data();
+        let track_read_vec = self.data.data_copied();
 
         Ok(ReadTrackResult {
             not_found: false,

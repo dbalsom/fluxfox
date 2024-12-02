@@ -45,10 +45,7 @@ use crate::{
 
 use crate::{
     flux::pll::{Pll, PllPreset},
-    types::chs::DiskCh,
-    DiskDataEncoding,
-    DiskDataRate,
-    DiskDensity,
+    types::{chs::DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity},
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,

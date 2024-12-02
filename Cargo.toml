@@ -70,7 +70,7 @@ members = [
     "crates/fftool",
     "crates/ff_egui_app", 
     "crates/ff_egui_lib"
-]
+, "examples/fat"]
 
 [features]
 default = ["viz", "zip", "mfi", "fat"]

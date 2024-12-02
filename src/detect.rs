@@ -160,7 +160,7 @@ pub fn detect_image_format<T: ReadSeek>(image_io: &mut T) -> Result<DiskImageCon
 /// Returns None if the size does not match a known raw disk image size.
 pub fn chs_from_raw_size(size: usize) -> Option<DiskChs> {
     match StandardFormat::try_from(size) {
-        Ok(fmt) => Some(fmt.get_chs()),
+        Ok(fmt) => Some(fmt.chs()),
         Err(_) => None,
     }
 }

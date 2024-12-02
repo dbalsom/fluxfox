@@ -47,13 +47,7 @@ use crate::structure_parsers::{system34::System34Standard, DiskStructureMetadata
 use crate::{
     bitstream::TrackDataStream,
     track::{bitstream::BitStreamTrack, fluxstream::FluxStreamTrack},
-    types::chs::DiskChsnQuery,
-    DiskCh,
-    DiskChs,
-    DiskChsn,
-    DiskDataEncoding,
-    DiskDataRate,
-    DiskDataResolution,
+    types::{chs::DiskChsnQuery, DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskDataResolution},
     DiskImageError,
     FoxHashSet,
     SectorMapEntry,
@@ -344,7 +338,7 @@ impl Track for MetaSectorTrack {
     /// Offsets are provided within ReadSectorResult so these can be skipped when processing the
     /// read operation.
     fn read_sector(
-        &mut self,
+        &self,
         id: DiskChsnQuery,
         _n: Option<u8>,
         _offset: Option<usize>,

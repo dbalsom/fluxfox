@@ -25,7 +25,7 @@
     --------------------------------------------------------------------------
 */
 use egui::Grid;
-use fluxfox::file_system::fat::fat::FatFileSystem;
+use fluxfox::file_system::fat::fat_fs::FatFileSystem;
 use fluxfox_egui::widgets::data_table::DataTableWidget;
 
 #[derive(Default)]

@@ -40,11 +40,8 @@ use crate::{
     io,
     io::{ReadBytesExt, ReadSeek, ReadWriteSeek},
     track::fluxstream::FluxStreamTrack,
-    types::DiskDescriptor,
+    types::{DiskCh, DiskDataEncoding, DiskDataResolution, DiskDescriptor},
     util::read_ascii,
-    DiskCh,
-    DiskDataEncoding,
-    DiskDataResolution,
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,
@@ -238,7 +235,7 @@ impl KfxFormat {
             let mut last_ch = disk_image.track_ch_iter().last().unwrap_or(DiskCh::new(0, 0));
             log::debug!("Previous track in image: {} heads: {}", last_ch, disk_image.heads());
 
-            last_ch.seek_next_track(disk_image.heads());
+            last_ch.seek_next_track(disk_image.geometry());
             last_ch
         };
 

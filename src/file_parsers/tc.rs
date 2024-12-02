@@ -53,15 +53,11 @@ use crate::{
 };
 
 use crate::{
-    types::{BitStreamTrackParams, DiskDescriptor},
+    types::{BitStreamTrackParams, DiskDataEncoding, DiskDataRate, DiskDensity, DiskDescriptor, DiskRpm},
     DiskCh,
-    DiskDataEncoding,
-    DiskDataRate,
-    DiskDensity,
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,
-    DiskRpm,
     LoadingCallback,
     DEFAULT_SECTOR_SIZE,
 };

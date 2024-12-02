@@ -41,9 +41,7 @@ use crate::{
     file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility},
     io::{Cursor, ReadBytesExt, ReadSeek, ReadWriteSeek},
     track::fluxstream::FluxStreamTrack,
-    types::{chs::DiskCh, DiskDescriptor},
-    DiskDataEncoding,
-    DiskDensity,
+    types::{chs::DiskCh, DiskDataEncoding, DiskDensity, DiskDescriptor},
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,
@@ -311,7 +309,7 @@ impl PfiFormat {
                         let mut last_ch = disk_image.track_ch_iter().last().unwrap_or(DiskCh::new(0, 0));
                         log::debug!("Previous track in image: {} heads: {}", last_ch, heads_seen.len());
 
-                        last_ch.seek_next_track(heads_seen.len() as u8);
+                        last_ch.seek_next_track_unchecked(heads_seen.len() as u8);
                         log::debug!("Setting next track ch: {}", last_ch);
                         last_ch
                     };
