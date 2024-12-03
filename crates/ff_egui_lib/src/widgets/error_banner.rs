@@ -109,11 +109,11 @@ impl ErrorBanner {
 
     fn split_message(text: &str) -> (String, Option<String>) {
         if let Some((message0, message1)) = text.split_once(':').map(|(a, b)| (a.trim(), b.trim())) {
-            log::debug!("ErrorBanner: message0: {}, message1: {}", message0, message1);
+            //log::debug!("ErrorBanner: message0: {}, message1: {}", message0, message1);
             (message0.to_string(), Some(message1.to_string()))
         }
         else {
-            log::debug!("ErrorBanner: message0: {}", text);
+            //log::debug!("ErrorBanner: message0: {}", text);
             (text.to_string(), None)
         }
     }
