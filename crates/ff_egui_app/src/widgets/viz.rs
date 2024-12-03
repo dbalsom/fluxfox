@@ -285,7 +285,7 @@ impl VisualizationState {
             track_gap: render_track_gap,
             direction,
             palette: self.meta_palette.clone(),
-            draw_empty_tracks: true,
+            draw_empty_tracks: false,
             pin_last_standard_track: true,
             draw_sector_lookup: false,
         };
