@@ -61,9 +61,10 @@ fluxfox treats them as a special `MetaSector` track type.
     * No official documentation exists, however Dave Dunfield published notes on the disk format and the format is
       supported by a number of tools and emulators.
     * Multiple versions exist, including different compression algorithms. Version 2 Teledisk images may be compressed
-      with LZHUF compression. Version 1.x images may use a custom LZW implementation instead.
-    * fluxfox currently only supports Version 2.x Teledisk images. It uses LZHUF decompression code from
-      [retrocompressor](https://github.com/dfgordon/retrocompressor) by [dfgordon](https://github.com/dfgordon).
+      with LZHUF compression. Version 1.x images may use a custom LZW implementation instead. Both versions are
+      supported
+      thanks to [retrocompressor](https://github.com/dfgordon/retrocompressor)
+      by [dfgordon](https://github.com/dfgordon).
 * **ImageDisk** (IMD)
     * ImageDisk is a format developed by Dave Dunfield as an open alternative to TeleDisk format images, although it
       has some encoding limitations.
@@ -155,9 +156,20 @@ so is a complicated process.
       diskette, containing duplication info. Sometimes these "duplication marks" contain useful clues as to the type
       of copy-protection used.
 
-Other common encodings, such as Apple's [GCR encoding](https://en.wikipedia.org/wiki/Group_coded_recording), are not
-supported, as this library concentrates on support
-for the IBM PC.
+Other common encodings, such as Apple's [GCR encoding](https://en.wikipedia.org/wiki/Group_coded_recording) are not
+supported as this library concentrates on support for IBM PC disk images for the immediate future.
+
+## Filesystem Support
+
+fluxfox can mount FAT12 filesystems stored on floppy disk images,
+using [rust-fatfs](https://github.com/rafalh/rust-fatfs).
+I have forked this library to provide custom support for more nonconforming disk images.
+
+With fluxfox's `zip` feature enabled, disk images can be created from loose files contained a ZIP file.
+
+### Current limitations
+
+- 160k/180k disk images that predate the DOS 2.0 Bios Parameter Block cannot currently be mounted.
 
 ## Logging
 
@@ -165,13 +177,34 @@ fluxfox uses [env_logger](https://crates.io/crates/env_logger) for logging outpu
 env_logger, you will see fluxfox's messages along with your own. If fluxfox's output is too noisy,
 you can add `fluxfox=error` to your `RUST_LOG` environment variable to limit output to only critical error messages.
 
-## Image Editing
+## GUI
 
-I'm working on a basic disk editor, called ffedit, powered by fluxfox's API.
-ffedit is a TUI application, using [Ratatui](https://github.com/ratatui/ratatui) for its interface. This editor is in
-very early stages.
+![image](doc/img/fluxfox_egui_01.png)
+
+I'm building a GUI for fluxfox powered by [egui](https://github.com/emilk/egui) to demonstrate fluxfox's capabilities,
+and provide functionality that will eventually be incorporated into the [MartyPC](https://github.com/dbalsom/martypc)
+emulator.
+It can be built as a native application or wasm - you can try it in your web
+browser [here](https://dbalsom.github.io/fluxfox/index.html).
+
+It is an easy way to use fluxfox's visualization feature - just drag and drop an image.
+
+The GUI is still a work in progress, but already has several interesting features. You can read more about
+it [here](https://github.com/dbalsom/fluxfox/tree/main/crates/ff_egui_app).
+
+## TUI
 
 ![image](doc/img/ffedit_01.png)
+
+I started work on a basic disk editor with a TUI powered by [ratatui](https://ratatui.rs/), but most of my work is
+now focused around the GUI. It may still be useful as a proof of concept if someone is interested in developing it
+further.
+
+## CLI
+
+Also a work in progress - a CLI interface to various fluxfox features. It is
+available [here](https://github.com/dbalsom/fluxfox/tree/main/crates/fftool).
+Like the TUI, it is on the back burner while I build out the GUI.
 
 ## Visualization
 
@@ -218,6 +251,18 @@ When working with Kryoflux file sets, any file in a set may be used as an input 
 Run with the `-h` parameter to see more command-line options.
 
 An example visualization is shown at the top of this README.
+
+## Links
+
+fluxfox and its various utilities are powered by:
+
+- [egui](https://github.com/emilk/egui) by Emil Ernerfeldt
+- [binrw](https://github.com/jam1garner/binrw) by jam1garner
+- [fast_image_resize](https://github.com/Cykooz/fast_image_resize) by Kirill Kuzminykh
+- [rust-fatfs](https://github.com/rafalh/rust-fatfs) by Rafał Harabień
+- [retrocompressor](https://github.com/dfgordon/retrocompressor) by Daniel Gordon
+- [tiny_skia](https://github.com/linebender/tiny-skia) by Yevhenii Reizner
+- [ratatui](https://ratatui.rs/)
 
 [Crate]: https://crates.io/crates/fluxfox
 

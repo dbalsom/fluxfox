@@ -710,11 +710,15 @@ impl KfxFormat {
                             }
                             1 => {
                                 log::error!("A buffering issue was recorded in the stream. Stream may be corrupt");
-                                return Err(DiskImageError::ImageCorruptError);
+                                return Err(DiskImageError::ImageCorruptError(
+                                    "Buffering issue detected".to_string(),
+                                ));
                             }
                             2 => {
                                 log::error!("No index signal was detected.");
-                                return Err(DiskImageError::ImageCorruptError);
+                                return Err(DiskImageError::ImageCorruptError(
+                                    "No index signal detected".to_string(),
+                                ));
                             }
                             _ => {
                                 log::error!("Unknown hardware status. Hope it wasn't important!");

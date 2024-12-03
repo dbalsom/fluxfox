@@ -38,7 +38,12 @@
 */
 use crate::{
     file_parsers::{
-        compression::lzhuf::{expand, TD0_READ_OPTIONS},
+        compression::{
+            lzhuf,
+            lzhuf::TD0_READ_OPTIONS,
+            lzw,
+            lzw::{Options, OptionsPreset},
+        },
         FormatCaps,
         ParserWriteCompatibility,
     },
@@ -222,7 +227,6 @@ impl Td0Format {
         disk_image.set_source_format(DiskImageFileFormat::TeleDisk);
 
         let mut image_data = Vec::new();
-
         read_buf.seek(std::io::SeekFrom::Start(0))?;
         read_buf.read_to_end(&mut image_data)?;
 
@@ -250,7 +254,7 @@ impl Td0Format {
         let disk_data_rate = td0_data_rate(file_header.data_rate);
 
         log::trace!(
-            "Detected Teledisk Image, version {}.{}, compressed: {} comment_block: {}",
+            "Detected Teledisk Image, version {}.{}, compressed: {} has_comment_block: {}",
             major_version,
             minor_version,
             compressed,
@@ -259,41 +263,53 @@ impl Td0Format {
 
         log::trace!("Header CRC: {:04X} Calculated CRC: {:04X}", file_header.crc, header_crc,);
         if file_header.crc != header_crc {
-            return Err(DiskImageError::ImageCorruptError);
+            return Err(DiskImageError::ImageCorruptError("Bad Header CRC".to_string()));
         }
+
+        let current_pos = read_buf.stream_position()?;
 
         // Decompress the read_buf data if necessary.
-        let mut compressed_data = Cursor::new(image_data.to_vec());
-        let mut image_data_ref = &mut compressed_data;
-        let mut decompression_buffer = Cursor::new(Vec::with_capacity(image_data.len() * 2));
-        let mut decompression_length = 0;
-        if compressed {
-            (_, decompression_length) = expand(&mut compressed_data, &mut decompression_buffer, &TD0_READ_OPTIONS)
-                .map_err(|_| DiskImageError::ImageCorruptError)?;
-            log::trace!(
-                "Decompressed {} bytes to {} bytes",
-                image_data.len(),
-                decompression_length
-            );
-            image_data_ref = &mut decompression_buffer;
-        }
+        let data_len = image_data.len();
+        let mut compressed_data = Cursor::new(image_data);
+        let mut decompression_buffer = Cursor::new(Vec::with_capacity(data_len * 2));
 
-        // From this point forward, we are working with the decompressed data.
-        image_data_ref.seek(std::io::SeekFrom::Start(0))?;
+        let (mut image_data_ref, decompressed_length) = if compressed {
+            let (_, decompressed_length) = if major_version < 2 {
+                log::debug!("Using V1 LZW decompression.");
+                // Use older LZW decompression.
+                lzw::expand(
+                    &mut compressed_data,
+                    &mut decompression_buffer,
+                    &Options::from(OptionsPreset::Teledisk),
+                )
+                .map_err(|_| DiskImageError::ImageCorruptError("LZW decompression failure".to_string()))?
+            }
+            else {
+                // Use LZHUF decompression.
+                log::debug!("Using V2 LZHUF decompression.");
+                lzhuf::expand(&mut compressed_data, &mut decompression_buffer, &TD0_READ_OPTIONS)
+                    .map_err(|_| DiskImageError::ImageCorruptError("LZHUF decompression failure".to_string()))?
+            };
+
+            log::trace!("Decompressed {} bytes to {} bytes", data_len, decompressed_length);
+            (&mut decompression_buffer, decompressed_length)
+        }
+        else {
+            (&mut compressed_data, data_len as u64)
+        };
+
+        // From this point forward, we are working with decompressed data.
+        image_data_ref.seek(std::io::SeekFrom::Start(current_pos))?;
 
         // Parse comment block if indicated.
         if has_comment_block {
             let comment_header = CommentHeader::read(&mut image_data_ref)?;
             let calculated_crc = calc_crc(
                 &mut image_data_ref,
-                2,
+                14,
                 COMMENT_HEADER_SIZE - 2 + comment_header.length as usize,
                 0,
             )?;
-
-            if comment_header.crc != calculated_crc {
-                return Err(DiskImageError::ImageCorruptError);
-            }
 
             log::trace!(
                 "Comment block header crc: {:04X} calculated_crc: {:04X}",
@@ -301,8 +317,16 @@ impl Td0Format {
                 calculated_crc
             );
 
-            if comment_header.length as u64 > decompression_length.saturating_sub(COMMENT_HEADER_SIZE as u64) {
-                return Err(DiskImageError::ImageCorruptError);
+            if comment_header.crc != calculated_crc {
+                log::warn!("Bad Comment block header CRC");
+                //return Err(DiskImageError::ImageCorruptError("Bad Comment CRC".to_string()));
+            }
+
+            if comment_header.length as u64 > decompressed_length.saturating_sub(COMMENT_HEADER_SIZE as u64) {
+                return Err(DiskImageError::ImageCorruptError(format!(
+                    "Comment block length ({}) exceeds image size ({})",
+                    comment_header.length, decompressed_length
+                )));
             }
 
             let mut comment_data_block = vec![0; comment_header.length as usize];
@@ -341,7 +365,7 @@ impl Td0Format {
             }
 
             if track_header.crc != calculated_track_header_crc as u8 {
-                return Err(DiskImageError::ImageCorruptError);
+                return Err(DiskImageError::ImageCorruptError("Bad Track Header CRC".to_string()));
             }
 
             log::trace!("Adding track: c:{} h:{}...", track_header.cylinder, track_header.head);
@@ -402,7 +426,9 @@ impl Td0Format {
                         }
                         _ => {
                             log::error!("Unknown sector data encoding: {}", sector_data_header.encoding);
-                            return Err(DiskImageError::FormatParseError);
+                            return Err(DiskImageError::ImageCorruptError(
+                                "Unknown sector data encoding".to_string(),
+                            ));
                         }
                     }
 
@@ -415,7 +441,7 @@ impl Td0Format {
                     );
 
                     if sector_header.crc != data_crc as u8 {
-                        return Err(DiskImageError::ImageCorruptError);
+                        return Err(DiskImageError::ImageCorruptError("Bad Sector Header CRC".to_string()));
                     }
 
                     // Add this sector to track.

@@ -36,6 +36,7 @@ use fluxfox_egui::{
     widgets::{
         boot_sector::BootSectorWidget,
         disk_info::DiskInfoWidget,
+        error_banner::ErrorBanner,
         filesystem::FileSystemWidget,
         header_group::HeaderGroup,
     },
@@ -386,19 +387,21 @@ impl App {
 
     fn show_error(&mut self, ui: &mut egui::Ui) {
         if let Some(msg) = &self.error_msg {
-            egui::Frame::none()
-                .fill(egui::Color32::DARK_RED)
-                .rounding(8.0)
-                .inner_margin(8.0)
-                .stroke(egui::Stroke::new(1.0, egui::Color32::GRAY))
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("🗙").color(egui::Color32::WHITE).size(32.0));
-                        ui.add(egui::Label::new(
-                            egui::RichText::new(msg).color(egui::Color32::WHITE).size(24.0),
-                        ));
-                    });
-                });
+            ErrorBanner::new(msg).large().show(ui);
+
+            // egui::Frame::none()
+            //     .fill(egui::Color32::DARK_RED)
+            //     .rounding(8.0)
+            //     .inner_margin(8.0)
+            //     .stroke(egui::Stroke::new(1.0, egui::Color32::GRAY))
+            //     .show(ui, |ui| {
+            //         ui.horizontal(|ui| {
+            //             ui.label(egui::RichText::new("🗙").color(egui::Color32::WHITE).size(32.0));
+            //             ui.add(egui::Label::new(
+            //                 egui::RichText::new(msg).color(egui::Color32::WHITE).size(24.0),
+            //             ));
+            //         });
+            //     });
         }
     }
 

@@ -143,13 +143,16 @@ pub fn render_pixmap_to_disk(
                     continue;
                 }
                 if track_index < num_tracks {
-                    // Adjust angle for clockwise or counter-clockwise
-                    let normalized_angle = match p.direction {
+                    // Adjust angle via input angle parameter, for clockwise or counter-clockwise turning
+                    let mut normalized_angle = match p.direction {
                         RotationDirection::Clockwise => angle - p.index_angle,
                         RotationDirection::CounterClockwise => TAU - (angle - p.index_angle),
                     };
-
-                    let normalized_angle = (normalized_angle + PI) % TAU;
+                    // Normalize the angle to the range 0..2π
+                    while normalized_angle < 0.0 {
+                        normalized_angle += TAU;
+                    }
+                    normalized_angle = (normalized_angle + PI) % TAU;
 
                     if let Some(track) = disk_image.track_pool[track_indices[track_index]].track_stream_mut() {
                         let bit_index = ((normalized_angle / TAU) * track.len() as f32) as usize;
@@ -317,13 +320,17 @@ pub fn render_pixmap_to_disk_grayscale(
                     continue;
                 }
                 if track_index < num_tracks {
-                    // Adjust angle for clockwise or counter-clockwise
-                    let normalized_angle = match p.direction {
+                    // Adjust angle via input angle parameter, for clockwise or counter-clockwise turning
+                    let mut normalized_angle = match p.direction {
                         RotationDirection::Clockwise => angle - p.index_angle,
                         RotationDirection::CounterClockwise => TAU - (angle - p.index_angle),
                     };
 
-                    let normalized_angle = (normalized_angle + PI) % TAU;
+                    // Normalize the angle to the range 0..2π
+                    while normalized_angle < 0.0 {
+                        normalized_angle += TAU;
+                    }
+                    normalized_angle = (normalized_angle + PI) % TAU;
 
                     if let Some(track) = disk_image.track_pool[track_indices[track_index]].track_stream_mut() {
                         let bit_index = ((normalized_angle / TAU) * track.len() as f32) as usize;
@@ -331,6 +338,7 @@ pub fn render_pixmap_to_disk_grayscale(
                         let bit_index = bit_index & index_mask;
                         // Ensure bit_index is within bounds
                         let bit_index = min(bit_index, track.len() - 64);
+                        //let bit_index = (bit_index % track.len()) - 64;
 
                         let mut render_enable = true;
 

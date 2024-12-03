@@ -113,8 +113,8 @@ pub enum DiskImageError {
     IncompatibleImage,
     #[error("The disk image format parser encountered an error")]
     FormatParseError,
-    #[error("The disk image format parser determined the image was corrupt")]
-    ImageCorruptError,
+    #[error("The disk image format parser reported the image was corrupt: {0}")]
+    ImageCorruptError(String),
     #[error("The requested head or cylinder could not be found")]
     SeekError,
     #[error("An error occurred addressing the track bitstream")]
