@@ -47,7 +47,7 @@ use crate::{
         FormatCaps,
         ParserWriteCompatibility,
     },
-    io::{Cursor, Read, ReadBytesExt, ReadSeek, ReadWriteSeek, Seek, Write},
+    io::{Cursor, Read, ReadBytesExt, ReadSeek, ReadWriteSeek, Seek},
     types::{
         DiskCh,
         DiskChsn,
