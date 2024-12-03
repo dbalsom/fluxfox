@@ -172,19 +172,40 @@ impl MfiFormat {
         }
 
         let mut last_offset: u32 = 0;
-        for _c in 0..file_ch.c() - 1 {
-            for _h in 0..file_ch.h() {
+        for c in 0..file_ch.c() - 1 {
+            for h in 0..file_ch.h() {
                 let track_header = MfiTrackHeader::read(&mut read_buf)?;
-                if track_header.offset < last_offset {
-                    log::error!("Invalid MFI file: track offset is less than last offset.");
+
+                log::trace!(
+                    "Track {} at offset: {} compressed: {} uncompressed: {}",
+                    DiskCh::new(c, h),
+                    track_header.offset,
+                    track_header.compressed_size,
+                    track_header.uncompressed_size
+                );
+
+                if (track_header.compressed_size > 0) && (track_header.offset < last_offset) {
+                    log::error!(
+                        "Invalid MFI file: non-zero length track {} offset is less than last offset ({}).",
+                        DiskCh::new(c, h),
+                        last_offset
+                    );
                     return Err(DiskImageError::ImageCorruptError);
                 }
 
                 if track_header.offset as u64 > disk_len {
-                    log::error!("Invalid MFI file: track offset is greater than file length.");
+                    log::error!(
+                        "Invalid MFI file: track {} offset is greater than file length.",
+                        DiskCh::new(c, h)
+                    );
                     return Err(DiskImageError::ImageCorruptError);
                 }
-                last_offset = track_header.offset;
+
+                // Ignore offsets of 0 - they indicate empty tracks.
+                if track_header.offset != 0 {
+                    last_offset = track_header.offset;
+                }
+
                 track_list.push(track_header);
             }
         }
@@ -204,34 +225,45 @@ impl MfiFormat {
                 entry.uncompressed_size
             );
 
-            // Read in compressed track data.
-            let mut track_data = vec![0u8; entry.compressed_size as usize];
-            read_buf.seek(std::io::SeekFrom::Start(entry.offset as u64))?;
-            read_buf.read_exact(&mut track_data)?;
+            if entry.offset == 0 || entry.compressed_size == 0 || entry.uncompressed_size == 0 {
+                // All of the above are indicative of an empty/unformatted track.
 
-            // Decompress track data.
-            let mut decompressed_data = vec![0u8; entry.uncompressed_size as usize];
-
-            let mut decompress = flate2::Decompress::new(true);
-            match decompress.decompress(&track_data, &mut decompressed_data, flate2::FlushDecompress::Finish) {
-                Ok(flate2::Status::Ok) | Ok(flate2::Status::StreamEnd) => {
-                    log::debug!("Successfully decompressed track data for track {}", DiskCh::new(c, h));
-                }
-                Ok(flate2::Status::BufError) => {
-                    log::error!("Decompression buffer error reading track data.");
-                    return Err(DiskImageError::ImageCorruptError);
-                }
-                Err(e) => {
-                    log::error!("Decompression error reading track data: {:?}", e);
-                    return Err(DiskImageError::ImageCorruptError);
-                }
+                // Push empty trackdata
+                tracks.push(MfiTrackData {
+                    ch:   DiskCh::new(c, h),
+                    data: Vec::new(),
+                });
             }
+            else {
+                // Read in compressed track data.
+                let mut track_data = vec![0u8; entry.compressed_size as usize];
+                read_buf.seek(std::io::SeekFrom::Start(entry.offset as u64))?;
+                read_buf.read_exact(&mut track_data)?;
 
-            // Push uncompressed trackdata
-            tracks.push(MfiTrackData {
-                ch:   DiskCh::new(c, h),
-                data: decompressed_data.to_vec(),
-            });
+                // Decompress track data.
+                let mut decompressed_data = vec![0u8; entry.uncompressed_size as usize];
+
+                let mut decompress = flate2::Decompress::new(true);
+                match decompress.decompress(&track_data, &mut decompressed_data, flate2::FlushDecompress::Finish) {
+                    Ok(flate2::Status::Ok) | Ok(flate2::Status::StreamEnd) => {
+                        log::debug!("Successfully decompressed track data for track {}", DiskCh::new(c, h));
+                    }
+                    Ok(flate2::Status::BufError) => {
+                        log::error!("Decompression buffer error reading track data.");
+                        return Err(DiskImageError::ImageCorruptError);
+                    }
+                    Err(e) => {
+                        log::error!("Decompression error reading track data: {:?}", e);
+                        return Err(DiskImageError::ImageCorruptError);
+                    }
+                }
+
+                // Push uncompressed trackdata
+                tracks.push(MfiTrackData {
+                    ch:   DiskCh::new(c, h),
+                    data: decompressed_data.to_vec(),
+                });
+            }
 
             // Advance ch
             h += 1;
@@ -244,21 +276,41 @@ impl MfiFormat {
         let mut disk_density = None;
 
         let total_tracks = tracks.len();
+
+        let mut last_data_rate = None;
+        let mut last_bitcell_ct = None;
+
         for (ti, track) in tracks.iter().enumerate() {
-            let flux_track = Self::process_track_data_new(&track)?;
+            let flux_track = Self::process_track_data_new(track)?;
 
             if disk_density.is_none() {
+                // Set disk density to the first track's density.
                 disk_density = Some(flux_track.density());
             }
-            let data_rate = DiskDataRate::from(flux_track.density());
+
             if flux_track.is_empty() {
-                log::warn!("Track contains less than 100 bits. Adding empty track.");
-                disk_image.add_empty_track(track.ch, DiskDataEncoding::Mfm, data_rate, 100_000)?;
+                if last_data_rate.is_none() || last_bitcell_ct.is_none() {
+                    log::error!("Track 0 cannot be unformatted.");
+                    return Err(DiskImageError::ImageCorruptError);
+                }
+
+                log::warn!(
+                    "Flux track appears unformatted. Adding empty track of {:?} density",
+                    disk_density
+                );
+
+                disk_image.add_empty_track(
+                    track.ch,
+                    DiskDataEncoding::Mfm,
+                    last_data_rate.unwrap(),
+                    last_bitcell_ct.unwrap(),
+                )?;
             }
             else {
+                let data_rate = DiskDataRate::from(flux_track.density());
                 let stream = flux_track.revolution(0).unwrap();
                 let (stream_bytes, stream_bit_ct) = stream.bitstream_data();
-                log::debug!(
+                log::trace!(
                     "Adding track {} containing {} bits to image...",
                     track.ch,
                     stream_bit_ct
@@ -276,6 +328,10 @@ impl MfiFormat {
                     detect_weak: false,
                 };
                 disk_image.add_track_bitstream(params)?;
+
+                last_data_rate = Some(data_rate);
+                last_bitcell_ct = Some(stream_bit_ct);
+
                 if let Some(ref callback_fn) = callback {
                     let progress = ti as f64 / total_tracks as f64;
                     callback_fn(LoadingStatus::Progress(progress));
@@ -313,7 +369,6 @@ impl MfiFormat {
             match flux_type {
                 FluxEntryType::Flux => {
                     // Process flux entry
-
                     let flux_delta_f64 = (flux_delta as f64 * MFI_TIME_UNIT) / 10.0;
                     //log::debug!("Flux entry: {} {}", flux_ct, flux_delta_f64);
                     total_flux_time += flux_delta_f64;
@@ -371,7 +426,7 @@ impl MfiFormat {
             }
         }
 
-        log::debug!(
+        log::trace!(
             "Track {} has {} flux entries over {} seconds, {} NFA zones, and {} HOLE zones.",
             track.ch,
             flux_ct,

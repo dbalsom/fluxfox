@@ -17,6 +17,7 @@
 
 ### Bugfixes:
 
+- Fixed several bugs in MFI import.
 - Refactored IMG export to use a standard DOS view of sectors
 - Fix extreme memory usage when decoding flux tracks
 - Create empty MFM and FM tracks with valid clock bits
