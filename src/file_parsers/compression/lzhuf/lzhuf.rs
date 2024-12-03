@@ -25,7 +25,13 @@
     Neither this module nor the direct port exhibit such problems.
 */
 
-use super::{adaptive_huff::*, node_pool::*, ring_buffer::*, Options, DYNERR};
+use super::{
+    super::{CompressionError, DYNERR},
+    adaptive_huff::*,
+    node_pool::*,
+    ring_buffer::*,
+    Options,
+};
 use crate::io::{Cursor, ErrorKind, Read, Seek, SeekFrom, Write};
 
 /// Structure to perform the LZSS stage of  compression.
@@ -215,7 +221,7 @@ where
     let mut writer = compressed_out;
     let expanded_length = reader.seek(SeekFrom::End(0))? - opt.in_offset;
     if expanded_length >= u32::MAX as u64 {
-        return Err(Box::new(super::Error::FileTooLarge));
+        return Err(Box::new(CompressionError::FileTooLarge));
     }
     reader.seek(SeekFrom::Start(opt.in_offset))?;
     writer.seek(SeekFrom::Start(opt.out_offset))?;

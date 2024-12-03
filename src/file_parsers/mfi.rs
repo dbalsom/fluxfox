@@ -168,7 +168,9 @@ impl MfiFormat {
 
         if file_ch.c() == 0 || file_ch.h() == 0 {
             log::error!("Invalid MFI file: cylinders or heads was 0");
-            return Err(DiskImageError::ImageCorruptError);
+            return Err(DiskImageError::ImageCorruptError(
+                "Cylinders or heads was 0".to_string(),
+            ));
         }
 
         let mut last_offset: u32 = 0;
@@ -190,7 +192,9 @@ impl MfiFormat {
                         DiskCh::new(c, h),
                         last_offset
                     );
-                    return Err(DiskImageError::ImageCorruptError);
+                    return Err(DiskImageError::ImageCorruptError(
+                        "Non-empty track offset less than last offset".to_string(),
+                    ));
                 }
 
                 if track_header.offset as u64 > disk_len {
@@ -198,7 +202,9 @@ impl MfiFormat {
                         "Invalid MFI file: track {} offset is greater than file length.",
                         DiskCh::new(c, h)
                     );
-                    return Err(DiskImageError::ImageCorruptError);
+                    return Err(DiskImageError::ImageCorruptError(
+                        "Track offset greater than file length".to_string(),
+                    ));
                 }
 
                 // Ignore offsets of 0 - they indicate empty tracks.
@@ -250,11 +256,16 @@ impl MfiFormat {
                     }
                     Ok(flate2::Status::BufError) => {
                         log::error!("Decompression buffer error reading track data.");
-                        return Err(DiskImageError::ImageCorruptError);
+                        return Err(DiskImageError::ImageCorruptError(
+                            "Decompression buffer error reading track data".to_string(),
+                        ));
                     }
                     Err(e) => {
                         log::error!("Decompression error reading track data: {:?}", e);
-                        return Err(DiskImageError::ImageCorruptError);
+                        return Err(DiskImageError::ImageCorruptError(format!(
+                            "Decompression error reading track data: {:?}",
+                            e
+                        )));
                     }
                 }
 
@@ -291,7 +302,9 @@ impl MfiFormat {
             if flux_track.is_empty() {
                 if last_data_rate.is_none() || last_bitcell_ct.is_none() {
                     log::error!("Track 0 cannot be unformatted.");
-                    return Err(DiskImageError::ImageCorruptError);
+                    return Err(DiskImageError::ImageCorruptError(
+                        "Track 0 cannot be unformatted.".to_string(),
+                    ));
                 }
 
                 log::warn!(

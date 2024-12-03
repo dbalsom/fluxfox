@@ -479,7 +479,9 @@ impl F86Format {
 
             if raw_track_size & 0x01 != 0 {
                 log::error!("Invalid 86f: Track data size is not word-aligned.");
-                return Err(DiskImageError::ImageCorruptError);
+                return Err(DiskImageError::ImageCorruptError(
+                    "Track data size is not word-aligned".to_string(),
+                ));
             }
 
             let raw_track_data_size = if has_surface_desc {
@@ -543,7 +545,9 @@ impl F86Format {
                             absolute_data_len,
                             raw_track_data_size
                         );
-                        return Err(DiskImageError::ImageCorruptError);
+                        return Err(DiskImageError::ImageCorruptError(
+                            "Absolute bitcell count exceeds track data length.".to_string(),
+                        ));
                     }
 
                     read_length_bytes = absolute_data_len;
@@ -551,7 +555,9 @@ impl F86Format {
                 }
                 else {
                     log::error!("Absolute bitcell count flag set, but no count provided.");
-                    return Err(DiskImageError::ImageCorruptError);
+                    return Err(DiskImageError::ImageCorruptError(
+                        "Absolute bitcell count flag set, but no count provided.".to_string(),
+                    ));
                 }
             }
             else {
@@ -561,7 +567,9 @@ impl F86Format {
                         read_length_bytes,
                         read_length_expected_words * 2
                     );
-                    return Err(DiskImageError::ImageCorruptError);
+                    return Err(DiskImageError::ImageCorruptError(
+                        "Track data length is less than expected.".to_string(),
+                    ));
                 }
                 else if raw_track_data_size > read_length_expected_words * 2 {
                     log::warn!(
