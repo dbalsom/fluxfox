@@ -31,7 +31,12 @@
     Allows for creation of blank or pre-formatted DiskImages.
 */
 
-use crate::{diskimage::DiskImageFlags, DiskCh, DiskDataResolution, DiskImage, DiskImageError, StandardFormat};
+use crate::{
+    types::{DiskCh, DiskDataResolution, DiskImageFlags},
+    DiskImage,
+    DiskImageError,
+    StandardFormat,
+};
 
 /// Implements the Builder pattern for DiskImage objects.
 /// Allows for creation of blank or pre-formatted DiskImages.
@@ -107,10 +112,10 @@ impl ImageBuilder {
         let mut disk_image = DiskImage::create(format);
         disk_image.set_resolution(DiskDataResolution::BitStream);
 
-        let chsn = format.get_chsn();
-        let encoding = format.get_encoding();
-        let data_rate = format.get_data_rate();
-        let bitcell_size = format.get_bitcell_ct();
+        let chsn = format.chsn();
+        let encoding = format.encoding();
+        let data_rate = format.data_rate();
+        let bitcell_size = format.bitcell_ct();
 
         for head in 0..chsn.h() {
             for cylinder in 0..chsn.c() {

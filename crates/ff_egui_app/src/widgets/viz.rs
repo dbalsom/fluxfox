@@ -33,6 +33,7 @@ use crate::wasm::worker;
 use crate::App;
 use anyhow::{anyhow, Error};
 use fluxfox::{
+    prelude::*,
     structure_parsers::DiskStructureGenericElement,
     tiny_skia,
     tiny_skia::{Color, Pixmap},
@@ -45,9 +46,6 @@ use fluxfox::{
         RenderTrackMetadataParams,
         RotationDirection,
     },
-    DiskCh,
-    DiskDataResolution,
-    DiskImage,
 };
 use fluxfox_egui::widgets::texture::{PixelCanvas, PixelCanvasDepth};
 use std::{
@@ -224,10 +222,10 @@ impl VisualizationState {
         let min_radius_fraction = 0.333;
         let render_track_gap = 0.10;
         let direction = match head {
-            0 => fluxfox::visualization::RotationDirection::CounterClockwise,
-            _ => fluxfox::visualization::RotationDirection::Clockwise,
+            0 => RotationDirection::CounterClockwise,
+            _ => RotationDirection::Clockwise,
         };
-        let track_ct = disk.get_track_ct(side.into());
+        let track_ct = disk.track_ct(side.into());
 
         if side >= disk.heads() as usize {
             // Ignore request for non-existent side.
@@ -287,7 +285,7 @@ impl VisualizationState {
             track_gap: render_track_gap,
             direction,
             palette: self.meta_palette.clone(),
-            draw_empty_tracks: true,
+            draw_empty_tracks: false,
             pin_last_standard_track: true,
             draw_sector_lookup: false,
         };
@@ -319,7 +317,7 @@ impl VisualizationState {
                 _ => panic!("Invalid quadrant"),
             };
 
-            let paint = tiny_skia::PixmapPaint::default();
+            let paint = PixmapPaint::default();
             //let mut pixmap = self.meta_pixmap_pool[quadrant].lock()?;
 
             self.metadata_img[side].draw_pixmap(
@@ -369,7 +367,7 @@ impl VisualizationState {
                 _ => panic!("Invalid quadrant"),
             };
 
-            let paint = tiny_skia::PixmapPaint::default();
+            let paint = PixmapPaint::default();
             //let mut pixmap = self.meta_pixmap_pool[quadrant].lock()?;
 
             self.sector_lookup_img[side].draw_pixmap(
@@ -493,7 +491,7 @@ impl VisualizationState {
             }
             Err(_) => {
                 log::debug!("Data pixmap locked, deferring compositing...");
-                let paint = tiny_skia::PixmapPaint::default();
+                let paint = PixmapPaint::default();
                 self.composite_img[side].fill(Color::TRANSPARENT);
                 if self.show_metadata_layer {
                     self.composite_img[side].draw_pixmap(

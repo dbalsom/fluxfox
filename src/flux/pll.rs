@@ -33,8 +33,7 @@ use crate::{
     flux::{flux_revolution::FluxRevolution, FluxStats, FluxTransition},
     format_ms,
     format_us,
-    DiskDataEncoding,
-    DiskDataRate,
+    types::{DiskDataEncoding, DiskDataRate},
 };
 
 const BASE_CLOCK: f64 = 2e-6; // Represents the default clock for a 300RPM, 250Kbps disk.

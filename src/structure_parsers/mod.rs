@@ -50,8 +50,8 @@ pub mod system34;
 
 use crate::{
     bitstream::{mfm::MFM_BYTE_LEN, TrackDataStream},
-    chs::DiskChsn,
     structure_parsers::system34::{System34Element, System34Marker},
+    types::chs::DiskChsn,
 };
 use bit_vec::BitVec;
 
@@ -218,10 +218,10 @@ impl From<DiskStructureElement> for DiskStructureGenericElement {
 
 impl DiskStructureElement {
     pub fn is_sector_header(&self) -> bool {
-        match self {
-            DiskStructureElement::System34(System34Element::SectorHeader { .. }) => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            DiskStructureElement::System34(System34Element::SectorHeader { .. })
+        )
     }
 
     pub fn is_sector_data_marker(&self) -> bool {

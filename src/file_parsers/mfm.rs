@@ -31,13 +31,9 @@
     MFM format images are bitstream images produced by the HxC disk emulator software.
 */
 use crate::{
-    diskimage::{BitStreamTrackParams, DiskDescriptor},
     file_parsers::{FormatCaps, ParserWriteCompatibility},
     io::{ReadSeek, ReadWriteSeek},
-    DiskCh,
-    DiskDataEncoding,
-    DiskDataRate,
-    DiskDensity,
+    types::{BitStreamTrackParams, DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskDescriptor},
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,

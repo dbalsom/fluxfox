@@ -30,7 +30,7 @@ pub mod mfm;
 
 use crate::{
     io::{Read, Seek},
-    DiskDataEncoding,
+    types::DiskDataEncoding,
 };
 use bit_vec::BitVec;
 use std::ops::Index;
@@ -42,18 +42,31 @@ pub enum EncodingVariant {
 
 #[cfg_attr(feature = "serde", typetag::serde(tag = "type"))]
 pub trait TrackCodec: Read + Seek + Index<usize, Output = bool> + Send + Sync {
+    /// Return the `[DiskDataEncoding]` of the data on this track.
+    /// A single track may only have one encoding.
     fn encoding(&self) -> DiskDataEncoding;
+    /// Return the length of the track in bits.
     fn len(&self) -> usize;
+    /// Return a bool indicating if the track is empty.
     fn is_empty(&self) -> bool;
+    /// Replace the data bits of the track with the provided bits.
     fn replace(&mut self, new_bits: BitVec);
-    fn data_bits(&self) -> &BitVec;
-    fn data(&self) -> Vec<u8>;
+    /// Return a reference to the data bits of the track as a `BitVec`.
+    fn data(&self) -> &BitVec;
+    /// Return a mutable reference to the data bits of the track as a `BitVec`.
+    fn data_mut(&mut self) -> &mut BitVec;
+    /// Return a copy of the track data as a `Vec<u8>`.
+    fn data_copied(&self) -> Vec<u8>;
+    /// Set the clock map for the track.
+    /// A clock map is a `BitVec` where each 1 bit set corresponds to a clock bit.
+    /// Maintaining a clock map enables random access to a track.
     fn set_clock_map(&mut self, clock_map: BitVec);
+    /// Return a reference to the clock map of the track as a `BitVec`.
     fn clock_map(&self) -> &BitVec;
+
     fn clock_map_mut(&mut self) -> &mut BitVec;
     fn enable_weak(&mut self, enable: bool);
     fn weak_mask(&self) -> &BitVec;
-
     fn weak_mask_mut(&mut self) -> &mut BitVec;
     fn weak_data(&self) -> Vec<u8>;
     fn set_weak_mask(&mut self, mask: BitVec);
@@ -63,7 +76,8 @@ pub trait TrackCodec: Read + Seek + Index<usize, Output = bool> + Send + Sync {
     fn read_raw_byte(&self, index: usize) -> Option<u8>;
     fn write_raw_byte(&mut self, index: usize, byte: u8);
     fn read_decoded_byte(&self, index: usize) -> Option<u8>;
-    fn write_buf(&mut self, buf: &[u8], offset: usize) -> Option<usize>;
+    fn read_decoded_buf(&self, buf: &mut [u8], offset: usize) -> usize;
+    fn write_encoded_buf(&mut self, buf: &[u8], offset: usize) -> usize;
     fn write_raw_buf(&mut self, buf: &[u8], offset: usize) -> usize;
     fn encode(&self, data: &[u8], prev_bit: bool, encoding_type: EncodingVariant) -> BitVec;
     fn find_marker(&self, marker: u64, mask: Option<u64>, start: usize, limit: Option<usize>) -> Option<(usize, u16)>;

@@ -36,17 +36,19 @@
 */
 
 use crate::{
-    chs::{DiskCh, DiskChs, DiskChsn},
-    diskimage::{DiskDescriptor, SectorDescriptor},
     file_parsers::{FormatCaps, ParserWriteCompatibility},
     io::{Cursor, ReadSeek, ReadWriteSeek},
+    types::{DiskDescriptor, SectorDescriptor},
 };
 
 use crate::{
-    diskimage::SectorAttributes,
-    DiskDataEncoding,
-    DiskDataRate,
-    DiskDensity,
+    types::{
+        chs::{DiskCh, DiskChs, DiskChsn},
+        DiskDataEncoding,
+        DiskDataRate,
+        DiskDensity,
+        SectorAttributes,
+    },
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,

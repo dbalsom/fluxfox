@@ -2,6 +2,10 @@
 
 ### Features:
 
+- Added silly visualization functions to map a Pixmap to a DiskImage. See the png2disk crate for usage.
+- Added a DiskChs and DiskChsn iterator for geometries of StandardFormat
+- Added basic FAT support and example
+- Added a StandardSectorView interface that provides Read + Write + Seek traits for a DiskImage
 - Added progress reporting for MFI loader.
 - Added support for WEAK chunk in PRI images.
 - Added support for PFI (PCE Flux Image) images
@@ -13,12 +17,19 @@
 
 ### Bugfixes:
 
+- Fixed several bugs in MFI import.
+- Refactored IMG export to use a standard DOS view of sectors
+- Fix extreme memory usage when decoding flux tracks
 - Create empty MFM and FM tracks with valid clock bits
 - Fixed and improved format tests
 - Fixed bug in Kryoflux import
 
 ### Breaking changes:
 
+- read_sector operations no longer require a mutable reference.
+- Several changes to DiskCh* structs and trait implementations.
+- Moved common type imports to fluxfox::prelude
+- Removed get_* prefixes from API per Rust style guidelines.
 - Removed Invalid variant of StandardFormat. Removed From<> and implemented TryFrom<usize>
 - All add_track_* API functions now return a mutable reference to the new track on success
 - Track API changes

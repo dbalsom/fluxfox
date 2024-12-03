@@ -43,7 +43,7 @@ impl FilenameWidget {
         }
         ui.horizontal(|ui| {
             ui.heading(egui::RichText::new("💾 Disk Image:").strong());
-            ui.heading(format!("{}", self.filename.as_ref().unwrap()));
+            ui.heading(self.filename.as_ref().unwrap());
         });
     }
 }

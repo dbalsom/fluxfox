@@ -30,7 +30,7 @@ use crate::{
     TrackListSelection,
 };
 use egui::{ScrollArea, TextStyle};
-use fluxfox::{track::TrackInfo, DiskCh, DiskImage, SectorMapEntry};
+use fluxfox::{prelude::*, track::TrackInfo};
 
 pub const TRACK_ENTRY_WIDTH: f32 = 420.0;
 pub const SECTOR_STATUS_WRAP: usize = 16;
@@ -91,7 +91,7 @@ impl TrackListWidget {
             self.track_list.push(TrackListItem {
                 ch: track.ch(),
                 info: track.info(),
-                sectors: track.get_sector_list(),
+                sectors: track.sector_list(),
             });
         }
     }

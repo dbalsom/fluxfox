@@ -40,19 +40,14 @@
 
 */
 use crate::{
-    diskimage::{BitStreamTrackParams, DiskDescriptor},
     file_parsers::{bitstream_flags, FormatCaps},
     flux::pll::{Pll, PllPreset},
     io::{ReadSeek, ReadWriteSeek},
     track::fluxstream::FluxStreamTrack,
-    DiskCh,
-    DiskDataEncoding,
-    DiskDataRate,
-    DiskDensity,
+    types::{BitStreamTrackParams, DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskDescriptor, DiskRpm},
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,
-    DiskRpm,
     LoadingCallback,
     ParserWriteCompatibility,
     StandardFormat,
@@ -541,7 +536,7 @@ impl ScpFormat {
         log::trace!("Read {} valid track offsets.", track_offsets.len());
 
         disk_image.descriptor = DiskDescriptor {
-            geometry: DiskCh::from((c as u16, disk_heads)),
+            geometry: DiskCh::from((c, disk_heads)),
             data_rate: disk_datarate.unwrap(),
             density: DiskDensity::from(disk_datarate.unwrap()),
             data_encoding: DiskDataEncoding::Mfm,

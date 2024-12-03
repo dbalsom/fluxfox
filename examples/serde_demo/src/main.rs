@@ -31,11 +31,9 @@
 
 use std::path::PathBuf;
 
-use bincode;
 use bpaf::*;
 
-use fluxfox::io::Cursor;
-use fluxfox::DiskImage;
+use fluxfox::{io::Cursor, DiskImage};
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -75,19 +73,13 @@ fn opts() -> OptionParser<Opts> {
         output_fn,
     })
     .guard(
-        |opts| {
-            let guard = opts.deserialize_fn.is_some() || opts.serialize_fn.is_some();
-            //println!("guard:{} opts: {:?}", guard, opts);
-            guard
-        },
+        |opts| opts.deserialize_fn.is_some() || opts.serialize_fn.is_some(),
         "Must specify either serialize or deserialize",
     )
     .guard(
         |opts| {
-            let guard = (opts.serialize_fn.is_some() && opts.deserialize_fn.is_some())
-                || !(opts.serialize_fn.is_some() && opts.output_fn.is_none());
-            //println!("guard:{} opts: {:?}", guard, opts);
-            guard
+            (opts.serialize_fn.is_some() && opts.deserialize_fn.is_some())
+                || !(opts.serialize_fn.is_some() && opts.output_fn.is_none())
         },
         "Must specify output filename for serialization",
     )
@@ -107,7 +99,8 @@ fn main() {
 
     if opts.serialize_fn.is_some() {
         serialize(opts);
-    } else if opts.deserialize_fn.is_some() {
+    }
+    else if opts.deserialize_fn.is_some() {
         deserialize(opts);
     }
 }

@@ -30,7 +30,7 @@
     such.
 */
 
-use crate::{chs::DiskChsnQuery, DiskImage};
+use crate::{types::chs::DiskChsnQuery, DiskImage};
 use std::fmt::{Display, Formatter, Result};
 
 #[derive(Copy, Clone, Debug)]
@@ -96,7 +96,7 @@ impl DiskImage {
 
             // Check for EA Interlock.
             // If a track has 96 sectors, that's a clear indication.
-            if track.get_sector_ct() == 96 {
+            if track.sector_ct() == 96 {
                 return Some(CopyProtectionScheme::EaInterlock(1));
             }
         }

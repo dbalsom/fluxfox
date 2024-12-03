@@ -31,10 +31,9 @@
 */
 use crate::{
     bitstream::{EncodingVariant, TrackCodec},
-    diskimage::TrackRegion,
     io::{Error, ErrorKind, Read, Result, Seek, SeekFrom},
     range_check::RangeChecker,
-    DiskDataEncoding,
+    types::{DiskDataEncoding, TrackRegion},
 };
 use bit_vec::BitVec;
 use std::ops::Index;
@@ -120,11 +119,15 @@ impl TrackCodec for FmCodec {
         self.bit_vec = new_bits;
     }
 
-    fn data_bits(&self) -> &BitVec {
+    fn data(&self) -> &BitVec {
         &self.bit_vec
     }
 
-    fn data(&self) -> Vec<u8> {
+    fn data_mut(&mut self) -> &mut BitVec {
+        &mut self.bit_vec
+    }
+
+    fn data_copied(&self) -> Vec<u8> {
         self.bit_vec.to_bytes()
     }
 
@@ -254,7 +257,16 @@ impl TrackCodec for FmCodec {
         Some(byte)
     }
 
-    fn write_buf(&mut self, buf: &[u8], offset: usize) -> Option<usize> {
+    fn read_decoded_buf(&self, buf: &mut [u8], offset: usize) -> usize {
+        let mut bytes_read = 0;
+        for byte in buf.iter_mut() {
+            *byte = self.read_decoded_byte(offset + bytes_read).unwrap();
+            bytes_read += 1;
+        }
+        bytes_read
+    }
+
+    fn write_encoded_buf(&mut self, buf: &[u8], offset: usize) -> usize {
         let encoded_buf = Self::encode(buf, false, EncodingVariant::Data);
 
         let mut copy_len = encoded_buf.len();
@@ -272,8 +284,7 @@ impl TrackCodec for FmCodec {
             bits_written += 1;
         }
 
-        let bytes_written = bits_written + 7 / 8;
-        Some(bytes_written)
+        (bits_written + 7) / 8
     }
 
     fn write_raw_buf(&mut self, buf: &[u8], offset: usize) -> usize {

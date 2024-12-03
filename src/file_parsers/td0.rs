@@ -37,18 +37,22 @@
 
 */
 use crate::{
-    diskimage::{DiskDescriptor, SectorAttributes, SectorDescriptor},
     file_parsers::{
         compression::lzhuf::{expand, TD0_READ_OPTIONS},
         FormatCaps,
         ParserWriteCompatibility,
     },
     io::{Cursor, Read, ReadBytesExt, ReadSeek, ReadWriteSeek, Seek},
-    DiskCh,
-    DiskChsn,
-    DiskDataEncoding,
-    DiskDataRate,
-    DiskDensity,
+    types::{
+        DiskCh,
+        DiskChsn,
+        DiskDataEncoding,
+        DiskDataRate,
+        DiskDensity,
+        DiskDescriptor,
+        SectorAttributes,
+        SectorDescriptor,
+    },
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,

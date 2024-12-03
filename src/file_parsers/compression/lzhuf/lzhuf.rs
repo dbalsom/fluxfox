@@ -25,11 +25,7 @@
     Neither this module nor the direct port exhibit such problems.
 */
 
-use super::adaptive_huff::*;
-use super::node_pool::*;
-use super::ring_buffer::*;
-use super::Options;
-use super::DYNERR;
+use super::{adaptive_huff::*, node_pool::*, ring_buffer::*, Options, DYNERR};
 use crate::io::{Cursor, ErrorKind, Read, Seek, SeekFrom, Write};
 
 /// Structure to perform the LZSS stage of  compression.
@@ -66,7 +62,7 @@ impl LZSS {
         let pos = self.dictionary.get_pos(0);
         self.match_length = 0;
         // Whatever is attached at this position can only index things that are ahead of us.
-        // Therefore throw it all away. (but see note below)
+        // Therefore, throw it all away. (but see note below)
         self.index.set_cursor(pos)?;
         self.index.drop_branch(Side::Left)?;
         self.index.drop_branch(Side::Right)?;
@@ -158,7 +154,7 @@ impl LZSS {
                 match self.index.get_down()? {
                     [_, None] => {
                         // Left branch does not branch right.
-                        // Therefore we can simply attach the right branch to left branch's right branch.
+                        // Therefore, we can simply attach the right branch to left branch's right branch.
                         // The updated left branch will be the replacement.
                         self.index.set_cursor(right)?;
                         self.index.move_node(left, Side::Right, false)?;
@@ -196,7 +192,8 @@ impl LZSS {
             let symbol = self.index.get_symbol()?;
             self.index.set_cursor(replacement)?;
             self.index.move_node_to_root(symbol, true)
-        } else {
+        }
+        else {
             let (parent, side) = self.index.get_parent_and_side()?;
             self.index.set_cursor(replacement)?;
             self.index.move_node(parent, side, true)
@@ -209,7 +206,7 @@ impl LZSS {
 /// `compressed_out` is an object with `Write` and `Seek` traits, usually `std::fs::File`, or `std::io::Cursor<Vec<u8>>`.
 /// Returns (in_size,out_size) or error, can panic if offsets are out of range.
 #[allow(dead_code)]
-pub fn compress<R, W>(expanded_in: &mut R, compressed_out: &mut W, opt: &super::Options) -> Result<(u64, u64), DYNERR>
+pub fn compress<R, W>(expanded_in: &mut R, compressed_out: &mut W, opt: &Options) -> Result<(u64, u64), DYNERR>
 where
     R: Read + Seek,
     W: Write + Seek,
@@ -225,7 +222,7 @@ where
     // write the 32-bit header with length of expanded data
     if opt.header {
         let header = u32::to_le_bytes(expanded_length as u32);
-        writer.write(&header)?;
+        _ = writer.write(&header)?;
     }
     // init
     let mut bytes = reader.bytes();
@@ -266,7 +263,8 @@ where
         if lzss.match_length <= opt.threshold {
             lzss.match_length = 1;
             huff.encode_char(lzss.dictionary.get(0) as u16, &mut writer);
-        } else {
+        }
+        else {
             huff.encode_char((255 - opt.threshold + lzss.match_length) as u16, &mut writer);
             huff.encode_position(lzss.match_offset as u16, &mut writer);
         }
@@ -293,7 +291,7 @@ where
             }
             i += 1;
         }
-        if len <= 0 {
+        if len == 0 {
             break;
         }
     }
@@ -306,7 +304,7 @@ where
 /// `compressed_in` is an object with `Read` and `Seek` traits, usually `std::fs::File`, or `std::io::Cursor<&[u8]>`.
 /// `expanded_out` is an object with `Write` and `Seek` traits, usually `std::fs::File`, or `std::io::Cursor<Vec<u8>>`.
 /// Returns (in_size,out_size) or error, can panic if offsets are out of range.
-pub fn expand<R, W>(compressed_in: &mut R, expanded_out: &mut W, opt: &super::Options) -> Result<(u64, u64), DYNERR>
+pub fn expand<R, W>(compressed_in: &mut R, expanded_out: &mut W, opt: &Options) -> Result<(u64, u64), DYNERR>
 where
     R: Read + Seek,
     W: Write + Seek,
@@ -341,10 +339,11 @@ where
             Err(e) => return Err(Box::new(e)),
         };
         if c < 256 {
-            writer.write(&[c as u8])?;
+            _ = writer.write(&[c as u8])?;
             lzss.dictionary.set(0, c as u8);
             lzss.dictionary.advance();
-        } else {
+        }
+        else {
             let offset = match huff.decode_position(&mut reader) {
                 Ok(pos) => -(pos as i64 + 1),
                 Err(e) if e.kind() == ErrorKind::UnexpectedEof => break,
@@ -353,7 +352,7 @@ where
             let strlen = c as i64 + opt.threshold as i64 - 255;
             for _k in 0..strlen {
                 let c8 = lzss.dictionary.get(offset);
-                writer.write(&[c8])?;
+                _ = writer.write(&[c8])?;
                 lzss.dictionary.set(0, c8);
                 lzss.dictionary.advance();
             }
@@ -365,7 +364,7 @@ where
 
 /// Convenience function, calls `compress` with a slice returning a Vec
 #[allow(dead_code)]
-pub fn compress_slice(slice: &[u8], opt: &super::Options) -> Result<Vec<u8>, DYNERR> {
+pub fn compress_slice(slice: &[u8], opt: &Options) -> Result<Vec<u8>, DYNERR> {
     let mut src = Cursor::new(slice);
     let mut ans: Cursor<Vec<u8>> = Cursor::new(Vec::new());
     compress(&mut src, &mut ans, opt)?;
@@ -374,7 +373,7 @@ pub fn compress_slice(slice: &[u8], opt: &super::Options) -> Result<Vec<u8>, DYN
 
 /// Convenience function, calls `expand` with a slice returning a Vec
 #[allow(dead_code)]
-pub fn expand_slice(slice: &[u8], opt: &super::Options) -> Result<Vec<u8>, DYNERR> {
+pub fn expand_slice(slice: &[u8], opt: &Options) -> Result<Vec<u8>, DYNERR> {
     let mut src = Cursor::new(slice);
     let mut ans: Cursor<Vec<u8>> = Cursor::new(Vec::new());
     expand(&mut src, &mut ans, opt)?;

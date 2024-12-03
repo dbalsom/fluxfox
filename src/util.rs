@@ -134,52 +134,47 @@ pub fn dump_slice<W: crate::io::Write>(
 
     // Print all full rows.
     for r in 0..rows {
-        out.write_fmt(format_args!("{:05X} | ", r * bytes_per_row + start_address))
-            .unwrap();
+        out.write_fmt(format_args!("{:05X} | ", r * bytes_per_row + start_address))?;
         for b in 0..bytes_per_row {
-            out.write_fmt(format_args!("{:02X} ", data_slice[r * bytes_per_row + b]))
-                .unwrap();
+            out.write_fmt(format_args!("{:02X} ", data_slice[r * bytes_per_row + b]))?;
         }
-        out.write_fmt(format_args!("| ")).unwrap();
+        out.write_fmt(format_args!("| "))?;
         for b in 0..bytes_per_row {
             let byte = data_slice[r * bytes_per_row + b];
             out.write_fmt(format_args!(
                 "{}",
                 if (40..=126).contains(&byte) { byte as char } else { '.' }
-            ))
-            .unwrap();
+            ))?;
         }
 
-        out.write_fmt(format_args!("\n")).unwrap();
+        out.write_fmt(format_args!("\n"))?;
     }
 
     // Print last incomplete row, if any bytes left over.
     if last_row_size > 0 {
-        out.write_fmt(format_args!("{:05X} | ", rows * bytes_per_row)).unwrap();
+        out.write_fmt(format_args!("{:05X} | ", rows * bytes_per_row))?;
         for b in 0..bytes_per_row {
             if b < last_row_size {
-                out.write_fmt(format_args!("{:02X} ", data_slice[rows * bytes_per_row + b]))
-                    .unwrap();
+                out.write_fmt(format_args!("{:02X} ", data_slice[rows * bytes_per_row + b]))?;
             }
             else {
-                out.write_fmt(format_args!("   ")).unwrap();
+                out.write_fmt(format_args!("   "))?;
             }
         }
-        out.write_fmt(format_args!("| ")).unwrap();
+        out.write_fmt(format_args!("| "))?;
         for b in 0..bytes_per_row {
             if b < last_row_size {
                 let byte = data_slice[rows * bytes_per_row + b];
                 out.write_fmt(format_args!(
                     "{}",
                     if (40..=126).contains(&byte) { byte as char } else { '.' }
-                ))
-                .unwrap();
+                ))?;
             }
             else {
-                out.write_fmt(format_args!(" ")).unwrap();
+                out.write_fmt(format_args!(" "))?;
             }
         }
-        out.write_fmt(format_args!("\n")).unwrap();
+        out.write_fmt(format_args!("\n"))?;
     }
 
     Ok(())

@@ -25,8 +25,7 @@
     --------------------------------------------------------------------------
 */
 
-use ratatui::layout::Flex;
-use ratatui::prelude::*;
+use ratatui::{layout::Flex, prelude::*};
 
 /// Centers a [`Rect`] within another [`Rect`] using the provided [`Constraint`]s.
 ///
@@ -41,6 +40,7 @@ use ratatui::prelude::*;
 ///
 /// let centered = center(area, horizontal, vertical);
 /// ```
+#[allow(dead_code)]
 fn center(area: Rect, horizontal: Constraint, vertical: Constraint) -> Rect {
     let [area] = Layout::horizontal([horizontal]).flex(Flex::Center).areas(area);
     let [area] = Layout::vertical([vertical]).flex(Flex::Center).areas(area);

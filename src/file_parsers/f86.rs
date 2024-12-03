@@ -34,22 +34,17 @@
 */
 
 use crate::{
-    diskimage::{BitStreamTrackParams, DiskDescriptor, DiskImageFlags},
     file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility},
     io::{ReadSeek, ReadWriteSeek},
+    types::{BitStreamTrackParams, DiskDescriptor, DiskImageFlags},
 };
 
 use crate::{
     track::bitstream::BitStreamTrack,
-    DiskCh,
-    DiskDataEncoding,
-    DiskDataRate,
-    DiskDataResolution,
-    DiskDensity,
+    types::{DiskCh, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskRpm},
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,
-    DiskRpm,
     LoadingCallback,
     DEFAULT_SECTOR_SIZE,
 };
@@ -841,7 +836,7 @@ impl F86Format {
                 let absolute_bit_count = track.data.len();
                 //log::trace!("Absolute bit count: {}", absolute_bit_count);
 
-                let mut bit_data = track.data.data();
+                let mut bit_data = track.data.data_copied();
                 let mut weak_data = track.data.weak_data();
 
                 if has_surface_description && (bit_data.len() != weak_data.len()) {

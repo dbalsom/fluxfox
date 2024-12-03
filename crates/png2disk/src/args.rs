@@ -142,7 +142,7 @@ fn standard_format_parser() -> impl Parser<StandardFormat> {
 pub(crate) fn parse_color(input: &str) -> Result<Color, String> {
     if input.starts_with('#') {
         // Parse hex color: #RRGGBBAA or #RRGGBB
-        let hex = &input[1..];
+        let hex = input.strip_prefix('#').ok_or("Invalid hex color")?;
         match hex.len() {
             6 => {
                 let r = u8::from_str_radix(&hex[0..2], 16).map_err(|_| "Invalid hex color")?;

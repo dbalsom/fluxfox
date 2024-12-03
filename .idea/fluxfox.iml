@@ -21,6 +21,7 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/ff_egui_app/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/ff_egui_lib/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/png2disk/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/examples/fat/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/venv" />
     </content>

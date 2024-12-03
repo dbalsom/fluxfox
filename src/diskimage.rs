@@ -29,37 +29,38 @@
 //! interface to fluxfox. A `DiskImage` represents the single disk image as read
 //! from a disk image file, or created new as a specified format.
 
-use crate::{bitstream::mfm::MfmCodec, track::bitstream::BitStreamTrack};
-
-use std::{
-    fmt::Display,
-    io::Cursor,
-    path::PathBuf,
-    sync::{Arc, Mutex},
-};
+use crate::{bitstream::mfm::MfmCodec, track::bitstream::BitStreamTrack, DiskImageFileFormat, SectorMapEntry};
 
 use bit_vec::BitVec;
-use bitflags::bitflags;
 use sha1_smol::Digest;
+use std::{
+    io::Cursor,
+    path::PathBuf,
+    sync::{Arc, Mutex, RwLock},
+};
 
 use crate::{
     bitstream::{fm::FmCodec, TrackDataStream},
     boot_sector::BootSector,
-    chs::{DiskCh, DiskChs, DiskChsn, DiskChsnQuery},
     containers::DiskImageContainer,
     detect::detect_image_format,
     file_parsers::{filter_writable, formats_from_caps, kryoflux::KfxFormat, FormatCaps, ImageParser},
     io::ReadSeek,
-    standard_format::StandardFormat,
     structure_parsers::{system34::System34Standard, DiskStructureMetadata},
     track::{fluxstream::FluxStreamTrack, metasector::MetaSectorTrack, DiskTrack, Track, TrackConsistency},
+    types::{
+        chs::*,
+        DiskConsistency,
+        DiskDataEncoding,
+        DiskDataRate,
+        DiskDataResolution,
+        DiskDescriptor,
+        DiskImageFlags,
+        DiskRpm,
+        SharedDiskContext,
+    },
     util,
-    DiskDataEncoding,
-    DiskDataRate,
-    DiskDataResolution,
-    DiskDensity,
     DiskImageError,
-    DiskRpm,
     FoxHashMap,
     FoxHashSet,
     LoadingCallback,
@@ -68,391 +69,17 @@ use crate::{
 
 #[cfg(feature = "zip")]
 use crate::containers::zip::{extract_file, extract_first_file};
+use crate::types::{
+    standard_format::StandardFormat,
+    BitStreamTrackParams,
+    DiskSelection,
+    ReadSectorResult,
+    ReadTrackResult,
+    RwSectorScope,
+    WriteSectorResult,
+};
 
 pub(crate) const DEFAULT_BOOT_SECTOR: &[u8] = include_bytes!("../resources/bootsector.bin");
-
-bitflags! {
-    /// Bit flags that can be applied to a disk image.
-    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-    #[rustfmt::skip]
-    pub struct DiskImageFlags: u32 {
-        #[doc = "Disk Image source specified image is read-only"]
-        const READONLY      = 0b0000_0000_0000_0001;
-        #[doc = "Disk Image has been written to since last save"]
-        const DIRTY         = 0b0000_0000_0000_0010;
-        #[doc = "Disk Image represents a PROLOK protected disk"]
-        const PROLOK        = 0b0000_0000_0000_0100;
-    }
-}
-
-/// A DiskSelection enumeration is used to select a disk image by either index or path when dealing
-/// with containers that contain multiple disk images.
-#[derive(Clone, Debug)]
-pub enum DiskSelection {
-    /// Specify a disk image by index into a list of normally sorted path names within the container.
-    Index(usize),
-    /// Specify a disk image by path within the container.
-    Path(PathBuf),
-}
-
-impl Display for DiskSelection {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DiskSelection::Index(idx) => write!(f, "(Index: {})", idx),
-            DiskSelection::Path(path) => write!(f, "(Path: {})", path.display()),
-        }
-    }
-}
-
-/// `DiskImageFileFormat` is an enumeration listing the various disk image file formats that can be
-/// read or written by FluxFox.
-#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum DiskImageFileFormat {
-    /// A raw sector image. Typically, has extensions IMG, IMA, DSK.
-    RawSectorImage,
-    /// An ImageDisk sector image. Typically has extension IMD.
-    ImageDisk,
-    /// A PCE sector image. Typically, has extension PSI.
-    PceSectorImage,
-    /// A PCE bitstream image. Typically, has extension PRI,
-    PceBitstreamImage,
-    /// A PCE flux stream image. Typically, has extension PFI.
-    PceFluxImage,
-    /// An MFM bitstream image. Typically, has extension MFM.
-    MfmBitstreamImage,
-    /// A TeleDisk sector image. Typically, has extension TD0.
-    TeleDisk,
-    /// A Kryoflux flux stream image. Typically, has extension RAW.
-    KryofluxStream,
-    /// An HFEv1 bitstream image. Typically, has extension HFE.
-    HfeImage,
-    /// An 86F bitstream image. Typically, has extension 86F.
-    F86Image,
-    /// A TransCopy bitstream image. Typically, has extension TC.
-    TransCopyImage,
-    /// A SuperCard Pro flux stream image. Typically, has extension SCP.
-    SuperCardPro,
-    /// A MAME floppy image. Typically, has extension MFI.
-    #[cfg(feature = "mfi")]
-    MameFloppyImage,
-}
-
-impl DiskImageFileFormat {
-    /// Return the priority of the disk image format. Higher values are higher priority.
-    /// Used to sort returned lists of disk image formats, hopefully returning the most desirable
-    /// format first.
-    pub fn priority(self) -> usize {
-        match self {
-            DiskImageFileFormat::KryofluxStream => 0,
-            // Supported bytestream formats (low priority)
-            DiskImageFileFormat::RawSectorImage => 1,
-            DiskImageFileFormat::TeleDisk => 0,
-            DiskImageFileFormat::ImageDisk => 0,
-
-            DiskImageFileFormat::PceSectorImage => 1,
-            // Supported bitstream formats (high priority)
-            DiskImageFileFormat::TransCopyImage => 0,
-            DiskImageFileFormat::MfmBitstreamImage => 0,
-            DiskImageFileFormat::HfeImage => 0,
-            DiskImageFileFormat::PceBitstreamImage => 7,
-            DiskImageFileFormat::F86Image => 8,
-            // Flux images (not supported for writes)
-            DiskImageFileFormat::SuperCardPro => 0,
-            DiskImageFileFormat::PceFluxImage => 0,
-            #[cfg(feature = "mfi")]
-            DiskImageFileFormat::MameFloppyImage => 0,
-        }
-    }
-
-    pub fn resolution(self) -> DiskDataResolution {
-        match self {
-            DiskImageFileFormat::RawSectorImage => DiskDataResolution::MetaSector,
-            DiskImageFileFormat::ImageDisk => DiskDataResolution::MetaSector,
-            DiskImageFileFormat::PceSectorImage => DiskDataResolution::MetaSector,
-            DiskImageFileFormat::PceBitstreamImage => DiskDataResolution::BitStream,
-            DiskImageFileFormat::MfmBitstreamImage => DiskDataResolution::BitStream,
-            DiskImageFileFormat::TeleDisk => DiskDataResolution::MetaSector,
-            DiskImageFileFormat::KryofluxStream => DiskDataResolution::FluxStream,
-            DiskImageFileFormat::HfeImage => DiskDataResolution::BitStream,
-            DiskImageFileFormat::F86Image => DiskDataResolution::BitStream,
-            DiskImageFileFormat::TransCopyImage => DiskDataResolution::BitStream,
-            DiskImageFileFormat::SuperCardPro => DiskDataResolution::FluxStream,
-            DiskImageFileFormat::PceFluxImage => DiskDataResolution::FluxStream,
-            #[cfg(feature = "mfi")]
-            DiskImageFileFormat::MameFloppyImage => DiskDataResolution::FluxStream,
-        }
-    }
-}
-
-impl Display for DiskImageFileFormat {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let str = match self {
-            DiskImageFileFormat::RawSectorImage => "Raw Sector".to_string(),
-            DiskImageFileFormat::PceSectorImage => "PCE Sector".to_string(),
-            DiskImageFileFormat::PceBitstreamImage => "PCE Bitstream".to_string(),
-            DiskImageFileFormat::ImageDisk => "ImageDisk Sector".to_string(),
-            DiskImageFileFormat::TeleDisk => "TeleDisk Sector".to_string(),
-            DiskImageFileFormat::KryofluxStream => "Kryoflux Flux Stream".to_string(),
-            DiskImageFileFormat::MfmBitstreamImage => "HxC MFM Bitstream".to_string(),
-            DiskImageFileFormat::HfeImage => "HFEv1 Bitstream".to_string(),
-            DiskImageFileFormat::F86Image => "86F Bitstream".to_string(),
-            DiskImageFileFormat::TransCopyImage => "TransCopy Bitstream".to_string(),
-            DiskImageFileFormat::SuperCardPro => "SuperCard Pro Flux".to_string(),
-            DiskImageFileFormat::PceFluxImage => "PCE Flux Stream".to_string(),
-            #[cfg(feature = "mfi")]
-            DiskImageFileFormat::MameFloppyImage => "MAME Flux Stream".to_string(),
-        };
-        write!(f, "{}", str)
-    }
-}
-
-/// A `DiskFormat` enumeration describes the format of a disk image.
-#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
-pub enum DiskFormat {
-    /// An unknown format. This is the default format for a disk image before a disk's format can
-    /// be determined.
-    Unknown,
-    /// A non-standard disk format. This format is used for disk images that do not conform to a
-    /// standard format, such a copy-protected titles that may have varying track lengths,
-    /// non-consecutive sectors, or other non-standard features.
-    Nonstandard(DiskChs),
-    /// A standard disk format. This format is used for disk images that conform to a standard
-    /// IBM PC format type, determined by a `StandardFormat` enum.
-    Standard(StandardFormat),
-}
-
-/// A structure that defines several flags that can apply to a sector.
-#[derive(Copy, Clone, Debug, Default)]
-pub struct SectorAttributes {
-    pub address_crc_valid: bool,
-    pub data_crc_valid: bool,
-    pub deleted_mark: bool,
-    pub no_dam: bool,
-}
-
-/// A structure used to describe the parameters of a sector to be created on a `MetaSector`
-/// resolution track.
-#[derive(Default)]
-pub struct SectorDescriptor {
-    pub id_chsn: DiskChsn,
-    pub data: Vec<u8>,
-    pub weak_mask: Option<Vec<u8>>,
-    pub hole_mask: Option<Vec<u8>>,
-    pub attributes: SectorAttributes,
-}
-
-/// A structure to uniquely identify a specific sector on a track.
-#[derive(Copy, Clone, Debug, Default)]
-pub struct SectorCursor {
-    /// The sector id. Either a `sector_idx` or `bit_offset` is required to discriminate between
-    /// sectors with the same ID.
-    pub id_chsn: DiskChsn,
-    /// The physical sector index within the track, starting at 0.
-    pub sector_idx: Option<usize>,
-    /// The bit offset of the start of the sector header element.
-    pub header_offset: Option<usize>,
-    /// The bit offset of the start of the sector data element.
-    pub data_offset: Option<usize>,
-}
-
-#[derive(Copy, Clone, Debug, Default)]
-pub struct SectorMapEntry {
-    pub chsn: DiskChsn,
-    pub attributes: SectorAttributes,
-}
-
-/// A DiskConsistency structure maintains information about the consistency of a disk image.
-#[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct DiskConsistency {
-    // A field to hold image format capability flags that this image requires in order to be represented.
-    pub image_caps: FormatCaps,
-    /// Whether the disk image contains weak bits.
-    pub weak: bool,
-    /// Whether the disk image contains deleted sectors.
-    pub deleted_data: bool,
-    /// Whether the disk image contains sector IDAMs with no corresponding DAMS.
-    pub no_dam: bool,
-    /// Whether the disk image contains sectors with bad address mark CRCs
-    pub bad_address_crc: bool,
-    /// Whether the disk image contains sectors with bad data CRCs
-    pub bad_data_crc: bool,
-    /// Whether the disk image contains overlapped sectors
-    pub overlapped: bool,
-    /// The sector size if the disk image has consistent sector sizes, otherwise None.
-    pub consistent_sector_size: Option<u8>,
-    /// The track length in sectors if the disk image has consistent track lengths, otherwise None.
-    pub consistent_track_length: Option<u32>,
-}
-
-impl DiskConsistency {
-    pub fn set_track_consistency(&mut self, track_consistency: &TrackConsistency) {
-        self.deleted_data = track_consistency.deleted_data;
-        self.bad_address_crc = track_consistency.bad_address_crc;
-        self.bad_data_crc = track_consistency.bad_data_crc;
-        self.no_dam = track_consistency.no_dam;
-
-        if track_consistency.consistent_sector_size.is_none() {
-            self.consistent_sector_size = None;
-        }
-    }
-}
-
-/// A `DiskDescriptor` structure describes the basic geometry and parameters of a disk image.
-#[derive(Copy, Clone, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct DiskDescriptor {
-    /// The basic geometry of the disk. Not all tracks present need to conform to the specified sector count (s).
-    pub geometry: DiskCh,
-    /// The "default" sector size of the disk. Larger or smaller sectors may still be present in the disk image.
-    pub default_sector_size: usize,
-    /// The default data encoding used. The disk may still contain tracks in different encodings.
-    pub data_encoding: DiskDataEncoding,
-    /// The density of the disk
-    pub density: DiskDensity,
-    /// The data rate of the disk
-    pub data_rate: DiskDataRate,
-    /// The rotation rate of the disk. If not provided, this can be determined from other parameters.
-    pub rpm: Option<DiskRpm>,
-    /// Whether the disk image should be considered read-only (None if image did not define this flag)
-    pub write_protect: Option<bool>,
-}
-
-/// An enum that defines the scope of a sector operation.
-#[derive(Copy, Clone, Debug)]
-pub enum RwSectorScope {
-    /// The operation will include the entire data element, including address marker and CRC bytes.
-    DataElement,
-    /// The operation will include only the sector data, excluding address marker and CRC bytes.
-    DataOnly,
-    /// The operation will only affect the sector CRC.
-    CrcOnly,
-}
-
-/// A `ScanSectorResult` structure contains the results of a scan sector operation.
-#[derive(Debug, Default, Clone)]
-pub struct ScanSectorResult {
-    /// Whether the specified Sector ID was found.
-    pub not_found: bool,
-    /// Whether the specified Sector ID was found, but no corresponding sector data was found.
-    pub no_dam: bool,
-    /// Whether the specific sector was marked deleted.
-    pub deleted_mark: bool,
-    /// Whether the specified sector had a CRC error with the sector header.
-    pub address_crc_error: bool,
-    /// Whether the specified sector had a CRC error with the sector data.
-    pub data_crc_error: bool,
-    /// Whether the specified sector ID was not matched, but a sector ID with a different cylinder
-    /// specifier was found.
-    pub wrong_cylinder: bool,
-    /// Whether the specified sector ID was not matched, but a sector ID with a bad cylinder
-    /// specifier was found.
-    pub bad_cylinder: bool,
-    /// Whether the specified sector ID was not matched, but a sector ID with a different head
-    /// specifier was found.
-    pub wrong_head: bool,
-}
-
-/// A `ReadSectorResult` structure contains the results of a read sector operation.
-#[derive(Clone)]
-pub struct ReadSectorResult {
-    /// The matching Sector ID as `DiskChsn`, or `None`.
-    pub id_chsn: Option<DiskChsn>,
-    /// Whether the specified Sector ID was found.
-    pub not_found: bool,
-    /// Whether the specified Sector ID was found, but no corresponding sector data was found.
-    pub no_dam: bool,
-    /// Whether the specific sector was marked deleted.
-    pub deleted_mark: bool,
-    /// Whether the specified sector had a CRC error with the sector header.
-    pub address_crc_error: bool,
-    /// Whether the specified sector had a CRC error with the sector data.
-    pub data_crc_error: bool,
-    /// Whether the specified sector ID was not matched, but a sector ID with a different cylinder
-    /// specifier was found.
-    pub wrong_cylinder: bool,
-    /// Whether the specified sector ID was not matched, but a sector ID with a bad cylinder
-    /// specifier was found.
-    pub bad_cylinder: bool,
-    /// Whether the specified sector ID was not matched, but a sector ID with a different head
-    /// specifier was found.
-    pub wrong_head: bool,
-    /// The index of the start of sector data within `read_buf`.
-    pub data_idx: usize,
-    /// The length of sector data, starting from `data_idx`, within `read_buf`.
-    pub data_len: usize,
-    /// The data read for the sector, potentially including address mark and CRC bytes.
-    /// Use the `data_idx` and `data_len` fields to isolate the sector data within this vector.
-    pub read_buf: Vec<u8>,
-}
-
-/// A `ReadTrackResult` structure contains the results of a read track operation.
-#[derive(Clone)]
-pub struct ReadTrackResult {
-    /// Whether no sectors were found reading the track.
-    pub not_found: bool,
-    /// Whether the track contained at least one sector with a deleted data mark.
-    pub deleted_mark: bool,
-    /// Whether the track contained at least one sector with a CRC error in the address mark.
-    pub address_crc_error: bool,
-    /// Whether the track contained at least one sector with a CRC error in the data.
-    pub data_crc_error: bool,
-    /// The total number of sectors read from the track.
-    pub sectors_read: u16,
-    /// The data read for the track.
-    pub read_buf: Vec<u8>,
-    /// The total number of bits read.
-    pub read_len_bits: usize,
-    /// The total number of bytes read.
-    pub read_len_bytes: usize,
-}
-
-/// A `WriteSectorResult` structure contains the results of a write sector operation.
-#[derive(Clone)]
-pub struct WriteSectorResult {
-    /// Whether a matching Sector ID was found.
-    pub not_found: bool,
-    /// Whether the specified Sector ID was found, but no corresponding sector data was found.
-    pub no_dam: bool,
-    /// Whether the specific sector header matching the Sector ID had a bad CRC.
-    /// In this case, the write operation will have failed.
-    pub address_crc_error: bool,
-    /// Whether the specified sector ID was not matched, but a sector ID with a bad cylinder
-    /// specifier was found.
-    pub wrong_cylinder: bool,
-    /// Whether the specified sector ID was not matched, but a sector ID with a bad cylinder
-    /// specifier was found.
-    pub bad_cylinder: bool,
-    /// Whether the specified sector ID was not matched, but a sector ID with a different head
-    /// specifier was found.
-    pub wrong_head: bool,
-}
-
-pub struct TrackRegion {
-    pub start: usize,
-    pub end:   usize,
-}
-
-pub struct BitStreamTrackParams<'a> {
-    pub encoding: DiskDataEncoding,
-    pub data_rate: DiskDataRate,
-    pub rpm: Option<DiskRpm>,
-    pub ch: DiskCh,
-    pub bitcell_ct: Option<usize>,
-    pub data: &'a [u8],
-    pub weak: Option<&'a [u8]>,
-    pub hole: Option<&'a [u8]>,
-    pub detect_weak: bool,
-}
-
-#[derive(Default)]
-pub(crate) struct SharedDiskContext {
-    /// The number of write operations (WriteData or FormatTrack) operations performed on the disk image.
-    /// This can be used to determine if the disk image has been modified since the last save.
-    pub(crate) writes: u64,
-}
 
 /// A [`DiskImage`] represents the structure of a floppy disk. It contains a pool of track data
 /// structures, which are indexed by a head vector which contains cylinder vectors.
@@ -522,7 +149,7 @@ impl DiskImage {
         Self {
             flags: DiskImageFlags::empty(),
             standard_format: Some(disk_format),
-            descriptor: disk_format.get_descriptor(),
+            descriptor: disk_format.descriptor(),
             source_format: None,
             resolution: None,
             consistency: DiskConsistency {
@@ -534,7 +161,7 @@ impl DiskImage {
                 bad_data_crc: false,
                 overlapped: false,
                 consistent_sector_size: Some(2),
-                consistent_track_length: Some(disk_format.get_chs().s() as u32),
+                consistent_track_length: Some(disk_format.chs().s() as u32),
             },
             boot_sector: None,
             volume_name: None,
@@ -664,7 +291,7 @@ impl DiskImage {
                         Some(DiskSelection::Path(ref path)) => disks.iter().find(|disk| disk.base_path == *path),
                         _ => {
                             if disks.len() == 1 {
-                                disks.get(0)
+                                disks.first()
                             }
                             else {
                                 log::error!("Multiple disks found in Kryoflux set without a selection.");
@@ -830,7 +457,7 @@ impl DiskImage {
                         Some(DiskSelection::Path(ref path)) => disks.iter().find(|disk| disk.base_path == *path),
                         _ => {
                             if disks.len() == 1 {
-                                disks.get(0)
+                                disks.first()
                             }
                             else {
                                 log::error!("Multiple disks found in Kryoflux set without a selection.");
@@ -1198,25 +825,25 @@ impl DiskImage {
         Ok(self.track_pool.last_mut().unwrap())
     }
 
-    // TODO: Fix this, it doesn't handle nonconsecutive sectors
-    #[allow(deprecated)]
-    pub fn next_sector_on_track(&self, chs: DiskChs) -> Option<DiskChs> {
-        let ti = self.track_map[chs.h() as usize][chs.c() as usize];
-        let track = &self.track_pool[ti];
-        let s = track.get_sector_ct();
-
-        // Get the track geometry
-        let geom_chs = DiskChs::from((self.geometry(), s as u8));
-        let next_sector = geom_chs.get_next_sector(&geom_chs);
-
-        // Return the next sector as long as it is on the same track.
-        if next_sector.c() == chs.c() {
-            Some(next_sector)
-        }
-        else {
-            None
-        }
-    }
+    // // TODO: Fix this, it doesn't handle nonconsecutive sectors
+    // #[allow(deprecated)]
+    // pub fn next_sector_on_track(&self, chs: DiskChs) -> Option<DiskChs> {
+    //     let ti = self.track_map[chs.h() as usize][chs.c() as usize];
+    //     let track = &self.track_pool[ti];
+    //     let s = track.sector_ct();
+    //
+    //     // Get the track geometry
+    //     let geom_chs = DiskChs::from((self.geometry(), s as u8));
+    //     let next_sector = geom_chs.next_sector(&geom_chs);
+    //
+    //     // Return the next sector as long as it is on the same track.
+    //     if next_sector.c() == chs.c() {
+    //         Some(next_sector)
+    //     }
+    //     else {
+    //         None
+    //     }
+    // }
 
     /// Read the sector data from the sector at the physical location 'phys_ch' with the sector ID
     /// values specified by 'id_chs'.
@@ -1245,6 +872,28 @@ impl DiskImage {
         track.read_sector(id, n, offset, scope, debug)
     }
 
+    /// A simplified version of read_sector() which only returns the sector data as a Vec<u8>,
+    /// or an `DiskImageError` if the sector could not be read.
+    pub fn read_sector_basic(
+        &self,
+        phys_ch: DiskCh,
+        id: DiskChsnQuery,
+        offset: Option<usize>,
+    ) -> Result<Vec<u8>, DiskImageError> {
+        // Check that the head and cylinder are within the bounds of the track map.
+        if phys_ch.h() > 1 || phys_ch.c() as usize >= self.track_map[phys_ch.h() as usize].len() {
+            return Err(DiskImageError::SeekError);
+        }
+        let ti = self.track_map[phys_ch.h() as usize][phys_ch.c() as usize];
+        let track = &self.track_pool[ti];
+        let rsr = track.read_sector(id, id.n(), offset, RwSectorScope::DataOnly, false)?;
+
+        if rsr.not_found || rsr.address_crc_error || rsr.no_dam {
+            return Err(DiskImageError::IdError);
+        }
+        Ok(rsr.read_buf)
+    }
+
     pub fn write_sector(
         &mut self,
         phys_ch: DiskCh,
@@ -1262,6 +911,27 @@ impl DiskImage {
         let ti = self.track_map[phys_ch.h() as usize][phys_ch.c() as usize];
         let track = &mut self.track_pool[ti];
         track.write_sector(id, offset, data, scope, deleted, debug)
+    }
+
+    pub fn write_sector_basic(
+        &mut self,
+        phys_ch: DiskCh,
+        id: DiskChsnQuery,
+        offset: Option<usize>,
+        data: &[u8],
+    ) -> Result<(), DiskImageError> {
+        if phys_ch.h() > 1 || phys_ch.c() as usize >= self.track_map[phys_ch.h() as usize].len() {
+            return Err(DiskImageError::SeekError);
+        }
+
+        let ti = self.track_map[phys_ch.h() as usize][phys_ch.c() as usize];
+        let track = &mut self.track_pool[ti];
+        let wsr = track.write_sector(id, offset, data, RwSectorScope::DataOnly, false, false)?;
+
+        if wsr.not_found || wsr.address_crc_error || wsr.no_dam {
+            return Err(DiskImageError::IdError);
+        }
+        Ok(())
     }
 
     /// Read all sectors from the track identified by 'ch'. The data is returned within a
@@ -1443,10 +1113,10 @@ impl DiskImage {
         boot_sector: Option<&[u8]>,
         creator: Option<&[u8; 8]>,
     ) -> Result<(), DiskImageError> {
-        let chsn = format.get_chsn();
-        let encoding = format.get_encoding();
-        let data_rate = format.get_data_rate();
-        let bitcell_size = format.get_bitcell_ct();
+        let chsn = format.chsn();
+        let encoding = format.encoding();
+        let data_rate = format.data_rate();
+        let bitcell_size = format.bitcell_ct();
 
         // Drop all previous data as we will be overwriting the entire disk.
         self.reset_image();
@@ -1484,7 +1154,7 @@ impl DiskImage {
                     format_buffer.push(DiskChsn::new(ch.c(), ch.h(), s + 1, chsn.n()));
                 }
 
-                let gap3 = format.get_gap3();
+                let gap3 = format.gap3();
                 self.format_track(ch, format_buffer, &[0x00], gap3)?;
             }
         }
@@ -1606,7 +1276,7 @@ impl DiskImage {
         self.boot_sector.as_ref()
     }
 
-    pub fn get_track_ct(&self, head: usize) -> usize {
+    pub fn track_ct(&self, head: usize) -> usize {
         self.track_map[head].len()
     }
 
@@ -1643,7 +1313,7 @@ impl DiskImage {
             log::warn!("normalize(): Image is wide track image stored as narrow tracks, odd tracks empty. Removing odd tracks.");
             self.remove_odd_tracks();
             removed_odd = true;
-            self.descriptor.geometry.set_c(self.get_track_ct(0) as u16);
+            self.descriptor.geometry.set_c(self.track_ct(0) as u16);
         }
 
         if !removed_odd {
@@ -1661,7 +1331,7 @@ impl DiskImage {
                 );
                 self.remove_odd_tracks();
                 removed_odd = true;
-                self.descriptor.geometry.set_c(self.get_track_ct(0) as u16);
+                self.descriptor.geometry.set_c(self.track_ct(0) as u16);
             }
         }
 
@@ -1687,7 +1357,7 @@ impl DiskImage {
         log::debug!("update_consistency(): Running consistency check...");
         for track_idx in self.track_idx_iter() {
             let td = &self.track_pool[track_idx];
-            match td.get_track_consistency() {
+            match td.track_consistency() {
                 Ok(track_consistency) => {
                     match track_consistency.consistent_sector_size {
                         None => {
@@ -1768,9 +1438,9 @@ impl DiskImage {
 
         // Iterate through each pair of tracks and see if the 2nd track is a duplicate of the first.
         for track_pair in self.track_map[head].chunks_exact(2) {
-            let track0_sectors = self.track_pool[track_pair[0]].get_sector_ct();
-            let track0_hash = self.track_pool[track_pair[0]].get_hash();
-            let track1_hash = self.track_pool[track_pair[1]].get_hash();
+            let track0_sectors = self.track_pool[track_pair[0]].sector_ct();
+            let track0_hash = self.track_pool[track_pair[0]].hash();
+            let track1_hash = self.track_pool[track_pair[1]].hash();
 
             // Only count a track as duplicate if the even track in the pair has any data
             if (track0_sectors > 0) && track0_hash == track1_hash {
@@ -1793,8 +1463,8 @@ impl DiskImage {
         // Iterate through each pair of tracks and see if the 2nd track is empty when the first
         // track is not.
         for track_pair in self.track_map[head].chunks_exact(2) {
-            let track0_sectors = self.track_pool[track_pair[0]].get_sector_ct();
-            let track1_sectors = self.track_pool[track_pair[1]].get_sector_ct();
+            let track0_sectors = self.track_pool[track_pair[0]].sector_ct();
+            let track1_sectors = self.track_pool[track_pair[1]].sector_ct();
 
             if track0_sectors > 0 && track1_sectors == 0 {
                 empty_ct += 1;
@@ -1834,12 +1504,12 @@ impl DiskImage {
 
         for (head_idx, head) in self.track_map.iter().enumerate() {
             for (track_idx, track) in head.iter().enumerate() {
-                let track_entry_opt = track_hashes.get(&self.track_pool[*track].get_hash());
+                let track_entry_opt = track_hashes.get(&self.track_pool[*track].hash());
                 if track_entry_opt.is_some() {
                     duplicate_tracks[head_idx].push(track_idx);
                 }
                 else {
-                    track_hashes.insert(self.track_pool[*track].get_hash(), 1);
+                    track_hashes.insert(self.track_pool[*track].hash(), 1);
                 }
             }
         }
@@ -1876,7 +1546,7 @@ impl DiskImage {
         let mut empty_tracks = vec![Vec::new(); 2];
         for (head_idx, head) in self.track_map.iter().enumerate() {
             for (track_idx, track) in head.iter().enumerate() {
-                if self.track_pool[*track].get_sector_ct() == 0 {
+                if self.track_pool[*track].sector_ct() == 0 {
                     empty_tracks[head_idx].push(track_idx);
                 }
             }
@@ -2023,7 +1693,7 @@ impl DiskImage {
 
             for track_idx in &self.track_map[head as usize] {
                 let track = &self.track_pool[*track_idx];
-                track_map.push(track.get_sector_list());
+                track_map.push(track.sector_list());
             }
 
             head_map.push(track_map);
@@ -2036,7 +1706,7 @@ impl DiskImage {
         for track in self.track_iter() {
             if let DiskDataEncoding::Fm = track.encoding() {
                 //log::debug!("find_duplication_mark(): Found FM track at {}", track.ch());
-                if let Some(sector) = track.get_sector_list().iter().take(1).next() {
+                if let Some(sector) = track.sector_list().iter().take(1).next() {
                     log::debug!(
                         "find_duplication_mark(): first sector of FM track {}: {}",
                         track.ch(),
@@ -2142,7 +1812,82 @@ impl DiskImage {
         formats
     }
 
-    pub fn incr_writes(&mut self) {
+    /// Attempt to determine the StandardFormat that most closely conforms to the disk image.
+    /// This function is used for exporting to IMG and for constructing a StandardSectorView.
+    ///
+    /// The guess is based off the following criteria:
+    /// - The number of heads in the disk image
+    /// - The media descriptor in the BPB of the boot sector, if present and valid.
+    /// - The various parameters of the BPB (sectors per track, heads, etc.)
+    /// - The disk image consistency flags.
+    /// - The most frequent values of sector size and sectors per track on the disk.
+    ///
+    /// [DiskImage::update_consistency] should be called before calling this function.
+    ///
+    /// # Arguments
+    /// - `trust_bpb`: If true, the function will trust the BPB to determine the disk format if
+    ///                there is disagreement between the BPB and the disk consistency. This is useful
+    ///                for creating a [StandardSectorView] to be used to read a FAT filesystem
+    ///                as DOS will use the BPB to determine the disk format.
+    ///                This flag has no effect if a BPB is not present or does not specify a valid
+    ///                format.
+    ///
+    /// # Returns
+    /// - `Some(StandardFormat)` if a format is found that closely matches the disk image, ignoring
+    ///   non-standard tracks and sectors.
+    /// - `None` if no format is found that closely matches the disk image, or the image data
+    ///          is too inconsistent to determine a format.
+    pub fn closest_format(&self, trust_bpb: bool) -> Option<StandardFormat> {
+        let mut bpb_format = None;
+
+        // Get the format from the boot sector if present.
+        if let Some(boot_sector) = &self.boot_sector {
+            if let Some(format) = boot_sector.standard_format() {
+                bpb_format = Some(format);
+            }
+        }
+
+        let mut consistency_format = None;
+
+        // Check if the disk image is consistent enough to determine a format.
+        if let Some(spt) = self.consistency.consistent_track_length {
+            if let Some(cylinders) = StandardFormat::normalized_track_ct(self.track_ct(0)) {
+                // Construct a DiskChs from the consistent parameters.
+                let chs = DiskChs::new(cylinders as u16, self.heads(), spt as u8);
+                // See if it matches a StandardFormat.
+
+                if let Ok(format) = StandardFormat::try_from(&chs) {
+                    consistency_format = Some(format);
+                }
+            }
+        }
+        else {
+            log::debug!("closest_format(): Found inconsistent spt.");
+        }
+
+        if (bpb_format.is_some() || consistency_format.is_some()) && bpb_format != consistency_format {
+            log::warn!(
+                "closest_format(): BPB format {:?} and consistency format {:?} disagree.",
+                bpb_format,
+                consistency_format
+            );
+
+            if trust_bpb && bpb_format.is_some() {
+                log::debug!("closest_format(): Trusting BPB format.");
+                return bpb_format;
+            }
+            else if consistency_format.is_some() {
+                log::debug!("closest_format(): Falling back to consistency-determined format.");
+                return consistency_format;
+            }
+        }
+
+        // TODO: If disk is not consistent, try to determine the the format of the 'normal' tracks
+        //       and return that format.
+        bpb_format.or(consistency_format)
+    }
+
+    pub(crate) fn incr_writes(&mut self) {
         if let Some(shared) = &self.shared {
             shared.lock().unwrap().writes += 1;
         }
@@ -2156,5 +1901,10 @@ impl DiskImage {
     #[allow(dead_code)]
     pub(crate) fn last_pool_track(&self) -> Option<&DiskTrack> {
         self.track_pool.last()
+    }
+
+    /// Consume the `DiskImage` and return an `Arc<Mutex<DiskImage>>`.
+    pub fn into_arc(self) -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(self))
     }
 }

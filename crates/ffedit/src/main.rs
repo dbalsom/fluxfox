@@ -24,6 +24,10 @@
 
     --------------------------------------------------------------------------
 */
+
+// This project is inactive. Disable all lints.
+#![allow(clippy::all)]
+
 mod app;
 mod app_context;
 mod app_events;
@@ -36,8 +40,7 @@ mod modal;
 mod util;
 mod widget;
 
-use std::io;
-use std::path::PathBuf;
+use std::{io, path::PathBuf};
 
 use bpaf::{construct, short, OptionParser, Parser};
 use crossterm::ExecutableCommand;
@@ -69,7 +72,7 @@ fn main() -> io::Result<()> {
     let mut terminal = ratatui::init();
 
     if opts.mouse {
-        std::io::stdout().execute(crossterm::event::EnableMouseCapture).unwrap();
+        io::stdout().execute(crossterm::event::EnableMouseCapture).unwrap();
     }
 
     let mut app = App::new(opts);

@@ -24,13 +24,13 @@
 
     --------------------------------------------------------------------------
 */
-use crate::flux::pll::PllDecodeFlags;
 use crate::{
     flux::{
-        pll::{Pll, PllDecodeStatEntry},
-        FluxStats, FluxTransition,
+        pll::{Pll, PllDecodeFlags, PllDecodeStatEntry},
+        FluxStats,
+        FluxTransition,
     },
-    DiskCh, DiskDataEncoding,
+    types::{DiskCh, DiskDataEncoding},
 };
 use bit_vec::BitVec;
 use histogram::{Bucket, Histogram};
@@ -363,7 +363,8 @@ impl FluxRevolution {
         for (i, bucket) in buckets.iter().enumerate() {
             let bar_height = if max_count > 0 {
                 (bucket.count() as f64 / max_count as f64 * height as f64).round() as usize
-            } else {
+            }
+            else {
                 0
             };
             for row in (height - bar_height)..height {
@@ -439,7 +440,8 @@ impl FluxRevolution {
             if fm_result.markers.is_empty() {
                 log::warn!("FluxRevolution::decode(): No markers found in FM decode. Keeping MFM.");
                 self.encoding = DiskDataEncoding::Mfm;
-            } else {
+            }
+            else {
                 log::debug!("FluxRevolution::decode(): Found FM marker! Setting track to FM encoding.");
                 self.encoding = DiskDataEncoding::Fm;
                 decode_result = fm_result;

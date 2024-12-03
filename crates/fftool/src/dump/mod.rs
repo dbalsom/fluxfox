@@ -30,7 +30,7 @@ use anyhow::{bail, Error};
 use std::io::{BufWriter, Write};
 
 use crate::{args::GlobalOptions, read_file};
-use fluxfox::{diskimage::RwSectorScope, DiskCh, DiskChs, DiskChsn, DiskChsnQuery, DiskImage};
+use fluxfox::prelude::*;
 
 pub(crate) fn run(global: &GlobalOptions, params: args::DumpParams) -> Result<(), Error> {
     let row_size = params.row_size.unwrap_or(16) as usize;
@@ -146,6 +146,7 @@ pub(crate) fn run(global: &GlobalOptions, params: args::DumpParams) -> Result<()
         let data_slice = match scope {
             RwSectorScope::DataOnly => &rsr.read_buf[rsr.data_idx..rsr.data_idx + rsr.data_len],
             RwSectorScope::DataElement => &rsr.read_buf,
+            _ => unreachable!(),
         };
 
         if !global.silent {

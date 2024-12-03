@@ -1,6 +1,6 @@
 mod common;
 
-use fluxfox::{diskimage::RwSectorScope, DiskCh, DiskChsnQuery, DiskImage, DiskImageError};
+use fluxfox::prelude::*;
 
 #[test]
 fn test_bitstream_write() {

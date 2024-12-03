@@ -31,7 +31,7 @@
 */
 use super::{Track, TrackConsistency, TrackInfo};
 
-use crate::diskimage::{
+use crate::types::{
     ReadSectorResult,
     ReadTrackResult,
     RwSectorScope,
@@ -46,14 +46,8 @@ use crate::structure_parsers::{system34::System34Standard, DiskStructureMetadata
 
 use crate::{
     bitstream::TrackDataStream,
-    chs::DiskChsnQuery,
     track::{bitstream::BitStreamTrack, fluxstream::FluxStreamTrack},
-    DiskCh,
-    DiskChs,
-    DiskChsn,
-    DiskDataEncoding,
-    DiskDataRate,
-    DiskDataResolution,
+    types::{chs::DiskChsnQuery, DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskDataResolution},
     DiskImageError,
     FoxHashSet,
     SectorMapEntry,
@@ -256,7 +250,7 @@ impl Track for MetaSectorTrack {
         None
     }
 
-    fn get_sector_ct(&self) -> usize {
+    fn sector_ct(&self) -> usize {
         self.sectors.len()
     }
 
@@ -274,7 +268,7 @@ impl Track for MetaSectorTrack {
         })
     }
 
-    fn get_sector_list(&self) -> Vec<SectorMapEntry> {
+    fn sector_list(&self) -> Vec<SectorMapEntry> {
         self.sectors
             .iter()
             .map(|s| SectorMapEntry {
@@ -344,7 +338,7 @@ impl Track for MetaSectorTrack {
     /// Offsets are provided within ReadSectorResult so these can be skipped when processing the
     /// read operation.
     fn read_sector(
-        &mut self,
+        &self,
         id: DiskChsnQuery,
         _n: Option<u8>,
         _offset: Option<usize>,
@@ -530,7 +524,7 @@ impl Track for MetaSectorTrack {
         Ok(())
     }
 
-    fn get_hash(&mut self) -> Digest {
+    fn hash(&mut self) -> Digest {
         let mut hasher = sha1_smol::Sha1::new();
         let rtr = self.read_all_sectors(self.ch, 0xFF, 0xFF).unwrap();
         hasher.update(&rtr.read_buf);
@@ -635,7 +629,7 @@ impl Track for MetaSectorTrack {
     }
 
     fn has_weak_bits(&self) -> bool {
-        self.sectors.iter().map(|s| s.weak_mask.has_bits()).any(|x| x)
+        self.sectors.iter().any(|s| s.weak_mask.has_bits())
     }
 
     fn format(
@@ -649,7 +643,7 @@ impl Track for MetaSectorTrack {
         Err(DiskImageError::UnsupportedFormat)
     }
 
-    fn get_track_consistency(&self) -> Result<TrackConsistency, DiskImageError> {
+    fn track_consistency(&self) -> Result<TrackConsistency, DiskImageError> {
         let sector_ct = self.sectors.len();
         let mut consistency = TrackConsistency::default();
 

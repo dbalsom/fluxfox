@@ -29,7 +29,7 @@
     Argument parsers for imgviz.
 */
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use bpaf::{construct, long, short, OptionParser, Parser};
 use tiny_skia::Color;
@@ -165,7 +165,7 @@ pub(crate) fn opts() -> OptionParser<Out> {
 }
 
 /// Perform `${IN_FILE}` substitution for the `title`, using only the filename portion of `in_filename`.
-pub(crate) fn substitute_title(title: Option<String>, in_filename: &PathBuf) -> Option<String> {
+pub(crate) fn substitute_title(title: Option<String>, in_filename: &Path) -> Option<String> {
     // Extract only the filename portion for substitution
     let in_filename_str = in_filename
         .file_name()
@@ -189,7 +189,7 @@ pub(crate) fn substitute_title(title: Option<String>, in_filename: &PathBuf) -> 
 pub(crate) fn parse_color(input: &str) -> Result<Color, String> {
     if input.starts_with('#') {
         // Parse hex color: #RRGGBBAA or #RRGGBB
-        let hex = &input[1..];
+        let hex = input.strip_prefix('#').ok_or("Invalid hex color")?;
         match hex.len() {
             6 => {
                 let r = u8::from_str_radix(&hex[0..2], 16).map_err(|_| "Invalid hex color")?;

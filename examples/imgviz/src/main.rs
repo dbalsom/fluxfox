@@ -92,7 +92,7 @@ fn main() {
         }
     };
 
-    let mut file_vec = match std::fs::read(&opts.in_filename.clone()) {
+    let mut file_vec = match std::fs::read(opts.in_filename.clone()) {
         Ok(file_vec) => file_vec,
         Err(e) => {
             eprintln!("Error reading file: {}", e);

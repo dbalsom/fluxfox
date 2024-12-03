@@ -1706,6 +1706,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "486f806e73c5707928240ddc295403b1b93c96a02038563881c4a2fd84b81ac4"
 
 [[package]]
+name = "fat_example"
+version = "0.2.0"
+dependencies = [
+ "bpaf",
+ "env_logger",
+ "fluxfox",
+ "log 0.4.22",
+ "logger",
+]
+
+[[package]]
 name = "fatfs"
 version = "0.4.0"
 source = "git+https://github.com/dbalsom/fluxfox_fat.git?branch=bpb_fix#e098397c0d83c2a55a851b1d76b6e1ac10c5a6d5"

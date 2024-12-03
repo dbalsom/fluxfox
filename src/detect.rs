@@ -25,11 +25,9 @@
     --------------------------------------------------------------------------
 */
 use crate::{
-    chs::DiskChs,
     containers::DiskImageContainer,
     file_parsers::{ImageParser, IMAGE_FORMATS},
     io::ReadSeek,
-    standard_format::StandardFormat,
     util::natural_sort,
     DiskImageError,
     DiskImageFileFormat,
@@ -41,6 +39,7 @@ use crate::{
     file_parsers::kryoflux::KfxFormat,
 };
 
+use crate::types::{chs::DiskChs, standard_format::StandardFormat};
 #[cfg(feature = "zip")]
 use std::path::PathBuf;
 
@@ -161,7 +160,7 @@ pub fn detect_image_format<T: ReadSeek>(image_io: &mut T) -> Result<DiskImageCon
 /// Returns None if the size does not match a known raw disk image size.
 pub fn chs_from_raw_size(size: usize) -> Option<DiskChs> {
     match StandardFormat::try_from(size) {
-        Ok(fmt) => Some(fmt.get_chs()),
+        Ok(fmt) => Some(fmt.chs()),
         Err(_) => None,
     }
 }

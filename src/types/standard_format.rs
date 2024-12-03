@@ -24,7 +24,7 @@
 
     --------------------------------------------------------------------------
 
-    src/standard_format.rs
+    types/standard_format.rs
 
     Represents information about standard (non-copy-protected) disk formats,
     such as those that can be represented with a raw sector image (IMG).
@@ -48,14 +48,10 @@
 //! several standard PC disk formats.
 
 use crate::{
-    diskimage::DiskDescriptor,
+    types::{DiskDataEncoding, DiskDataRate, DiskDensity, DiskDescriptor, DiskRpm},
     DiskCh,
     DiskChs,
     DiskChsn,
-    DiskDataEncoding,
-    DiskDataRate,
-    DiskDensity,
-    DiskRpm,
     DEFAULT_SECTOR_SIZE,
 };
 use std::{
@@ -135,7 +131,7 @@ impl StandardFormat {
     }
 
     /// Returns the geometry corresponding to the `StandardFormat` as a `DiskChsn` struct.
-    pub fn get_chsn(&self) -> DiskChsn {
+    pub fn chsn(&self) -> DiskChsn {
         match self {
             StandardFormat::PcFloppy160 => DiskChsn::new(40, 1, 8, 2),
             StandardFormat::PcFloppy180 => DiskChsn::new(40, 1, 9, 2),
@@ -148,23 +144,41 @@ impl StandardFormat {
         }
     }
 
+    pub fn normalized_track_ct(track_ct: usize) -> Option<usize> {
+        match track_ct {
+            35..50 => Some(40),
+            75..100 => Some(80),
+            _ => None,
+        }
+    }
+
+    pub fn sectors_per_track(&self) -> u8 {
+        self.chsn().s()
+    }
+
+    /// Return the sector size in bytes corresponding to the `StandardFormat`.
+    /// Note: This is always 512 for standard PC disk formats.
+    pub fn sector_size(&self) -> usize {
+        self.chsn().n_size()
+    }
+
     /// Returns the geometry corresponding to the D`StandardFormat` as a `DiskChs` struct.
-    pub fn get_chs(&self) -> DiskChs {
-        self.get_chsn().into()
+    pub fn chs(&self) -> DiskChs {
+        self.chsn().into()
     }
 
     /// Returns the geometry corresponding to the `StandardFormat` as a `DiskCh` struct.
-    pub fn get_ch(&self) -> DiskCh {
-        self.get_chs().into()
+    pub fn ch(&self) -> DiskCh {
+        self.chs().into()
     }
 
     /// Returns the `DiskDataEncoding` corresponding to the `StandardFormat`.
-    pub fn get_encoding(&self) -> DiskDataEncoding {
+    pub fn encoding(&self) -> DiskDataEncoding {
         DiskDataEncoding::Mfm
     }
 
     /// Returns the `DiskDataRate` corresponding to the `StandardFormat`.
-    pub fn get_data_rate(&self) -> DiskDataRate {
+    pub fn data_rate(&self) -> DiskDataRate {
         match self {
             StandardFormat::PcFloppy160 => DiskDataRate::Rate250Kbps(1.0),
             StandardFormat::PcFloppy180 => DiskDataRate::Rate250Kbps(1.0),
@@ -178,13 +192,13 @@ impl StandardFormat {
     }
 
     /// Returns the `DiskDensity` corresponding to the `StandardFormat`.
-    pub fn get_density(&self) -> DiskDensity {
-        DiskDensity::from(self.get_data_rate())
+    pub fn density(&self) -> DiskDensity {
+        DiskDensity::from(self.data_rate())
     }
 
     /// Returns the default `DiskRpm` corresponding to the `StandardFormat`.
     /// Note: The actual RPM of an image may vary depending on the drive used to create the disk image.
-    pub fn get_rpm(&self) -> DiskRpm {
+    pub fn rpm(&self) -> DiskRpm {
         match self {
             StandardFormat::PcFloppy160 => DiskRpm::Rpm300,
             StandardFormat::PcFloppy180 => DiskRpm::Rpm300,
@@ -198,7 +212,7 @@ impl StandardFormat {
     }
 
     /// Return the number of bitcells per track corresponding to the `StandardFormat`.
-    pub fn get_bitcell_ct(&self) -> usize {
+    pub fn bitcell_ct(&self) -> usize {
         match self {
             StandardFormat::PcFloppy160 => 100_000,
             StandardFormat::PcFloppy180 => 100_000,
@@ -212,7 +226,7 @@ impl StandardFormat {
     }
 
     /// Return a standard default GAP3 value corresponding to the `StandardFormat`.
-    pub fn get_gap3(&self) -> usize {
+    pub fn gap3(&self) -> usize {
         match self {
             StandardFormat::PcFloppy160 => 0x50,
             StandardFormat::PcFloppy180 => 0x50,
@@ -226,20 +240,20 @@ impl StandardFormat {
     }
 
     /// Return a standard `DiskDescriptor` struct corresponding to the `StandardFormat`.
-    pub fn get_descriptor(&self) -> DiskDescriptor {
+    pub fn descriptor(&self) -> DiskDescriptor {
         DiskDescriptor {
-            geometry: self.get_ch(),
+            geometry: self.ch(),
             default_sector_size: DEFAULT_SECTOR_SIZE,
             data_encoding: DiskDataEncoding::Mfm,
-            density: self.get_density(),
-            data_rate: self.get_data_rate(),
-            rpm: Some(self.get_rpm()),
+            density: self.density(),
+            data_rate: self.data_rate(),
+            rpm: Some(self.rpm()),
             write_protect: None,
         }
     }
 
     /// Return the size in bytes of a raw sector image corresponding to the `StandardFormat`.
-    pub fn size(&self) -> usize {
+    pub fn disk_size(&self) -> usize {
         match self {
             StandardFormat::PcFloppy160 => 163_840,
             StandardFormat::PcFloppy180 => 184_320,
@@ -250,6 +264,27 @@ impl StandardFormat {
             StandardFormat::PcFloppy1440 => 1_474_560,
             StandardFormat::PcFloppy2880 => 2_949_120,
         }
+    }
+}
+
+impl From<StandardFormat> for DiskCh {
+    /// Convert a `StandardFormat` variant into a `DiskCh` struct.
+    fn from(format: StandardFormat) -> Self {
+        format.ch()
+    }
+}
+
+impl From<StandardFormat> for DiskChs {
+    /// Convert a `StandardFormat` variant into a `DiskChs` struct.
+    fn from(format: StandardFormat) -> Self {
+        format.chs()
+    }
+}
+
+impl From<StandardFormat> for DiskChsn {
+    /// Convert a `StandardFormat` variant into a `DiskChsn` struct.
+    fn from(format: StandardFormat) -> Self {
+        format.chsn()
     }
 }
 
@@ -273,9 +308,36 @@ impl TryFrom<usize> for StandardFormat {
     }
 }
 
+impl TryFrom<DiskChs> for StandardFormat {
+    type Error = String;
+    /// Convert a `DiskChs` struct into a `StandardFormat` variant.
+    fn try_from(chs: DiskChs) -> Result<Self, Self::Error> {
+        StandardFormat::try_from(&chs)
+    }
+}
+
+impl TryFrom<&DiskChs> for StandardFormat {
+    type Error = String;
+    /// Convert a `DiskChs` struct into a `StandardFormat` variant.
+    fn try_from(chs: &DiskChs) -> Result<Self, Self::Error> {
+        let chs = match chs.get() {
+            (40, 1, 8) => StandardFormat::PcFloppy160,
+            (40, 1, 9) => StandardFormat::PcFloppy180,
+            (40, 2, 8) => StandardFormat::PcFloppy320,
+            (40, 2, 9) => StandardFormat::PcFloppy360,
+            (80, 2, 9) => StandardFormat::PcFloppy720,
+            (80, 2, 15) => StandardFormat::PcFloppy1200,
+            (80, 2, 18) => StandardFormat::PcFloppy1440,
+            (80, 2, 36) => StandardFormat::PcFloppy2880,
+            _ => return Err("Invalid geometry".to_string()),
+        };
+        Ok(chs)
+    }
+}
+
 impl From<StandardFormat> for usize {
     /// Convert a `StandardFormat` variant into a size in bytes.
     fn from(format: StandardFormat) -> Self {
-        format.size()
+        format.disk_size()
     }
 }

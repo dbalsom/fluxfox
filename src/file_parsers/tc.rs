@@ -53,15 +53,11 @@ use crate::{
 };
 
 use crate::{
-    diskimage::{BitStreamTrackParams, DiskDescriptor},
+    types::{BitStreamTrackParams, DiskDataEncoding, DiskDataRate, DiskDensity, DiskDescriptor, DiskRpm},
     DiskCh,
-    DiskDataEncoding,
-    DiskDataRate,
-    DiskDensity,
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,
-    DiskRpm,
     LoadingCallback,
     DEFAULT_SECTOR_SIZE,
 };
@@ -188,7 +184,7 @@ impl TCFormat {
     ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFileFormat::TransCopyImage);
 
-        let disk_image_size = read_buf.seek(std::io::SeekFrom::End(0)).unwrap();
+        let disk_image_size = read_buf.seek(std::io::SeekFrom::End(0))?;
 
         read_buf.seek(std::io::SeekFrom::Start(0))?;
 
@@ -357,8 +353,8 @@ impl TCFormat {
             let track_size = disk_info.track_sizes[i] as u64;
 
             let mut track_data_vec = vec![0; track_size as usize];
-            read_buf.seek(std::io::SeekFrom::Start(track_offset)).unwrap();
-            read_buf.read_exact(&mut track_data_vec).unwrap();
+            read_buf.seek(std::io::SeekFrom::Start(track_offset))?;
+            read_buf.read_exact(&mut track_data_vec)?;
 
             log::trace!(
                 "Adding {:?} encoded track: {}",

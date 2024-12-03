@@ -63,13 +63,13 @@ impl DirTreeWidget {
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui) -> Option<UiEvent> {
-        let mut selected_path = self.selected_path.clone();
+        let selected_path = self.selected_path.clone();
         let mut new_selection = None;
         let mut new_event = None;
         ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
             ui.set_min_width(MIN_TREE_WIDTH);
 
-            new_event = self.tree_ui(ui, &self.tree, &mut selected_path, true);
+            new_event = self.tree_ui(ui, &self.tree, &selected_path, true);
             //log::debug!("show(): got event from tree: {:?}", new_event);
             if let Some(event) = &new_event {
                 match event {
@@ -104,7 +104,7 @@ impl DirTreeWidget {
             // Calculate the position for the icon
             let icon = if openness > 0.0 { "📂" } else { "📁" };
             let icon_pos = rect.min + egui::vec2(0.0, rect.height() / 2.0);
-            let font = TextStyle::Button.resolve(&ui.style());
+            let font = TextStyle::Button.resolve(ui.style());
 
             // Draw the icon using the painter
             ui.painter().text(

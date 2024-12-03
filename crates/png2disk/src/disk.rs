@@ -26,13 +26,13 @@
 
 */
 use anyhow::Result;
-use fluxfox::{DiskChsnQuery, DiskImage};
+use fluxfox::prelude::*;
 
 pub fn repair_crcs(disk: &mut DiskImage) -> Result<()> {
     let tracks = disk.track_ch_iter().collect::<Vec<_>>();
     for ch in tracks {
         if let Some(track) = disk.track_mut(ch) {
-            for sector in track.get_sector_list() {
+            for sector in track.sector_list() {
                 track.recalculate_sector_crc(DiskChsnQuery::from(sector.chsn), None)?;
             }
         }

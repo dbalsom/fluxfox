@@ -39,7 +39,6 @@ use crate::{
         mfm::{MfmCodec, MFM_BYTE_LEN, MFM_MARKER_LEN},
         TrackDataStream,
     },
-    chs::DiskChsn,
     io::{Read, Seek, SeekFrom},
     mfm_offset,
     structure_parsers::{
@@ -50,6 +49,7 @@ use crate::{
         DiskStructureMetadataItem,
         DiskStructureParser,
     },
+    types::chs::DiskChsn,
     util::crc_ibm_3740,
     DiskImageError,
 };

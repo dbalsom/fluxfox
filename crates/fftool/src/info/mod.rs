@@ -26,7 +26,7 @@
 */
 use crate::{args::GlobalOptions, read_file};
 use anyhow::{bail, Error};
-use fluxfox::{flux::flux_revolution::FluxRevolutionType, DiskCh, DiskDataResolution, DiskImage};
+use fluxfox::{flux::FluxRevolutionType, prelude::*};
 
 pub mod args;
 
@@ -103,7 +103,7 @@ pub fn dump_track_map<W: std::io::Write>(
                         out.write_fmt(format_args!("\tTrack {}\n", track_idx))?;
                     }
                     DiskDataResolution::FluxStream | DiskDataResolution::BitStream => {
-                        let stream = track_ref.get_track_stream().expect("Couldn't retrieve track stream!");
+                        let stream = track_ref.track_stream().expect("Couldn't retrieve track stream!");
                         out.write_fmt(format_args!(
                             "\tTrack {}: [{} encoding, {} bits]\n",
                             track_idx,

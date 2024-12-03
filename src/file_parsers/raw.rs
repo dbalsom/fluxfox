@@ -25,16 +25,19 @@
     --------------------------------------------------------------------------
 */
 use crate::{
-    chs::{DiskChsn, DiskChsnQuery},
     detect::chs_from_raw_size,
-    diskimage::{DiskDescriptor, DiskImage, RwSectorScope},
+    diskimage::DiskImage,
     file_parsers::{FormatCaps, ParserWriteCompatibility},
     io::{ReadSeek, ReadWriteSeek},
     structure_parsers::system34::System34Standard,
+    types::{
+        chs::{DiskChsn, DiskChsnQuery},
+        DiskCh,
+        DiskDataResolution,
+        DiskDensity,
+        DiskDescriptor,
+    },
     util::get_length,
-    DiskCh,
-    DiskDataResolution,
-    DiskDensity,
     DiskImageError,
     DiskImageFileFormat,
     LoadingCallback,
@@ -97,13 +100,13 @@ impl RawFormat {
             }
         };
 
-        let disk_chs = floppy_format.get_chs();
+        let disk_chs = floppy_format.chs();
         log::trace!("Raw::load_image(): Disk CHS: {}", disk_chs);
-        let data_rate = floppy_format.get_data_rate();
-        let data_encoding = floppy_format.get_encoding();
-        let bitcell_ct = floppy_format.get_bitcell_ct();
-        let rpm = floppy_format.get_rpm();
-        let gap3 = floppy_format.get_gap3();
+        let data_rate = floppy_format.data_rate();
+        let data_encoding = floppy_format.encoding();
+        let bitcell_ct = floppy_format.bitcell_ct();
+        let rpm = floppy_format.rpm();
+        let gap3 = floppy_format.gap3();
 
         raw.seek(std::io::SeekFrom::Start(0))?;
 
@@ -170,87 +173,52 @@ impl RawFormat {
         Ok(())
     }
 
-    pub fn save_image<RWS: ReadWriteSeek>(image: &mut DiskImage, output: &mut RWS) -> Result<(), DiskImageError> {
-        // Clamp track count to 40 or 80 for a standard disk image. We may read in more tracks
-        // depending on image format. For example, 86f format exports 86 tracks
-        let track_ct = match image.track_map[0].len() {
-            39..=50 => 40,
-            79..=90 => 80,
-            _ => {
-                log::error!(
-                    "Raw::save_image(): Unsupported track count: {}",
-                    image.track_map[0].len()
-                );
-                return Err(DiskImageError::UnsupportedFormat);
-            }
-        };
+    pub fn save_image<RWS: ReadWriteSeek>(disk: &mut DiskImage, output: &mut RWS) -> Result<(), DiskImageError> {
+        let format = disk.closest_format(true).ok_or(DiskImageError::UnsupportedFormat)?;
 
-        let track_sector_ct = if let Some(csc) = image.consistency.consistent_track_length {
-            csc as usize
-        }
-        else {
-            log::warn!("Raw::save_image(): Image has inconsistent sector counts per track. Data will be lost.");
+        // An IMG file basically represents DOS's view of a disk. Non-standard sectors may as well not
+        // exist. We'll just write out the sectors in the standard order using DiskChsn::iter().
+        for chsn in format.chsn().iter() {
+            log::debug!("Raw::save_image(): Writing sector: {}...", chsn);
 
-            let track_idx = image.track_map[0][0];
-            let track = &image.track_pool[track_idx];
-            track.get_sector_ct()
-        };
+            match disk.read_sector_basic(chsn.ch(), DiskChsnQuery::from(chsn), None) {
+                Ok(read_buf) => {
+                    log::trace!("Raw::save_image(): Read {} bytes from sector: {}", read_buf.len(), chsn);
+                    let mut new_buf = read_buf.clone();
 
-        log::trace!("Raw::save_image(): Using {} sectors per track.", track_sector_ct);
-
-        for c in 0..track_ct {
-            for h in 0..image.heads() as usize {
-                let ti = image.track_map[h][c];
-                let track = &mut image.track_pool[ti];
-
-                for s in 1..(track_sector_ct + 1) {
-                    let id = DiskChsnQuery::new(c as u16, h as u8, s as u8, 2);
-                    match track.read_sector(id, None, None, RwSectorScope::DataOnly, false) {
-                        Ok(read_sector) => {
-                            log::trace!(
-                                "Raw::save_image(): Read {} bytes from sector: {}",
-                                read_sector.read_buf.len(),
-                                id
+                    match new_buf.len().cmp(&chsn.n_size()) {
+                        Ordering::Greater => {
+                            log::warn!(
+                                "Raw::save_image(): Sector {} is too large ({}). Truncating to {} bytes",
+                                chsn,
+                                new_buf.len(),
+                                chsn.n_size()
                             );
-                            let mut new_buf = read_sector.read_buf.clone();
-
-                            match new_buf.len().cmp(&DEFAULT_SECTOR_SIZE) {
-                                Ordering::Greater => {
-                                    log::warn!(
-                                        "Raw::save_image(): c:{} h:{} Sector {} is too large: {}. Truncating to {}",
-                                        c,
-                                        h,
-                                        s,
-                                        new_buf.len(),
-                                        DEFAULT_SECTOR_SIZE
-                                    );
-                                    new_buf.truncate(DEFAULT_SECTOR_SIZE);
-                                }
-                                Ordering::Less => {
-                                    log::warn!(
-                                        "Raw::save_image(): c:{} h:{} Sector {} is too small: {}. Padding with 0",
-                                        c,
-                                        h,
-                                        s,
-                                        new_buf.len()
-                                    );
-                                    new_buf.extend(vec![0u8; DEFAULT_SECTOR_SIZE - new_buf.len()]);
-                                }
-                                Ordering::Equal => {}
-                            }
-
-                            //println!("Raw::save_image(): Writing chs: {}...", chs);
-                            output.write_all(new_buf.as_ref())?;
+                            new_buf.truncate(chsn.n_size());
                         }
-                        Err(e) => {
-                            log::error!("Raw::save_image(): Error reading c:{} h:{} s:{} err: {}", c, h, s, e);
-                            return Err(DiskImageError::DataError);
+                        Ordering::Less => {
+                            log::warn!(
+                                "Raw::save_image(): Sector {} is too small ({}). Padding with to {} bytes",
+                                chsn,
+                                new_buf.len(),
+                                chsn.n_size()
+                            );
+                            new_buf.extend(vec![0u8; chsn.n_size() - new_buf.len()]);
                         }
+                        Ordering::Equal => {}
                     }
+
+                    //println!("Raw::save_image(): Writing chs: {}...", chs);
+                    output.write_all(new_buf.as_ref())?;
+                }
+                Err(e) => {
+                    log::error!("Raw::save_image(): Error reading sector {}: {}", chsn, e);
+                    return Err(DiskImageError::DataError);
                 }
             }
         }
 
+        output.flush()?;
         Ok(())
     }
 }

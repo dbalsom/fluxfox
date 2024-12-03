@@ -31,7 +31,7 @@ use std::{
     sync::{mpsc, Arc, RwLock},
 };
 
-use fluxfox::{file_system::fat::fat::FatFileSystem, DiskImage, DiskImageError, LoadingStatus};
+use fluxfox::{file_system::fat::fat_fs::FatFileSystem, DiskImage, DiskImageError, LoadingStatus};
 use fluxfox_egui::{
     widgets::{
         boot_sector::BootSectorWidget,
@@ -49,7 +49,7 @@ pub const APP_NAME: &str = "fluxfox-egui";
 #[cfg(not(target_arch = "wasm32"))]
 use crate::native::worker;
 #[cfg(target_arch = "wasm32")]
-use crate::wasm::{util, worker};
+use crate::wasm::worker;
 #[cfg(target_arch = "wasm32")]
 pub const APP_NAME: &str = "fluxfox-web";
 
@@ -129,7 +129,7 @@ impl AppWidgets {
     }
 
     pub fn update_mut(&mut self, disk_lock: Arc<RwLock<DiskImage>>) {
-        let mut fs = match FatFileSystem::mount(disk_lock) {
+        let mut fs = match FatFileSystem::mount(disk_lock, None) {
             Ok(fs) => {
                 log::debug!("FAT filesystem mounted successfully!");
                 Some(fs)
@@ -328,7 +328,7 @@ impl eframe::App for App {
             self.handle_dropped_files(ctx, None);
             self.handle_loading_progress(ui);
 
-            ui.with_layout(egui::Layout::top_down_justified(egui::Align::Center), |ui| {
+            ui.with_layout(Layout::top_down_justified(egui::Align::Center), |ui| {
                 ui.allocate_ui_with_layout(ui.available_size(), Layout::left_to_right(egui::Align::Min), |ui| {
                     self.handle_track_info(ui);
                     self.handle_fs_info(ui);
@@ -337,7 +337,7 @@ impl eframe::App for App {
 
             self.handle_load_messages(ctx);
 
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+            ui.with_layout(Layout::bottom_up(egui::Align::LEFT), |ui| {
                 egui::warn_if_debug_build(ui);
             });
         });
@@ -553,7 +553,7 @@ impl App {
                 new_event = self.widgets.file_system.show(ui);
             });
 
-            if Arc::strong_count(&disk) > 1 {
+            if Arc::strong_count(disk) > 1 {
                 log::debug!("handle_fs_info(): Disk image is locked, deferring event...");
                 self.deferred_file_ui_event = new_event.take();
             }
@@ -567,7 +567,7 @@ impl App {
                     UiEvent::ExportFile(path) => {
                         log::debug!("Exporting file: {:?}", path);
 
-                        let mut fs = FatFileSystem::mount(disk.clone()).unwrap();
+                        let mut fs = FatFileSystem::mount(disk.clone(), None).unwrap();
                         let file_data = match fs.read_file(&path) {
                             Ok(data) => data,
                             Err(e) => {
@@ -589,7 +589,7 @@ impl App {
                     UiEvent::SelectFile(file) => {
                         let selected_file = file.path;
                         log::debug!("Selected file: {:?}", selected_file);
-                        match FatFileSystem::mount(disk.clone()) {
+                        match FatFileSystem::mount(disk.clone(), None) {
                             Ok(mut fs) => {
                                 log::debug!("FAT filesystem mounted successfully!");
                                 self.windows.file_viewer.update(&fs, selected_file);
@@ -686,7 +686,7 @@ impl App {
             ui.group(|ui| {
                 ui.label("Dropped files:");
 
-                if let Some(file) = self.dropped_files.get(0) {
+                if let Some(file) = self.dropped_files.first() {
                     let mut info = if let Some(path) = &file.path {
                         path.display().to_string()
                     }
@@ -739,7 +739,7 @@ impl App {
         self.load_dropped_files();
 
         // Wait for bytes to be available, then process
-        if let Some(file) = self.dropped_files.get(0) {
+        if let Some(file) = self.dropped_files.first() {
             if let Some(bytes) = &file.bytes {
                 // Only process if bytes are now available
                 log::info!("Processing file: {} ({} bytes)", file.name, bytes.len());

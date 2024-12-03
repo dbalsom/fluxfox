@@ -25,12 +25,27 @@
     --------------------------------------------------------------------------
 */
 
+pub use super::DiskImageError;
 pub use crate::{
-    chs::{DiskCh, DiskChs, DiskChsn, DiskChsnQuery},
-    diskimage::{DiskImage, DiskImageFileFormat, SectorMapEntry},
+    diskimage::DiskImage,
     file_parsers::{format_from_ext, supported_extensions, ImageParser, ParserWriteCompatibility},
     image_builder::ImageBuilder,
     image_writer::ImageWriter,
-    standard_format::StandardFormat,
-    DiskDataEncoding, DiskDataRate, DiskDataResolution, SectorId, SectorIdQuery,
+    sector_view::StandardSectorView,
+    types::{
+        DiskCh,
+        DiskChs,
+        DiskChsn,
+        DiskChsnQuery,
+        DiskDataEncoding,
+        DiskDataRate,
+        DiskDataResolution,
+        DiskDensity,
+        DiskImageFileFormat,
+        RwSectorScope,
+        SectorMapEntry,
+        StandardFormat,
+    },
+    SectorId,
+    SectorIdQuery,
 };

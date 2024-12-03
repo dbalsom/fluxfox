@@ -35,10 +35,9 @@ use std::ops::Index;
 use crate::{
     bit_ring::BitRing,
     bitstream::{EncodingVariant, TrackCodec},
-    diskimage::TrackRegion,
     io::{Error, ErrorKind, Read, Result, Seek, SeekFrom},
     range_check::RangeChecker,
-    DiskDataEncoding,
+    types::{DiskDataEncoding, TrackRegion},
 };
 use bit_vec::BitVec;
 
@@ -113,11 +112,15 @@ impl TrackCodec for MfmCodec {
         self.bits = BitRing::from(new_bits);
     }
 
-    fn data_bits(&self) -> &BitVec {
+    fn data(&self) -> &BitVec {
         self.bits.bits()
     }
 
-    fn data(&self) -> Vec<u8> {
+    fn data_mut(&mut self) -> &mut BitVec {
+        self.bits.bits_mut()
+    }
+
+    fn data_copied(&self) -> Vec<u8> {
         self.bits.to_bytes()
     }
 
@@ -230,7 +233,6 @@ impl TrackCodec for MfmCodec {
 
         // If we are not pointing to a clock bit, advance to the next clock bit.
         cursor += !self.clock_map[cursor] as usize;
-
         // Now that we are aligned to a clock bit, point to the next data bit
         cursor += 1;
 
@@ -242,16 +244,23 @@ impl TrackCodec for MfmCodec {
             else {
                 self.bits[cursor]
             };
-
             byte = (byte << 1) | decoded_bit as u8;
-
             // Advance to next data bit.
             cursor += 2;
         }
         Some(byte)
     }
 
-    fn write_buf(&mut self, buf: &[u8], offset: usize) -> Option<usize> {
+    fn read_decoded_buf(&self, buf: &mut [u8], offset: usize) -> usize {
+        let mut bytes_read = 0;
+        for byte in buf.iter_mut() {
+            *byte = self.read_decoded_byte(offset + (bytes_read * MFM_BYTE_LEN)).unwrap();
+            bytes_read += 1;
+        }
+        bytes_read
+    }
+
+    fn write_encoded_buf(&mut self, buf: &[u8], offset: usize) -> usize {
         let encoded_buf = self.encode(buf, false, EncodingVariant::Data);
 
         let mut copy_len = encoded_buf.len();
@@ -269,8 +278,7 @@ impl TrackCodec for MfmCodec {
             bits_written += 1;
         }
 
-        let bytes_written = bits_written + 7 / 8;
-        Some(bytes_written)
+        (bits_written + 7) / 8
     }
 
     fn write_raw_buf(&mut self, buf: &[u8], offset: usize) -> usize {
