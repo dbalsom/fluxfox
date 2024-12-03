@@ -70,15 +70,18 @@ impl ErrorBannerSize {
 }
 
 pub struct ErrorBanner {
-    message: Option<String>,
+    message0: Option<String>,
+    message1: Option<String>,
     size: ErrorBannerSize,
     dismiss_button: bool,
 }
 
 impl ErrorBanner {
     pub fn new(text: &str) -> Self {
+        let messages = Self::split_message(text);
         Self {
-            message: Some(text.into()),
+            message0: Some(messages.0),
+            message1: messages.1,
             size: ErrorBannerSize::Medium,
             dismiss_button: false,
         }
@@ -104,16 +107,30 @@ impl ErrorBanner {
         self
     }
 
+    fn split_message(text: &str) -> (String, Option<String>) {
+        if let Some((message0, message1)) = text.split_once(':').map(|(a, b)| (a.trim(), b.trim())) {
+            log::debug!("ErrorBanner: message0: {}, message1: {}", message0, message1);
+            (message0.to_string(), Some(message1.to_string()))
+        }
+        else {
+            log::debug!("ErrorBanner: message0: {}", text);
+            (text.to_string(), None)
+        }
+    }
+
     pub fn set_message(&mut self, text: &str) {
-        self.message = Some(text.into());
+        let messages = Self::split_message(text);
+        self.message0 = Some(messages.0);
+        self.message1 = messages.1;
     }
 
     pub fn dismiss(&mut self) {
-        self.message = None;
+        self.message0 = None;
+        self.message1 = None;
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui) {
-        if let Some(message) = self.message.clone() {
+        if let Some(message) = self.message0.clone() {
             let ErrorBannerLayout {
                 rounding,
                 margin,
@@ -129,10 +146,17 @@ impl ErrorBanner {
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new("🗙").color(egui::Color32::WHITE).size(icon));
-                        ui.add(egui::Label::new(
-                            egui::RichText::new(message).color(egui::Color32::WHITE).size(text),
-                        ));
-
+                        ui.vertical(|ui| {
+                            ui.add(egui::Label::new(
+                                egui::RichText::new(message).color(egui::Color32::WHITE).size(text),
+                            ));
+                            // Show the sub-error message if it exists
+                            if let Some(message1) = &self.message1 {
+                                ui.add(egui::Label::new(
+                                    egui::RichText::new(message1).color(egui::Color32::WHITE),
+                                ));
+                            }
+                        });
                         if self.dismiss_button {
                             ui.button("Dismiss")
                                 .on_hover_ui(|ui| {
