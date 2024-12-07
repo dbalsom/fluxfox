@@ -47,7 +47,8 @@ use crate::{
 };
 
 use crate::{
-    types::{chs::DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskPhysicalDimensions},
+    flux::histogram::FluxHistogram,
+    types::{chs::DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskPhysicalDimensions, DiskRpm},
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,
@@ -59,7 +60,7 @@ use binrw::{binrw, BinRead};
 pub const OLD_SIGNATURE: &[u8; 15] = b"MESSFLOPPYIMAGE";
 pub const NEW_SIGNATURE: &[u8; 15] = b"MAMEFLOPPYIMAGE";
 
-pub const THREE_POINT_FIVE_INCH: &[u8; 4] = b"3   ";
+pub const THREE_POINT_FIVE_INCH: &[u8; 4] = b"35  ";
 pub const FIVE_POINT_TWO_FIVE_INCH: &[u8; 4] = b"525 ";
 pub const EIGHT_INCH: &[u8; 4] = b"8   ";
 
@@ -240,11 +241,8 @@ impl MfiFormat {
             log::debug!("Got MFI file standard format: {:?}", standard_format);
         }
         else {
-            log::error!(
-                "Unknown or unsupported disk standard format: {:08X}",
-                file_header.variant
-            );
-            return Err(DiskImageError::UnsupportedFormat);
+            log::warn!("Unknown or unsupported disk variant: {:08X}", file_header.variant);
+            //return Err(DiskImageError::UnsupportedFormat);
         }
 
         let file_ch = DiskCh::from(((file_header.cylinders & CYLINDER_MASK) as u16, file_header.heads as u8));
@@ -262,7 +260,6 @@ impl MfiFormat {
 
         let mut last_offset: u32 = 0;
         for ch in file_ch.iter() {
-            let DiskCh { c, h } = ch;
             let track_header = MfiTrackHeader::read(&mut read_buf)?;
 
             log::trace!(
@@ -369,6 +366,7 @@ impl MfiFormat {
         }
 
         let mut disk_density = None;
+        let mut disk_rpm = None;
 
         let total_tracks = tracks.len();
 
@@ -376,7 +374,7 @@ impl MfiFormat {
         let mut last_bitcell_ct = None;
 
         for (ti, track) in tracks.iter().enumerate() {
-            let flux_track = Self::process_track_data_new(track)?;
+            let flux_track = Self::process_track_data_new(track, disk_rpm)?;
 
             if flux_track.is_empty() {
                 if last_data_rate.is_none() || last_bitcell_ct.is_none() {
@@ -412,30 +410,11 @@ impl MfiFormat {
                 last_data_rate = Some(info.data_rate);
                 last_bitcell_ct = Some(info.bit_length);
 
-                // let data_rate = DiskDataRate::from(flux_track.density());
-                // let stream = flux_track.revolution(0).unwrap();
-                // let (stream_bytes, stream_bit_ct) = stream.bitstream_data();
-                // log::trace!(
-                //     "Adding track {} containing {} bits to image...",
-                //     track.ch,
-                //     stream_bit_ct
-                // );
-                //
-                // let params = BitStreamTrackParams {
-                //     encoding: DiskDataEncoding::Mfm,
-                //     data_rate,
-                //     rpm: None,
-                //     ch: track.ch,
-                //     bitcell_ct: Some(stream_bit_ct),
-                //     data: &stream_bytes,
-                //     weak: None,
-                //     hole: None,
-                //     detect_weak: false,
-                // };
-                // disk_image.add_track_bitstream(params)?;
-                //
-                // last_data_rate = Some(data_rate);
-                // last_bitcell_ct = Some(stream_bit_ct);
+                if disk_rpm.is_none() {
+                    // Set disk RPM to the first track's RPM.
+                    log::debug!("Setting disk RPM to {:?}", info.rpm);
+                    disk_rpm = info.rpm;
+                }
 
                 if disk_density.is_none() {
                     // Set disk density to the first track's density.
@@ -463,7 +442,10 @@ impl MfiFormat {
         Ok(())
     }
 
-    pub fn process_track_data_new(track: &MfiTrackData) -> Result<FluxStreamTrack, DiskImageError> {
+    pub fn process_track_data_new(
+        track: &MfiTrackData,
+        rpm_hint: Option<DiskRpm>,
+    ) -> Result<FluxStreamTrack, DiskImageError> {
         let mut fluxes = Vec::with_capacity(track.data.len() / 4);
         let mut total_flux_time = 0.0;
         let mut nfa_zones = Vec::new();
@@ -471,6 +453,7 @@ impl MfiFormat {
         let mut flux_ct = 0;
         let mut current_nfa_zone = None;
         let mut current_hole_zone = None;
+        let mut track_rpm = rpm_hint;
 
         for u32_bytes in track.data.chunks_exact(4) {
             let flux_entry = u32::from_le_bytes(u32_bytes.try_into().unwrap());
@@ -537,6 +520,17 @@ impl MfiFormat {
             }
         }
 
+        // Normalize flux times. MFI technically stores flux times in angles, which is directly
+        // convertable to times at 300RPM, but will skew times at 360RPM.
+        if let Some((index_time, rpm)) = MfiFormat::normalize_flux_times(&mut fluxes, None) {
+            log::trace!("Normalized index time: {} and rpm: {}", format_ms!(index_time), rpm);
+            total_flux_time = index_time;
+
+            if track_rpm.is_none() {
+                track_rpm = Some(rpm);
+            }
+        }
+
         log::trace!(
             "Track {} has {} flux entries over {}, {} NFA zones, and {} HOLE zones.",
             track.ch,
@@ -551,10 +545,10 @@ impl MfiFormat {
         //let mut flux_track = FluxStreamTrack::new(1.0 / 2e-6);
         let mut flux_track = FluxStreamTrack::new();
 
-        flux_track.add_revolution(track.ch, &fluxes, 0.2); // 200ms
-                                                           //let flux_stream = flux_track.revolution_mut(0).unwrap();
-                                                           //let rev_stats = flux_stream.decode_direct(&mut pll);
-                                                           //let rev_encoding = flux_stream.encoding();
+        flux_track.add_revolution(track.ch, &fluxes, track_rpm.unwrap_or_default().index_time_ms());
+        //let flux_stream = flux_track.revolution_mut(0).unwrap();
+        //let rev_stats = flux_stream.decode_direct(&mut pll);
+        //let rev_encoding = flux_stream.encoding();
 
         // let new_track = disk_image.add_track_fluxstream(track.ch, flux_track, None, None);
         //
@@ -574,6 +568,70 @@ impl MfiFormat {
         // flux_track.normalize();
 
         Ok(flux_track)
+    }
+
+    /// Detect 360RPM flux streams and normalize the times, returning the normalized index time.
+    pub fn normalize_flux_times(fts: &mut [f64], known_rpm: Option<DiskRpm>) -> Option<(f64, DiskRpm)> {
+        if let Some(rpm) = known_rpm {
+            // If we're explicitly given an RPM value (detected from a previous track)
+            // we can skip the detection process.
+            return match rpm {
+                DiskRpm::Rpm300 => None,
+                DiskRpm::Rpm360 => Some((Self::adjust_flux_times(fts, 300.0 / 360.0), rpm)),
+            };
+        }
+
+        let mut normal_index_time = 0.0;
+
+        // Create a histogram of the flux times over the entire track.
+        let mut hist = FluxHistogram::new(fts, 0.02);
+
+        //hist.print_horizontal_histogram_with_labels(16);
+
+        // Retrieve the base transition time.
+        let base_opt = hist.base_transition_time();
+
+        if let Some(base) = base_opt {
+            let clock = base / 2.0;
+
+            // Try to detect the RPM from the clock skew.
+            let detected_rpm = (clock * 1e6) * 300.0;
+
+            log::debug!(
+                "MfiFormat::normalize_flux_times(): Detected clock: {} rpm: {:.2}",
+                format_us!(clock),
+                detected_rpm
+            );
+
+            if (340.0..380.00).contains(&detected_rpm) {
+                // Detected 360RPM
+                normal_index_time = Self::adjust_flux_times(fts, 300.0 / 360.0);
+                Some((normal_index_time, DiskRpm::Rpm360))
+            }
+            else if (280.0..320.00).contains(&detected_rpm) {
+                // Detected 300RPM
+                return None;
+            }
+            else {
+                log::warn!(
+                    "MfiFormat::normalize_flux_times(): Detected RPM {} is out of range.",
+                    detected_rpm
+                );
+                None
+            }
+        }
+        else {
+            None
+        }
+    }
+
+    pub fn adjust_flux_times(fts: &mut [f64], factor: f64) -> f64 {
+        let mut total_time = 0.0;
+        for ft in fts.iter_mut() {
+            *ft *= factor;
+            total_time += *ft;
+        }
+        total_time
     }
 
     pub fn mfi_read_flux(flux_entry: u32) -> (FluxEntryType, u32) {

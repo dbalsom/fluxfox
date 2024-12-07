@@ -49,6 +49,7 @@ use crate::{
 };
 
 use crate::{
+    flux::histogram::FluxHistogram,
     format_us,
     structure_parsers::{system34::System34Standard, DiskStructureMetadata},
     track::{bitstream::BitStreamTrack, metasector::MetaSectorTrack},
@@ -424,7 +425,7 @@ impl FluxStreamTrack {
             // Use the rpm hint if provided, otherwise try to derive from the revolution's index time,
             // falling back to 300 RPM if neither works.
             let mut base_rpm =
-                rpm_hint.unwrap_or(DiskRpm::from_index_time(revolution.index_time).unwrap_or(DiskRpm::Rpm300));
+                rpm_hint.unwrap_or(DiskRpm::try_from_index_time(revolution.index_time).unwrap_or(DiskRpm::Rpm300));
 
             log::debug!("decode_revolutions:() using base rpm: {}", base_rpm);
 
@@ -493,8 +494,8 @@ impl FluxStreamTrack {
             }
             else {
                 // Try to determine the base clock and RPM based on the revolution histogram.
-                let full_hist = revolution.histogram(1.0);
-                let base_transition_time_opt = revolution.base_transition_time(&full_hist);
+                let mut full_hist = FluxHistogram::new(&revolution.flux_deltas, 1.0);
+                let base_transition_time_opt = full_hist.base_transition_time();
 
                 if let Some(base_transition_time) = base_transition_time_opt {
                     let hist_period = base_transition_time / 2.0;
@@ -517,9 +518,9 @@ impl FluxStreamTrack {
             // Create PLL and decode revolution.
             let mut pll = Pll::from_preset(PllPreset::Aggressive);
 
-            // Create histogram for rev.
-            let hist = revolution.histogram(0.02);
-            let base_transition_time_opt = revolution.base_transition_time(&hist);
+            // Create histogram for start of revolution (first 2% of track)
+            let mut hist = FluxHistogram::new(&revolution.flux_deltas, 0.02);
+            let base_transition_time_opt = hist.base_transition_time();
             if base_transition_time_opt.is_none() {
                 log::warn!(
                     "decode_revolutions(): Revolution {}: Unable to detect track start transition time.",
@@ -530,7 +531,7 @@ impl FluxStreamTrack {
             if let Some(base_transition_time) = base_transition_time_opt {
                 let hist_period = base_transition_time / 2.0;
                 let difference_ratio = (hist_period - base_clock) / base_clock;
-                if difference_ratio.abs() < 0.15 {
+                if difference_ratio.abs() < 0.25 {
                     log::debug!(
                         "decode_revolutions(): Revolution {}: Histogram refined clock to {}",
                         i,

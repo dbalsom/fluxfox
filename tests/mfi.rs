@@ -2,7 +2,7 @@
 mod common;
 
 use crate::common::run_sector_test;
-use fluxfox::{DiskImage, DiskImageFileFormat, ImageParser};
+use fluxfox::DiskImageFileFormat;
 use std::path::PathBuf;
 
 fn init() {

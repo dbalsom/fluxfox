@@ -41,7 +41,8 @@ use histogram::{Bucket, Histogram};
 
 pub struct FluxHistogram {
     histogram: Histogram,
-    maxima:    Vec<(u64, std::ops::RangeInclusive<u64>)>,
+    maxima: Vec<(u64, std::ops::RangeInclusive<u64>)>,
+    total_time: f64,
 }
 
 impl FluxHistogram {
@@ -49,7 +50,7 @@ impl FluxHistogram {
     /// # Arguments
     /// * `deltas` - A slice of F values representing flux deltas times
     /// * `fraction` - The fraction of the deltas to use in the histogram
-    pub fn new(&self, deltas: &[f64], fraction: f64) -> Self {
+    pub fn new(deltas: &[f64], fraction: f64) -> Self {
         // from docs:
         // grouping_power should be set such that 2^(-1 * grouping_power) is an acceptable relative error.
         // Rephrased, we can plug in the acceptable relative error into grouping_power = ceil(log2(1/e)).
@@ -61,14 +62,23 @@ impl FluxHistogram {
 
         let take_count = (deltas.len() as f64 * fraction).round() as usize;
         log::debug!("FluxRevolution::histogram(): Taking {} flux deltas", take_count);
-        for delta_ns in deltas.iter().take(take_count).map(|d| Self::delta_to_u64(*d)) {
+        let mut total_time = 0.0;
+        for delta_ns in deltas.iter().take(take_count).map(|d| {
+            total_time += d;
+            Self::delta_to_u64(*d)
+        }) {
             _ = histogram.increment(delta_ns);
         }
 
         FluxHistogram {
             histogram,
             maxima: Vec::new(),
+            total_time,
         }
+    }
+
+    pub fn total_time(&self) -> f64 {
+        self.total_time
     }
 
     fn delta_to_u64(value: f64) -> u64 {
@@ -107,10 +117,9 @@ impl FluxHistogram {
 
     /// Attempt to calculate the base (short) transition time.
     /// You must have called `find_local_maxima()` first.
-    pub fn base_transition_time(&self) -> Option<f64> {
+    pub fn base_transition_time(&mut self) -> Option<f64> {
         if self.maxima.is_empty() {
-            log::warn!("FluxHistogram::base_transition_time(): No peaks found. Did you call find_local_maxima?");
-            return None;
+            self.find_local_maxima(None);
         }
 
         if self.maxima.len() < 2 {
@@ -125,6 +134,7 @@ impl FluxHistogram {
         Some(Self::u64_to_delta(range_median))
     }
 
+    #[allow(dead_code)]
     pub(crate) fn print_debug(&self) {
         for peak in self.maxima.iter() {
             log::debug!(
@@ -132,6 +142,54 @@ impl FluxHistogram {
                 peak.1,
                 peak.0
             );
+        }
+    }
+
+    /// Debugging function to print a histogram in ASCII.
+    #[allow(dead_code)]
+    pub(crate) fn print_horizontal_histogram_with_labels(&self, height: usize) {
+        let mut max_count = 0;
+        let mut buckets = vec![];
+
+        // Step 1: Collect buckets and find max count for scaling
+        for bucket in self.histogram.into_iter() {
+            max_count = max_count.max(bucket.count());
+            buckets.push(bucket);
+        }
+
+        // Step 2: Initialize 2D array for histogram, filled with spaces
+        let width = buckets.len();
+        let mut graph = vec![vec![' '; width]; height];
+
+        // Step 3: Plot each bucket count as a column of asterisks
+        for (i, bucket) in buckets.iter().enumerate() {
+            let bar_height = if max_count > 0 {
+                (bucket.count() as f64 / max_count as f64 * height as f64).round() as usize
+            }
+            else {
+                0
+            };
+            for row in (height - bar_height)..height {
+                graph[row][i] = '*';
+            }
+        }
+
+        // Step 4: Print the graph row by row
+        for row in &graph {
+            println!("{}", row.iter().collect::<String>());
+        }
+
+        // Step 5: Print bucket start values vertically
+        let max_label_len = buckets.iter().map(|b| b.start().to_string().len()).max().unwrap_or(0);
+        for i in 0..max_label_len {
+            let row: String = buckets
+                .iter()
+                .map(|b| {
+                    let label = b.start().to_string();
+                    label.chars().nth(i).unwrap_or(' ')
+                })
+                .collect();
+            println!("{}", row);
         }
     }
 }

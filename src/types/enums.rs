@@ -292,10 +292,10 @@ impl Display for DiskRpm {
 }
 
 impl DiskRpm {
-    /// Try to determine the disk RPM from the time between index pulses.
+    /// Try to calculate a [DiskRpm] from the time between index pulses in milliseconds.
     /// Sometimes flux streams report bizarre RPMs, so you will need fallback logic if this
     /// conversion fails.
-    pub fn from_index_time(time: f64) -> Option<DiskRpm> {
+    pub fn try_from_index_time(time: f64) -> Option<DiskRpm> {
         let rpm = 60.0 / time;
         // We'd like to support a 15% deviation, but there is a small overlap between 300 +15%
         // and 360 -15%, so we split the difference at 327 RPM.
@@ -304,6 +304,11 @@ impl DiskRpm {
             327.0..414.00 => Some(DiskRpm::Rpm360),
             _ => None,
         }
+    }
+
+    /// Convert a [DiskRpm] to an index time in milliseconds.
+    pub fn index_time_ms(&self) -> f64 {
+        60.0 / f64::from(*self)
     }
 
     #[inline]
