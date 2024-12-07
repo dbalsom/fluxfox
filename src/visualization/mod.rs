@@ -401,6 +401,7 @@ pub fn render_track_data(
             let distance = (dx * dx + dy * dy).sqrt();
             let _distance_sq = dx * dx + dy * dy;
             let angle = (dy.atan2(dx) + PI) % TAU;
+            //let angle = dy.atan2(dx) % TAU;
 
             if distance >= min_radius && distance <= total_radius {
                 let track_offset = (distance - min_radius) / track_width;
@@ -412,16 +413,18 @@ pub fn render_track_data(
 
                 if track_index < num_tracks {
                     // Adjust angle for clockwise or counter-clockwise
-                    let normalized_angle = match p.direction {
+                    let mut normalized_angle = match p.direction {
                         RotationDirection::Clockwise => angle - p.index_angle,
                         RotationDirection::CounterClockwise => TAU - (angle - p.index_angle),
                     };
-
-                    let normalized_angle = (normalized_angle + PI) % TAU;
+                    // Normalize the angle to the range 0..2π
+                    //normalized_angle = normalized_angle % TAU;
+                    normalized_angle = (normalized_angle + PI) % TAU;
                     let bit_index = ((normalized_angle / TAU) * rtracks[track_index].len() as f32) as usize;
 
                     // Ensure bit_index is within bounds
-                    let bit_index = min(bit_index, rtracks[track_index].len() - 9);
+                    //let bit_index = min(bit_index, rtracks[track_index].len() - 9);
+                    let bit_index = bit_index % rtracks[track_index].len();
 
                     let color = match p.resolution {
                         ResolutionType::Bit => {
@@ -869,11 +872,17 @@ pub fn render_track_metadata_quadrant(
                     std::mem::swap(&mut start_angle, &mut end_angle);
                 }
 
+                // Invert the angles for clockwise rotation
                 (start_angle, end_angle) = match p.direction {
                     RotationDirection::CounterClockwise => (start_angle, end_angle),
                     RotationDirection::Clockwise => (TAU - start_angle, TAU - end_angle),
                 };
 
+                // Normalize the angle to the range 0..2π
+                // start_angle = (start_angle % TAU).abs();
+                // end_angle = (end_angle % TAU).abs();
+
+                // Exchange start and end if reversed
                 if start_angle > end_angle {
                     std::mem::swap(&mut start_angle, &mut end_angle);
                 }
