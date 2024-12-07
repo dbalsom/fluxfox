@@ -25,48 +25,57 @@
     --------------------------------------------------------------------------
 */
 
-use fluxfox::{file_system::FileEntry, prelude::*};
-use std::fmt::{Debug, Formatter, Result};
+use std::fmt::{Display, Formatter, Result};
 
-pub mod widgets;
+#[cfg(feature = "fat")]
+use fluxfox_fat;
 
-#[derive(Debug, Clone, Default)]
-pub struct SectorSelection {
-    pub phys_ch:    DiskCh,
-    pub sector_id:  SectorId,
-    pub bit_offset: Option<usize>,
+#[derive(Clone, Debug)]
+pub struct FsDateTime {
+    pub year: u16,
+    pub month: u8,
+    pub day: u8,
+    pub hour: u8,
+    pub minute: u8,
+    pub second: u8,
+    pub millisecond: u16,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct TrackSelection {
-    pub phys_ch: DiskCh,
+impl Default for FsDateTime {
+    fn default() -> Self {
+        Self {
+            year: 1980,
+            month: 1,
+            day: 1,
+            hour: 0,
+            minute: 0,
+            second: 0,
+            millisecond: 0,
+        }
+    }
 }
 
-#[derive(Debug, Clone)]
-pub enum TrackListSelection {
-    Track(TrackSelection),
-    Sector(SectorSelection),
-}
-
-#[derive(Clone)]
-pub enum UiEvent {
-    ExportFile(String),
-    SelectPath(String),
-    SelectFile(FileEntry),
-    ExportDir(String),
-    ExportDirAsArchive(String),
-}
-
-impl Debug for UiEvent {
+impl Display for FsDateTime {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        // Match on the enum to display only the variant name
-        let variant_name = match self {
-            UiEvent::ExportFile(_) => "ExportFile",
-            UiEvent::SelectPath(_) => "SelectPath",
-            UiEvent::SelectFile(_) => "SelectFile",
-            UiEvent::ExportDir(_) => "ExportDir",
-            UiEvent::ExportDirAsArchive(_) => "ExportDirAsArchive",
-        };
-        write!(f, "{}", variant_name)
+        write!(
+            f,
+            "{:04}/{:02}/{:02} {:02}:{:02}:{:02}",
+            self.year, self.month, self.day, self.hour, self.minute, self.second
+        )
+    }
+}
+
+#[cfg(feature = "fat")]
+impl From<fluxfox_fat::DateTime> for FsDateTime {
+    fn from(dt: fluxfox_fat::DateTime) -> Self {
+        Self {
+            year: dt.date.year,
+            month: dt.date.month as u8,
+            day: dt.date.day as u8,
+            hour: dt.time.hour as u8,
+            minute: dt.time.min as u8,
+            second: dt.time.sec as u8,
+            millisecond: dt.time.millis,
+        }
     }
 }

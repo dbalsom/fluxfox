@@ -73,7 +73,14 @@ impl FileSystemWidget {
         let mut new_event = None;
         ui.vertical(|ui| {
             // Show the header. We may eventually want to make this a separate widget...
-            ui.heading(egui::RichText::new("File System").strong());
+
+            ui.horizontal(|ui| {
+                ui.heading(egui::RichText::new("File System").strong());
+                ui.button("🗐 Archive").clicked().then(|| {
+                    new_event = Some(UiEvent::ExportDirAsArchive("/".to_string()));
+                });
+            });
+
             ui.separator();
 
             // Make sure the path selection widget is set to the current path.
@@ -111,7 +118,7 @@ impl FileSystemWidget {
                     //log::debug!("Selected file: {:?}", event);
                     match &event {
                         UiEvent::SelectFile(entry) => {
-                            self.file_selection = Some(entry.path.clone());
+                            self.file_selection = Some(entry.path().to_string());
                             self.new_file_selection.set(true);
                         }
                         _ => {

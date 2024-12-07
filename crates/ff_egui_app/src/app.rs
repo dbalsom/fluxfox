@@ -31,7 +31,12 @@ use std::{
     sync::{mpsc, Arc, RwLock},
 };
 
-use fluxfox::{file_system::fat::fat_fs::FatFileSystem, DiskImage, DiskImageError, LoadingStatus};
+use fluxfox::{
+    file_system::{fat::fat_fs::FatFileSystem, FileSystemArchive},
+    DiskImage,
+    DiskImageError,
+    LoadingStatus,
+};
 use fluxfox_egui::{
     widgets::{
         boot_sector::BootSectorWidget,
@@ -81,14 +86,16 @@ enum RunMode {
 #[serde(default)]
 pub struct AppUserOptions {
     auto_show_viz: bool,
-    logo_panel:    bool,
+    logo_panel: bool,
+    archive_format: FileSystemArchive,
 }
 
 impl Default for AppUserOptions {
     fn default() -> Self {
         Self {
             auto_show_viz: true,
-            logo_panel:    true,
+            logo_panel: true,
+            archive_format: FileSystemArchive::Zip,
         }
     }
 }
@@ -362,6 +369,7 @@ impl App {
 
     pub fn new_disk(&mut self) {
         log::debug!("Resetting application state for new disk...");
+        //self.disk_image_name = None;
         self.error_msg = None;
         self.viz_window_open = false;
         self.widgets.reset();
@@ -448,6 +456,19 @@ impl App {
             ui.menu_button("Options", |ui| {
                 ui.checkbox(&mut self.p_state.user_opts.auto_show_viz, "Auto-show Visualization");
                 ui.checkbox(&mut self.p_state.user_opts.logo_panel, "Show fluxfox logo panel");
+
+                ui.menu_button("Archive format", |ui| {
+                    ui.radio_value(
+                        &mut self.p_state.user_opts.archive_format,
+                        FileSystemArchive::Zip,
+                        "ZIP",
+                    );
+                    ui.radio_value(
+                        &mut self.p_state.user_opts.archive_format,
+                        FileSystemArchive::Tar,
+                        "TAR",
+                    );
+                });
             });
         });
     }
@@ -590,7 +611,7 @@ impl App {
                         }
                     }
                     UiEvent::SelectFile(file) => {
-                        let selected_file = file.path;
+                        let selected_file = file.path().to_string();
                         log::debug!("Selected file: {:?}", selected_file);
                         match FatFileSystem::mount(disk.clone(), None) {
                             Ok(mut fs) => {
@@ -604,6 +625,31 @@ impl App {
                                 log::error!("Error mounting FAT filesystem: {:?}", e);
                             }
                         };
+                    }
+                    UiEvent::ExportDirAsArchive(path) => {
+                        log::debug!("Exporting directory as archive: {:?}", path);
+                        let mut fs = FatFileSystem::mount(disk.clone(), None).unwrap();
+
+                        let archive_data = match fs.root_as_archive(self.p_state.user_opts.archive_format) {
+                            Ok(data) => data,
+                            Err(e) => {
+                                log::error!("Error exporting directory as archive: {:?}", e);
+                                return;
+                            }
+                        };
+                        fs.unmount();
+
+                        let mut zip_name = self.disk_image_name.clone().unwrap_or("disk".to_string());
+                        zip_name.push_str(self.p_state.user_opts.archive_format.ext());
+
+                        match App::save_file_as(&zip_name, &archive_data) {
+                            Ok(_) => {
+                                log::info!("Archive {} saved successfully!", zip_name);
+                            }
+                            Err(e) => {
+                                log::error!("Error saving archive: {:?}", e);
+                            }
+                        }
                     }
                     _ => {}
                 }
@@ -723,12 +769,28 @@ impl App {
             });
         }
 
+        fn dropped_filename(file: &egui::DroppedFile) -> String {
+            if let Some(path) = &file.path {
+                path.display().to_string()
+            }
+            else if !file.name.is_empty() {
+                file.name.clone()
+            }
+            else {
+                "Unknown".to_owned()
+            }
+        }
+
         // Check for new dropped files or file completion status
         ctx.input(|i| {
             if !i.raw.dropped_files.is_empty() {
-                i.raw.dropped_files.iter().map(|f| f.name.clone()).for_each(|name| {
-                    log::debug!("Dropped file: {:?}", name);
-                });
+                i.raw
+                    .dropped_files
+                    .iter()
+                    .map(|f| dropped_filename(f))
+                    .for_each(|name| {
+                        log::debug!("Dropped file: {:?}", name);
+                    });
                 let new_dropped_file = &i.raw.dropped_files[0]; // Only take the first file
 
                 // Only process a new file if there's no file already in `self.dropped_files`
@@ -757,7 +819,7 @@ impl App {
                 // Remove the old disk image
                 self.disk_image = None;
                 // Set the name of the new disk image
-                self.disk_image_name = Some(file.name.clone());
+                self.disk_image_name = Some(dropped_filename(file));
 
                 log::debug!("Spawning thread to load disk image");
                 match worker::spawn_closure_worker(move || {

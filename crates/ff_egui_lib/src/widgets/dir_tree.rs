@@ -77,7 +77,7 @@ impl DirTreeWidget {
                         new_selection = Some(path.clone());
                     }
                     UiEvent::SelectFile(file) => {
-                        new_selection = Some(file.path.clone());
+                        new_selection = Some(file.path().to_string());
                     }
                     _ => {}
                 }
@@ -118,13 +118,13 @@ impl DirTreeWidget {
 
         match node {
             FileTreeNode::File(_) => {}
-            FileTreeNode::Directory { fs, children } => {
+            FileTreeNode::Directory { dfe, children } => {
                 //log::debug!("Drawing directory: {} with {:?} children", fs.name, children);
-                let is_selected = Some(&fs.path) == selected_path.as_ref();
+                let is_selected = Some(dfe.path().to_string()) == *selected_path;
 
                 //ui.visuals_mut().collapsing_header_frame = true;
 
-                let mut text = RichText::new(format!("{}", if root { "root" } else { &fs.name }));
+                let mut text = RichText::new((if root { "root" } else { dfe.short_name() }).to_string());
                 if is_selected {
                     text = text.color(ui.visuals().strong_text_color())
                 }
@@ -156,7 +156,7 @@ impl DirTreeWidget {
 
                 if header_response.clicked() {
                     //log::debug!("tree_ui(): Selected path: {}", fs.path);
-                    new_event = Some(UiEvent::SelectPath(fs.path.clone()));
+                    new_event = Some(UiEvent::SelectPath(dfe.path().to_string()));
                 };
             }
         }

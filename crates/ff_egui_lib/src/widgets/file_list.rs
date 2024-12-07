@@ -124,12 +124,13 @@ impl FileListWidget {
             //ui.set_min_height(available_height);
             let table = TableBuilder::new(ui)
                 .striped(true)
-                .resizable(false)
+                .resizable(true)
                 .cell_layout(egui::Layout::left_to_right(egui::Align::LEFT))
-                .column(Column::exact(110.0))
-                .column(Column::exact(80.0))
-                .column(Column::exact(80.0))
-                .column(Column::exact(80.0))
+                .column(Column::exact(120.0))
+                .column(Column::auto())
+                //.column(Column::auto())
+                .column(Column::auto())
+                .column(Column::auto())
                 .min_scrolled_height(0.0)
                 .max_scroll_height(available_height);
 
@@ -141,6 +142,9 @@ impl FileListWidget {
                     header.col(|ui| {
                         ui.strong("Size");
                     });
+                    // header.col(|ui| {
+                    //     ui.strong("Created Date");
+                    // });
                     header.col(|ui| {
                         ui.strong("Modified Date");
                     });
@@ -161,14 +165,14 @@ impl FileListWidget {
                             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                                 //ui.label(icon);
 
-                                let file_name = format!("{} {}", icon, self.file_list[row_index].name);
+                                let file_name = format!("{} {}", icon, self.file_list[row_index].short_name());
                                 let item_response = ui
                                     .add(Label::new(egui::RichText::new(file_name).monospace()).sense(Sense::click()));
 
                                 if item_response.clicked() {
                                     log::debug!(
                                         "show_dir_table(): Clicked on {:?}",
-                                        self.file_list[row_index].path.clone()
+                                        self.file_list[row_index].path().to_string()
                                     );
                                     new_event = Some(UiEvent::SelectFile(self.file_list[row_index].clone()));
                                 }
@@ -179,20 +183,35 @@ impl FileListWidget {
                                         false => "Save As...",
                                     };
                                     if ui.button(save_label_text).clicked() {
-                                        new_event = Some(UiEvent::ExportFile(self.file_list[row_index].path.clone()));
+                                        new_event =
+                                            Some(UiEvent::ExportFile(self.file_list[row_index].path().to_string()));
                                         ui.close_menu();
                                     }
                                 });
                             });
                         });
+                        // Size column
                         row.col(|ui| {
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                ui.label(self.file_list[row_index].size.to_string());
+                                ui.label(self.file_list[row_index].size().to_string());
                             });
                         });
+                        // // Created date column - Not implemented in DOS FAT12 filesystems
+                        // row.col(|ui| {
+                        //     if let Some(created) = self.file_list[row_index].created() {
+                        //         ui.label(created.to_string());
+                        //     }
+                        //     else {
+                        //         ui.label("");
+                        //     }
+                        // });
+                        // Modified date column
                         row.col(|ui| {
-                            ui.label("");
+                            if let Some(modified) = self.file_list[row_index].modified() {
+                                ui.label(modified.to_string());
+                            }
                         });
+                        // Attributes column
                         row.col(|ui| {
                             ui.label("");
                         });

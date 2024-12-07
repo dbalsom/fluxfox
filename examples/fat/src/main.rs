@@ -123,12 +123,19 @@ fn main() {
         }
     };
 
-    // Get file listing.
-    let files = fs.list_all_files();
-
-    for file in files {
-        println!("{}", file);
+    // Create a FileTreeNode from the root directory.
+    if let Some(root) = fs.build_file_tree_from_root() {
+        root.for_each_file(true, &mut |file| {
+            println!("{}", file);
+        });
     }
+
+    // // Get file listing.
+    // let files = fs.list_all_files();
+    //
+    // for file in files {
+    //     println!("{}", file);
+    // }
 
     if !opts.silent {
         println!("Done!");
