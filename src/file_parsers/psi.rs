@@ -230,7 +230,7 @@ impl PsiFormat {
         detected
     }
 
-    pub(crate) fn can_write(_image: &DiskImage) -> ParserWriteCompatibility {
+    pub(crate) fn can_write(_image: Option<&DiskImage>) -> ParserWriteCompatibility {
         ParserWriteCompatibility::UnsupportedFormat
     }
 

@@ -421,7 +421,7 @@ impl DiskImage {
     #[cfg(feature = "async")]
     pub async fn load_async<RS: ReadSeek>(
         image_io: &mut RS,
-        image_path: Option<PathBuf>,
+        _image_path: Option<PathBuf>,
         disk_selection: Option<DiskSelection>,
         callback: Option<LoadingCallback>,
     ) -> Result<Self, DiskImageError> {
@@ -921,6 +921,11 @@ impl DiskImage {
         data: &[u8],
     ) -> Result<(), DiskImageError> {
         if phys_ch.h() > 1 || phys_ch.c() as usize >= self.track_map[phys_ch.h() as usize].len() {
+            log::debug!(
+                "write_sector_basic(): Seek error: track map for head {} has {} tracks",
+                phys_ch.h(),
+                self.track_map[phys_ch.h() as usize].len()
+            );
             return Err(DiskImageError::SeekError);
         }
 

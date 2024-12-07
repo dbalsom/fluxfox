@@ -173,7 +173,7 @@ impl TCFormat {
         header.id[0] == 0x5A && header.id[1] == 0xA5
     }
 
-    pub fn can_write(_image: &DiskImage) -> ParserWriteCompatibility {
+    pub fn can_write(_image: Option<&DiskImage>) -> ParserWriteCompatibility {
         ParserWriteCompatibility::UnsupportedFormat
     }
 

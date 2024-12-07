@@ -24,6 +24,9 @@
 
     --------------------------------------------------------------------------
 */
+
+use std::cmp::Ordering;
+
 use crate::{
     detect::chs_from_raw_size,
     diskimage::DiskImage,
@@ -44,7 +47,6 @@ use crate::{
     StandardFormat,
     DEFAULT_SECTOR_SIZE,
 };
-use std::cmp::Ordering;
 
 pub struct RawFormat;
 
@@ -67,15 +69,19 @@ impl RawFormat {
         chs_from_raw_size(raw_len).is_some()
     }
 
-    pub(crate) fn can_write(image: &DiskImage) -> ParserWriteCompatibility {
-        if !image.consistency.image_caps.is_empty() {
-            // RAW sector images support no capability flags.
-            log::warn!("RAW sector images do not support capability flags.");
-            ParserWriteCompatibility::DataLoss
-        }
-        else {
-            ParserWriteCompatibility::Ok
-        }
+    pub(crate) fn can_write(image: Option<&DiskImage>) -> ParserWriteCompatibility {
+        image
+            .map(|image| {
+                if !image.consistency.image_caps.is_empty() {
+                    // RAW sector images support no capability flags.
+                    log::warn!("RAW sector images do not support capability flags.");
+                    ParserWriteCompatibility::DataLoss
+                }
+                else {
+                    ParserWriteCompatibility::Ok
+                }
+            })
+            .unwrap_or(ParserWriteCompatibility::Ok)
     }
 
     pub(crate) fn load_image<RWS: ReadSeek>(
@@ -125,39 +131,30 @@ impl RawFormat {
 
         // Despite being a sector-based format, we convert to a bitstream based image by providing
         // the raw sector data to each track's format function.
-
         let mut sector_buffer = vec![0u8; DEFAULT_SECTOR_SIZE];
 
         // Insert sectors in order encountered.
-        for c in 0..disk_chs.c() {
-            for h in 0..disk_chs.h() {
-                log::trace!("Raw::load_image(): Adding new track: c:{} h:{}", c, h);
-                let new_track_idx =
-                    disk_image.add_empty_track(DiskCh::new(c, h), data_encoding, data_rate, bitcell_ct)?;
+        for DiskCh { c, h } in disk_chs.ch().iter() {
+            log::trace!("Raw::load_image(): Adding new track: c:{} h:{}", c, h);
+            let new_track_idx = disk_image.add_empty_track(DiskCh::new(c, h), data_encoding, data_rate, bitcell_ct)?;
+            let mut format_buffer = Vec::with_capacity(disk_chs.s() as usize);
+            let mut track_pattern = Vec::with_capacity(DEFAULT_SECTOR_SIZE * disk_chs.s() as usize);
 
-                let mut format_buffer = Vec::with_capacity(disk_chs.s() as usize);
-                let mut track_pattern = Vec::with_capacity(DEFAULT_SECTOR_SIZE * disk_chs.s() as usize);
-
-                log::trace!("Raw::load_image(): Formatting track with {} sectors", disk_chs.s());
-                for s in 1..disk_chs.s() + 1 {
-                    let sector_chsn = DiskChsn::new(c, h, s, 2);
-
-                    raw.read_exact(&mut sector_buffer)?;
-
-                    //log::warn!("Raw::load_image(): Sector data: {:X?}", sector_buffer);
-
-                    track_pattern.extend(sector_buffer.clone());
-                    format_buffer.push(sector_chsn);
-                }
-
-                let td = disk_image
-                    .track_by_idx_mut(new_track_idx)
-                    .ok_or(DiskImageError::FormatParseError)?;
-
-                //log::warn!("Raw::load_image(): Track pattern: {:X?}", track_pattern);
-
-                td.format(System34Standard::Ibm, format_buffer, &track_pattern, gap3)?;
+            log::trace!("Raw::load_image(): Formatting track with {} sectors", disk_chs.s());
+            for s in 1..disk_chs.s() + 1 {
+                let sector_chsn = DiskChsn::new(c, h, s, 2);
+                raw.read_exact(&mut sector_buffer)?;
+                //log::warn!("Raw::load_image(): Sector data: {:X?}", sector_buffer);
+                track_pattern.extend(sector_buffer.clone());
+                format_buffer.push(sector_chsn);
             }
+
+            let td = disk_image
+                .track_by_idx_mut(new_track_idx)
+                .ok_or(DiskImageError::FormatParseError)?;
+
+            //log::warn!("Raw::load_image(): Track pattern: {:X?}", track_pattern);
+            td.format(System34Standard::Ibm, format_buffer, &track_pattern, gap3)?;
         }
 
         disk_image.descriptor = DiskDescriptor {

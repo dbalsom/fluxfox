@@ -285,18 +285,22 @@ impl F86Format {
         header.id == "86BF".as_bytes() && header.minor_version == 0x0C && header.major_version == 0x02
     }
 
-    pub fn can_write(image: &DiskImage) -> ParserWriteCompatibility {
-        if let Some(resolution) = image.resolution {
-            if !matches!(resolution, DiskDataResolution::BitStream) {
-                return ParserWriteCompatibility::Incompatible;
-            }
-        }
-        else {
-            return ParserWriteCompatibility::Incompatible;
-        }
+    pub fn can_write(image: Option<&DiskImage>) -> ParserWriteCompatibility {
+        image
+            .map(|image| {
+                if let Some(resolution) = image.resolution {
+                    if !matches!(resolution, DiskDataResolution::BitStream) {
+                        return ParserWriteCompatibility::Incompatible;
+                    }
+                }
+                else {
+                    return ParserWriteCompatibility::Incompatible;
+                }
 
-        // 86f images can encode about everything we can store for a bitstream format
-        ParserWriteCompatibility::Ok
+                // 86f images can encode about everything we can store for a bitstream format
+                ParserWriteCompatibility::Ok
+            })
+            .unwrap_or(ParserWriteCompatibility::Ok)
     }
 
     pub(crate) fn load_image<RWS: ReadSeek>(

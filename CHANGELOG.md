@@ -2,10 +2,11 @@
 
 ### Features:
 
+- Added a convenience wrapper, StandardFormatParam, for use with parsing user input into StandardFormat
 - Added silly visualization functions to map a Pixmap to a DiskImage. See the png2disk crate for usage.
-- Added a DiskChs and DiskChsn iterator for geometries of StandardFormat
-- Added basic FAT support and example
+- Added DiskCh, DiskChs and DiskChsn iterators for walking geometries of a StandardFormat
 - Added a StandardSectorView interface that provides Read + Write + Seek traits for a DiskImage
+- Added basic FAT support and example
 - Added progress reporting for MFI loader.
 - Added support for WEAK chunk in PRI images.
 - Added support for PFI (PCE Flux Image) images
@@ -17,6 +18,7 @@
 
 ### Bugfixes:
 
+- Fixed bugs in Bios Parameter Block defaults for 1.2MB images.
 - Fixed several bugs in MFI import.
 - Refactored IMG export to use a standard DOS view of sectors
 - Fix extreme memory usage when decoding flux tracks

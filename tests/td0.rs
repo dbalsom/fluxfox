@@ -1,3 +1,4 @@
+#![cfg(feature = "td0")]
 mod common;
 
 use std::path::PathBuf;

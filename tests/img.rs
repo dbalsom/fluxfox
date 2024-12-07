@@ -59,4 +59,8 @@ fn test_img_sector_test() {
         PathBuf::from(".\\tests\\images\\sector_test\\sector_test_360k.imz"),
         DiskImageFileFormat::RawSectorImage,
     );
+    run_sector_test(
+        PathBuf::from(".\\tests\\images\\sector_test\\sector_test_1200k.img"),
+        DiskImageFileFormat::RawSectorImage,
+    );
 }

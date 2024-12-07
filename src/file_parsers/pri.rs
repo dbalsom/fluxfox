@@ -192,22 +192,26 @@ impl PriFormat {
     }
 
     /// Return the compatibility of the image with the parser.
-    pub(crate) fn can_write(image: &DiskImage) -> ParserWriteCompatibility {
-        if let Some(resolution) = image.resolution {
-            if !matches!(resolution, DiskDataResolution::BitStream) {
-                return ParserWriteCompatibility::Incompatible;
-            }
-        }
-        else {
-            return ParserWriteCompatibility::Incompatible;
-        }
+    pub(crate) fn can_write(image: Option<&DiskImage>) -> ParserWriteCompatibility {
+        image
+            .map(|image| {
+                if let Some(resolution) = image.resolution {
+                    if !matches!(resolution, DiskDataResolution::BitStream) {
+                        return ParserWriteCompatibility::Incompatible;
+                    }
+                }
+                else {
+                    return ParserWriteCompatibility::Incompatible;
+                }
 
-        if PriFormat::capabilities().contains(image.required_caps()) {
-            ParserWriteCompatibility::Ok
-        }
-        else {
-            ParserWriteCompatibility::DataLoss
-        }
+                if PriFormat::capabilities().contains(image.required_caps()) {
+                    ParserWriteCompatibility::Ok
+                }
+                else {
+                    ParserWriteCompatibility::DataLoss
+                }
+            })
+            .unwrap_or(ParserWriteCompatibility::Ok)
     }
 
     pub(crate) fn read_chunk<RWS: ReadSeek>(mut image: RWS) -> Result<PriChunk, DiskImageError> {

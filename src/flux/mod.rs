@@ -33,6 +33,7 @@ use std::{
 pub mod flux_revolution;
 #[macro_use]
 pub mod pll;
+mod histogram;
 
 pub use flux_revolution::FluxRevolutionType;
 

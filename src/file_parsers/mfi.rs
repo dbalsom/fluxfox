@@ -37,15 +37,17 @@
 
 use crate::{
     file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility},
+    format_ms,
+    format_us,
     io::{ReadSeek, ReadWriteSeek},
     track::fluxstream::FluxStreamTrack,
-    types::{BitStreamTrackParams, DiskDescriptor},
+    types::DiskDescriptor,
     LoadingStatus,
+    StandardFormat,
 };
 
 use crate::{
-    flux::pll::{Pll, PllPreset},
-    types::{chs::DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity},
+    types::{chs::DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskPhysicalDimensions},
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,
@@ -54,10 +56,71 @@ use crate::{
 };
 use binrw::{binrw, BinRead};
 
-pub const OLD_SIGNATURE: &str = "MESSFLOPPYIMAGE";
-pub const NEW_SIGNATURE: &str = "MAMEFLOPPYIMAGE";
+pub const OLD_SIGNATURE: &[u8; 15] = b"MESSFLOPPYIMAGE";
+pub const NEW_SIGNATURE: &[u8; 15] = b"MAMEFLOPPYIMAGE";
+
+pub const THREE_POINT_FIVE_INCH: &[u8; 4] = b"3   ";
+pub const FIVE_POINT_TWO_FIVE_INCH: &[u8; 4] = b"525 ";
+pub const EIGHT_INCH: &[u8; 4] = b"8   ";
+
 pub const CYLINDER_MASK: u32 = 0x3FFFFFFF;
-pub const MFI_TIME_UNIT: f64 = 1.0 / 200_000_000.0;
+//pub const MFI_TIME_UNIT: f64 = 1.0 / 200_000_000.0;
+
+// Disk form factors - defined in MAME src/lib/formats/flopimg.h
+impl TryFrom<&[u8; 4]> for DiskPhysicalDimensions {
+    type Error = DiskImageError;
+
+    fn try_from(value: &[u8; 4]) -> Result<Self, Self::Error> {
+        match value {
+            THREE_POINT_FIVE_INCH => Ok(DiskPhysicalDimensions::Dimension3_5),
+            FIVE_POINT_TWO_FIVE_INCH => Ok(DiskPhysicalDimensions::Dimension5_25),
+            EIGHT_INCH => Ok(DiskPhysicalDimensions::Dimension8),
+            _ => Err(DiskImageError::UnsupportedFormat),
+        }
+    }
+}
+
+impl TryFrom<(&[u8; 4], DiskPhysicalDimensions)> for StandardFormat {
+    type Error = DiskImageError;
+
+    fn try_from(value: (&[u8; 4], DiskPhysicalDimensions)) -> Result<Self, Self::Error> {
+        match value {
+            (b"SSSD", _) => {
+                // Single sided single density (8" format)
+                Err(DiskImageError::UnsupportedFormat)
+            }
+            (b"SSDD", DiskPhysicalDimensions::Dimension5_25) => {
+                // This could be 160K or 180K, we don't really know
+                Ok(StandardFormat::PcFloppy180)
+            }
+            (b"DSSD", _) => {
+                // Double sided single density (8" format)
+                Err(DiskImageError::UnsupportedFormat)
+            }
+            (b"DSDD", DiskPhysicalDimensions::Dimension5_25) => {
+                // This could be 320K or 360K, we don't really know
+                Ok(StandardFormat::PcFloppy360)
+            }
+            (b"DSDD", DiskPhysicalDimensions::Dimension3_5) => {
+                // 720K 3.5" disk
+                Ok(StandardFormat::PcFloppy720)
+            }
+            (b"DSHD", DiskPhysicalDimensions::Dimension5_25) => {
+                // MAME src doesn't seem to mention this one...
+                Ok(StandardFormat::PcFloppy1200)
+            }
+            (b"DSHD", DiskPhysicalDimensions::Dimension3_5) => {
+                // 1.44M 3.5" disk
+                Ok(StandardFormat::PcFloppy1440)
+            }
+            (b"DSED", DiskPhysicalDimensions::Dimension3_5) => {
+                // 2.88M 3.5" disk
+                Ok(StandardFormat::PcFloppy2880)
+            }
+            _ => Err(DiskImageError::UnsupportedFormat),
+        }
+    }
+}
 
 pub struct MfiFormat;
 
@@ -120,8 +183,7 @@ impl MfiFormat {
         _ = image.seek(std::io::SeekFrom::Start(0));
 
         if let Ok(file_header) = MfiFileHeader::read_be(&mut image) {
-            if file_header.id[0..15] == *OLD_SIGNATURE.as_bytes() || file_header.id[0..15] == *NEW_SIGNATURE.as_bytes()
-            {
+            if file_header.id[0..15] == *OLD_SIGNATURE || file_header.id[0..15] == *NEW_SIGNATURE {
                 detected = true;
             }
         }
@@ -130,7 +192,7 @@ impl MfiFormat {
     }
 
     /// Return the compatibility of the image with the parser.
-    pub(crate) fn can_write(_image: &DiskImage) -> ParserWriteCompatibility {
+    pub(crate) fn can_write(_image: Option<&DiskImage>) -> ParserWriteCompatibility {
         ParserWriteCompatibility::UnsupportedFormat
     }
 
@@ -152,10 +214,35 @@ impl MfiFormat {
 
         let file_header = MfiFileHeader::read(&mut read_buf)?;
 
-        if file_header.id[0..15] != *NEW_SIGNATURE.as_bytes() {
+        if file_header.id[0..15] != *NEW_SIGNATURE {
             log::error!(
                 "Old MFI format {:?} not implemented.",
                 std::str::from_utf8(&file_header.id[0..15]).unwrap()
+            );
+            return Err(DiskImageError::UnsupportedFormat);
+        }
+
+        let file_form_factor = DiskPhysicalDimensions::try_from(&file_header.form_factor.to_le_bytes()).ok();
+        if let Some(form_factor) = file_form_factor {
+            log::debug!("Got MFI file form factor: {:?}", form_factor);
+        }
+        else {
+            log::error!(
+                "Unknown or unsupported disk form factor: {:08X}",
+                file_header.form_factor
+            );
+            return Err(DiskImageError::UnsupportedFormat);
+        }
+
+        if let Ok(standard_format) =
+            StandardFormat::try_from((&file_header.variant.to_le_bytes(), file_form_factor.unwrap()))
+        {
+            log::debug!("Got MFI file standard format: {:?}", standard_format);
+        }
+        else {
+            log::error!(
+                "Unknown or unsupported disk standard format: {:08X}",
+                file_header.variant
             );
             return Err(DiskImageError::UnsupportedFormat);
         }
@@ -174,54 +261,54 @@ impl MfiFormat {
         }
 
         let mut last_offset: u32 = 0;
-        for c in 0..file_ch.c() - 1 {
-            for h in 0..file_ch.h() {
-                let track_header = MfiTrackHeader::read(&mut read_buf)?;
+        for ch in file_ch.iter() {
+            let DiskCh { c, h } = ch;
+            let track_header = MfiTrackHeader::read(&mut read_buf)?;
 
-                log::trace!(
-                    "Track {} at offset: {} compressed: {} uncompressed: {}",
-                    DiskCh::new(c, h),
+            log::trace!(
+                "Track {} at offset: {} compressed: {} uncompressed: {}",
+                ch,
+                track_header.offset,
+                track_header.compressed_size,
+                track_header.uncompressed_size
+            );
+
+            if (track_header.compressed_size > 0) && (track_header.offset < last_offset) {
+                log::error!(
+                    "Invalid MFI file: non-zero length track {} offset {} is less than last offset ({}).",
+                    ch,
                     track_header.offset,
-                    track_header.compressed_size,
-                    track_header.uncompressed_size
+                    last_offset
                 );
-
-                if (track_header.compressed_size > 0) && (track_header.offset < last_offset) {
-                    log::error!(
-                        "Invalid MFI file: non-zero length track {} offset is less than last offset ({}).",
-                        DiskCh::new(c, h),
-                        last_offset
-                    );
-                    return Err(DiskImageError::ImageCorruptError(
-                        "Non-empty track offset less than last offset".to_string(),
-                    ));
-                }
-
-                if track_header.offset as u64 > disk_len {
-                    log::error!(
-                        "Invalid MFI file: track {} offset is greater than file length.",
-                        DiskCh::new(c, h)
-                    );
-                    return Err(DiskImageError::ImageCorruptError(
-                        "Track offset greater than file length".to_string(),
-                    ));
-                }
-
-                // Ignore offsets of 0 - they indicate empty tracks.
-                if track_header.offset != 0 {
-                    last_offset = track_header.offset;
-                }
-
-                track_list.push(track_header);
+                return Err(DiskImageError::ImageCorruptError(
+                    "Non-empty track offset less than last offset".to_string(),
+                ));
             }
+
+            if track_header.offset as u64 > disk_len {
+                log::error!(
+                    "Invalid MFI file: track {} offset {} is greater than file length.",
+                    ch,
+                    track_header.offset
+                );
+                return Err(DiskImageError::ImageCorruptError(
+                    "Track offset greater than file length".to_string(),
+                ));
+            }
+
+            // Ignore offsets of 0 - they indicate empty tracks.
+            if track_header.offset != 0 {
+                last_offset = track_header.offset;
+            }
+
+            track_list.push(track_header);
         }
 
         log::debug!("Got {} track entries.", track_list.len());
 
         let mut tracks: Vec<MfiTrackData> = Vec::with_capacity(track_list.len());
-        let mut c = 0;
-        let mut h = 0;
 
+        let mut ch_cursor = DiskCh::new(0, 0);
         for (ti, entry) in track_list.iter().enumerate() {
             log::debug!(
                 "Track {} at offset: {} compressed: {} uncompressed: {}",
@@ -236,7 +323,7 @@ impl MfiFormat {
 
                 // Push empty trackdata
                 tracks.push(MfiTrackData {
-                    ch:   DiskCh::new(c, h),
+                    ch:   ch_cursor,
                     data: Vec::new(),
                 });
             }
@@ -252,36 +339,33 @@ impl MfiFormat {
                 let mut decompress = flate2::Decompress::new(true);
                 match decompress.decompress(&track_data, &mut decompressed_data, flate2::FlushDecompress::Finish) {
                     Ok(flate2::Status::Ok) | Ok(flate2::Status::StreamEnd) => {
-                        log::debug!("Successfully decompressed track data for track {}", DiskCh::new(c, h));
+                        log::debug!("Successfully decompressed track data for track {}", ch_cursor);
                     }
                     Ok(flate2::Status::BufError) => {
-                        log::error!("Decompression buffer error reading track data.");
-                        return Err(DiskImageError::ImageCorruptError(
-                            "Decompression buffer error reading track data".to_string(),
-                        ));
+                        log::error!("Decompression buffer error reading track {} data.", ch_cursor);
+                        return Err(DiskImageError::ImageCorruptError(format!(
+                            "Decompression buffer error reading track {} data",
+                            ch_cursor
+                        )));
                     }
                     Err(e) => {
                         log::error!("Decompression error reading track data: {:?}", e);
                         return Err(DiskImageError::ImageCorruptError(format!(
-                            "Decompression error reading track data: {:?}",
-                            e
+                            "Decompression error reading track {} data: {:?}",
+                            ch_cursor, e
                         )));
                     }
                 }
 
                 // Push uncompressed trackdata
                 tracks.push(MfiTrackData {
-                    ch:   DiskCh::new(c, h),
+                    ch:   ch_cursor,
                     data: decompressed_data.to_vec(),
                 });
             }
 
             // Advance ch
-            h += 1;
-            if h == file_ch.h() {
-                h = 0;
-                c += 1;
-            }
+            ch_cursor.seek_next_track(file_ch);
         }
 
         let mut disk_density = None;
@@ -293,11 +377,6 @@ impl MfiFormat {
 
         for (ti, track) in tracks.iter().enumerate() {
             let flux_track = Self::process_track_data_new(track)?;
-
-            if disk_density.is_none() {
-                // Set disk density to the first track's density.
-                disk_density = Some(flux_track.density());
-            }
 
             if flux_track.is_empty() {
                 if last_data_rate.is_none() || last_bitcell_ct.is_none() {
@@ -320,30 +399,49 @@ impl MfiFormat {
                 )?;
             }
             else {
-                let data_rate = DiskDataRate::from(flux_track.density());
-                let stream = flux_track.revolution(0).unwrap();
-                let (stream_bytes, stream_bit_ct) = stream.bitstream_data();
-                log::trace!(
-                    "Adding track {} containing {} bits to image...",
+                let new_track = disk_image.add_track_fluxstream(track.ch, flux_track, None, None)?;
+                let info = new_track.info();
+
+                log::debug!(
+                    "Added {} track {} containing {} bits to image...",
                     track.ch,
-                    stream_bit_ct
+                    info.encoding,
+                    info.bit_length,
                 );
 
-                let params = BitStreamTrackParams {
-                    encoding: DiskDataEncoding::Mfm,
-                    data_rate,
-                    rpm: None,
-                    ch: track.ch,
-                    bitcell_ct: Some(stream_bit_ct),
-                    data: &stream_bytes,
-                    weak: None,
-                    hole: None,
-                    detect_weak: false,
-                };
-                disk_image.add_track_bitstream(params)?;
+                last_data_rate = Some(info.data_rate);
+                last_bitcell_ct = Some(info.bit_length);
 
-                last_data_rate = Some(data_rate);
-                last_bitcell_ct = Some(stream_bit_ct);
+                // let data_rate = DiskDataRate::from(flux_track.density());
+                // let stream = flux_track.revolution(0).unwrap();
+                // let (stream_bytes, stream_bit_ct) = stream.bitstream_data();
+                // log::trace!(
+                //     "Adding track {} containing {} bits to image...",
+                //     track.ch,
+                //     stream_bit_ct
+                // );
+                //
+                // let params = BitStreamTrackParams {
+                //     encoding: DiskDataEncoding::Mfm,
+                //     data_rate,
+                //     rpm: None,
+                //     ch: track.ch,
+                //     bitcell_ct: Some(stream_bit_ct),
+                //     data: &stream_bytes,
+                //     weak: None,
+                //     hole: None,
+                //     detect_weak: false,
+                // };
+                // disk_image.add_track_bitstream(params)?;
+                //
+                // last_data_rate = Some(data_rate);
+                // last_bitcell_ct = Some(stream_bit_ct);
+
+                if disk_density.is_none() {
+                    // Set disk density to the first track's density.
+                    log::debug!("Setting disk density to {:?}", info.density);
+                    disk_density = info.density;
+                }
 
                 if let Some(ref callback_fn) = callback {
                     let progress = ti as f64 / total_tracks as f64;
@@ -382,8 +480,8 @@ impl MfiFormat {
             match flux_type {
                 FluxEntryType::Flux => {
                     // Process flux entry
-                    let flux_delta_f64 = (flux_delta as f64 * MFI_TIME_UNIT) / 10.0;
-                    //log::debug!("Flux entry: {} {}", flux_ct, flux_delta_f64);
+                    let flux_delta_f64 = flux_delta as f64 * 1e-9;
+                    //log::trace!("Flux entry: {} {}", flux_ct, format_us!(flux_delta_f64));
                     total_flux_time += flux_delta_f64;
                     fluxes.push(flux_delta_f64);
                     flux_ct += 1;
@@ -440,38 +538,40 @@ impl MfiFormat {
         }
 
         log::trace!(
-            "Track {} has {} flux entries over {} seconds, {} NFA zones, and {} HOLE zones.",
+            "Track {} has {} flux entries over {}, {} NFA zones, and {} HOLE zones.",
             track.ch,
             flux_ct,
-            total_flux_time,
+            format_ms!(total_flux_time),
             nfa_zones.len(),
             hole_zones.len()
         );
 
-        let mut pll = Pll::from_preset(PllPreset::Aggressive);
-        pll.set_clock(1_000_000.0, None);
+        // let mut pll = Pll::from_preset(PllPreset::Aggressive);
+        // pll.set_clock(1_000_000.0, None);
         //let mut flux_track = FluxStreamTrack::new(1.0 / 2e-6);
         let mut flux_track = FluxStreamTrack::new();
 
         flux_track.add_revolution(track.ch, &fluxes, 0.2); // 200ms
-        let flux_stream = flux_track.revolution_mut(0).unwrap();
-        let rev_stats = flux_stream.decode_direct(&mut pll);
+                                                           //let flux_stream = flux_track.revolution_mut(0).unwrap();
+                                                           //let rev_stats = flux_stream.decode_direct(&mut pll);
+                                                           //let rev_encoding = flux_stream.encoding();
 
-        //let rev_encoding = flux_stream.encoding();
-        let rev_density = match rev_stats.detect_density(true) {
-            Some(d) => {
-                log::debug!("Revolution {} density: {:?}", 0, d);
-                d
-            }
-            None => {
-                log::error!("Unable to detect track density!");
-                //return Err(DiskImageError::IncompatibleImage);
-                DiskDensity::Double
-            }
-        };
-
-        flux_track.set_density(rev_density);
-        flux_track.normalize();
+        // let new_track = disk_image.add_track_fluxstream(track.ch, flux_track, None, None);
+        //
+        // let rev_density = match rev_stats.detect_density(true) {
+        //     Some(d) => {
+        //         log::debug!("Revolution {} density: {:?}", 0, d);
+        //         d
+        //     }
+        //     None => {
+        //         log::error!("Unable to detect track density!");
+        //         //return Err(DiskImageError::IncompatibleImage);
+        //         DiskDensity::Double
+        //     }
+        // };
+        //
+        // flux_track.set_density(rev_density);
+        // flux_track.normalize();
 
         Ok(flux_track)
     }

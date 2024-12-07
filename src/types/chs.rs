@@ -329,9 +329,9 @@ impl DiskChsn {
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DiskChs {
-    c: u16,
-    h: u8,
-    s: u8,
+    pub(crate) c: u16,
+    pub(crate) h: u8,
+    pub(crate) s: u8,
 }
 
 impl Default for DiskChs {
@@ -700,6 +700,34 @@ impl DiskCh {
     pub fn seek_next_track_unchecked(&mut self, heads: u8) {
         *self = self.next_track_unchecked(heads);
     }
+
+    /// Return a `DiskChsIterator` that will iterate through all sectors in order, interpreting the `DiskChs` as a standard disk geometry.
+    /// This should only be used for standard disk formats. It will skip non-standard sectors, and may access sectors out of physical order.
+    pub fn iter(&self) -> DiskChIterator {
+        DiskChIterator {
+            geom: *self,
+            ch:   None,
+        }
+    }
+}
+
+pub struct DiskChIterator {
+    geom: DiskCh,
+    ch:   Option<DiskCh>,
+}
+
+impl Iterator for DiskChIterator {
+    type Item = DiskCh;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(ch) = &mut self.ch {
+            *ch = ch.next_track(self.geom)?;
+        }
+        else {
+            self.ch = Some(DiskCh::new(0, 0));
+        }
+        self.ch
+    }
 }
 
 pub struct DiskChsIterator {
@@ -820,9 +848,27 @@ mod tests {
     }
 
     #[test]
+    fn diskch_iter_works() {
+        let geom = StandardFormat::PcFloppy360.ch();
+
+        let ch = geom.iter().next().unwrap();
+        assert_eq!(ch, DiskCh::new(0, 0));
+
+        let last_chs = geom.iter().last().unwrap();
+        assert_eq!(last_chs, DiskCh::new(geom.c() - 1, geom.h() - 1));
+
+        let iter_ct = geom.iter().count();
+        assert_eq!(iter_ct, geom.c() as usize * geom.h() as usize);
+    }
+
+    #[test]
     fn diskchs_iter_works() {
         let geom = StandardFormat::PcFloppy360.chs();
         let total_sectors = geom.total_sectors();
+
+        let first_chs = geom.iter().next().unwrap();
+        assert_eq!(first_chs, DiskChs::new(0, 0, 1));
+
         let last_chs = geom.iter().last().unwrap();
         assert_eq!(last_chs, DiskChs::new(geom.c() - 1, geom.h() - 1, geom.s()));
 

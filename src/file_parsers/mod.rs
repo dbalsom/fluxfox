@@ -51,6 +51,7 @@ pub mod psi;
 pub mod raw;
 pub mod scp;
 pub mod tc;
+#[cfg(feature = "td0")]
 pub mod td0;
 
 bitflags! {
@@ -108,71 +109,42 @@ pub enum ParserWriteCompatibility {
     UnsupportedFormat,
 }
 
-// pub(crate) const IMAGE_FORMATS: [DiskImageFileFormat; 13] = [
-//     DiskImageFileFormat::ImageDisk,
-//     DiskImageFileFormat::TeleDisk,
-//     DiskImageFileFormat::PceSectorImage,
-//     DiskImageFileFormat::PceBitstreamImage,
-//     DiskImageFileFormat::MfmBitstreamImage,
-//     DiskImageFileFormat::HfeImage,
-//     DiskImageFileFormat::F86Image,
-//     DiskImageFileFormat::TransCopyImage,
-//     DiskImageFileFormat::SuperCardPro,
-//     DiskImageFileFormat::PceFluxImage,
-//     DiskImageFileFormat::MameFloppyImage,
-//     DiskImageFileFormat::KryofluxStream,
-//     DiskImageFileFormat::RawSectorImage,
-// ];
-
-#[cfg(feature = "mfi")]
-pub(crate) const IMAGE_FORMATS: [Option<DiskImageFileFormat>; 13] = [
-    Some(DiskImageFileFormat::ImageDisk),
-    Some(DiskImageFileFormat::TeleDisk),
-    Some(DiskImageFileFormat::PceSectorImage),
-    Some(DiskImageFileFormat::PceBitstreamImage),
-    Some(DiskImageFileFormat::MfmBitstreamImage),
-    Some(DiskImageFileFormat::HfeImage),
-    Some(DiskImageFileFormat::F86Image),
-    Some(DiskImageFileFormat::TransCopyImage),
-    Some(DiskImageFileFormat::SuperCardPro),
-    Some(DiskImageFileFormat::PceFluxImage),
-    Some(DiskImageFileFormat::MameFloppyImage),
-    Some(DiskImageFileFormat::KryofluxStream),
-    Some(DiskImageFileFormat::RawSectorImage),
-];
-#[cfg(not(feature = "mfi"))]
-pub(crate) const IMAGE_FORMATS: [Option<DiskImageFileFormat>; 12] = [
-    Some(DiskImageFileFormat::ImageDisk),
-    Some(DiskImageFileFormat::TeleDisk),
-    Some(DiskImageFileFormat::PceSectorImage),
-    Some(DiskImageFileFormat::PceBitstreamImage),
-    Some(DiskImageFileFormat::MfmBitstreamImage),
-    Some(DiskImageFileFormat::HfeImage),
-    Some(DiskImageFileFormat::F86Image),
-    Some(DiskImageFileFormat::TransCopyImage),
-    Some(DiskImageFileFormat::SuperCardPro),
-    Some(DiskImageFileFormat::PceFluxImage),
-    Some(DiskImageFileFormat::KryofluxStream),
-    Some(DiskImageFileFormat::RawSectorImage),
+/// A list of all supported image formats. This list is used to determine which parsers to attempt
+/// to use when detecting and loading disk images, and may also be enumerated in UIs
+/// We use a reference to the array to avoid having to specify the length in the const declaration,
+/// which may change depending on which features are enabled.
+pub(crate) const IMAGE_FORMATS: &[DiskImageFileFormat] = &[
+    DiskImageFileFormat::ImageDisk,
+    #[cfg(feature = "td0")]
+    DiskImageFileFormat::TeleDisk,
+    DiskImageFileFormat::PceSectorImage,
+    DiskImageFileFormat::PceBitstreamImage,
+    DiskImageFileFormat::MfmBitstreamImage,
+    DiskImageFileFormat::HfeImage,
+    DiskImageFileFormat::F86Image,
+    DiskImageFileFormat::TransCopyImage,
+    DiskImageFileFormat::SuperCardPro,
+    DiskImageFileFormat::PceFluxImage,
+    #[cfg(feature = "mfi")]
+    DiskImageFileFormat::MameFloppyImage,
+    DiskImageFileFormat::KryofluxStream,
+    DiskImageFileFormat::RawSectorImage,
 ];
 
 /// Returns a list of advertised file extensions supported by available image format parsers.
 /// This is a convenience function for use in file dialogs - internal image detection is not based
-/// on file extension, but by image file content and size.
+/// on file extension, but by image file content (and occasionally size, in the case of raw sector
+/// images)
 pub fn supported_extensions() -> Vec<&'static str> {
-    IMAGE_FORMATS
-        .iter()
-        .filter_map(|&format| format)
-        .flat_map(|f| f.extensions())
-        .collect()
+    IMAGE_FORMATS.iter().flat_map(|f| f.extensions()).collect()
 }
 
 /// Returns a DiskImageFormat enum variant based on the file extension provided. If the extension
 /// is not recognized, None is returned.
 pub fn format_from_ext(ext: &str) -> Option<DiskImageFileFormat> {
-    for format in IMAGE_FORMATS.iter().filter_map(|&format| format) {
+    for format in IMAGE_FORMATS {
         if format.extensions().contains(&ext.to_lowercase().as_str()) {
-            return Some(format);
+            return Some(*format);
         }
     }
     None
@@ -187,9 +159,8 @@ pub fn formats_from_caps(caps: FormatCaps) -> Vec<(DiskImageFileFormat, Vec<Stri
 
     let format_vec = IMAGE_FORMATS
         .iter()
-        .filter_map(|&format| format)
         .filter(|f| caps.is_empty() || f.capabilities().contains(caps))
-        .map(|f| (f, f.extensions().iter().map(|s| s.to_string()).collect()))
+        .map(|f| (*f, f.extensions().iter().map(|s| s.to_string()).collect()))
         .collect();
 
     format_vec
@@ -198,7 +169,7 @@ pub fn formats_from_caps(caps: FormatCaps) -> Vec<(DiskImageFileFormat, Vec<Stri
 pub fn filter_writable(image: &DiskImage, formats: Vec<DiskImageFileFormat>) -> Vec<DiskImageFileFormat> {
     formats
         .into_iter()
-        .filter(|f| matches!(f.can_write(image), ParserWriteCompatibility::Ok))
+        .filter(|f| matches!(f.can_write(Some(image)), ParserWriteCompatibility::Ok))
         .collect()
 }
 
@@ -228,9 +199,11 @@ pub trait ImageParser {
         callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError>;
 
-    /// Return true if the parser can write the specified disk image. Not all formats are writable
-    /// at all, and not all DiskImages can be represented in the specified format.
-    fn can_write(&self, image: &DiskImage) -> ParserWriteCompatibility;
+    /// Determine if the parser can write an image back to its own format.
+    /// # Arguments
+    /// * `image` - An `Option<DiskImage>` either specifying the [DiskImage] to check for write
+    ///             compatibility, or `None` if the parser should check for general write support.
+    fn can_write(&self, image: Option<&DiskImage>) -> ParserWriteCompatibility;
     fn save_image<RWS: ReadWriteSeek>(self, image: &mut DiskImage, image_buf: &mut RWS) -> Result<(), DiskImageError>;
 }
 
@@ -239,6 +212,7 @@ impl ImageParser for DiskImageFileFormat {
         match self {
             DiskImageFileFormat::RawSectorImage => raw::RawFormat::capabilities(),
             DiskImageFileFormat::ImageDisk => imd::ImdFormat::capabilities(),
+            #[cfg(feature = "td0")]
             DiskImageFileFormat::TeleDisk => td0::Td0Format::capabilities(),
             DiskImageFileFormat::PceSectorImage => psi::PsiFormat::capabilities(),
             DiskImageFileFormat::PceBitstreamImage => pri::PriFormat::capabilities(),
@@ -258,6 +232,7 @@ impl ImageParser for DiskImageFileFormat {
         match self {
             DiskImageFileFormat::RawSectorImage => raw::RawFormat::detect(image_buf),
             DiskImageFileFormat::ImageDisk => imd::ImdFormat::detect(image_buf),
+            #[cfg(feature = "td0")]
             DiskImageFileFormat::TeleDisk => td0::Td0Format::detect(image_buf),
             DiskImageFileFormat::PceSectorImage => psi::PsiFormat::detect(image_buf),
             DiskImageFileFormat::PceBitstreamImage => pri::PriFormat::detect(image_buf),
@@ -277,6 +252,7 @@ impl ImageParser for DiskImageFileFormat {
         match self {
             DiskImageFileFormat::RawSectorImage => raw::RawFormat::extensions(),
             DiskImageFileFormat::ImageDisk => imd::ImdFormat::extensions(),
+            #[cfg(feature = "td0")]
             DiskImageFileFormat::TeleDisk => td0::Td0Format::extensions(),
             DiskImageFileFormat::PceSectorImage => psi::PsiFormat::extensions(),
             DiskImageFileFormat::PceBitstreamImage => pri::PriFormat::extensions(),
@@ -301,6 +277,7 @@ impl ImageParser for DiskImageFileFormat {
         match self {
             DiskImageFileFormat::RawSectorImage => raw::RawFormat::load_image(read_buf, image, callback),
             DiskImageFileFormat::ImageDisk => imd::ImdFormat::load_image(read_buf, image, callback),
+            #[cfg(feature = "td0")]
             DiskImageFileFormat::TeleDisk => td0::Td0Format::load_image(read_buf, image, callback),
             DiskImageFileFormat::PceSectorImage => psi::PsiFormat::load_image(read_buf, image, callback),
             DiskImageFileFormat::PceBitstreamImage => pri::PriFormat::load_image(read_buf, image, callback),
@@ -351,10 +328,11 @@ impl ImageParser for DiskImageFileFormat {
         }
     }
 
-    fn can_write(&self, image: &DiskImage) -> ParserWriteCompatibility {
+    fn can_write(&self, image: Option<&DiskImage>) -> ParserWriteCompatibility {
         match self {
             DiskImageFileFormat::RawSectorImage => raw::RawFormat::can_write(image),
             DiskImageFileFormat::ImageDisk => imd::ImdFormat::can_write(image),
+            #[cfg(feature = "td0")]
             DiskImageFileFormat::TeleDisk => td0::Td0Format::can_write(image),
             DiskImageFileFormat::PceSectorImage => psi::PsiFormat::can_write(image),
             DiskImageFileFormat::PceBitstreamImage => pri::PriFormat::can_write(image),
@@ -374,6 +352,7 @@ impl ImageParser for DiskImageFileFormat {
         match self {
             DiskImageFileFormat::RawSectorImage => raw::RawFormat::save_image(image, write_buf),
             DiskImageFileFormat::ImageDisk => imd::ImdFormat::save_image(image, write_buf),
+            #[cfg(feature = "td0")]
             DiskImageFileFormat::TeleDisk => td0::Td0Format::save_image(image, write_buf),
             DiskImageFileFormat::PceSectorImage => psi::PsiFormat::save_image(image, write_buf),
             DiskImageFileFormat::PceBitstreamImage => pri::PriFormat::save_image(image, write_buf),

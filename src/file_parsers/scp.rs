@@ -195,7 +195,7 @@ impl ScpFormat {
         header.id == "SCP".as_bytes()
     }
 
-    pub fn can_write(_image: &DiskImage) -> ParserWriteCompatibility {
+    pub fn can_write(_image: Option<&DiskImage>) -> ParserWriteCompatibility {
         ParserWriteCompatibility::UnsupportedFormat
     }
 

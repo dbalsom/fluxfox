@@ -35,6 +35,7 @@ use fluxfox::{io::Read, prelude::*, DiskImage, DiskImageFileFormat, DEFAULT_SECT
 use hex::encode;
 use sha1::{Digest, Sha1};
 use std::{
+    io::{Seek, SeekFrom},
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
 };
@@ -104,46 +105,20 @@ pub fn verify_sector_test_sectors(disk_lock: Arc<RwLock<DiskImage>>) {
 /// incrementing in the same way as the sector test image.
 #[allow(dead_code)]
 pub fn verify_sector_test_sectors_direct(disk: &mut DiskImage) {
-    let mut sector_byte: u8 = 0;
+    let chsn = disk.closest_format(false).unwrap().chsn();
+    for (si, sector) in chsn.iter().skip(1).enumerate() {
+        let sector_byte = si + 1;
+        let sector_data = disk
+            .read_sector_basic(sector.ch(), sector.into(), None)
+            .unwrap_or_else(|e| panic!("Failed to read sector {}: {}", sector.ch(), e));
 
-    // Collect indices to avoid borrowing issues
-    let ti_vec: Vec<usize> = disk.track_idx_iter().collect();
-    for ti in ti_vec {
-        if let Some(td) = disk.track_by_idx_mut(ti) {
-            let ch = td.ch();
-            //println!("Reading track {}...", ch);
-            let rtr = match td.read_all_sectors(ch, 2, 0) {
-                Ok(rtr) => rtr,
-                Err(e) => panic!("Failed to read track: {}", e),
-            };
-
-            if rtr.read_buf.len() != rtr.sectors_read as usize * 512 {
+        for byte in &sector_data {
+            if *byte != sector_byte as u8 {
                 eprintln!(
-                    "Read buffer size mismatch: expected {} bytes, got {} bytes.",
-                    rtr.sectors_read as usize * 512,
-                    rtr.read_buf.len()
+                    "Sector byte mismatch at sector {}: expected {}, got {}.",
+                    sector, sector_byte, *byte,
                 );
-            }
-
-            for si in 0..rtr.sectors_read {
-                let sector = &rtr.read_buf[si as usize * 512..(si as usize + 1) * 512];
-                for (bi, byte) in sector.iter().enumerate() {
-                    if *byte != sector_byte {
-                        eprintln!(
-                            "Sector byte mismatch at track {}, sector {}, byte [{}]: expected {}, got {}.",
-                            td.ch(),
-                            si + 1,
-                            bi,
-                            sector_byte,
-                            sector[bi]
-                        );
-                        assert_eq!(sector[bi], sector_byte);
-                        break;
-                    }
-                }
-
-                sector_byte = sector_byte.wrapping_add(1);
-                //println!("Advancing sector, new sector_byte: {}", sector_byte);
+                assert_eq!(*byte, sector_byte as u8);
             }
         }
     }
@@ -175,7 +150,10 @@ pub fn verify_sector_test_sectors_via_view(disk_lock: Arc<RwLock<DiskImage>>) {
 
     let mut sector_buf = vec![0u8; format.sector_size()];
 
-    for sector_idx in 0..sector_ct {
+    // Skip the boot sector
+    view.seek(SeekFrom::Start(format.chsn().n_size() as u64)).unwrap();
+    // Start counting from 1 as we skipped boot sector
+    for sector_idx in 1..sector_ct {
         //let offset = sector_idx * format.sector_size();
 
         // Read the sector

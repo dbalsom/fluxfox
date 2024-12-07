@@ -77,9 +77,9 @@ pub fn detect_image_format<T: ReadSeek>(image_io: &mut T) -> Result<DiskImageCon
 
                 // Wrap buffer in Cursor, and send it through all the format detectors.
                 let mut file_io = std::io::Cursor::new(file_buf);
-                for format in IMAGE_FORMATS.iter().filter_map(|&format| format) {
+                for format in IMAGE_FORMATS {
                     if format.detect(&mut file_io) {
-                        return Ok(DiskImageContainer::Zip(format));
+                        return Ok(DiskImageContainer::Zip(*format));
                     }
                 }
 
@@ -145,12 +145,12 @@ pub fn detect_image_format<T: ReadSeek>(image_io: &mut T) -> Result<DiskImageCon
         }
     }
 
-    for format in IMAGE_FORMATS.iter().filter_map(|&format| format) {
+    for format in IMAGE_FORMATS {
         if format.detect(&mut *image_io) {
             if let DiskImageFileFormat::KryofluxStream = format {
                 return Ok(DiskImageContainer::KryofluxSet);
             }
-            return Ok(DiskImageContainer::Raw(format));
+            return Ok(DiskImageContainer::Raw(*format));
         }
     }
     Err(DiskImageError::UnknownFormat)

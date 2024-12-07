@@ -165,7 +165,7 @@ impl KfxFormat {
         byte == 0x0D
     }
 
-    pub fn can_write(_image: &DiskImage) -> ParserWriteCompatibility {
+    pub fn can_write(_image: Option<&DiskImage>) -> ParserWriteCompatibility {
         ParserWriteCompatibility::UnsupportedFormat
     }
 

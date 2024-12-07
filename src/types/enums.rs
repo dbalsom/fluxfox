@@ -355,6 +355,7 @@ pub enum DiskImageFileFormat {
     /// An MFM bitstream image. Typically, has extension MFM.
     MfmBitstreamImage,
     /// A TeleDisk sector image. Typically, has extension TD0.
+    #[cfg(feature = "td0")]
     TeleDisk,
     /// A Kryoflux flux stream image. Typically, has extension RAW.
     KryofluxStream,
@@ -380,6 +381,7 @@ impl DiskImageFileFormat {
             DiskImageFileFormat::KryofluxStream => 0,
             // Supported bytestream formats (low priority)
             DiskImageFileFormat::RawSectorImage => 1,
+            #[cfg(feature = "td0")]
             DiskImageFileFormat::TeleDisk => 0,
             DiskImageFileFormat::ImageDisk => 0,
 
@@ -405,6 +407,7 @@ impl DiskImageFileFormat {
             DiskImageFileFormat::PceSectorImage => DiskDataResolution::MetaSector,
             DiskImageFileFormat::PceBitstreamImage => DiskDataResolution::BitStream,
             DiskImageFileFormat::MfmBitstreamImage => DiskDataResolution::BitStream,
+            #[cfg(feature = "td0")]
             DiskImageFileFormat::TeleDisk => DiskDataResolution::MetaSector,
             DiskImageFileFormat::KryofluxStream => DiskDataResolution::FluxStream,
             DiskImageFileFormat::HfeImage => DiskDataResolution::BitStream,
@@ -425,6 +428,7 @@ impl Display for DiskImageFileFormat {
             DiskImageFileFormat::PceSectorImage => "PCE Sector".to_string(),
             DiskImageFileFormat::PceBitstreamImage => "PCE Bitstream".to_string(),
             DiskImageFileFormat::ImageDisk => "ImageDisk Sector".to_string(),
+            #[cfg(feature = "td0")]
             DiskImageFileFormat::TeleDisk => "TeleDisk Sector".to_string(),
             DiskImageFileFormat::KryofluxStream => "Kryoflux Flux Stream".to_string(),
             DiskImageFileFormat::MfmBitstreamImage => "HxC MFM Bitstream".to_string(),

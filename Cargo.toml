@@ -22,8 +22,6 @@ bit-vec = "0.8"
 bitflags = "2.6.0"
 binrw = "0.14"
 thiserror = "2.0"
-num-traits = "0.2.14"
-num-derive = "0.4"
 logger = "0.4"
 env_logger = "0.11"
 regex = "1.10"
@@ -32,9 +30,14 @@ rand = "0.8.5"
 sha1_smol = "1.0.1"
 
 # Dependencies for optional features
+# Num-traits and num-derive are used by retrocompressor ('td0' feature)
+num-traits = { version = "0.2.14", optional = true }
+num-derive = { version = "0.4", optional = true }
 
+# tiny-skia is used by visualization functions ('viz' feature)
 tiny-skia = { version = "0.11", optional = true }
 
+# flate2 is required for MFI decompression ('mfi' feature)
 flate2 = { version = "1.0", optional = true }
 histogram = "0.11"
 plotly = { version = "0.10", optional = true }
@@ -46,11 +49,15 @@ fluxfox_fat = { git = "https://github.com/dbalsom/fluxfox_fat.git", package = "f
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 zip = { version = "2.1", default-features = false, features = ["bzip2", "deflate", "deflate64", "lzma", "time", "zstd"], optional = true }
+tar = { version = "0.4", optional = true }
 tokio = { version = "1", optional = true, features = ["full"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2", features = ["js"] }
-zip = { version = "2.1", default-features = false, features = ["deflate", "deflate64", "lzma", "time"], optional = true }
+zip = { version = "2.1", default-features = false, features = ["deflate", "deflate64", "lzma"], optional = true }
+tar = { version = "0.4", optional = true }
+# Version of time must match time depdendency of zip
+#time = { version = "0.3", features = ["wasm-bindgen"], optional = true }
 wasm-bindgen = { version = "0.2", optional = true }
 wasm-bindgen-futures = { version = "0.4", optional = true }
 
@@ -73,14 +80,16 @@ members = [
 , "examples/fat"]
 
 [features]
-default = ["viz", "zip", "mfi", "fat"]
+default = ["viz", "zip", "tar", "mfi", "td0", "fat"]
 wasm = ["async", "wasm-bindgen", "wasm-bindgen-futures"]
 serde = ["dep:serde", "dep:typetag", "bit-vec/serde_std", "bitflags/serde"]
 tokio-async = ["async", "tokio"]
 async = []
 viz = ["dep:tiny-skia"]
 zip = ["dep:zip"]
+tar = ["dep:tar"]
 mfi = ["dep:flate2"]
+td0 = ["dep:num-traits", "dep:num-derive"]
 fat = ["dep:fluxfox_fat"]
 plot = ["dep:plotly"]
 
