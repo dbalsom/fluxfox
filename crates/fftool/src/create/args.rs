@@ -1,5 +1,5 @@
 /*
-    fluxfox - fftool
+    fftool
     https://github.com/dbalsom/fluxfox
 
     Copyright 2024 Daniel Balsom
@@ -24,12 +24,31 @@
 
     --------------------------------------------------------------------------
 */
-use crate::{args::GlobalOptions, find::args::FindParams};
-use anyhow::Error;
+use crate::args::*;
+use bpaf::{construct, long, Parser};
+use fluxfox::prelude::*;
+use std::path::PathBuf;
 
-pub mod args;
+#[derive(Clone, Debug)]
+pub(crate) struct CreateParams {
+    pub(crate) out_file:    PathBuf,
+    pub(crate) disk_format: StandardFormatParam,
+    pub(crate) formatted:   bool,
+    pub(crate) sector_test: bool,
+}
 
-pub(crate) fn run(_global: &GlobalOptions, _params: &FindParams) -> Result<(), Error> {
-    println!("Find command not implemented yet");
-    Ok(())
+pub(crate) fn create_parser() -> impl Parser<CreateParams> {
+    let out_file = out_file_parser();
+    let disk_format = standard_format_parser();
+    let formatted = long("formatted").switch().help("Format the new disk image.");
+    let sector_test = long("sector_test")
+        .switch()
+        .help("Create a sector test image [internal use].");
+
+    construct!(CreateParams {
+        out_file,
+        disk_format,
+        formatted,
+        sector_test,
+    })
 }

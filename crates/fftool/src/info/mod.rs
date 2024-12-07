@@ -30,7 +30,7 @@ use fluxfox::{flux::FluxRevolutionType, prelude::*};
 
 pub mod args;
 
-pub(crate) fn run(_global: &GlobalOptions, params: args::InfoParams) -> Result<(), Error> {
+pub(crate) fn run(_global: &GlobalOptions, params: &args::InfoParams) -> Result<(), Error> {
     let mut reader = read_file(&params.in_file)?;
 
     let disk_image_type = match DiskImage::detect_format(&mut reader) {
@@ -42,7 +42,7 @@ pub(crate) fn run(_global: &GlobalOptions, params: args::InfoParams) -> Result<(
 
     println!("Detected disk image type: {}", disk_image_type);
 
-    let mut disk = match DiskImage::load(&mut reader, Some(params.in_file), None, None) {
+    let mut disk = match DiskImage::load(&mut reader, Some(params.in_file.clone()), None, None) {
         Ok(disk) => disk,
         Err(e) => {
             bail!("Error loading disk image: {}", e);

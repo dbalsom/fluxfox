@@ -32,7 +32,7 @@ use std::io::{BufWriter, Write};
 use crate::{args::GlobalOptions, read_file};
 use fluxfox::prelude::*;
 
-pub(crate) fn run(global: &GlobalOptions, params: args::DumpParams) -> Result<(), Error> {
+pub(crate) fn run(global: &GlobalOptions, params: &args::DumpParams) -> Result<(), Error> {
     let row_size = params.row_size.unwrap_or(16) as usize;
     let mut cursor = read_file(&params.in_file)?;
 

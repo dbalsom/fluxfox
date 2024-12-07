@@ -31,7 +31,7 @@ use anyhow::{bail, Error};
 use fluxfox::prelude::*;
 use std::io::Cursor;
 
-pub(crate) fn run(global: &GlobalOptions, params: args::ConvertParams) -> Result<(), Error> {
+pub(crate) fn run(global: &GlobalOptions, params: &args::ConvertParams) -> Result<(), Error> {
     let mut reader = read_file(&params.in_file)?;
 
     let disk_image_type = match DiskImage::detect_format(&mut reader) {
@@ -86,7 +86,7 @@ pub(crate) fn run(global: &GlobalOptions, params: args::ConvertParams) -> Result
         println!("PROLOK holes will be created in output image.");
     }
 
-    match output_format.can_write(&in_disk) {
+    match output_format.can_write(Some(&in_disk)) {
         ParserWriteCompatibility::Ok => {
             println!("Output format is compatible with input image.");
         }

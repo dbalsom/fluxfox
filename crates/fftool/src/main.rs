@@ -27,15 +27,15 @@
 
 pub mod args;
 pub mod convert;
+pub mod create;
 pub mod dump;
 mod find;
 pub mod info;
 mod prompt;
 
-use anyhow::{Context, Error};
+use anyhow::Error;
 use bpaf::Parser;
-use std::io::Cursor;
-use std::path::Path;
+use std::{io::Cursor, path::Path};
 
 use crate::args::Command;
 use args::command_parser;
@@ -45,15 +45,27 @@ fn main() -> Result<(), Error> {
 
     let app_params = command_parser().run();
 
-    match app_params.command {
+    let command_result = match &app_params.command {
         Command::Version => {
             println!("fftool v{}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
-        Command::Find(params) => find::run(&app_params.global, params).context("Find command failed"),
-        Command::Convert(params) => convert::run(&app_params.global, params).context("Convert command failed"),
-        Command::Dump(params) => dump::run(&app_params.global, params).context("Dump command failed"),
-        Command::Info(params) => info::run(&app_params.global, params).context("Info command failed"),
+        Command::Find(params) => find::run(&app_params.global, params),
+        Command::Convert(params) => convert::run(&app_params.global, params),
+        Command::Create(params) => create::run(&app_params.global, params),
+        Command::Dump(params) => dump::run(&app_params.global, params),
+        Command::Info(params) => info::run(&app_params.global, params),
+    };
+
+    match command_result {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            eprintln!("Command '{}' failed: {}", app_params.command, e);
+            for cause in e.chain().skip(1) {
+                eprintln!("Caused by: {}", cause);
+            }
+            std::process::exit(1);
+        }
     }
 }
 
