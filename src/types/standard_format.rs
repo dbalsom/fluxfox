@@ -34,17 +34,17 @@
 
     fluxfox currently supports (or aims to support) the following formats:
 
-        160K  DD Single-Sided 5.25"
-        180K  DD Single-Sided 5.25"
-        320K  DD Double-Sided 5.25"
-        360K  DD Double-Sided 5.25"
-        720K  DD Double-Sided 3.5"
-        1.2M  HD Double-Sided 5.25"
-        1.44M HD Double-Sided 3.5"
-        2.88M ED Double-Sided 3.5"
+        PC   160K  DD Single-Sided 5.25"
+        PC   180K  DD Single-Sided 5.25"
+        PC   320K  DD Double-Sided 5.25"
+        PC   360K  DD Double-Sided 5.25"
+        PC   720K  DD Double-Sided 3.5"
+        PC   1.2M  HD Double-Sided 5.25"
+        PC   1.44M HD Double-Sided 3.5"
+        PC   2.88M ED Double-Sided 3.5"
 */
 
-//! The `standard_format` module defines the `StandardFormat` enum that defines parameters for
+//! The `standard_format` module defines the [StandardFormat] enum that defines parameters for
 //! several standard PC disk formats.
 
 use crate::{
@@ -58,6 +58,76 @@ use std::{
     fmt::{Display, Formatter},
     str::FromStr,
 };
+
+/// A newtype for [StandardFormat] for use in parsing [StandardFormat] from user-provided strings,
+/// such as command-line arguments.
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
+pub struct StandardFormatParam(pub StandardFormat);
+
+impl FromStr for StandardFormatParam {
+    type Err = String;
+    /// Implement FromStr for StandardFormat.
+    /// This can be used by utilities that wish to take a StandardFormat as a command-line argument.
+    /// For backwards compatibility, formats strings can specify a pc_ prefix to refer to PC disk
+    /// formats, but it is not required.
+    /// Non-pc formats will require the appropriate prefix.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s
+            .to_lowercase()
+            .strip_prefix("pc_")
+            .unwrap_or(s.to_lowercase().as_str())
+        {
+            "160k" => Ok(StandardFormatParam(StandardFormat::PcFloppy160)),
+            "180k" => Ok(StandardFormatParam(StandardFormat::PcFloppy180)),
+            "320k" => Ok(StandardFormatParam(StandardFormat::PcFloppy320)),
+            "360k" => Ok(StandardFormatParam(StandardFormat::PcFloppy360)),
+            "720k" => Ok(StandardFormatParam(StandardFormat::PcFloppy720)),
+            "1200k" => Ok(StandardFormatParam(StandardFormat::PcFloppy1200)),
+            "1440k" => Ok(StandardFormatParam(StandardFormat::PcFloppy1440)),
+            "2880k" => Ok(StandardFormatParam(StandardFormat::PcFloppy2880)),
+            _ => Err(format!("Invalid format: {}", s)),
+        }
+    }
+}
+
+impl Display for StandardFormatParam {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        match self.0 {
+            StandardFormat::PcFloppy160 => write!(f, "pc_160k"),
+            StandardFormat::PcFloppy180 => write!(f, "pc_180k"),
+            StandardFormat::PcFloppy320 => write!(f, "pc_320k"),
+            StandardFormat::PcFloppy360 => write!(f, "pc_360k"),
+            StandardFormat::PcFloppy720 => write!(f, "pc_720k"),
+            StandardFormat::PcFloppy1200 => write!(f, "pc_1200k"),
+            StandardFormat::PcFloppy1440 => write!(f, "pc_1440k"),
+            StandardFormat::PcFloppy2880 => write!(f, "pc_2880k"),
+        }
+    }
+}
+
+impl From<StandardFormat> for StandardFormatParam {
+    fn from(format: StandardFormat) -> Self {
+        StandardFormatParam(format)
+    }
+}
+
+impl StandardFormatParam {
+    /// Return a list of all supported StandardFormats and their string representations
+    /// as StandardFormatParam's. This method can be used to generate help text for utilities
+    /// that accept StandardFormat as a command-line argument.
+    pub fn list() -> Vec<(String, StandardFormat)> {
+        vec![
+            ("pc_160k".to_string(), StandardFormat::PcFloppy160),
+            ("pc_180k".to_string(), StandardFormat::PcFloppy180),
+            ("pc_320k".to_string(), StandardFormat::PcFloppy320),
+            ("pc_360k".to_string(), StandardFormat::PcFloppy360),
+            ("pc_720k".to_string(), StandardFormat::PcFloppy720),
+            ("pc_1200k".to_string(), StandardFormat::PcFloppy1200),
+            ("pc_1440k".to_string(), StandardFormat::PcFloppy1440),
+            ("pc_2880k".to_string(), StandardFormat::PcFloppy2880),
+        ]
+    }
+}
 
 /// An enumeration describing one of several standard PC disk formats.
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
@@ -96,28 +166,15 @@ impl Display for StandardFormat {
     }
 }
 
-impl FromStr for StandardFormat {
-    type Err = String;
-    /// Implement FromStr for StandardFormat.
-    /// This can be used by utilities that wish to take a StandardFormat as a command-line argument.
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "160k" => Ok(StandardFormat::PcFloppy160),
-            "180k" => Ok(StandardFormat::PcFloppy180),
-            "320k" => Ok(StandardFormat::PcFloppy320),
-            "360k" => Ok(StandardFormat::PcFloppy360),
-            "720k" => Ok(StandardFormat::PcFloppy720),
-            "1200k" => Ok(StandardFormat::PcFloppy1200),
-            "1440k" => Ok(StandardFormat::PcFloppy1440),
-            "2880k" => Ok(StandardFormat::PcFloppy2880),
-            _ => Err(format!("Invalid format: {}", s)),
-        }
+impl From<StandardFormatParam> for StandardFormat {
+    fn from(param: StandardFormatParam) -> Self {
+        param.0
     }
 }
 
 impl StandardFormat {
     /// Return a vector of all StandardFormat variants.
-    pub fn list(&self) -> Vec<StandardFormat> {
+    pub fn list() -> Vec<StandardFormat> {
         vec![
             StandardFormat::PcFloppy160,
             StandardFormat::PcFloppy180,
