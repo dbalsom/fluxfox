@@ -181,11 +181,11 @@ impl From<StandardFormat> for BiosParameterBlock2 {
             },
             StandardFormat::PcFloppy1200 => BiosParameterBlock2 {
                 bytes_per_sector: 512,
-                sectors_per_cluster: 2,
+                sectors_per_cluster: 1,
                 reserved_sectors: 1,
                 number_of_fats: 2,
-                root_entries: 0xE0,
-                total_sectors: 1200,
+                root_entries: 0xE0, // 224
+                total_sectors: 2400,
                 media_descriptor: 0xF9,
                 sectors_per_fat: 7,
             },
