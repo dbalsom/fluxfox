@@ -551,17 +551,17 @@ impl Track for BitStreamTrack {
 
                 if write_deleted != deleted {
                     log::warn!(
-                                "write_sector(): Deleted mark mismatch, expected: {} got: {}. Changing sector data type not implemented",
-                                write_deleted,
-                                deleted
-                            );
+                        "write_sector(): Deleted mark mismatch, expected: {} got: {}. Changing sector data type not implemented",
+                        write_deleted,
+                        deleted
+                    );
                 }
 
                 data_len = write_data.len();
                 if sector_chsn.n_size() != data_len {
                     log::error!(
                         "write_sector(): Data buffer size mismatch, expected: {} got: {}",
-                        sector_chsn.n(),
+                        sector_chsn.n_size(),
                         write_data.len()
                     );
                     return Err(DiskImageError::ParameterError);
