@@ -435,7 +435,7 @@ impl MfiFormat {
             density: disk_density.unwrap_or(DiskDensity::Double),
             data_encoding: DiskDataEncoding::Mfm,
             default_sector_size: DEFAULT_SECTOR_SIZE,
-            rpm: None,
+            rpm: disk_rpm,
             write_protect: Some(true),
         };
 
