@@ -143,6 +143,18 @@ impl DiskStructureMetadata {
 
         data_ranges
     }
+
+    pub fn marker_ranges(&self) -> Vec<(usize, usize)> {
+        let mut marker_ranges = Vec::new();
+
+        for item in &self.items {
+            if let DiskStructureElement::System34(System34Element::Marker { .. }) = item.elem_type {
+                marker_ranges.push((item.start, item.end));
+            }
+        }
+
+        marker_ranges
+    }
 }
 
 #[derive(Copy, Clone, Debug)]
