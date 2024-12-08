@@ -48,7 +48,7 @@ use crate::{
 
 use crate::{
     flux::histogram::FluxHistogram,
-    types::{chs::DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskPhysicalDimensions, DiskRpm},
+    types::{chs::DiskCh, DiskDataEncoding, DiskDensity, DiskPhysicalDimensions, DiskRpm},
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,
@@ -581,8 +581,6 @@ impl MfiFormat {
             };
         }
 
-        let mut normal_index_time = 0.0;
-
         // Create a histogram of the flux times over the entire track.
         let mut hist = FluxHistogram::new(fts, 0.02);
 
@@ -605,7 +603,7 @@ impl MfiFormat {
 
             if (340.0..380.00).contains(&detected_rpm) {
                 // Detected 360RPM
-                normal_index_time = Self::adjust_flux_times(fts, 300.0 / 360.0);
+                let normal_index_time = Self::adjust_flux_times(fts, 300.0 / 360.0);
                 Some((normal_index_time, DiskRpm::Rpm360))
             }
             else if (280.0..320.00).contains(&detected_rpm) {
