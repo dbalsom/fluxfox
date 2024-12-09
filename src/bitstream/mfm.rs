@@ -640,42 +640,42 @@ impl Iterator for MfmCodec {
     type Item = bool;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // The bit cursor should always be aligned to a clock bit.
-        // So retrieve the next bit which is the data bit.
-        self.bit_cursor += 1;
-        let decoded_bit = if self.weak_enabled && self.weak_mask[self.bit_cursor] {
-            // Weak bits return random data
+        // The bit cursor should always be aligned to a clock bit. If it is not, we can try to nudge
+        // it to the next clock bit. If the next bit is also not a clock bit, we are in an
+        // unsynchronized region and can't really do anything about it.
+        if !self.clock_map[self.bit_cursor] && self.clock_map[self.bit_cursor + 1] {
+            self.bit_cursor += 1;
+            log::debug!("next(): nudging to next clock bit @ {:05X}", self.bit_cursor);
+        }
+        // Now that we are (hopefully) aligned to a clock bit, retrieve the next bit which should
+        // be a data bit, or return a random bit if weak bits are enabled and the current bit is weak.
+        let decoded_bit = if self.weak_enabled && self.weak_mask[self.bit_cursor + 1] {
             rand::random()
         }
         else {
-            self.bits[self.bit_cursor]
+            self.bits[self.bit_cursor + 1]
         };
 
-        self.bit_cursor += 1;
+        // Advance to the next clock bit.
+        self.bit_cursor += 2;
         Some(decoded_bit)
     }
 }
 
 impl Seek for MfmCodec {
     fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
-        let (base, offset) = match pos {
-            // TODO: avoid casting to isize
-            SeekFrom::Start(offset) => (0, offset as isize),
-            SeekFrom::End(offset) => (self.bits.len() as isize, offset as isize),
-            SeekFrom::Current(offset) => (self.bit_cursor as isize, offset as isize),
+        let mut new_cursor = match pos {
+            SeekFrom::Start(offset) => offset as usize,
+            SeekFrom::End(offset) => self.bits.len().saturating_add_signed(offset as isize),
+            SeekFrom::Current(offset) => self.bit_cursor.saturating_add_signed(offset as isize),
         };
 
-        let new_pos = base.checked_add(offset).ok_or(Error::new(
-            ErrorKind::InvalidInput,
-            "invalid seek to a negative or overflowed position",
-        ))?;
-
-        let mut new_cursor = new_pos as usize;
-
         // If we have seeked to a data bit, nudge the bit cursor to the next clock bit.
-        if !self.clock_map[new_cursor] {
-            //log::trace!("seek(): nudging to next clock bit");
+        // Don't bother if the next bit isn't a clock bit either, as we're in some unsynchronized
+        // track region.
+        if !self.clock_map[new_cursor] && self.clock_map[new_cursor + 1] {
             new_cursor += 1;
+            log::debug!("seek(): nudging to next clock bit @ {:05X}", new_cursor);
         }
 
         self.bit_cursor = new_cursor;
