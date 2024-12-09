@@ -273,7 +273,7 @@ fn main() {
                 DiskChsn::from((id_chs, opts.n.unwrap_or(2))),
                 scope
             );
-            _ = fluxfox::util::dump_slice(data_slice, 0, opts.row_size, &mut buf);
+            _ = fluxfox::util::dump_slice(data_slice, 0, opts.row_size, 1, &mut buf);
 
             // If we requested DataBlock scope, we can independently calculate the CRC, so do that now.
             if calc_crc {
@@ -297,6 +297,6 @@ fn main() {
             }
         };
 
-        _ = fluxfox::util::dump_slice(&rtr.read_buf, 0, opts.row_size, &mut buf);
+        _ = fluxfox::util::dump_slice(&rtr.read_buf, 0, opts.row_size, 1, &mut buf);
     }
 }

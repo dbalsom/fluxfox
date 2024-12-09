@@ -127,6 +127,7 @@ pub fn dump_slice<W: crate::io::Write>(
     data_slice: &[u8],
     start_address: usize,
     bytes_per_row: usize,
+    element_size: usize,
     mut out: W,
 ) -> Result<(), DiskImageError> {
     let rows = data_slice.len() / bytes_per_row;
@@ -134,7 +135,12 @@ pub fn dump_slice<W: crate::io::Write>(
 
     // Print all full rows.
     for r in 0..rows {
-        out.write_fmt(format_args!("{:05X} | ", r * bytes_per_row + start_address))?;
+        // Print address
+        // TODO - calculate address width from maximum address
+        out.write_fmt(format_args!(
+            "{:05X} | ",
+            r * bytes_per_row * element_size + start_address
+        ))?;
         for b in 0..bytes_per_row {
             out.write_fmt(format_args!("{:02X} ", data_slice[r * bytes_per_row + b]))?;
         }
@@ -152,7 +158,11 @@ pub fn dump_slice<W: crate::io::Write>(
 
     // Print last incomplete row, if any bytes left over.
     if last_row_size > 0 {
-        out.write_fmt(format_args!("{:05X} | ", rows * bytes_per_row))?;
+        // Print address
+        out.write_fmt(format_args!(
+            "{:05X} | ",
+            rows * bytes_per_row * element_size + start_address
+        ))?;
         for b in 0..bytes_per_row {
             if b < last_row_size {
                 out.write_fmt(format_args!("{:02X} ", data_slice[rows * bytes_per_row + b]))?;
