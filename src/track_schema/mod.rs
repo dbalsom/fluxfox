@@ -23,53 +23,66 @@
     DEALINGS IN THE SOFTWARE.
 
     --------------------------------------------------------------------------
-
-    src/structure_parser/mod.rs
-
-    Main module for a disk structure parser module.
-
-    After the bitstream has been decoded, a structure parser is responsible for
-    interpreting the layout of syncs, gaps, address marks and data. It is also
-    responsible for encoding data to be written back into a compatible layout.
-
-    A DiskStructureParser trait is defined here that can be implemented by
-    different parser types. For the time being, only the IBM System 32 (standard
-    PC floppy) type will be implemented.
 */
 
-//! The `structure_parsers` module defines a `DiskStructureParser` trait that can be implemented
-//! by different parser types.
+//! The `track_schema` module defines a `TrackSchema` trait that can be implemented
+//! by different track schema types.
 //!
-//! A disk structure parser is responsible for interpreting the layout of syncs, gaps, address marks
-//! after the basic decoding of a bitstream has been completed. It is also responsible for encoding
-//! data to be written back into a compatible layout.
+//! A track schema is responsible for interpreting the layout of syncs, gaps, and address markers on
+//! a track, relying on a track's [TrackCodec] to decode the actual underlying data representation,
+//! however a `TrackSchema` implementation need not be fully encoding agnostic - a certain schema
+//! may only ever have been paired with a specific encoding type.
 //!
-//! For the time being, only the IBM System 34 (standard PC floppy) format is implemented.
+//! A `TrackSchema` also defines the layout of a track for formatting operations, and defines any
+//! applicable CRC algorithm.
+//!
+//! A `TrackSchema` typically contains no state.
+//!
+//! For the time being, only the IBM System 34 schema used by IBM PC floppy disks is implemented.
+//! This format is also used by 1.44MB HD MFM Macintosh diskettes.
 
+mod dispatch;
 pub mod system34;
 
 use crate::{
     bitstream::{mfm::MFM_BYTE_LEN, TrackDataStream},
-    structure_parsers::system34::{System34Element, System34Marker},
+    track_schema::system34::{System34Element, System34Marker},
     types::chs::DiskChsn,
 };
 use bit_vec::BitVec;
+use std::fmt::{self, Display, Formatter};
+
+pub use TrackSchemaTrait as Schema;
+
+#[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum TrackSchema {
+    System34,
+}
+
+impl Display for TrackSchema {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            TrackSchema::System34 => write!(f, "IBM System34"),
+        }
+    }
+}
 
 /// A `DiskStructureMetadata` structure represents a collection of metadata items found in a track.
 #[derive(Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct DiskStructureMetadata {
-    pub items: Vec<DiskStructureMetadataItem>,
+pub struct TrackMetadata {
+    pub items: Vec<TrackMetadataItem>,
 }
 
-impl DiskStructureMetadata {
+impl TrackMetadata {
     /// Create a new `DiskStructureMetadata` instance from the specified items.
-    pub fn new(items: Vec<DiskStructureMetadataItem>) -> Self {
-        DiskStructureMetadata { items }
+    pub fn new(items: Vec<TrackMetadataItem>) -> Self {
+        TrackMetadata { items }
     }
 
     /// Add a new metadata item to the collection.
-    pub fn add_item(&mut self, item: DiskStructureMetadataItem) {
+    pub fn add_item(&mut self, item: TrackMetadataItem) {
         self.items.push(item);
     }
 
@@ -80,7 +93,7 @@ impl DiskStructureMetadata {
     /// # Returns
     /// A tuple containing a reference to the metadata item and the count of matching items, or `None`
     /// if no match was found.
-    pub fn item_at(&self, index: usize) -> Option<(&DiskStructureMetadataItem, u32)> {
+    pub fn item_at(&self, index: usize) -> Option<(&TrackMetadataItem, u32)> {
         let mut ref_stack = Vec::new();
         let mut match_ct = 0;
         for item in &self.items {
@@ -118,7 +131,7 @@ impl DiskStructureMetadata {
         let mut sector_ids = Vec::new();
 
         for item in &self.items {
-            if let DiskStructureElement::System34(System34Element::SectorHeader { chsn, .. }) = item.elem_type {
+            if let TrackElement::System34(System34Element::SectorHeader { chsn, .. }) = item.elem_type {
                 sector_ids.push(chsn);
             }
         }
@@ -134,7 +147,7 @@ impl DiskStructureMetadata {
         let mut data_ranges = Vec::new();
 
         for item in &self.items {
-            if let DiskStructureElement::System34(System34Element::Data { .. }) = item.elem_type {
+            if let TrackElement::System34(System34Element::Data { .. }) = item.elem_type {
                 // Should the data range for a sector include the address mark?
                 // For now we will exclude it.
                 data_ranges.push((item.start + (4 * MFM_BYTE_LEN), item.end));
@@ -148,7 +161,7 @@ impl DiskStructureMetadata {
         let mut marker_ranges = Vec::new();
 
         for item in &self.items {
-            if let DiskStructureElement::System34(System34Element::Marker { .. }) = item.elem_type {
+            if let TrackElement::System34(System34Element::Marker { .. }) = item.elem_type {
                 marker_ranges.push((item.start, item.end));
             }
         }
@@ -158,8 +171,8 @@ impl DiskStructureMetadata {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct DiskStructureMarkerItem {
-    pub(crate) elem_type: DiskStructureMarker,
+pub struct TrackMarkerItem {
+    pub(crate) elem_type: TrackMarker,
     pub(crate) start: usize,
 }
 
@@ -168,8 +181,8 @@ pub struct DiskStructureMarkerItem {
 /// offsets) as well as optionally the status of any CRC field (valid for IDAM and DAM marks)
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct DiskStructureMetadataItem {
-    pub(crate) elem_type: DiskStructureElement,
+pub struct TrackMetadataItem {
+    pub(crate) elem_type: TrackElement,
     pub(crate) start: usize,
     pub(crate) end: usize,
     pub(crate) chsn: Option<DiskChsn>,
@@ -194,14 +207,14 @@ impl DiskStructureCrc {
 
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum DiskStructureMarker {
+pub enum TrackMarker {
     System34(System34Marker),
     Placeholder,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum DiskStructureGenericElement {
+pub enum TrackGenericElement {
     NoElement,
     Marker,
     SectorHeader,
@@ -214,55 +227,52 @@ pub enum DiskStructureGenericElement {
 
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum DiskStructureElement {
+pub enum TrackElement {
     System34(System34Element),
     Placeholder,
 }
 
-impl From<DiskStructureElement> for DiskStructureGenericElement {
-    fn from(elem: DiskStructureElement) -> Self {
+impl From<TrackElement> for TrackGenericElement {
+    fn from(elem: TrackElement) -> Self {
         match elem {
-            DiskStructureElement::System34(sys34elem) => sys34elem.into(),
-            _ => DiskStructureGenericElement::NoElement,
+            TrackElement::System34(sys34elem) => sys34elem.into(),
+            _ => TrackGenericElement::NoElement,
         }
     }
 }
 
-impl DiskStructureElement {
+impl TrackElement {
     pub fn is_sector_header(&self) -> bool {
-        matches!(
-            self,
-            DiskStructureElement::System34(System34Element::SectorHeader { .. })
-        )
+        matches!(self, TrackElement::System34(System34Element::SectorHeader { .. }))
     }
 
     pub fn is_sector_data_marker(&self) -> bool {
         match self {
-            DiskStructureElement::System34(elem) => elem.is_sector_data_marker(),
+            TrackElement::System34(elem) => elem.is_sector_data_marker(),
             _ => false,
         }
     }
 
     pub fn is_sector_data(&self) -> bool {
         match self {
-            DiskStructureElement::System34(elem) => elem.is_sector_data(),
+            TrackElement::System34(elem) => elem.is_sector_data(),
             _ => false,
         }
     }
 
     pub fn chsn(&self) -> Option<DiskChsn> {
         match self {
-            DiskStructureElement::System34(System34Element::SectorHeader { chsn, .. }) => Some(*chsn),
-            DiskStructureElement::System34(System34Element::Data { chsn, .. }) => Some(*chsn),
+            TrackElement::System34(System34Element::SectorHeader { chsn, .. }) => Some(*chsn),
+            TrackElement::System34(System34Element::Data { chsn, .. }) => Some(*chsn),
             _ => None,
         }
     }
 }
 
-/// The `DiskStructureParser` trait defines methods that must be implemented by a disk structure
+/// The `TrackSchemaTrait` trait defines methods that must be implemented by a disk structure
 /// parser. These methods are responsible for finding patterns of bytes within a bitstream, locating
 /// markers and elements, and scanning a track for metadata.
-pub trait DiskStructureParser {
+pub trait TrackSchemaTrait: Send + Sync {
     /// Find the provided pattern of decoded data bytes within the specified bitstream, starting at
     /// `offset` bits into the track.
     /// The pattern length is limited to 8 characters.
@@ -272,7 +282,7 @@ pub trait DiskStructureParser {
     /// * `offset` - The bit offset into the track to start searching.
     /// # Returns
     /// The bit offset of the pattern if found, otherwise `None`.
-    fn find_data_pattern(track: &TrackDataStream, pattern: &[u8], offset: usize) -> Option<usize>;
+    fn find_data_pattern(&self, track: &TrackDataStream, pattern: &[u8], offset: usize) -> Option<usize>;
 
     /// Find the next marker within the specified bitstream, starting at `offset` bits into the track.
     /// # Arguments
@@ -280,7 +290,7 @@ pub trait DiskStructureParser {
     /// * `offset` - The bit offset into the track to start searching.
     /// # Returns
     /// A tuple containing the marker value and the bit offset of the marker if found, otherwise `None`.
-    fn find_next_marker(track: &TrackDataStream, offset: usize) -> Option<(DiskStructureMarker, usize)>;
+    fn find_next_marker(&self, track: &TrackDataStream, offset: usize) -> Option<(TrackMarker, usize)>;
 
     /// Find a specific marker within the specified bitstream, starting at `offset` bits into the track.
     /// # Arguments
@@ -291,8 +301,9 @@ pub trait DiskStructureParser {
     /// # Returns
     /// A tuple containing the bit offset of the marker and the marker value if found, otherwise `None`.
     fn find_marker(
+        &self,
         track: &TrackDataStream,
-        marker: DiskStructureMarker,
+        marker: TrackMarker,
         offset: usize,
         limit: Option<usize>,
     ) -> Option<(usize, u16)>;
@@ -305,14 +316,14 @@ pub trait DiskStructureParser {
     /// * `offset` - The bit offset into the track to start searching.
     /// # Returns
     /// The bit offset of the element if found, otherwise `None`.
-    fn find_element(track: &TrackDataStream, element: DiskStructureElement, offset: usize) -> Option<usize>;
+    fn find_element(&self, track: &TrackDataStream, element: TrackElement, offset: usize) -> Option<usize>;
 
     /// Scan the specified track for markers.
     /// # Arguments
     /// * `track` - The bitstream to scan for markers.
     /// # Returns
     /// A vector of `DiskStructureMarkerItem` instances representing the markers found in the track.
-    fn scan_track_markers(track: &TrackDataStream) -> Vec<DiskStructureMarkerItem>;
+    fn scan_track_markers(&self, track: &TrackDataStream) -> Vec<TrackMarkerItem>;
 
     /// Scan the specified track for metadata.
     /// # Arguments
@@ -320,17 +331,15 @@ pub trait DiskStructureParser {
     /// * `markers` - A vector of `DiskStructureMarkerItem` instances representing the markers found in the track.
     /// # Returns
     /// A vector of `DiskStructureMetadataItem` instances representing the metadata found in the track.
-    fn scan_track_metadata(
-        track: &mut TrackDataStream,
-        markers: Vec<DiskStructureMarkerItem>,
-    ) -> Vec<DiskStructureMetadataItem>;
+    fn scan_track_metadata(&self, track: &mut TrackDataStream, markers: Vec<TrackMarkerItem>)
+        -> Vec<TrackMetadataItem>;
 
     /// Create a clock map from the specified markers. A clock map enables random access into an encoded
     /// bitstream containing both clock and data bits.
     /// # Arguments
     /// * `markers` - A vector of `DiskStructureMarkerItem` instances representing the markers found in the track.
     /// * `clock_map` - A mutable reference to a `BitVec` instance to store the clock map.
-    fn create_clock_map(markers: &[DiskStructureMarkerItem], clock_map: &mut BitVec);
+    fn create_clock_map(&self, markers: &[TrackMarkerItem], clock_map: &mut BitVec);
 
     /// Calculate a 16-bit CRC for a region of the specified track. The region is assumed to end with
     /// a CRC value.
@@ -339,7 +348,16 @@ pub trait DiskStructureParser {
     /// * `bit_index` - The bit index to start calculating the CRC from.
     /// * `end` - The bit index to stop calculating the CRC at.
     /// # Returns
-    /// A tuple containing the CRC value as specified by the track and the CRC value calculated from the
-    /// data read.
-    fn crc16(track: &mut TrackDataStream, bit_index: usize, end: usize) -> (u16, u16);
+    /// A tuple containing the CRC value as specified by the track data and the calculated CRC
+    /// value.
+    fn crc16(&self, track: &mut TrackDataStream, bit_index: usize, end: usize) -> (u16, u16);
+
+    /// Calculate a 16-bit CRC for the specified byte slice. The end of the slice should contain the
+    /// encoded CRC.
+    /// # Arguments
+    /// * `data` - A byte slice representing the data to calculate a CRC for.
+    /// # Returns
+    /// A tuple containing the CRC value contained in the byte slice, and the calculated CRC
+    /// value.
+    fn crc16_bytes(&self, data: &[u8]) -> (u16, u16);
 }

@@ -38,21 +38,22 @@ use crate::{
         TrackDataStream,
     },
     io::SeekFrom,
-    structure_parsers::{
+    track::{fluxstream::FluxStreamTrack, metasector::MetaSectorTrack},
+    track_schema::{
         system34::{
             System34Element,
             System34Marker,
-            System34Parser,
+            System34Schema,
             System34Standard,
             DAM_MARKER_BYTES,
             DDAM_MARKER_BYTES,
         },
-        DiskStructureElement,
-        DiskStructureMetadata,
-        DiskStructureMetadataItem,
-        DiskStructureParser,
+        TrackElement,
+        TrackMetadata,
+        TrackMetadataItem,
+        TrackSchema,
+        TrackSchemaTrait,
     },
-    track::{fluxstream::FluxStreamTrack, metasector::MetaSectorTrack},
     types::{
         chs::DiskChsnQuery,
         BitStreamTrackParams,
@@ -69,6 +70,7 @@ use crate::{
         RwSectorScope,
         ScanSectorResult,
         SectorAttributes,
+        SectorCrc,
         SectorDescriptor,
         SharedDiskContext,
         WriteSectorResult,
@@ -92,8 +94,9 @@ pub struct BitStreamTrack {
     pub(crate) rpm: Option<DiskRpm>,
     pub(crate) ch: DiskCh,
     pub(crate) data: TrackDataStream,
-    pub(crate) metadata: DiskStructureMetadata,
+    pub(crate) metadata: TrackMetadata,
     pub(crate) sector_ids: Vec<DiskChsn>,
+    pub(crate) schema: Option<TrackSchema>,
     #[cfg_attr(feature = "serde", serde(skip))]
     pub(crate) shared: Option<Arc<Mutex<SharedDiskContext>>>,
 }
@@ -143,6 +146,7 @@ impl Track for BitStreamTrack {
     fn info(&self) -> TrackInfo {
         TrackInfo {
             encoding: self.encoding,
+            schema: self.schema,
             data_rate: self.data_rate,
             density: Some(DiskDensity::from(self.data_rate)),
             rpm: self.rpm,
@@ -151,7 +155,7 @@ impl Track for BitStreamTrack {
         }
     }
 
-    fn metadata(&self) -> Option<&DiskStructureMetadata> {
+    fn metadata(&self) -> Option<&TrackMetadata> {
         Some(&self.metadata)
     }
 
@@ -167,7 +171,7 @@ impl Track for BitStreamTrack {
 
     fn has_sector_id(&self, id: u8, _id_chsn: Option<DiskChsn>) -> bool {
         for item in &self.metadata.items {
-            if let DiskStructureElement::System34(System34Element::Marker(System34Marker::Idam, _)) = item.elem_type {
+            if let TrackElement::System34(System34Element::Marker(System34Marker::Idam, _)) = item.elem_type {
                 if let Some(chsn) = item.chsn {
                     if chsn.s() == id {
                         return true;
@@ -181,7 +185,7 @@ impl Track for BitStreamTrack {
     fn sector_list(&self) -> Vec<SectorMapEntry> {
         let mut sector_list = Vec::new();
         for item in &self.metadata.items {
-            if let DiskStructureElement::System34(System34Element::Data {
+            if let TrackElement::System34(System34Element::Data {
                 address_crc,
                 data_crc,
                 deleted,
@@ -209,8 +213,8 @@ impl Track for BitStreamTrack {
     }
 
     /// Read the sector data from the sector identified by 'chs'. The data is returned within a
-    /// ReadSectorResult struct which also sets some convenience metadata flags where are needed
-    /// when handling ByteStream images.
+    /// ReadSectorResult struct which also sets some convenience metadata flags which are needed
+    /// when handling MetaSector images.
     /// When reading a BitStream image, the sector data includes the address mark and crc.
     /// Offsets are provided within ReadSectorResult so these can be skipped when processing the
     /// read operation.
@@ -233,10 +237,15 @@ impl Track for BitStreamTrack {
         let mut wrong_cylinder = false;
         let mut bad_cylinder = false;
         let mut wrong_head = false;
+        let mut data_crc = None;
+
+        if self.schema.is_none() {
+            return Err(DiskImageError::SchemaError);
+        }
+        let schema = self.schema.unwrap();
 
         // Read index first to avoid borrowing issues in next match.
         let bit_index = self.get_sector_bit_index(id, offset);
-
         let mut id_chsn = None;
 
         match bit_index {
@@ -250,17 +259,19 @@ impl Track for BitStreamTrack {
                 address_crc_error = !address_crc_valid;
                 return Ok(ReadSectorResult {
                     id_chsn: Some(sector_chsn),
-                    data_idx: 0,
-                    data_len: 0,
-                    read_buf: Vec::new(),
-                    deleted_mark: false,
                     not_found: false,
                     no_dam: true,
+                    deleted_mark: false,
                     address_crc_error,
+                    address_crc: None,
                     data_crc_error: false,
+                    data_crc: None,
                     wrong_cylinder: false,
                     bad_cylinder: false,
                     wrong_head: false,
+                    data_idx: 0,
+                    data_len: 0,
+                    read_buf: Vec::new(),
                 });
             }
             TrackSectorScanResult::Found {
@@ -273,7 +284,8 @@ impl Track for BitStreamTrack {
             } => {
                 address_crc_error = !address_crc_valid;
                 id_chsn = Some(sector_chsn);
-                // If there is a bad address mark we do not read the data unless the debug flag is set.
+                // If there is a bad address mark, we do not read the sector data, unless the debug
+                // flag is set.
                 // This allows dumping of sectors with bad address marks for debugging purposes.
                 // So if the debug flag is not set, return our 'failure' now.
                 if address_crc_error && !debug {
@@ -283,7 +295,9 @@ impl Track for BitStreamTrack {
                         no_dam: false,
                         deleted_mark: false,
                         address_crc_error: true,
+                        address_crc: None,
                         data_crc_error: false,
+                        data_crc: None,
                         wrong_cylinder: false,
                         bad_cylinder: false,
                         wrong_head: false,
@@ -296,12 +310,15 @@ impl Track for BitStreamTrack {
                 deleted_mark = deleted;
                 data_crc_error = !data_crc_valid;
 
+                // TODO: All this should be moved into TrackSchema logic - we shouldn't have to know
+                //       about the formatting details in Track
+
                 // The caller can request the scope of the read to be the entire data block
                 // including address mark and crc bytes, or just the data. Handle offsets accordingly.
-                let (scope_read_off, scope_data_off, scope_data_adj) = match scope {
-                    // Add 4 bytes for address mark and 2 bytes for CRC.
-                    RwSectorScope::DataElement => (0, 4, 6),
-                    RwSectorScope::DataOnly => (64, 0, 0),
+                let (scope_start, scope_end) = match scope {
+                    // Add 4 bytes to data length for address mark (always read CRC)
+                    RwSectorScope::DataElement => (0, 0),
+                    RwSectorScope::DataOnly => (4, 2),
                     _ => return Err(DiskImageError::ParameterError),
                 };
 
@@ -330,9 +347,11 @@ impl Track for BitStreamTrack {
                 else {
                     data_len = sector_chsn.n_size();
                 }
-                data_idx = scope_data_off;
+                data_idx = scope_start;
 
-                read_vec = vec![0u8; data_len + scope_data_adj];
+                // Add 6 bytes for DAM and CRC
+                // TODO: Get rid of this magic number
+                read_vec = vec![0u8; data_len + 6];
 
                 log::trace!(
                     "read_sector(): Found DAM for Sector ID: {} at offset: {:?} read length: {}",
@@ -341,11 +360,36 @@ impl Track for BitStreamTrack {
                     read_vec.len()
                 );
 
-                log::trace!("read_sector(): Seeking to offset: {}", element_start + scope_read_off);
+                log::trace!("read_sector(): Seeking to offset: {}", element_start);
 
                 // 0.2: Avoid read trait, as it requires a mutable reference.
-                self.data
-                    .read_decoded_buf(&mut read_vec, element_start + scope_read_off);
+                self.data.read_decoded_buf(&mut read_vec, element_start);
+
+                // Calculate the CRC independently of metadata
+                let crc = SectorCrc::from(schema.crc16_bytes(&read_vec));
+
+                // Sanity check: Read CRC matches metadata?
+                if crc.valid().unwrap() != address_crc_valid {
+                    log::warn!(
+                        "read_sector(): CRC metadata mismatch: read {} metadata {}",
+                        crc.valid().unwrap(),
+                        address_crc_valid
+                    );
+                }
+                // Move crc into Option for return
+                data_crc = Some(crc);
+
+                // Trim the read buffer to the requested scope
+                read_vec = read_vec[scope_start..read_vec.len().saturating_sub(scope_end)].to_vec();
+
+                if read_vec.len() < data_len {
+                    log::error!(
+                        "read_sector(): Data buffer underrun, expected: {} got: {}",
+                        data_len,
+                        read_vec.len()
+                    );
+                    return Err(DiskImageError::DataError);
+                }
 
                 // self.data
                 //     .seek(SeekFrom::Start((element_start + scope_read_off) as u64))
@@ -385,7 +429,9 @@ impl Track for BitStreamTrack {
             not_found: false,
             no_dam: false,
             address_crc_error,
+            address_crc: None,
             data_crc_error,
+            data_crc,
             wrong_cylinder,
             bad_cylinder,
             wrong_head,
@@ -651,7 +697,7 @@ impl Track for BitStreamTrack {
 
     /// Read all sectors from the track identified by 'ch'. The data is returned within a
     /// ReadSectorResult struct which also sets some convenience metadata flags which are needed
-    /// when handling ByteStream images.
+    /// when handling MetaSector images.
     /// Unlike read_sectors, the data returned is only the actual sector data. The address marks and
     /// CRCs are not included in the data.
     /// This function is intended for use in implementing the Read Track FDC command.
@@ -816,7 +862,7 @@ impl Track for BitStreamTrack {
     ) -> Result<(), DiskImageError> {
         let bitcell_ct = self.data.len();
         let format_result =
-            System34Parser::format_track_as_bytes(standard, bitcell_ct, format_buffer, fill_pattern, gap3)?;
+            System34Schema::format_track_as_bytes(standard, bitcell_ct, format_buffer, fill_pattern, gap3)?;
 
         let new_bit_vec = self
             .data
@@ -828,19 +874,19 @@ impl Track for BitStreamTrack {
         );
         self.data.replace(new_bit_vec);
 
-        System34Parser::set_track_markers(&mut self.data, format_result.markers)?;
+        System34Schema::set_track_markers(&mut self.data, format_result.markers)?;
 
         // Scan the new track data for markers and create a clock map.
-        let markers = System34Parser::scan_track_markers(&self.data);
+        let markers = System34Schema::scan_track_markers(&self.data);
         if markers.is_empty() {
             log::error!("TrackData::format(): No markers found in track data post-format.");
         }
         else {
             log::trace!("TrackData::format(): Found {} markers in track data.", markers.len());
         }
-        System34Parser::create_clock_map(&markers, self.data.clock_map_mut());
+        System34Schema::create_clock_map(&markers, self.data.clock_map_mut());
 
-        let new_metadata = DiskStructureMetadata::new(System34Parser::scan_track_metadata(&mut self.data, markers));
+        let new_metadata = TrackMetadata::new(System34Schema::scan_track_metadata(&mut self.data, markers));
 
         let data_ranges = new_metadata.data_ranges();
         if !data_ranges.is_empty() {
@@ -887,7 +933,7 @@ impl Track for BitStreamTrack {
         }
 
         for item in &self.metadata.items {
-            if let DiskStructureElement::System34(System34Element::Data {
+            if let TrackElement::System34(System34Element::Data {
                 address_crc,
                 data_crc,
                 deleted,
@@ -969,12 +1015,12 @@ impl BitStreamTrack {
 
                 //log::debug!("add_track_bitstream(): Scanning for markers...");
                 let mut data_stream: TrackDataStream = Box::new(codec);
-                let markers = System34Parser::scan_track_markers(&data_stream);
+                let markers = System34Schema::scan_track_markers(&data_stream);
                 if !markers.is_empty() {
                     log::debug!("First marker found at {}", markers[0].start);
                 }
 
-                System34Parser::create_clock_map(&markers, data_stream.clock_map_mut());
+                System34Schema::create_clock_map(&markers, data_stream.clock_map_mut());
 
                 data_stream.set_track_padding();
 
@@ -1006,9 +1052,9 @@ impl BitStreamTrack {
                 }
 
                 let mut data_stream: TrackDataStream = Box::new(codec);
-                let markers = System34Parser::scan_track_markers(&data_stream);
+                let markers = System34Schema::scan_track_markers(&data_stream);
 
-                System34Parser::create_clock_map(&markers, data_stream.clock_map_mut());
+                System34Schema::create_clock_map(&markers, data_stream.clock_map_mut());
 
                 data_stream.set_track_padding();
 
@@ -1029,7 +1075,7 @@ impl BitStreamTrack {
         //     data_rate,
         // };
 
-        let metadata = DiskStructureMetadata::new(System34Parser::scan_track_metadata(&mut data_stream, markers));
+        let metadata = TrackMetadata::new(System34Schema::scan_track_metadata(&mut data_stream, markers));
         let sector_ids = metadata.get_sector_ids();
         if sector_ids.is_empty() {
             log::warn!(
@@ -1046,7 +1092,7 @@ impl BitStreamTrack {
             .items
             .iter()
             .filter_map(|i| {
-                if let DiskStructureElement::System34(System34Element::Data { .. }) = i.elem_type {
+                if let TrackElement::System34(System34Element::Data { .. }) = i.elem_type {
                     //log::trace!("Got Data element, returning start address: {}", i.start);
                     Some(i.start)
                 }
@@ -1069,6 +1115,7 @@ impl BitStreamTrack {
             ch: params.ch,
             data: data_stream,
             metadata,
+            schema: Some(TrackSchema::System34),
             sector_ids,
             shared: Some(shared),
         })
@@ -1118,17 +1165,17 @@ impl BitStreamTrack {
             }
 
             match mdi {
-                DiskStructureMetadataItem {
-                    elem_type: DiskStructureElement::System34(System34Element::Marker(System34Marker::Idam, _)),
+                TrackMetadataItem {
+                    elem_type: TrackElement::System34(System34Element::Marker(System34Marker::Idam, _)),
                     chsn,
                     ..
                 } => {
                     // Match the first IDAM seen as we are returning the first sector.
                     idam_chsn = *chsn;
                 }
-                DiskStructureMetadataItem {
+                TrackMetadataItem {
                     elem_type:
-                        DiskStructureElement::System34(System34Element::Data {
+                        TrackElement::System34(System34Element::Data {
                             address_crc,
                             data_crc,
                             deleted,
@@ -1184,14 +1231,14 @@ impl BitStreamTrack {
         let start_offset = offset.unwrap_or(0);
         let mut idam_chsn: Option<DiskChsn> = None;
         for mdi in &self.metadata.items {
-            let DiskStructureMetadataItem { elem_type, start, .. } = mdi;
+            let TrackMetadataItem { elem_type, start, .. } = mdi;
 
             if *start < start_offset {
                 continue;
             }
 
             match elem_type {
-                DiskStructureElement::System34(System34Element::SectorHeader {
+                TrackElement::System34(System34Element::SectorHeader {
                     chsn,
                     address_crc,
                     data_missing,
@@ -1236,7 +1283,7 @@ impl BitStreamTrack {
                     }
                     idam_chsn = Some(*chsn);
                 }
-                DiskStructureElement::System34(System34Element::Data {
+                TrackElement::System34(System34Element::Data {
                     address_crc,
                     data_crc,
                     deleted,

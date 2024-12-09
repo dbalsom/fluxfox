@@ -29,32 +29,26 @@
     Implements the Fluxstream track type and the Track trait for same.
 
 */
+
+use std::{
+    any::Any,
+    sync::{Arc, Mutex},
+};
+
 use super::{Track, TrackConsistency, TrackInfo};
 use crate::{
     bitstream::TrackDataStream,
     flux::{
         flux_revolution::FluxRevolution,
+        histogram::FluxHistogram,
         pll::{Pll, PllPreset},
     },
-    types::{
-        BitStreamTrackParams,
-        ReadSectorResult,
-        ReadTrackResult,
-        RwSectorScope,
-        ScanSectorResult,
-        SectorDescriptor,
-        SharedDiskContext,
-        WriteSectorResult,
-    },
-};
-
-use crate::{
-    flux::histogram::FluxHistogram,
     format_us,
-    structure_parsers::{system34::System34Standard, DiskStructureMetadata},
     track::{bitstream::BitStreamTrack, metasector::MetaSectorTrack},
+    track_schema::{system34::System34Standard, TrackMetadata, TrackSchema},
     types::{
         chs::DiskChsnQuery,
+        BitStreamTrackParams,
         DiskCh,
         DiskChs,
         DiskChsn,
@@ -63,19 +57,24 @@ use crate::{
         DiskDataResolution,
         DiskDensity,
         DiskRpm,
+        ReadSectorResult,
+        ReadTrackResult,
+        RwSectorScope,
+        ScanSectorResult,
+        SectorDescriptor,
+        SharedDiskContext,
+        WriteSectorResult,
     },
     DiskImageError,
     SectorMapEntry,
 };
+
 use sha1_smol::Digest;
-use std::{
-    any::Any,
-    sync::{Arc, Mutex},
-};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FluxStreamTrack {
     encoding: DiskDataEncoding,
+    schema: Option<TrackSchema>,
     data_rate: DiskDataRate,
     ch: DiskCh,
 
@@ -143,6 +142,7 @@ impl Track for FluxStreamTrack {
 
         TrackInfo {
             encoding: self.encoding,
+            schema: self.schema,
             data_rate: self.data_rate,
             density: Some(DiskDensity::from(self.data_rate)),
             rpm: Some(self.rpm),
@@ -151,7 +151,7 @@ impl Track for FluxStreamTrack {
         }
     }
 
-    fn metadata(&self) -> Option<&DiskStructureMetadata> {
+    fn metadata(&self) -> Option<&TrackMetadata> {
         if let Some(resolved) = self.get_bitstream() {
             return resolved.metadata();
         }
@@ -185,7 +185,7 @@ impl Track for FluxStreamTrack {
 
     /// Read the sector data from the sector identified by 'chs'. The data is returned within a
     /// ReadSectorResult struct which also sets some convenience metadata flags where are needed
-    /// when handling ByteStream images.
+    /// when handling MetaSector images.
     /// When reading a BitStream image, the sector data includes the address mark and crc.
     /// Offsets are provided within ReadSectorResult so these can be skipped when processing the
     /// read operation.
@@ -250,7 +250,7 @@ impl Track for FluxStreamTrack {
 
     /// Read all sectors from the track identified by 'ch'. The data is returned within a
     /// ReadSectorResult struct which also sets some convenience metadata flags which are needed
-    /// when handling ByteStream images.
+    /// when handling MetaSector images.
     /// Unlike read_sectors, the data returned is only the actual sector data. The address marks and
     /// CRCs are not included in the data.
     /// This function is intended for use in implementing the Read Track FDC command.
@@ -338,6 +338,7 @@ impl FluxStreamTrack {
     pub fn new() -> Self {
         FluxStreamTrack {
             encoding: Default::default(),
+            schema: None,
             data_rate: Default::default(),
             ch: Default::default(),
             revolutions: Vec::new(),

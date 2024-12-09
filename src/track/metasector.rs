@@ -42,7 +42,7 @@ use crate::types::{
     WriteSectorResult,
 };
 
-use crate::structure_parsers::{system34::System34Standard, DiskStructureMetadata};
+use crate::track_schema::{system34::System34Standard, TrackMetadata, TrackSchema};
 
 use crate::{
     bitstream::TrackDataStream,
@@ -187,6 +187,7 @@ impl MetaSector {
 pub struct MetaSectorTrack {
     pub(crate) ch: DiskCh,
     pub(crate) encoding: DiskDataEncoding,
+    pub(crate) schema: Option<TrackSchema>,
     pub(crate) data_rate: DiskDataRate,
     pub(crate) sectors: Vec<MetaSector>,
 
@@ -238,6 +239,7 @@ impl Track for MetaSectorTrack {
     fn info(&self) -> TrackInfo {
         TrackInfo {
             encoding: self.encoding,
+            schema: self.schema,
             data_rate: self.data_rate,
             density: None,
             rpm: None,
@@ -246,7 +248,7 @@ impl Track for MetaSectorTrack {
         }
     }
 
-    fn metadata(&self) -> Option<&DiskStructureMetadata> {
+    fn metadata(&self) -> Option<&TrackMetadata> {
         None
     }
 
@@ -333,7 +335,7 @@ impl Track for MetaSectorTrack {
 
     /// Read the sector data from the sector identified by 'chs'. The data is returned within a
     /// ReadSectorResult struct which also sets some convenience metadata flags where are needed
-    /// when handling ByteStream images.
+    /// when handling MetaSector images.
     /// When reading a BitStream image, the sector data includes the address mark and crc.
     /// Offsets are provided within ReadSectorResult so these can be skipped when processing the
     /// read operation.
@@ -347,7 +349,7 @@ impl Track for MetaSectorTrack {
     ) -> Result<ReadSectorResult, DiskImageError> {
         match scope {
             // Add 4 bytes for address mark and 2 bytes for CRC.
-            RwSectorScope::DataElement => unimplemented!("DataElement scope not supported for ByteStream"),
+            RwSectorScope::DataElement => unimplemented!("DataElement scope not supported for MetaSector"),
             RwSectorScope::DataOnly => {}
             _ => return Err(DiskImageError::ParameterError),
         };
@@ -357,18 +359,11 @@ impl Track for MetaSectorTrack {
         if sm.len() == 0 {
             log::debug!("read_sector(): No sector found for id: {}", id);
             Ok(ReadSectorResult {
-                id_chsn: None,
-                data_idx: 0,
-                data_len: 0,
-                read_buf: Vec::new(),
-                deleted_mark: false,
                 not_found: true,
-                no_dam: false,
-                address_crc_error: false,
-                data_crc_error: false,
                 wrong_cylinder: sm.wrong_cylinder,
                 bad_cylinder: sm.bad_cylinder,
                 wrong_head: sm.wrong_head,
+                ..ReadSectorResult::default()
             })
         }
         else {
@@ -382,6 +377,7 @@ impl Track for MetaSectorTrack {
             }
             let s = sm.sectors[0];
 
+            // TODO: MetaSector doesn't have stored CRC, but we can calculate the read CRC
             Ok(ReadSectorResult {
                 id_chsn: Some(s.id_chsn),
                 data_idx: 0,
@@ -395,6 +391,7 @@ impl Track for MetaSectorTrack {
                 wrong_cylinder: sm.wrong_cylinder,
                 bad_cylinder: sm.bad_cylinder,
                 wrong_head: sm.wrong_head,
+                ..ReadSectorResult::default()
             })
         }
     }
@@ -533,7 +530,7 @@ impl Track for MetaSectorTrack {
 
     /// Read all sectors from the track identified by 'ch'. The data is returned within a
     /// ReadSectorResult struct which also sets some convenience metadata flags which are needed
-    /// when handling ByteStream images.
+    /// when handling MetaSector images.
     /// Unlike read_sectors, the data returned is only the actual sector data. The address marks and
     /// CRCs are not included in the data.
     /// This function is intended for use in implementing the Read Track FDC command.

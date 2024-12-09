@@ -46,8 +46,8 @@ use crate::{
     detect::detect_image_format,
     file_parsers::{filter_writable, formats_from_caps, kryoflux::KfxFormat, FormatCaps, ImageParser},
     io::ReadSeek,
-    structure_parsers::{system34::System34Standard, DiskStructureMetadata},
     track::{fluxstream::FluxStreamTrack, metasector::MetaSectorTrack, DiskTrack, Track, TrackConsistency},
+    track_schema::{system34::System34Standard, TrackMetadata},
     types::{
         chs::*,
         DiskConsistency,
@@ -69,14 +69,17 @@ use crate::{
 
 #[cfg(feature = "zip")]
 use crate::containers::zip::{extract_file, extract_first_file};
-use crate::types::{
-    standard_format::StandardFormat,
-    BitStreamTrackParams,
-    DiskSelection,
-    ReadSectorResult,
-    ReadTrackResult,
-    RwSectorScope,
-    WriteSectorResult,
+use crate::{
+    track_schema::TrackSchema,
+    types::{
+        standard_format::StandardFormat,
+        BitStreamTrackParams,
+        DiskSelection,
+        ReadSectorResult,
+        ReadTrackResult,
+        RwSectorScope,
+        WriteSectorResult,
+    },
 };
 
 pub(crate) const DEFAULT_BOOT_SECTOR: &[u8] = include_bytes!("../resources/bootsector.bin");
@@ -86,7 +89,7 @@ pub(crate) const DEFAULT_BOOT_SECTOR: &[u8] = include_bytes!("../resources/boots
 ///
 /// A [`DiskImage`] can be created from a specified disk format using an ImageBuilder.
 ///
-/// A [`DiskImage`] may be of two [`DiskDataResolution`] levels: ByteStream or BitStream. ByteStream images
+/// A [`DiskImage`] may be of two [`DiskDataResolution`] levels: MetaSector or BitStream. MetaSector images
 /// are sourced from sector-based disk image formats, while BitStream images are sourced from
 /// bitstream-based disk image formats.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -659,7 +662,7 @@ impl DiskImage {
         self.source_format = Some(format);
     }
 
-    /// Return the resolution of the disk image, either ByteStream or BitStream.
+    /// Return the resolution of the disk image, either MetaSector or BitStream.
     pub fn resolution(&self) -> DiskDataResolution {
         self.resolution.unwrap_or(DiskDataResolution::MetaSector)
     }
@@ -792,7 +795,7 @@ impl DiskImage {
     /// # Returns
     /// - `Ok(())` if the track was successfully added.
     /// - `Err(DiskImageError::SeekError)` if the head value in `ch` is greater than or equal to 2.
-    /// - `Err(DiskImageError::IncompatibleImage)` if the disk image is not compatible with `ByteStream` resolution.
+    /// - `Err(DiskImageError::IncompatibleImage)` if the disk image is not compatible with `MetaSector` resolution.
     pub fn add_track_metasector(
         &mut self,
         encoding: DiskDataEncoding,
@@ -803,7 +806,7 @@ impl DiskImage {
             return Err(DiskImageError::SeekError);
         }
 
-        // Lock the disk image to ByteStream resolution.
+        // Lock the disk image to MetaSector resolution.
         match self.resolution {
             None => self.resolution = Some(DiskDataResolution::MetaSector),
             Some(DiskDataResolution::MetaSector) => {}
@@ -813,6 +816,7 @@ impl DiskImage {
         self.track_pool.push(Box::new(MetaSectorTrack {
             ch,
             encoding,
+            schema: Some(TrackSchema::System34),
             data_rate,
             sectors: Vec::new(),
             shared: self.shared.clone().expect("Shared context not found"),
@@ -848,7 +852,7 @@ impl DiskImage {
     /// Read the sector data from the sector at the physical location 'phys_ch' with the sector ID
     /// values specified by 'id_chs'.
     /// The data is returned within a ReadSectorResult struct which also sets some convenience
-    /// metadata flags which are needed when handling ByteStream images.
+    /// metadata flags which are needed when handling MetaSector images.
     /// When reading a BitStream image, the sector data includes the address mark and crc.
     /// Offsets are provided within ReadSectorResult so these can be skipped when processing the
     /// read operation.
@@ -941,7 +945,7 @@ impl DiskImage {
 
     /// Read all sectors from the track identified by 'ch'. The data is returned within a
     /// ReadSectorResult struct which also sets some convenience metadata flags which are needed
-    /// when handling ByteStream images.
+    /// when handling MetaSector images.
     /// Unlike read_sector(), the data returned is only the actual sector data. The address marks and
     /// CRCs are not included in the data.
     /// This function is intended for use in implementing the Read Track FDC command.
@@ -1031,13 +1035,15 @@ impl DiskImage {
                     _ => return Err(DiskImageError::UnsupportedFormat),
                 };
 
+                // TODO: Add an empty track with a schema of None and set it on format
                 self.track_pool.push(Box::new(BitStreamTrack {
                     encoding,
                     data_rate,
                     rpm: self.descriptor.rpm,
                     ch,
                     data: stream,
-                    metadata: DiskStructureMetadata::default(),
+                    metadata: TrackMetadata::default(),
+                    schema: Some(TrackSchema::System34),
                     sector_ids: Vec::new(),
                     shared: Some(self.shared.clone().expect("Shared context not found")),
                 }));
@@ -1053,6 +1059,7 @@ impl DiskImage {
 
                 self.track_pool.push(Box::new(MetaSectorTrack {
                     encoding,
+                    schema: Some(TrackSchema::System34),
                     data_rate,
                     ch,
                     sectors: Vec::new(),
@@ -1765,7 +1772,7 @@ impl DiskImage {
             _ => return Err(DiskImageError::ParameterError),
         };
 
-        util::dump_slice(data_slice, 0, bytes_per_row, &mut out)
+        util::dump_slice(data_slice, 0, bytes_per_row, 1, &mut out)
     }
 
     pub fn dump_sector_string(

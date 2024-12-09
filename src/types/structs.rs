@@ -134,7 +134,7 @@ pub struct DiskDescriptor {
 }
 
 /// A `ScanSectorResult` structure contains the results of a scan sector operation.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct ScanSectorResult {
     /// Whether the specified Sector ID was found.
     pub not_found: bool,
@@ -157,6 +157,45 @@ pub struct ScanSectorResult {
     pub wrong_head: bool,
 }
 
+impl Default for ScanSectorResult {
+    fn default() -> Self {
+        Self {
+            not_found: true,
+            no_dam: false,
+            deleted_mark: false,
+            address_crc_error: false,
+            data_crc_error: false,
+            wrong_cylinder: false,
+            bad_cylinder: false,
+            wrong_head: false,
+        }
+    }
+}
+
+/// A `SectorCrc` structure contains the recorded and calculated CRC values for a sector or sector header.
+#[derive(Clone)]
+pub struct SectorCrc {
+    pub recorded:   Option<u16>,
+    pub calculated: u16,
+}
+
+impl From<(u16, u16)> for SectorCrc {
+    fn from((recorded, calculated): (u16, u16)) -> Self {
+        Self {
+            recorded: Some(recorded),
+            calculated,
+        }
+    }
+}
+
+impl SectorCrc {
+    /// Check whether the recorded CRC matches the calculated CRC.
+    /// Returns `None` if the recorded CRC is not available.
+    pub fn valid(&self) -> Option<bool> {
+        self.recorded.map(|recorded| recorded == self.calculated)
+    }
+}
+
 /// A `ReadSectorResult` structure contains the results of a read sector operation.
 #[derive(Clone)]
 pub struct ReadSectorResult {
@@ -170,8 +209,12 @@ pub struct ReadSectorResult {
     pub deleted_mark: bool,
     /// Whether the specified sector had a CRC error with the sector header.
     pub address_crc_error: bool,
+    /// The CRC values for the sector header, if available.
+    pub address_crc: Option<SectorCrc>,
     /// Whether the specified sector had a CRC error with the sector data.
     pub data_crc_error: bool,
+    /// The CRC values for the sector data, if available.
+    pub data_crc: Option<SectorCrc>,
     /// Whether the specified sector ID was not matched, but a sector ID with a different cylinder
     /// specifier was found.
     pub wrong_cylinder: bool,
@@ -188,6 +231,27 @@ pub struct ReadSectorResult {
     /// The data read for the sector, potentially including address mark and CRC bytes.
     /// Use the `data_idx` and `data_len` fields to isolate the sector data within this vector.
     pub read_buf: Vec<u8>,
+}
+
+impl Default for ReadSectorResult {
+    fn default() -> Self {
+        Self {
+            id_chsn: None,
+            not_found: true,
+            no_dam: false,
+            deleted_mark: false,
+            address_crc_error: false,
+            address_crc: None,
+            data_crc_error: false,
+            data_crc: None,
+            wrong_cylinder: false,
+            bad_cylinder: false,
+            wrong_head: false,
+            data_idx: 0,
+            data_len: 0,
+            read_buf: Vec::new(),
+        }
+    }
 }
 
 /// A `ReadTrackResult` structure contains the results of a read track operation.

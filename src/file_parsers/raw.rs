@@ -32,7 +32,7 @@ use crate::{
     diskimage::DiskImage,
     file_parsers::{FormatCaps, ParserWriteCompatibility},
     io::{ReadSeek, ReadWriteSeek},
-    structure_parsers::system34::System34Standard,
+    track_schema::system34::System34Standard,
     types::{
         chs::{DiskChsn, DiskChsnQuery},
         DiskCh,

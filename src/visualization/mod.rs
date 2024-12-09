@@ -41,12 +41,7 @@ pub use pixmap_to_disk::PixmapToDiskParams;
 
 use crate::{
     bitstream::TrackDataStream,
-    structure_parsers::{
-        system34::System34Element,
-        DiskStructureElement,
-        DiskStructureGenericElement,
-        DiskStructureMetadata,
-    },
+    track_schema::{system34::System34Element, TrackElement, TrackGenericElement, TrackMetadata},
     DiskCh,
 };
 
@@ -154,7 +149,7 @@ pub struct RenderTrackMetadataParams {
     /// Rotational direction for rendering (Clockwise or CounterClockwise)
     pub direction: RotationDirection,
     /// Palette to use for rendering metadata elements
-    pub palette: FoxHashMap<DiskStructureGenericElement, Color>,
+    pub palette: FoxHashMap<TrackGenericElement, Color>,
     /// Whether to draw empty tracks as black rings
     pub draw_empty_tracks: bool,
     /// Set the inner radius to the last standard track instead of last track
@@ -287,7 +282,7 @@ fn stream(ch: DiskCh, disk_image: &DiskImage) -> &TrackDataStream {
         .unwrap()
 }
 
-fn metadata(ch: DiskCh, disk_image: &DiskImage) -> &DiskStructureMetadata {
+fn metadata(ch: DiskCh, disk_image: &DiskImage) -> &TrackMetadata {
     disk_image.track_map[ch.h() as usize]
         .get(ch.c() as usize)
         .map(|track_i| disk_image.track_pool[*track_i].metadata().unwrap())
@@ -323,7 +318,7 @@ fn collect_error_maps(head: u8, disk_image: &DiskImage) -> Vec<&BitVec> {
         .collect()
 }
 
-fn collect_metadata(head: u8, disk_image: &DiskImage) -> Vec<&DiskStructureMetadata> {
+fn collect_metadata(head: u8, disk_image: &DiskImage) -> Vec<&TrackMetadata> {
     disk_image.track_map[head as usize]
         .iter()
         .filter_map(|track_i| disk_image.track_pool[*track_i].metadata())
@@ -669,7 +664,7 @@ pub fn render_track_metadata_quadrant(
                                sector_lookup: bool,
                                phys_c: u16,
                                phys_s: u8,
-                               element_type: Option<DiskStructureElement>|
+                               element_type: Option<TrackElement>|
      -> Color {
         // Draw the outer curve
         add_arc(path_builder, center, inner_radius, start_angle, end_angle);
@@ -701,7 +696,7 @@ pub fn render_track_metadata_quadrant(
                     color = Color::from_rgba8(p.head, phys_c as u8, phys_s, 255);
                 }
                 false => {
-                    let generic_elem = DiskStructureGenericElement::from(element_type);
+                    let generic_elem = TrackGenericElement::from(element_type);
                     color = *p.palette.get(&generic_elem).unwrap_or(&null_color);
                 }
             }
@@ -849,7 +844,7 @@ pub fn render_track_metadata_quadrant(
 
             // Draw non-overlapping metadata.
             for (_mi, meta_item) in track_meta.items.iter().enumerate() {
-                if let DiskStructureElement::System34(System34Element::Marker(..)) = meta_item.elem_type {
+                if let TrackElement::System34(System34Element::Marker(..)) = meta_item.elem_type {
                     if !*draw_markers {
                         continue;
                     }
@@ -1035,7 +1030,7 @@ pub fn render_disk_selection(
 
         // Draw non-overlapping metadata.
         for (_mi, meta_item) in track_meta.items.iter().enumerate() {
-            if let DiskStructureElement::System34(System34Element::Marker(..)) = meta_item.elem_type {
+            if let TrackElement::System34(System34Element::Marker(..)) = meta_item.elem_type {
                 if !*draw_markers {
                     continue;
                 }

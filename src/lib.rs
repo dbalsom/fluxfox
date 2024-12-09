@@ -54,7 +54,7 @@ mod file_parsers;
 pub mod image_builder;
 pub mod io;
 mod random;
-pub mod structure_parsers;
+pub mod track_schema;
 pub mod util;
 
 mod copy_protection;
@@ -125,6 +125,8 @@ pub enum DiskImageError {
     UniqueIdError,
     #[error("No sectors were found on the current track")]
     DataError,
+    #[error("No schema is defined for the current track")]
+    SchemaError,
     #[error("A CRC error was detected in the disk image")]
     CrcError,
     #[error("An invalid function parameter was supplied")]

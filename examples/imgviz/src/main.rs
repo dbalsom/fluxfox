@@ -44,7 +44,7 @@ use std::{
 use tiny_skia::{BlendMode, Color, FilterQuality, Pixmap, PixmapPaint, Transform};
 
 use fluxfox::{
-    structure_parsers::DiskStructureGenericElement,
+    track_schema::TrackGenericElement,
     visualization::{render_track_metadata_quadrant, RenderTrackMetadataParams, ResolutionType, RotationDirection},
     DiskImage,
 };
@@ -185,13 +185,13 @@ fn main() {
 
     #[rustfmt::skip]
     let palette = HashMap::from([
-        (DiskStructureGenericElement::SectorData, pal_medium_green),
-        (DiskStructureGenericElement::SectorBadData, pal_orange),
-        (DiskStructureGenericElement::SectorDeletedData, pal_dark_green),
-        (DiskStructureGenericElement::SectorBadDeletedData, viz_light_red),
-        (DiskStructureGenericElement::SectorHeader, pal_light_blue),
-        (DiskStructureGenericElement::SectorBadHeader, pal_medium_blue),
-        (DiskStructureGenericElement::Marker, vis_purple),
+        (TrackGenericElement::SectorData, pal_medium_green),
+        (TrackGenericElement::SectorBadData, pal_orange),
+        (TrackGenericElement::SectorDeletedData, pal_dark_green),
+        (TrackGenericElement::SectorBadDeletedData, viz_light_red),
+        (TrackGenericElement::SectorHeader, pal_light_blue),
+        (TrackGenericElement::SectorBadHeader, pal_medium_blue),
+        (TrackGenericElement::Marker, vis_purple),
     ]);
 
     let _total_render_start_time = Instant::now();

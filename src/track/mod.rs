@@ -36,8 +36,8 @@ pub mod metasector;
 
 use crate::{
     bitstream::TrackDataStream,
-    structure_parsers::{system34::System34Standard, DiskStructureMetadata},
     track::{bitstream::BitStreamTrack, fluxstream::FluxStreamTrack, metasector::MetaSectorTrack},
+    track_schema::{system34::System34Standard, TrackMetadata, TrackSchema},
     types::{
         chs::DiskChsnQuery,
         DiskCh,
@@ -67,6 +67,8 @@ use std::any::Any;
 pub struct TrackInfo {
     /// The type of encoding used on the track as a `DiskDataEncoding` enum.
     pub encoding: DiskDataEncoding,
+    /// The track data schema
+    pub schema: Option<TrackSchema>,
     /// The data rate of the track as a `DiskDataRate` enum.
     pub data_rate: DiskDataRate,
     /// The density of the track as a `DiskDensity` enum, or `None` if density has not been determined.
@@ -182,7 +184,7 @@ pub trait Track: Any + Send + Sync {
     /// Return information about the track as a `TrackInfo` struct.
     fn info(&self) -> TrackInfo;
     /// Return a list of the track's metadata, or None if the track has not been scanned for metadata.
-    fn metadata(&self) -> Option<&DiskStructureMetadata>;
+    fn metadata(&self) -> Option<&TrackMetadata>;
     /// Return a count of the sectors on the track.
     fn sector_ct(&self) -> usize;
     /// Returns `true` if the track contains a sector with the specified ID.
@@ -214,7 +216,7 @@ pub trait Track: Any + Send + Sync {
     fn add_sector(&mut self, sd: &SectorDescriptor, alternate: bool) -> Result<(), DiskImageError>;
     /// Read the sector data from the sector identified by 'chs'. The data is returned within a
     /// ReadSectorResult struct which also sets some convenience metadata flags where are needed
-    /// when handling ByteStream images.
+    /// when handling MetaSector images.
     /// When reading a BitStream image, the sector data includes the address mark and crc.
     /// Offsets are provided within ReadSectorResult so these can be skipped when processing the
     /// read operation.
@@ -252,7 +254,7 @@ pub trait Track: Any + Send + Sync {
     /// duplicate tracks.
     fn hash(&mut self) -> Digest;
     /// Read all sectors from the track. The data is returned within a `ReadSectorResult` struct
-    /// which also sets some convenience metadata flags which are needed when handling ByteStream
+    /// which also sets some convenience metadata flags which are needed when handling MetaSector
     /// images.
     /// Unlike `read_sectors`, the data returned is only the actual sector data. The address marks and
     /// CRCs are not included in the data.

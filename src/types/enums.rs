@@ -36,7 +36,7 @@ use std::{
 };
 
 /// The resolution of the data in the disk image.
-/// Currently only ByteStream and BitStream are implemented.
+/// Currently only MetaSector and BitStream are implemented.
 #[repr(usize)]
 #[derive(Copy, Clone, Default, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

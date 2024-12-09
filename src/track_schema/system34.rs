@@ -41,14 +41,7 @@ use crate::{
     },
     io::{Read, Seek, SeekFrom},
     mfm_offset,
-    structure_parsers::{
-        DiskStructureElement,
-        DiskStructureGenericElement,
-        DiskStructureMarker,
-        DiskStructureMarkerItem,
-        DiskStructureMetadataItem,
-        DiskStructureParser,
-    },
+    track_schema::{TrackElement, TrackGenericElement, TrackMarker, TrackMarkerItem, TrackMetadataItem},
     types::chs::DiskChsn,
     util::crc_ibm_3740,
     DiskImageError,
@@ -177,19 +170,19 @@ pub enum System34Element {
     Data { chsn: DiskChsn, address_crc: bool, data_crc: bool, deleted: bool },
 }
 
-impl From<System34Element> for DiskStructureGenericElement {
+impl From<System34Element> for TrackGenericElement {
     fn from(elem: System34Element) -> Self {
         match elem {
-            System34Element::Gap1 => DiskStructureGenericElement::NoElement,
-            System34Element::Gap2 => DiskStructureGenericElement::NoElement,
-            System34Element::Gap3 => DiskStructureGenericElement::NoElement,
-            System34Element::Gap4a => DiskStructureGenericElement::NoElement,
-            System34Element::Gap4b => DiskStructureGenericElement::NoElement,
-            System34Element::Sync => DiskStructureGenericElement::NoElement,
-            System34Element::Marker(_, _) => DiskStructureGenericElement::Marker,
+            System34Element::Gap1 => TrackGenericElement::NoElement,
+            System34Element::Gap2 => TrackGenericElement::NoElement,
+            System34Element::Gap3 => TrackGenericElement::NoElement,
+            System34Element::Gap4a => TrackGenericElement::NoElement,
+            System34Element::Gap4b => TrackGenericElement::NoElement,
+            System34Element::Sync => TrackGenericElement::NoElement,
+            System34Element::Marker(_, _) => TrackGenericElement::Marker,
             System34Element::SectorHeader { address_crc, .. } => match address_crc {
-                true => DiskStructureGenericElement::SectorHeader,
-                false => DiskStructureGenericElement::SectorBadHeader,
+                true => TrackGenericElement::SectorHeader,
+                false => TrackGenericElement::SectorBadHeader,
             },
             System34Element::Data {
                 address_crc,
@@ -197,10 +190,10 @@ impl From<System34Element> for DiskStructureGenericElement {
                 deleted,
                 ..
             } => match (address_crc && data_crc, deleted) {
-                (true, false) => DiskStructureGenericElement::SectorData,
-                (false, false) => DiskStructureGenericElement::SectorBadData,
-                (true, true) => DiskStructureGenericElement::SectorDeletedData,
-                (false, true) => DiskStructureGenericElement::SectorBadDeletedData,
+                (true, false) => TrackGenericElement::SectorData,
+                (false, false) => TrackGenericElement::SectorBadData,
+                (true, true) => TrackGenericElement::SectorDeletedData,
+                (false, true) => TrackGenericElement::SectorBadDeletedData,
             },
         }
     }
@@ -240,6 +233,7 @@ impl System34Element {
     }
 }
 
+// TODO: get rid of this duplicate sector id type. Use DiskChsn?
 #[derive(Default)]
 pub struct SectorId {
     pub c: u8,
@@ -271,9 +265,9 @@ pub struct System34FormatResult {
     pub markers: Vec<(System34Marker, usize)>,
 }
 
-pub struct System34Parser;
+pub struct System34Schema;
 
-impl System34Parser {
+impl System34Schema {
     // System34 masks clock bits in the MFM encoding of address marks.
     // This is to help differentiate markers from data.
     const MFM_MARKER_CLOCK_MASK: u64 = 0x5555_5555_5555_FFFF;
@@ -423,12 +417,13 @@ impl System34Parser {
     }
 }
 
-impl DiskStructureParser for System34Parser {
+// Quasi-trait impl of TrackSchema - called by enum dispatch
+impl System34Schema {
     /// Find the provided pattern of bytes within the specified bitstream, starting at `offset` bits
     /// into the track.
     /// The bit offset of the pattern is returned if found, otherwise None.
     /// The pattern length is limited to 8 characters.
-    fn find_data_pattern(track: &TrackDataStream, pattern: &[u8], offset: usize) -> Option<usize> {
+    pub(crate) fn find_data_pattern(track: &TrackDataStream, pattern: &[u8], offset: usize) -> Option<usize> {
         let mut buffer = [0u8; 8];
         let len = pattern.len().min(8);
         buffer[(8 - len)..8].copy_from_slice(&pattern[..len]);
@@ -454,34 +449,34 @@ impl DiskStructureParser for System34Parser {
 
     /// Find the next address marker in the track bitstream. The type of marker and its position in
     /// the bitstream is returned, or None.
-    fn find_next_marker(track: &TrackDataStream, offset: usize) -> Option<(DiskStructureMarker, usize)> {
+    pub(crate) fn find_next_marker(track: &TrackDataStream, offset: usize) -> Option<(TrackMarker, usize)> {
         if let Some((index, marker_u16)) = track.find_marker(ANY_MARKER, Some(MARKER_MASK), offset, None) {
             if let Ok(marker) = marker_u16.try_into() {
-                return Some((DiskStructureMarker::System34(marker), index));
+                return Some((TrackMarker::System34(marker), index));
             }
         }
         None
     }
 
-    fn find_marker(
+    pub(crate) fn find_marker(
         track: &TrackDataStream,
-        marker: DiskStructureMarker,
+        marker: TrackMarker,
         offset: usize,
         limit: Option<usize>,
     ) -> Option<(usize, u16)> {
-        if let DiskStructureMarker::System34(marker) = marker {
+        if let TrackMarker::System34(marker) = marker {
             let marker_u64 = u64::from(marker);
             return track.find_marker(marker_u64, None, offset, limit);
         }
         None
     }
 
-    fn find_element(track: &TrackDataStream, element: DiskStructureElement, offset: usize) -> Option<usize> {
-        if let DiskStructureElement::System34(element) = element {
+    pub(crate) fn find_element(track: &TrackDataStream, element: TrackElement, offset: usize) -> Option<usize> {
+        if let TrackElement::System34(element) = element {
             use System34Element::*;
 
             let (marker, _pattern) = match element {
-                Gap1 | Gap2 | Gap3 | Gap4a | Gap4b => (System34Parser::encode_marker(&[0x4E; 4]), &[0x4E; 4]),
+                Gap1 | Gap2 | Gap3 | Gap4a | Gap4b => (System34Schema::encode_marker(&[0x4E; 4]), &[0x4E; 4]),
                 Sync => (MfmCodec::encode_marker(&[0x00; 4]), &[0x00; 4]),
                 _ => return None,
             };
@@ -519,28 +514,28 @@ impl DiskStructureParser for System34Parser {
     /// their positions. The marker positions will be used to create the clock phase map for the
     /// track, which must be performed before we can read the data off the disk which is done in
     /// a second pass.
-    fn scan_track_markers(track: &TrackDataStream) -> Vec<DiskStructureMarkerItem> {
+    pub(crate) fn scan_track_markers(track: &TrackDataStream) -> Vec<TrackMarkerItem> {
         let mut bit_cursor: usize = 0;
         let mut markers = Vec::new();
 
         // Look for the IAM marker first - but it may not be present (ISO standard encoding does
         // not require it).
 
-        if let Some(marker) = System34Parser::find_marker(
+        if let Some(marker) = System34Schema::find_marker(
             track,
-            DiskStructureMarker::System34(System34Marker::Iam),
+            TrackMarker::System34(System34Marker::Iam),
             bit_cursor,
             Some(5_000),
         ) {
             log::trace!("scan_track_markers(): Found IAM marker at bit offset: {}", marker.0);
-            markers.push(DiskStructureMarkerItem {
-                elem_type: DiskStructureMarker::System34(System34Marker::Iam),
+            markers.push(TrackMarkerItem {
+                elem_type: TrackMarker::System34(System34Marker::Iam),
                 start: marker.0,
             });
             bit_cursor = marker.0 + 4 * MFM_BYTE_LEN;
         }
 
-        while let Some((marker, marker_offset)) = System34Parser::find_next_marker(track, bit_cursor) {
+        while let Some((marker, marker_offset)) = System34Schema::find_next_marker(track, bit_cursor) {
             /*
             log::trace!(
                 "scan_track_markers(): Found marker of type {:?} at bit offset: {}",
@@ -548,7 +543,7 @@ impl DiskStructureParser for System34Parser {
                 marker_offset
             );*/
 
-            markers.push(DiskStructureMarkerItem {
+            markers.push(TrackMarkerItem {
                 elem_type: marker,
                 start: marker_offset,
             });
@@ -561,10 +556,10 @@ impl DiskStructureParser for System34Parser {
     /// as Sector ID values and CRCs. This is done in a second pass after the markers have been
     /// found by scan_track_markers() and a clock phase map created for the track - required for the
     /// proper functioning of the Read and Seek traits on MfmCodec.
-    fn scan_track_metadata(
+    pub(crate) fn scan_track_metadata(
         track: &mut TrackDataStream,
-        markers: Vec<DiskStructureMarkerItem>,
-    ) -> Vec<DiskStructureMetadataItem> {
+        markers: Vec<TrackMarkerItem>,
+    ) -> Vec<TrackMetadataItem> {
         let mut elements = Vec::new();
         let mut last_marker_opt: Option<System34Marker> = None;
         let mut last_sector_id = SectorId::default();
@@ -574,15 +569,15 @@ impl DiskStructureParser for System34Parser {
         for marker in &markers {
             let element_offset = marker.start;
 
-            if let DiskStructureMarker::System34(sys34_marker) = marker.elem_type {
+            if let TrackMarker::System34(sys34_marker) = marker.elem_type {
                 match (last_marker_opt, sys34_marker) {
                     (Some(System34Marker::Idam), System34Marker::Idam) => {
                         // Encountered IDAMs back to back. This is sometimes seen in copy-protection methods
                         // such as XELOK v1.
 
                         // Push a Sector Header metadata item spanning from last IDAM to this IDAM.
-                        let data_metadata = DiskStructureMetadataItem {
-                            elem_type: DiskStructureElement::System34(System34Element::SectorHeader {
+                        let data_metadata = TrackMetadataItem {
+                            elem_type: TrackElement::System34(System34Element::SectorHeader {
                                 chsn: DiskChsn::from((
                                     last_sector_id.c as u16,
                                     last_sector_id.h,
@@ -664,7 +659,7 @@ impl DiskStructureParser for System34Parser {
 
                         //log::debug!("DAM header verification: {:02X?}", dam_header);
 
-                        let (data_crc, calculated_crc) = System34Parser::crc16(track, element_offset, data_end);
+                        let (data_crc, calculated_crc) = System34Schema::crc16(track, element_offset, data_end);
                         log::trace!("Data CRC16: {:04X} Calculated: {:04X}", data_crc, calculated_crc);
 
                         let crc_correct = data_crc == calculated_crc;
@@ -673,8 +668,8 @@ impl DiskStructureParser for System34Parser {
                         }
 
                         // Push a Sector Header metadata item spanning from IDAM to DAM.
-                        let data_metadata = DiskStructureMetadataItem {
-                            elem_type: DiskStructureElement::System34(System34Element::SectorHeader {
+                        let data_metadata = TrackMetadataItem {
+                            elem_type: TrackElement::System34(System34Element::SectorHeader {
                                 chsn: DiskChsn::from((
                                     last_sector_id.c as u16,
                                     last_sector_id.h,
@@ -717,8 +712,8 @@ impl DiskStructureParser for System34Parser {
                             _ => unreachable!(),
                         };
 
-                        let data_metadata = DiskStructureMetadataItem {
-                            elem_type: DiskStructureElement::System34(element),
+                        let data_metadata = TrackMetadataItem {
+                            elem_type: TrackElement::System34(element),
                             start: element_offset,
                             end: data_end,
                             chsn: Some(DiskChsn::new(
@@ -735,8 +730,8 @@ impl DiskStructureParser for System34Parser {
                 }
 
                 // Push marker as Metadata item.
-                let marker_metadata = DiskStructureMetadataItem {
-                    elem_type: DiskStructureElement::System34(System34Element::Marker(sys34_marker, None)),
+                let marker_metadata = TrackMetadataItem {
+                    elem_type: TrackElement::System34(System34Element::Marker(sys34_marker, None)),
                     start: marker.start,
                     end: marker.start + 4 * MFM_BYTE_LEN,
                     chsn: Some(DiskChsn::new(
@@ -759,8 +754,8 @@ impl DiskStructureParser for System34Parser {
             // Track ends with an IDAM marker. Push a Sector Header metadata item spanning from last
             // IDAM to some point after (range is not important except for viz)
 
-            let data_metadata = DiskStructureMetadataItem {
-                elem_type: DiskStructureElement::System34(System34Element::SectorHeader {
+            let data_metadata = TrackMetadataItem {
+                elem_type: TrackElement::System34(System34Element::SectorHeader {
                     chsn: DiskChsn::from((
                         last_sector_id.c as u16,
                         last_sector_id.h,
@@ -785,20 +780,20 @@ impl DiskStructureParser for System34Parser {
 
     /// Use the list of track markers to create a clock phase map for the track. This a requirement
     /// for the proper functioning of the Read and Seek traits on MfmCodec. A clock phase map is
-    /// basically a bit vector congruent to the stream bitvec that indicates whether the
+    /// basically a bit vector congruent to the stream `BitVec` that indicates whether the
     /// corresponding stream bit is a clock or data bit.
-    fn create_clock_map(markers: &[DiskStructureMarkerItem], clock_map: &mut BitVec) {
+    pub(crate) fn create_clock_map(markers: &[TrackMarkerItem], clock_map: &mut BitVec) {
         let mut last_marker_index: usize = 0;
 
         log::trace!("Creating clock map from {} markers...", markers.len());
         #[allow(unused)]
         let mut bit_set = 0;
         for marker in markers {
-            if let DiskStructureMarker::System34(_element) = marker.elem_type {
+            if let TrackMarker::System34(_element) = marker.elem_type {
                 let bit_index = marker.start;
 
                 if last_marker_index > 0 {
-                    // Write one 'data' bit immediately before marker to allow for syncing to this
+                    // Clear the clock bit immediately before marker to allow for syncing to this
                     // starting clock.
                     clock_map.set(last_marker_index - 1, false);
 
@@ -824,7 +819,7 @@ impl DiskStructureParser for System34Parser {
         }
     }
 
-    fn crc16(track: &mut TrackDataStream, bit_index: usize, end: usize) -> (u16, u16) {
+    pub(crate) fn crc16(track: &mut TrackDataStream, bit_index: usize, end: usize) -> (u16, u16) {
         let bytes_requested = (end - bit_index) / 16;
 
         log::trace!(
@@ -840,6 +835,14 @@ impl DiskStructureParser for System34Parser {
         //log::debug!("Buffer: {:02X?}", data);
         let recorded = u16::from_be_bytes([data[bytes_requested], data[bytes_requested + 1]]);
         let calculated = crc_ibm_3740(&data[0..bytes_requested], None);
+
+        (recorded, calculated)
+    }
+
+    pub(crate) fn crc16_bytes(data: &[u8]) -> (u16, u16) {
+        //log::debug!("Buffer: {:02X?}", data);
+        let recorded = u16::from_be_bytes([data[data.len().saturating_sub(1)], data[data.len().saturating_sub(2)]]);
+        let calculated = crc_ibm_3740(&data, None);
 
         (recorded, calculated)
     }
