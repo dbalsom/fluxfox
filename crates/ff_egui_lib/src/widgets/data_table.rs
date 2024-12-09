@@ -28,8 +28,20 @@
 
     Disk Info widget for displaying basic disk information.
 */
-use crate::widgets::{data_visualizer::DataVisualizerWidget, tab_group::TabGroup};
+use crate::{
+    range_check::RangeChecker,
+    widgets::{data_visualizer::DataVisualizerWidget, tab_group::TabGroup},
+};
+
 use egui_extras::{Column, TableBuilder};
+
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+pub struct DataRange {
+    pub name: String,
+    pub fg_color: egui::Color32,
+    pub start: usize,
+    pub end: usize,
+}
 
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct DataTableWidget {
@@ -38,12 +50,14 @@ pub struct DataTableWidget {
     scroll_to_row_slider: usize,
     scroll_to_row: Option<usize>,
     selection: std::collections::HashSet<usize>,
+    hover_address: Option<usize>,
     checked: bool,
     reversed: bool,
     data: Vec<u8>,
     row_string_width: usize,
     tabs: TabGroup,
     viz_widget: Option<DataVisualizerWidget>,
+    ranges: Vec<DataRange>,
 }
 
 impl Default for DataTableWidget {
@@ -54,17 +68,24 @@ impl Default for DataTableWidget {
             scroll_to_row_slider: 0,
             scroll_to_row: None,
             selection: Default::default(),
+            hover_address: None,
             checked: false,
             reversed: false,
             data: vec![0xFF; 512],
             row_string_width: 3,
             tabs: TabGroup::new().with_tab("hex").with_tab("text").with_tab("viz"),
             viz_widget: None,
+
+            ranges: Vec::new(),
         }
     }
 }
 
 impl DataTableWidget {
+    pub fn add_range(&mut self, range: DataRange) {
+        self.ranges.push(range);
+    }
+
     pub fn show(&mut self, ui: &mut egui::Ui) {
         self.tabs.show(ui);
         ui.separator();
@@ -192,6 +213,11 @@ impl DataTableWidget {
                 table.reset();
             }
 
+            // Create range checker
+            let range_checker = RangeChecker::new(&self.ranges.iter().map(|r| (r.start, r.end)).collect::<Vec<_>>());
+
+            let mut any_row_hovered_idx = None;
+
             table
                 .header(20.0, |mut header| {
                     header.col(|ui| {
@@ -207,6 +233,7 @@ impl DataTableWidget {
                 .body(|body| {
                     body.rows(text_height, self.num_rows, |mut row| {
                         let row_index = row.index();
+                        let mut row_hovered_idx = None;
                         row.set_selected(self.selection.contains(&row_index));
 
                         row.col(|ui| {
@@ -218,25 +245,77 @@ impl DataTableWidget {
                             ui.label(egui::RichText::new(formatted).monospace());
                         });
                         row.col(|ui| {
-                            ui.label(self.row_string_hex(row_index));
+                            for (ei, element) in self.row_elements_hex(row_index).into_iter().enumerate() {
+                                let element_address = row_index * self.num_columns + ei;
+
+                                let mut fg_color = ui.visuals().text_color();
+                                if let Some(idx) = range_checker.contains(element_address) {
+                                    if let Some(range) = self.ranges.get(idx) {
+                                        fg_color = range.fg_color;
+                                    }
+                                }
+
+                                ui.visuals_mut().override_text_color = Some(fg_color);
+                                if ui.add(element).hovered() {
+                                    self.hover_address = Some(element_address);
+                                    row_hovered_idx = Some(ei);
+                                    any_row_hovered_idx = Some(ei);
+                                }
+                                ui.visuals_mut().override_text_color = None;
+                            }
+                            //ui.label(self.row_string_hex(row_index));
                         });
                         row.col(|ui| {
-                            ui.label(self.row_string_ascii(row_index));
+                            for (ei, element) in self
+                                .row_elements_ascii(row_index, row_hovered_idx)
+                                .into_iter()
+                                .enumerate()
+                            {
+                                let element_address = row_index * self.num_columns + ei;
+
+                                ui.spacing_mut().item_spacing = egui::vec2(0.1, ui.spacing().item_spacing.y);
+                                if ui.add(element).hovered() {
+                                    self.hover_address = Some(element_address);
+                                }
+                            }
+                            //ui.label(self.row_string_ascii(row_index));
                         });
 
                         self.toggle_row_selection(row_index, &row.response());
                     });
                 });
+
+            if any_row_hovered_idx.is_none() {
+                self.hover_address = None;
+            }
         });
     }
 
     pub fn set_data(&mut self, data: Vec<u8>) {
+        self.ranges = Vec::new();
         self.data = data;
         self.calc_layout();
     }
 
     pub fn data_len(&self) -> usize {
         self.data.len()
+    }
+
+    fn row_elements_hex(&mut self, row_index: usize) -> Vec<egui::Label> {
+        let data_index = row_index * self.num_columns;
+        if data_index >= self.data.len() {
+            return vec![];
+        }
+        let data_slice = &self.data[data_index..std::cmp::min(data_index + self.num_columns, self.data.len())];
+
+        let mut row_elements = Vec::new();
+        for byte in data_slice {
+            row_elements.push(egui::Label::new(
+                egui::RichText::new(format!("{:02X}", byte)).monospace(),
+            ));
+        }
+
+        row_elements
     }
 
     fn row_string_hex(&mut self, row_index: usize) -> egui::RichText {
@@ -252,6 +331,32 @@ impl DataTableWidget {
         }
 
         egui::RichText::new(row_string).monospace()
+    }
+
+    fn row_elements_ascii(&mut self, row_index: usize, hovered: Option<usize>) -> Vec<egui::Label> {
+        let data_index = row_index * self.num_columns;
+        if data_index >= self.data.len() {
+            return vec![];
+        }
+        let data_slice = &self.data[data_index..std::cmp::min(data_index + self.num_columns, self.data.len())];
+
+        let mut row_elements = Vec::new();
+        for (bi, byte) in data_slice.iter().enumerate() {
+            let mut label_text = if *byte >= 0x20 && *byte <= 0x7E {
+                egui::RichText::new(format!("{}", *byte as char)).monospace()
+            }
+            else {
+                egui::RichText::new(".").monospace()
+            };
+
+            if Some(bi) == hovered {
+                label_text = label_text.strong();
+            }
+
+            row_elements.push(egui::Label::new(label_text));
+        }
+
+        row_elements
     }
 
     fn row_string_ascii(&mut self, row_index: usize) -> egui::RichText {

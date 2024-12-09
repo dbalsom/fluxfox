@@ -43,15 +43,29 @@ pub(crate) struct DumpParams {
     pub(crate) row_size: Option<u8>,
     pub(crate) raw: bool,
     pub(crate) rev: Option<u8>,
+    pub(crate) clock_map: bool,
+    pub(crate) bit_address: bool,
 }
 
 fn dupe_mark_parser() -> impl Parser<bool> {
-    long("dupe-mark").help("Dump the duplication mark if present").switch()
+    long("dupe_mark").help("Dump the duplication mark if present").switch()
 }
 
 fn raw_parser() -> impl Parser<bool> {
     long("raw")
         .help("Dump the raw sector data (only valid for bitstream images or higher)")
+        .switch()
+}
+
+fn clock_map_parser() -> impl Parser<bool> {
+    long("clock_map")
+        .help("Dump the track clock map (only valid for bitstream images or higher)")
+        .switch()
+}
+
+fn bit_address_parser() -> impl Parser<bool> {
+    long("bit_address")
+        .help("Show dump address as track bitcell offset")
         .switch()
 }
 
@@ -71,6 +85,8 @@ pub(crate) fn dump_parser() -> impl Parser<DumpParams> {
     let row_size = row_size_parser().optional();
     let raw = raw_parser();
     let rev = rev_parser().optional();
+    let clock_map = clock_map_parser();
+    let bit_address = bit_address_parser();
 
     construct!(DumpParams {
         in_file,
@@ -84,6 +100,8 @@ pub(crate) fn dump_parser() -> impl Parser<DumpParams> {
         dupe_mark,
         row_size,
         raw,
-        rev
+        rev,
+        clock_map,
+        bit_address
     })
 }

@@ -47,6 +47,7 @@ use fluxfox_egui::{
     },
     SectorSelection,
     TrackListSelection,
+    TrackSelection,
     UiEvent,
 };
 
@@ -61,7 +62,7 @@ pub const APP_NAME: &str = "fluxfox-web";
 
 use crate::{
     widgets::{filename::FilenameWidget, hello::HelloWidget},
-    windows::{file_viewer::FileViewer, sector_viewer::SectorViewer, viz::VizViewer},
+    windows::{file_viewer::FileViewer, sector_viewer::SectorViewer, track_viewer::TrackViewer, viz::VizViewer},
 };
 use fluxfox_egui::widgets::track_list::TrackListWidget;
 
@@ -168,6 +169,7 @@ impl AppWidgets {
 pub struct AppWindows {
     viz_viewer:    VizViewer,
     sector_viewer: SectorViewer,
+    track_viewer:  TrackViewer,
     file_viewer:   FileViewer,
 }
 
@@ -175,6 +177,7 @@ impl AppWindows {
     pub fn reset(&mut self) {
         self.viz_viewer.reset();
         self.sector_viewer = SectorViewer::default();
+        self.track_viewer = TrackViewer::default();
         self.file_viewer = FileViewer::default();
     }
 }
@@ -185,6 +188,7 @@ pub enum AppEvent {
     ResetDisk,
     ImageLoaded,
     SectorSelected(SectorSelection),
+    TrackSelected(TrackSelection),
 }
 
 pub struct App {
@@ -206,6 +210,7 @@ pub struct App {
     events: Vec<AppEvent>,
     deferred_file_ui_event: Option<UiEvent>,
     sector_selection: Option<SectorSelection>,
+    track_selection: Option<TrackSelection>,
 
     error_msg: Option<String>,
 }
@@ -239,6 +244,7 @@ impl Default for App {
             events: Vec::new(),
             deferred_file_ui_event: None,
             sector_selection: None,
+            track_selection: None,
 
             error_msg: None,
         }
@@ -299,6 +305,7 @@ impl eframe::App for App {
         }
 
         self.windows.sector_viewer.show(ctx);
+        self.windows.track_viewer.show(ctx);
         self.windows.file_viewer.show(ctx);
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
@@ -528,23 +535,38 @@ impl App {
 
                     self.windows.sector_viewer.set_open(true);
                 }
+                AppEvent::TrackSelected(selection) => {
+                    self.windows
+                        .track_viewer
+                        .update(self.disk_image.as_ref().unwrap().clone(), selection.clone());
+                    self.track_selection = Some(selection);
+                    self.windows.track_viewer.set_open(true);
+                }
             }
         }
     }
 
     fn handle_image_info(&mut self, ui: &mut egui::Ui) {
         if self.disk_image.is_some() {
-            HeaderGroup::new("Disk Info").strong().expand().show(ui, |ui| {
-                self.widgets.disk_info.show(ui);
-            });
+            HeaderGroup::new("Disk Info").strong().expand().show(
+                ui,
+                |ui| {
+                    self.widgets.disk_info.show(ui);
+                },
+                |_| {},
+            );
         }
     }
 
     fn handle_bootsector_info(&mut self, ui: &mut egui::Ui) {
         if self.disk_image.is_some() {
-            HeaderGroup::new("Boot Sector").strong().expand().show(ui, |ui| {
-                self.widgets.boot_sector.show(ui);
-            });
+            HeaderGroup::new("Boot Sector").strong().expand().show(
+                ui,
+                |ui| {
+                    self.widgets.boot_sector.show(ui);
+                },
+                |_| {},
+            );
         }
     }
 
@@ -554,7 +576,8 @@ impl App {
                 if let Some(selection) = self.widgets.track_list.show(ui) {
                     log::debug!("TrackList selection: {:?}", selection);
                     match selection {
-                        TrackListSelection::Track(_track) => {
+                        TrackListSelection::Track(track) => {
+                            self.events.push(AppEvent::TrackSelected(track));
                             //self.events.push(AppEvent::SectorSelected(SectorSelection::Track(track)));
                         }
                         TrackListSelection::Sector(sector) => {

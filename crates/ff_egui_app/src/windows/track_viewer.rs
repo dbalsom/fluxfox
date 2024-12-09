@@ -28,13 +28,13 @@ use fluxfox::prelude::*;
 use fluxfox_egui::{
     widgets::data_table::{DataRange, DataTableWidget},
     SectorSelection,
+    TrackSelection,
 };
 use std::sync::{Arc, RwLock};
 
 #[derive(Default)]
-pub struct SectorViewer {
-    phys_ch:   DiskCh,
-    sector_id: SectorId,
+pub struct TrackViewer {
+    phys_ch: DiskCh,
 
     table: DataTableWidget,
     open: bool,
@@ -42,13 +42,11 @@ pub struct SectorViewer {
     error_string: Option<String>,
 }
 
-impl SectorViewer {
+impl TrackViewer {
     #[allow(dead_code)]
-    pub fn new(phys_ch: DiskCh, sector_id: SectorId) -> Self {
+    pub fn new(phys_ch: DiskCh) -> Self {
         Self {
             phys_ch,
-            sector_id,
-
             table: DataTableWidget::default(),
             open: false,
             valid: false,
@@ -56,18 +54,22 @@ impl SectorViewer {
         }
     }
 
-    pub fn update(&mut self, disk_lock: Arc<RwLock<DiskImage>>, selection: SectorSelection) {
+    pub fn update(&mut self, disk_lock: Arc<RwLock<DiskImage>>, selection: TrackSelection) {
         let disk = &mut disk_lock.write().unwrap();
 
         self.phys_ch = selection.phys_ch;
-        let query = SectorIdQuery::new(
-            selection.sector_id.c(),
-            selection.sector_id.h(),
-            selection.sector_id.s(),
-            selection.sector_id.n(),
-        );
-        let rsr = match disk.read_sector(self.phys_ch, query, None, None, RwSectorScope::DataOnly, false) {
-            Ok(rsr) => rsr,
+
+        let track_ref = match disk.track_mut(selection.phys_ch) {
+            Some(tr) => tr,
+            None => {
+                self.error_string = Some("Invalid track index".to_string());
+                self.valid = false;
+                return;
+            }
+        };
+
+        let rtr = match track_ref.read_track(None) {
+            Ok(rtr) => rtr,
             Err(e) => {
                 log::error!("Error reading sector: {:?}", e);
                 self.error_string = Some(e.to_string());
@@ -76,33 +78,36 @@ impl SectorViewer {
             }
         };
 
-        if rsr.not_found {
-            self.error_string = Some("Sector not found".to_string());
+        if rtr.not_found {
+            self.error_string = Some("Track not found".to_string());
             self.valid = false;
             return;
         }
 
-        // When is id_chsn None after a successful read?
-        if let Some(chsn) = rsr.id_chsn {
-            self.sector_id = chsn;
-            self.table.set_data(rsr.read_buf);
-            self.valid = true;
-        }
-        else {
-            self.error_string = Some("Sector ID not found".to_string());
-            self.valid = false;
-        }
+        self.table.set_data(rtr.read_buf);
+        self.valid = true;
 
-        // test setting a range
-
-        /*        let range = DataRange {
-                    name: "Test".to_string(),
-                    start: 3,
-                    end: 7,
-                    fg_color: egui::Color32::from_rgb(0, 0, 255),
+        if let Some(metadata) = track_ref.metadata() {
+            for item in metadata.marker_ranges() {
+                let range = DataRange {
+                    name: "Marker".to_string(),
+                    start: item.0 / 16,
+                    end: (item.1 / 16).saturating_sub(1),
+                    fg_color: egui::Color32::from_rgb(0x53, 0xdd, 0xff),
                 };
                 self.table.add_range(range);
-        */
+            }
+        };
+
+        // test setting a range
+        // let range = DataRange {
+        //     name: "Test".to_string(),
+        //     start: 3,
+        //     end: 7,
+        //     fg_color: egui::Color32::from_rgb(0, 0, 255),
+        // };
+
+        //self.table.add_range(range);
     }
 
     pub fn set_open(&mut self, open: bool) {
@@ -110,10 +115,9 @@ impl SectorViewer {
     }
 
     pub fn show(&mut self, ctx: &egui::Context) {
-        egui::Window::new("Sector Viewer").open(&mut self.open).show(ctx, |ui| {
+        egui::Window::new("Track Viewer").open(&mut self.open).show(ctx, |ui| {
             ui.vertical(|ui| {
                 ui.label(format!("Physical Track: {}", self.phys_ch));
-                ui.label(format!("Sector ID: {}", self.sector_id));
 
                 self.table.show(ui);
             });

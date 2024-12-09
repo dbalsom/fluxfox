@@ -24,6 +24,7 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 
 [features]
 default = ["egui", "egui_extras", "serde"]
+serde = ["dep:serde", "egui/serde"]
 egui = ["dep:egui"]
 egui_extras = ["dep:egui_extras"]
 egui28 = ["dep:egui_v28", "dep:egui_extras_v28", "serde"]

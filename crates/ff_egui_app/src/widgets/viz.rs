@@ -34,9 +34,9 @@ use crate::App;
 use anyhow::{anyhow, Error};
 use fluxfox::{
     prelude::*,
-    structure_parsers::DiskStructureGenericElement,
     tiny_skia,
     tiny_skia::{Color, Pixmap},
+    track_schema::TrackGenericElement,
     visualization::{
         render_disk_selection,
         render_track_data,
@@ -80,7 +80,7 @@ pub struct VisualizationState {
     pub metadata_img: [Pixmap; 2],
     pub composite_img: [Pixmap; 2],
     pub sector_lookup_img: [Pixmap; 2],
-    pub meta_palette: HashMap<DiskStructureGenericElement, Color>,
+    pub meta_palette: HashMap<TrackGenericElement, Color>,
     pub have_render: [bool; 2],
     pub canvas: [Option<PixelCanvas>; 2],
     pub sides: usize,
@@ -178,13 +178,13 @@ impl VisualizationState {
         Self {
             meta_pixmap_pool,
             meta_palette: HashMap::from([
-                (DiskStructureGenericElement::SectorData, pal_medium_green),
-                (DiskStructureGenericElement::SectorBadData, pal_orange),
-                (DiskStructureGenericElement::SectorDeletedData, pal_dark_green),
-                (DiskStructureGenericElement::SectorBadDeletedData, viz_light_red),
-                (DiskStructureGenericElement::SectorHeader, pal_light_blue),
-                (DiskStructureGenericElement::SectorBadHeader, pal_medium_blue),
-                (DiskStructureGenericElement::Marker, vis_purple),
+                (TrackGenericElement::SectorData, pal_medium_green),
+                (TrackGenericElement::SectorBadData, pal_orange),
+                (TrackGenericElement::SectorDeletedData, pal_dark_green),
+                (TrackGenericElement::SectorBadDeletedData, viz_light_red),
+                (TrackGenericElement::SectorHeader, pal_light_blue),
+                (TrackGenericElement::SectorBadHeader, pal_medium_blue),
+                (TrackGenericElement::Marker, vis_purple),
             ]),
             canvas: [Some(canvas0), Some(canvas1)],
             ..VisualizationState::default()

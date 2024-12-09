@@ -28,12 +28,13 @@ use crate::{
     widgets::{header_group::HeaderGroup, sector_status::sector_status},
     SectorSelection,
     TrackListSelection,
+    TrackSelection,
 };
 use egui::{ScrollArea, TextStyle};
 use fluxfox::{prelude::*, track::TrackInfo};
 
 pub const TRACK_ENTRY_WIDTH: f32 = 420.0;
-pub const SECTOR_STATUS_WRAP: usize = 16;
+pub const SECTOR_STATUS_WRAP: usize = 18;
 
 #[derive(PartialEq, Default)]
 pub enum HeadFilter {
@@ -98,6 +99,7 @@ impl TrackListWidget {
 
     pub fn show(&mut self, ui: &mut egui::Ui) -> Option<TrackListSelection> {
         let mut new_selection = None;
+        let mut new_selection2 = None;
 
         let scroll_area = ScrollArea::vertical()
             .id_salt("track_list_scrollarea")
@@ -139,87 +141,105 @@ impl TrackListWidget {
                     {
                         HeaderGroup::new(&format!("{} Track {}", track.info.encoding, track.ch))
                             .strong()
-                            .show(ui, |ui| {
-                                ui.vertical(|ui| {
-                                    ui.set_min_width(TRACK_ENTRY_WIDTH);
-                                    egui::Grid::new(format!("track_list_grid_{}", ti))
-                                        .striped(true)
-                                        .show(ui, |ui| {
-                                            ui.label("Bitcells:");
-                                            ui.label(format!("{}", track.info.bit_length));
-                                            ui.end_row();
-                                        });
+                            .show(
+                                ui,
+                                |ui| {
+                                    ui.vertical(|ui| {
+                                        ui.set_min_width(TRACK_ENTRY_WIDTH);
+                                        egui::Grid::new(format!("track_list_grid_{}", ti)).striped(true).show(
+                                            ui,
+                                            |ui| {
+                                                ui.label("Bitcells:");
+                                                ui.label(format!("{}", track.info.bit_length));
+                                                ui.end_row();
+                                            },
+                                        );
 
-                                    ui.label(format!("{} Sectors:", track.sectors.len()));
-                                    egui::Grid::new(format!("track_list_sector_grid_{}", ti))
-                                        .min_col_width(0.0)
-                                        .show(ui, |ui| {
-                                            let mut previous_id: Option<u8> = None;
-                                            for sector in track.sectors.iter() {
-                                                ui.vertical_centered(|ui| {
-                                                    let sid = sector.chsn.s();
-                                                    let consecutive_sector = match previous_id {
-                                                        Some(prev) => sid == prev + 1,
-                                                        None => sid == 1,
-                                                    };
-                                                    previous_id = Some(sid);
+                                        ui.label(format!("{} Sectors:", track.sectors.len()));
+                                        egui::Grid::new(format!("track_list_sector_grid_{}", ti))
+                                            .min_col_width(0.0)
+                                            .show(ui, |ui| {
+                                                let mut previous_id: Option<u8> = None;
+                                                for (si, sector) in track.sectors.iter().enumerate() {
+                                                    ui.vertical_centered(|ui| {
+                                                        let sid = sector.chsn.s();
+                                                        let consecutive_sector = match previous_id {
+                                                            Some(prev) => sid == prev + 1,
+                                                            None => sid == 1,
+                                                        };
+                                                        previous_id = Some(sid);
 
-                                                    let label_height = TextStyle::Body.resolve(&ui.style()).size; // Use the normal label height for consistency
-                                                    let small_size = TextStyle::Small.resolve(&ui.style()).size;
-                                                    let padding = ui.spacing().item_spacing.y;
+                                                        let label_height = TextStyle::Body.resolve(ui.style()).size; // Use the normal label height for consistency
+                                                        let small_size = TextStyle::Small.resolve(ui.style()).size;
+                                                        let padding = ui.spacing().item_spacing.y;
 
-                                                    ui.vertical(|ui| {
-                                                        ui.set_min_height(label_height + padding);
-                                                        ui.allocate_ui_with_layout(
-                                                            egui::Vec2::new(
-                                                                ui.available_width(),
-                                                                label_height + padding,
-                                                            ),
-                                                            egui::Layout::centered_and_justified(
-                                                                egui::Direction::TopDown,
-                                                            ),
-                                                            |ui| {
-                                                                if sid > 99 {
-                                                                    let mut text =
-                                                                        egui::RichText::new(format!("{:03}", sid))
-                                                                            .size(small_size);
-                                                                    if !consecutive_sector {
-                                                                        text = text.color(ui.visuals().warn_fg_color);
+                                                        ui.vertical(|ui| {
+                                                            ui.set_min_height(label_height + padding);
+                                                            ui.allocate_ui_with_layout(
+                                                                egui::Vec2::new(
+                                                                    ui.available_width(),
+                                                                    label_height + padding,
+                                                                ),
+                                                                egui::Layout::centered_and_justified(
+                                                                    egui::Direction::TopDown,
+                                                                ),
+                                                                |ui| {
+                                                                    if sid > 99 {
+                                                                        let mut text =
+                                                                            egui::RichText::new(format!("{:03}", sid))
+                                                                                .size(small_size);
+                                                                        if !consecutive_sector {
+                                                                            text =
+                                                                                text.color(ui.visuals().warn_fg_color);
+                                                                        }
+                                                                        ui.label(text);
                                                                     }
-                                                                    ui.label(text);
-                                                                }
-                                                                else {
-                                                                    let mut text =
-                                                                        egui::RichText::new(format!("{}", sid));
-                                                                    if !consecutive_sector {
-                                                                        text = text.color(ui.visuals().warn_fg_color);
+                                                                    else {
+                                                                        let mut text =
+                                                                            egui::RichText::new(format!("{}", sid));
+                                                                        if !consecutive_sector {
+                                                                            text =
+                                                                                text.color(ui.visuals().warn_fg_color);
+                                                                        }
+                                                                        ui.label(text);
                                                                     }
-                                                                    ui.label(text);
-                                                                }
-                                                            },
-                                                        );
+                                                                },
+                                                            );
+                                                        });
+
+                                                        if sector_status(ui, sector, true).clicked() {
+                                                            log::debug!("Sector clicked!");
+                                                            new_selection =
+                                                                Some(TrackListSelection::Sector(SectorSelection {
+                                                                    phys_ch:    track.ch,
+                                                                    sector_id:  sector.chsn,
+                                                                    bit_offset: None,
+                                                                }));
+                                                        }
                                                     });
 
-                                                    if sector_status(ui, sector, true).clicked() {
-                                                        log::debug!("Sector clicked!");
-                                                        new_selection =
-                                                            Some(TrackListSelection::Sector(SectorSelection {
-                                                                phys_ch:    track.ch,
-                                                                sector_id:  sector.chsn,
-                                                                bit_offset: None,
-                                                            }));
+                                                    if si % SECTOR_STATUS_WRAP == SECTOR_STATUS_WRAP - 1 {
+                                                        ui.end_row();
                                                     }
-                                                });
-                                            }
-                                        });
-                                });
-                            });
+                                                }
+                                            });
+                                    });
+                                },
+                                |ui: &mut egui::Ui| {
+                                    ui.menu_button("⏷", |ui| {
+                                        if ui.button("View Track").clicked() {
+                                            new_selection2 =
+                                                Some(TrackListSelection::Track(TrackSelection { phys_ch: track.ch }));
+                                        }
+                                    });
+                                },
+                            );
                         ui.add_space(8.0);
                     }
                 });
             });
         });
 
-        new_selection
+        new_selection.or(new_selection2)
     }
 }

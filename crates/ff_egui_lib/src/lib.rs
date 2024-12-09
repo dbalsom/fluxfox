@@ -28,6 +28,7 @@
 use fluxfox::{file_system::FileEntry, prelude::*};
 use std::fmt::{Debug, Formatter, Result};
 
+mod range_check;
 pub mod widgets;
 
 #[derive(Debug, Clone, Default)]

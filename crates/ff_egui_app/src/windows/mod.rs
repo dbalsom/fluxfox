@@ -27,4 +27,5 @@
 
 pub mod file_viewer;
 pub mod sector_viewer;
+pub mod track_viewer;
 pub mod viz;
