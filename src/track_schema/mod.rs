@@ -25,8 +25,8 @@
     --------------------------------------------------------------------------
 */
 
-//! The `track_schema` module defines a `TrackSchema` trait that can be implemented
-//! by different track schema types.
+//! The `track_schema` module defines a `TrackSchema` enum that represents a track schema used to
+//! interpret the layout of a track.
 //!
 //! A track schema is responsible for interpreting the layout of syncs, gaps, and address markers on
 //! a track, relying on a track's [TrackCodec] to decode the actual underlying data representation,
@@ -37,6 +37,9 @@
 //! applicable CRC algorithm.
 //!
 //! A `TrackSchema` typically contains no state.
+//!
+//! A disk image may contain tracks with varying `TrackSchema` values, such as dual-format disks
+//! (Amiga/PC), (Atari ST/Amiga).
 //!
 //! For the time being, only the IBM System 34 schema used by IBM PC floppy disks is implemented.
 //! This format is also used by 1.44MB HD MFM Macintosh diskettes.
@@ -58,31 +61,42 @@ pub use TrackSchemaTrait as Schema;
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum TrackSchema {
     System34,
+    Amiga,
 }
 
 impl Display for TrackSchema {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             TrackSchema::System34 => write!(f, "IBM System34"),
+            TrackSchema::Amiga => write!(f, "Amiga"),
         }
     }
 }
 
-/// A `DiskStructureMetadata` structure represents a collection of metadata items found in a track.
+/// A `TrackMetadata` structure represents a collection of metadata items found in a track,
+/// represented as `TrackMetadataItem`s.
 #[derive(Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TrackMetadata {
-    pub items: Vec<TrackMetadataItem>,
+    pub(crate) items: Vec<TrackMetadataItem>,
 }
 
 impl TrackMetadata {
     /// Create a new `DiskStructureMetadata` instance from the specified items.
-    pub fn new(items: Vec<TrackMetadataItem>) -> Self {
+    pub(crate) fn new(items: Vec<TrackMetadataItem>) -> Self {
         TrackMetadata { items }
     }
 
-    /// Add a new metadata item to the collection.
-    pub fn add_item(&mut self, item: TrackMetadataItem) {
+    /// Return a vector of metadata items contained in the collection as `TrackMetadataItem`s.
+    pub fn items(&self) -> Vec<TrackMetadataItem> {
+        self.items.clone()
+    }
+
+    /// Add a new `TrackMetadataItem` to the collection.
+    /// This method is not currently public as it does not make sense for the user to add to
+    /// the metadata collection directly.
+    #[allow(dead_code)]
+    pub(crate) fn add_item(&mut self, item: TrackMetadataItem) {
         self.items.push(item);
     }
 
@@ -91,8 +105,8 @@ impl TrackMetadata {
     /// # Arguments
     /// * `index` - The bit index to match.
     /// # Returns
-    /// A tuple containing a reference to the metadata item and the count of matching items, or `None`
-    /// if no match was found.
+    /// A tuple containing a reference to the metadata item and the count of matching items, or
+    /// `None` if no match was found.
     pub fn item_at(&self, index: usize) -> Option<(&TrackMetadataItem, u32)> {
         let mut ref_stack = Vec::new();
         let mut match_ct = 0;
@@ -127,7 +141,7 @@ impl TrackMetadata {
     }
 
     /// Return a vector of sector IDs as `DiskChsn` represented in the metadata collection.
-    pub fn get_sector_ids(&self) -> Vec<DiskChsn> {
+    pub fn sector_ids(&self) -> Vec<DiskChsn> {
         let mut sector_ids = Vec::new();
 
         for item in &self.items {
@@ -176,9 +190,9 @@ pub struct TrackMarkerItem {
     pub(crate) start: usize,
 }
 
-/// A `DiskStructureMetadataItem` represents a single element of a disk structure, such as an
-/// address marker or data marker. It encodes the start and end of the element (as raw bitstream
-/// offsets) as well as optionally the status of any CRC field (valid for IDAM and DAM marks)
+/// A `TrackMetadataItem` represents a single element of a track schema, such as an  address marker
+/// or data marker. It encodes the start and end of the element (as raw bitstream offsets),
+/// and optionally the status of any CRC field (valid for IDAM and DAM marks)
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TrackMetadataItem {
@@ -205,6 +219,9 @@ impl DiskStructureCrc {
     }
 }
 
+/// A `TrackMarker` represents an encoding marker found in a track, such as an address marker or
+/// data marker. Markers are used by FM and MFM encodings, utilizing unique clock bit patterns to
+/// create an out-of-band signal for synchronization.
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum TrackMarker {
@@ -212,6 +229,8 @@ pub enum TrackMarker {
     Placeholder,
 }
 
+/// A `TrackGenericElement` represents track elements in a generic fashion not specific to a
+/// particular track schema.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum TrackGenericElement {
@@ -225,6 +244,9 @@ pub enum TrackGenericElement {
     SectorBadDeletedData,
 }
 
+/// A `TrackElement` represents any element found in a track, representing any notable region
+/// of the track such as markers, headers, sector data, syncs and gaps. `TrackElements` may overlap
+/// and be nested within each other. All `TrackMarker`s are also `TrackElements`.
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum TrackElement {
@@ -232,6 +254,7 @@ pub enum TrackElement {
     Placeholder,
 }
 
+/// Convert a `TrackElement` to a `TrackGenericElement`.
 impl From<TrackElement> for TrackGenericElement {
     fn from(elem: TrackElement) -> Self {
         match elem {
@@ -269,8 +292,9 @@ impl TrackElement {
     }
 }
 
-/// The `TrackSchemaTrait` trait defines methods that must be implemented by a disk structure
-/// parser. These methods are responsible for finding patterns of bytes within a bitstream, locating
+/// The `TrackSchemaTrait` trait defines the interface that must be implemented by any track schema
+/// parser.
+/// These methods are responsible for finding patterns of bytes within a bitstream, locating
 /// markers and elements, and scanning a track for metadata.
 pub trait TrackSchemaTrait: Send + Sync {
     /// Find the provided pattern of decoded data bytes within the specified bitstream, starting at

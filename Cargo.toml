@@ -17,54 +17,8 @@ keywords.workspace = true
 repository.workspace = true
 license.workspace = true
 
-[dependencies]
-bit-vec = "0.8"
-bitflags = "2.6.0"
-binrw = "0.14"
-thiserror = "2.0"
-logger = "0.4"
-env_logger = "0.11"
-regex = "1.10"
-log = "0.4.22"
-rand = "0.8.5"
-sha1_smol = "1.0.1"
-
-# Dependencies for optional features
-# Num-traits and num-derive are used by retrocompressor ('td0' feature)
-num-traits = { version = "0.2.14", optional = true }
-num-derive = { version = "0.4", optional = true }
-
-# tiny-skia is used by visualization functions ('viz' feature)
-tiny-skia = { version = "0.11", optional = true }
-
-# flate2 is required for MFI decompression ('mfi' feature)
-flate2 = { version = "1.0", optional = true }
-histogram = "0.11"
-plotly = { version = "0.10", optional = true }
-serde = { version = "1.0", optional = true }
-typetag = { version = "0.2", optional = true }
-wasm-bindgen-futures = { version = "0.4", optional = true }
-
-fluxfox_fat = { git = "https://github.com/dbalsom/fluxfox_fat.git", package = "fatfs", branch = "bpb_fix", default-features = false, features = ["std", "alloc", "log_level_debug"], optional = true }
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-zip = { version = "2.1", default-features = false, features = ["bzip2", "deflate", "deflate64", "lzma", "time", "zstd"], optional = true }
-tar = { version = "0.4", optional = true }
-tokio = { version = "1", optional = true, features = ["full"] }
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-getrandom = { version = "0.2", features = ["js"] }
-zip = { version = "2.1", default-features = false, features = ["deflate", "deflate64", "lzma"], optional = true }
-tar = { version = "0.4", optional = true }
-# Version of time must match time depdendency of zip
-#time = { version = "0.3", features = ["wasm-bindgen"], optional = true }
-wasm-bindgen = { version = "0.2", optional = true }
-wasm-bindgen-futures = { version = "0.4", optional = true }
-
-[dev-dependencies]
-sha1 = "0.10.6"
-hex = "0.4"    # or the latest version
-
+# Workspace definition
+# ----------------------------------------------------------------------------------------------------------------------
 [workspace]
 members = [
     "examples/async",
@@ -75,35 +29,135 @@ members = [
     "crates/png2disk",
     "crates/ffedit",
     "crates/fftool",
-    "crates/ff_egui_app", 
-    "crates/ff_egui_lib"
-, "examples/fat"]
+    "crates/ff_egui_app",
+    "crates/ff_egui_lib",
+    "examples/fat"
+]
+
+# Required dependencies
+# ----------------------------------------------------------------------------------------------------------------------
+[dependencies]
+bit-vec = "0.8"
+bitflags = "2.6"
+binrw = "0.14"
+thiserror = "2.0"
+logger = "0.4"
+env_logger = "0.11"
+regex = "1.11"
+log = "0.4"
+rand = "0.8"
+sha1_smol = "1.0"
+dyn-clone = "1.0"
+strum = { version = "0.26", features = ["derive"] }
+
+# Optional dependencies
+# ----------------------------------------------------------------------------------------------------------------------
+
+# Num-traits and num-derive are used by retrocompressor ('td0' feature)
+num-traits = { version = "0.2", optional = true }
+num-derive = { version = "0.4", optional = true }
+
+# tiny-skia is used by visualization functions ('viz' feature)
+tiny-skia = { version = "0.11", optional = true }
+
+# flate2 is required for MFI decompression ('mfi' feature)
+flate2 = { version = "1.0", optional = true }
+
+# histogram is required for flux timing detection / PLL initialization
+histogram = { version = "0.11", optional = true }
+
+# plotly is used for plotting flux timings
+plotly = { version = "0.11", optional = true }
+
+# serde is used for serialization / deserialization of app state and disk images ('serde' feature)
+serde = { version = "1.0", optional = true }
+
+# typetag is used for serialization / deserialization of dyn trait objects ('serde' feature)
+typetag = { version = "0.2", optional = true }
+
+wasm-bindgen-futures = { version = "0.4", optional = true }
+
+# fluxfox_fat is used for reading FAT12/16/32 filesystems if 'fat' feature is enabled
+fluxfox_fat = { git = "https://github.com/dbalsom/fluxfox_fat.git", package = "fatfs", branch = "bpb_fix", default-features = false, features = ["std", "alloc", "log_level_debug"], optional = true }
+
+# Native dependencies
+# ----------------------------------------------------------------------------------------------------------------------
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+zip = { version = "2.1", default-features = false, features = ["bzip2", "deflate", "deflate64", "lzma", "time", "zstd"], optional = true }
+tar = { version = "0.4", optional = true }
+tokio = { version = "1", optional = true, features = ["full"] }
+
+# Wasm32 dependencies
+# ----------------------------------------------------------------------------------------------------------------------
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+zip = { version = "2.1", default-features = false, features = ["deflate", "deflate64", "lzma"], optional = true }
+tar = { version = "0.4", optional = true }
+# Version of time must match time depdendency of zip
+#time = { version = "0.3", features = ["wasm-bindgen"], optional = true }
+wasm-bindgen = { version = "0.2", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
+
+# Dev dependencies
+# ----------------------------------------------------------------------------------------------------------------------
+[dev-dependencies]
+sha1 = "0.10"
+hex = "0.4"    # or the latest version
 
 [features]
-default = ["viz", "zip", "tar", "mfi", "td0", "fat"]
+default = ["viz", "zip", "tar", "mfi", "fat", "flux", "ibmpc", "amiga"]
 wasm = ["async", "wasm-bindgen", "wasm-bindgen-futures"]
 serde = ["dep:serde", "dep:typetag", "bit-vec/serde_std", "bitflags/serde"]
 tokio-async = ["async", "tokio"]
 async = []
+# ibmpc feature enables IBM PC-specific disk image support (not fully factored out at the moment)
+ibmpc = ["td0"]
+# amiga feature enables Amiga-specific disk image support
+amiga = ["adf"]
+# viz feature enables visualization functions - will pull in tiny-skia dependency for drawing
 viz = ["dep:tiny-skia"]
+# zip feature enables reading zipped images, as well as reading/writing zip files from FileSystem interfaces
 zip = ["dep:zip"]
+# tar feature enables reading tar files from FileSystem interfaces
 tar = ["dep:tar"]
-mfi = ["dep:flate2"]
-td0 = ["dep:num-traits", "dep:num-derive"]
+# fat feature enables reading FAT12/16/32 filesystems. This will pull in fluxfox_fat dependency
 fat = ["dep:fluxfox_fat"]
+# flux feature enables reading flux images. This will pull in histogram dependency
+flux = ["dep:histogram"]
+# plotly feature enables export of flux timings to plotly (perhaps this should not be internal to fluxfox?)
 plot = ["dep:plotly"]
 
+# Disk Image File Format Features
+# ----------------------------------------------------------------------------------------------------------------------
+# mfi feature enables reading MFI images. This will pull in flate2 dependency for compression/decompression
+mfi = ["dep:flate2", "flux"]
+# td0 feature enables reading TD0 images. This will pull in num-traits and num-derive dependencies and LZW/LZHUF
+# routines for compression/decompression
+td0 = ["dep:num-traits", "dep:num-derive"]
+# adf feature enables reading Amiga ADF images. This does not require an additional format parser, instead it is used to
+# enable reading/writing StandardFormat::Amiga880k images in the `raw` parser and StandardSectorView, as well as
+# advertising the ADF extension.
+adf = []
+
+# Clippy lint control
+# ----------------------------------------------------------------------------------------------------------------------
 [lints.clippy]
+# We will eventually take this advice, but not now
 too-many-arguments = "allow"
+# Sometimes adding + 0 helps line things up. There's no harm in it
 identity_op = "allow"
 
+# Build profiles
+# ----------------------------------------------------------------------------------------------------------------------
 [profile.release]
+# Most aggressive LTO profile
 lto = "thin"
 
 [profile.release.package.ff_egui_app]
-opt-level = 2 # fast and small wasm
+# Fast and small wasm
+opt-level = 2
 
-# Optimize all dependencies even in debug builds:
+# Optimize all dependencies even in debug builds
 [profile.dev.package."*"]
 opt-level = 2
 

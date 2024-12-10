@@ -23,19 +23,17 @@
     DEALINGS IN THE SOFTWARE.
 
     --------------------------------------------------------------------------
-
-    flux/histogram.rs
 */
 
-//!     This module defines a FluxHistogram structure which is used to determine
-//!     the density, data rate and encoding of a flux track so that the PLL may
-//!     be properly initialized for decoding.
+//! This module defines a [FluxHistogram] structure which is used to determine
+//! the density, data rate and encoding of a flux track so that the PLL may
+//! be properly initialized for decoding.
 //!
-//!     Normally this is used internally by FluxRevolution, but can be used
-//!     independently by format parsers. For example the MFI format parser uses
-//!     a FluxHistogram to normalize track timings when 360RPM images are
-//!     detected, as to not clutter normal flux processing logic with special
-//!     cases.
+//! Normally this is used internally by [FluxRevolution], but can be used
+//! independently by format parsers. For example the MFI format parser uses
+//! a [FluxHistogram] to normalize track timings when 360RPM images are
+//! detected, as to not clutter normal flux processing logic with special
+//! cases.
 
 use histogram::{Bucket, Histogram};
 

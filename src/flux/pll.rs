@@ -33,7 +33,7 @@ use crate::{
     flux::{flux_revolution::FluxRevolution, FluxStats, FluxTransition},
     format_ms,
     format_us,
-    types::{DiskDataEncoding, DiskDataRate},
+    types::{TrackDataEncoding, TrackDataRate},
 };
 
 const BASE_CLOCK: f64 = 2e-6; // Represents the default clock for a 300RPM, 250Kbps disk.
@@ -95,8 +95,8 @@ pub struct Pll {
 impl Pll {
     pub fn new() -> Self {
         Pll {
-            pll_default_rate: u32::from(DiskDataRate::Rate250Kbps(1.0)) as f64 * 2.0,
-            pll_rate: u32::from(DiskDataRate::Rate250Kbps(1.0)) as f64 * 2.0,
+            pll_default_rate: u32::from(TrackDataRate::Rate250Kbps(1.0)) as f64 * 2.0,
+            pll_rate: u32::from(TrackDataRate::Rate250Kbps(1.0)) as f64 * 2.0,
             pll_period: BASE_CLOCK, // 2 µs
             working_period: BASE_CLOCK,
             period_factor: 1.0,
@@ -217,12 +217,12 @@ impl Pll {
     pub fn decode(
         &mut self,
         stream: &FluxRevolution,
-        encoding: DiskDataEncoding,
+        encoding: TrackDataEncoding,
         flags: PllDecodeFlags,
     ) -> PllDecodeResult {
         match encoding {
-            DiskDataEncoding::Mfm => self.decode_mfm(stream, flags),
-            DiskDataEncoding::Fm => self.decode_fm(stream, flags),
+            TrackDataEncoding::Mfm => self.decode_mfm(stream, flags),
+            TrackDataEncoding::Fm => self.decode_fm(stream, flags),
             _ => {
                 log::error!("Unsupported encoding: {:?}", encoding);
                 self.decode_mfm(stream, flags)

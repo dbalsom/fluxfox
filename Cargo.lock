@@ -1701,9 +1701,9 @@ dependencies = [
 
 [[package]]
 name = "fastrand"
-version = "2.2.0"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "486f806e73c5707928240ddc295403b1b93c96a02038563881c4a2fd84b81ac4"
+checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
 
 [[package]]
 name = "fat_example"
@@ -1818,6 +1818,7 @@ dependencies = [
  "binrw",
  "bit-vec",
  "bitflags 2.6.0",
+ "dyn-clone",
  "env_logger",
  "fatfs",
  "flate2",
@@ -1834,6 +1835,7 @@ dependencies = [
  "serde",
  "sha1",
  "sha1_smol",
+ "strum",
  "tar",
  "thiserror 2.0.5",
  "tiny-skia",
@@ -3506,9 +3508,9 @@ checksum = "953ec861398dccce10c670dfeaf3ec4911ca479e9c02154b3a215178c5f566f2"
 
 [[package]]
 name = "plotly"
-version = "0.10.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e1ffd11c8a6ef0b730b9d3e46ad2404f79905825cb20223fa0547434a2dff54"
+checksum = "77e50e865d46d1341c2271022853125604acf7d5f54c2bee318a517ca29fcd77"
 dependencies = [
  "dyn-clone",
  "erased-serde",
@@ -3524,9 +3526,9 @@ dependencies = [
 
 [[package]]
 name = "plotly_derive"
-version = "0.10.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69e940d8d8db30c6f4cc37dab9aab61f4c9cc1e6efb6d18902ab88fa09c03560"
+checksum = "7fd64e90c0425a679512dc379216730925c0bc4857df34e9316d997731772ac0"
 dependencies = [
  "darling",
  "proc-macro2",

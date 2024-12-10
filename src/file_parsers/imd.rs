@@ -25,16 +25,18 @@
     --------------------------------------------------------------------------
 */
 use crate::{
-    file_parsers::{FormatCaps, ParserWriteCompatibility},
+    file_parsers::{FormatCaps, ParserReadOptions, ParserWriteCompatibility, ParserWriteOptions},
     io::{ReadSeek, ReadWriteSeek},
     types::{
         chs::{DiskCh, DiskChsn},
-        DiskDataEncoding,
-        DiskDataRate,
-        DiskDensity,
+        AddSectorParams,
         DiskDescriptor,
+        MetaSectorTrackParams,
+        Platform,
         SectorAttributes,
-        SectorDescriptor,
+        TrackDataEncoding,
+        TrackDataRate,
+        TrackDensity,
     },
     util::{get_length, read_ascii},
     DiskImage,
@@ -43,7 +45,6 @@ use crate::{
     FoxHashSet,
     LoadingCallback,
     ASCII_EOF,
-    DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, BinRead, BinReaderExt};
 use regex::Regex;
@@ -86,14 +87,14 @@ impl ImdTrack {
     }
 }
 
-fn imd_mode_to_rate(data_rate: u8) -> Option<(DiskDataRate, DiskDataEncoding)> {
+fn imd_mode_to_rate(data_rate: u8) -> Option<(TrackDataRate, TrackDataEncoding)> {
     match data_rate {
-        0 => Some((DiskDataRate::Rate500Kbps(1.0), DiskDataEncoding::Fm)),
-        1 => Some((DiskDataRate::Rate300Kbps(1.0), DiskDataEncoding::Fm)),
-        2 => Some((DiskDataRate::Rate250Kbps(1.0), DiskDataEncoding::Fm)),
-        3 => Some((DiskDataRate::Rate500Kbps(1.0), DiskDataEncoding::Mfm)),
-        4 => Some((DiskDataRate::Rate300Kbps(1.0), DiskDataEncoding::Mfm)),
-        5 => Some((DiskDataRate::Rate250Kbps(1.0), DiskDataEncoding::Mfm)),
+        0 => Some((TrackDataRate::Rate500Kbps(1.0), TrackDataEncoding::Fm)),
+        1 => Some((TrackDataRate::Rate300Kbps(1.0), TrackDataEncoding::Fm)),
+        2 => Some((TrackDataRate::Rate250Kbps(1.0), TrackDataEncoding::Fm)),
+        3 => Some((TrackDataRate::Rate500Kbps(1.0), TrackDataEncoding::Mfm)),
+        4 => Some((TrackDataRate::Rate300Kbps(1.0), TrackDataEncoding::Mfm)),
+        5 => Some((TrackDataRate::Rate250Kbps(1.0), TrackDataEncoding::Mfm)),
         _ => None,
     }
 }
@@ -127,6 +128,11 @@ impl ImdFormat {
         FormatCaps::empty()
     }
 
+    pub fn platforms() -> Vec<Platform> {
+        // As far as I know, IMD files were only intended for the PC.
+        vec![Platform::IbmPc]
+    }
+
     pub(crate) fn extensions() -> Vec<&'static str> {
         vec!["imd"]
     }
@@ -154,6 +160,7 @@ impl ImdFormat {
     pub(crate) fn load_image<RWS: ReadSeek>(
         mut read_buf: RWS,
         disk_image: &mut DiskImage,
+        _opts: &ParserReadOptions,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFileFormat::ImageDisk);
@@ -263,11 +270,14 @@ impl ImdFormat {
             }
 
             log::trace!("Adding track: C: {} H: {}", track_header.c, track_header.h);
-            let new_track = disk_image.add_track_metasector(
-                data_encoding,
+
+            let params = MetaSectorTrackParams {
+                ch: DiskCh::from((track_header.c() as u16, track_header.h())),
+                encoding: data_encoding,
                 data_rate,
-                DiskCh::from((track_header.c() as u16, track_header.h())),
-            )?;
+            };
+
+            let new_track = disk_image.add_track_metasector(&params)?;
 
             // Read all sectors for this track.
             for s in 0..sector_numbers.len() {
@@ -291,9 +301,9 @@ impl ImdFormat {
                         );
 
                         // Add this sector to track.
-                        let sd = SectorDescriptor {
+                        let params = AddSectorParams {
                             id_chsn: DiskChsn::new(cylinder_map[s] as u16, head_map[s], sector_numbers[s], sector_n),
-                            data: data.data,
+                            data: &data.data,
                             weak_mask: None,
                             hole_mask: None,
                             attributes: SectorAttributes {
@@ -302,9 +312,11 @@ impl ImdFormat {
                                 deleted_mark: data.deleted,
                                 no_dam: false,
                             },
+                            alternate: false,
+                            bit_index: None,
                         };
 
-                        new_track.add_sector(&sd, false)?;
+                        new_track.add_sector(&params)?;
                     }
                     _ => {
                         return Err(DiskImageError::FormatParseError);
@@ -326,8 +338,7 @@ impl ImdFormat {
             geometry: DiskCh::from((track_ct as u16 / head_ct as u16, head_ct)),
             data_rate: rate_opt.unwrap(),
             data_encoding: encoding_opt.unwrap(),
-            density: DiskDensity::from(rate_opt.unwrap()),
-            default_sector_size: DEFAULT_SECTOR_SIZE,
+            density: TrackDensity::from(rate_opt.unwrap()),
             rpm: None,
             write_protect: None,
         };
@@ -414,7 +425,11 @@ impl ImdFormat {
         }
     }
 
-    pub fn save_image<RWS: ReadWriteSeek>(_image: &DiskImage, _output: &mut RWS) -> Result<(), DiskImageError> {
+    pub fn save_image<RWS: ReadWriteSeek>(
+        _image: &DiskImage,
+        _opts: &ParserWriteOptions,
+        _output: &mut RWS,
+    ) -> Result<(), DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 }

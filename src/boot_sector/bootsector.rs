@@ -168,8 +168,8 @@ impl BootSector {
     }
 
     pub(crate) fn update_bpb_from_format(&mut self, format: StandardFormat) -> Result<(), DiskImageError> {
-        self.bpb2 = BiosParameterBlock2::from(format);
-        self.bpb3 = BiosParameterBlock3::from(format);
+        self.bpb2 = BiosParameterBlock2::try_from(format)?;
+        self.bpb3 = BiosParameterBlock3::try_from(format)?;
 
         // Update the internal buffer.
         let mut cursor = Cursor::new(&mut self.sector_buf);

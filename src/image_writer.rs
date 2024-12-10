@@ -32,7 +32,13 @@
 
 use std::path::PathBuf;
 
-use crate::{file_parsers::ImageParser, io::Cursor, DiskImage, DiskImageError, DiskImageFileFormat};
+use crate::{
+    file_parsers::{ImageFormatParser, ParserWriteOptions},
+    io::Cursor,
+    DiskImage,
+    DiskImageError,
+    DiskImageFileFormat,
+};
 
 pub struct ImageWriter<'img> {
     pub image:  &'img mut DiskImage,
@@ -76,7 +82,7 @@ impl<'img> ImageWriter<'img> {
 
         let mut buf = Cursor::new(Vec::with_capacity(1_000_000));
 
-        format.save_image(self.image, &mut buf)?;
+        format.save_image(self.image, &ParserWriteOptions::default(), &mut buf)?;
 
         let data = buf.into_inner();
         std::fs::write(path, data)?;

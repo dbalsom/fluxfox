@@ -1,7 +1,7 @@
 mod common;
 
 use crate::common::run_sector_test;
-use fluxfox::{DiskImage, DiskImageFileFormat, ImageParser};
+use fluxfox::prelude::*;
 use std::path::PathBuf;
 
 fn init() {
@@ -23,7 +23,7 @@ fn test_pri_write() {
     let mut out_buffer = Cursor::new(Vec::new());
     let fmt = DiskImageFileFormat::PceBitstreamImage;
 
-    match fmt.save_image(&mut f86_image, &mut out_buffer) {
+    match fmt.save_image(&mut f86_image, &ParserWriteOptions::default(), &mut out_buffer) {
         Ok(_) => println!("Saved PRI image."),
         Err(e) => panic!("Failed to save PRI image: {}", e),
     }

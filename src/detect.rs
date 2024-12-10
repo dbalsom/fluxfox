@@ -26,7 +26,7 @@
 */
 use crate::{
     containers::DiskImageContainer,
-    file_parsers::{ImageParser, IMAGE_FORMATS},
+    file_parsers::{ImageFormatParser, IMAGE_FORMATS},
     io::ReadSeek,
     util::natural_sort,
     DiskImageError,

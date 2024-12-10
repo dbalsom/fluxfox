@@ -43,12 +43,14 @@ impl TrackSchemaTrait for TrackSchema {
         #[allow(clippy::match_single_binding)]
         match self {
             TrackSchema::System34 => System34Schema::find_data_pattern(track, pattern, offset),
+            TrackSchema::Amiga => todo!(),
         }
     }
     fn find_next_marker(&self, track: &TrackDataStream, offset: usize) -> Option<(TrackMarker, usize)> {
         #[allow(clippy::match_single_binding)]
         match self {
             TrackSchema::System34 => System34Schema::find_next_marker(track, offset),
+            TrackSchema::Amiga => todo!(),
         }
     }
     fn find_marker(
@@ -61,6 +63,7 @@ impl TrackSchemaTrait for TrackSchema {
         #[allow(clippy::match_single_binding)]
         match self {
             TrackSchema::System34 => System34Schema::find_marker(track, marker, offset, limit),
+            TrackSchema::Amiga => todo!(),
         }
     }
 
@@ -68,6 +71,7 @@ impl TrackSchemaTrait for TrackSchema {
         #[allow(clippy::match_single_binding)]
         match self {
             TrackSchema::System34 => System34Schema::find_element(track, element, offset),
+            TrackSchema::Amiga => todo!(),
         }
     }
 
@@ -75,6 +79,7 @@ impl TrackSchemaTrait for TrackSchema {
         #[allow(clippy::match_single_binding)]
         match self {
             TrackSchema::System34 => System34Schema::scan_track_markers(track),
+            TrackSchema::Amiga => todo!(),
         }
     }
 
@@ -86,6 +91,7 @@ impl TrackSchemaTrait for TrackSchema {
         #[allow(clippy::match_single_binding)]
         match self {
             TrackSchema::System34 => System34Schema::scan_track_metadata(track, markers),
+            TrackSchema::Amiga => todo!(),
         }
     }
 
@@ -93,6 +99,7 @@ impl TrackSchemaTrait for TrackSchema {
         #[allow(clippy::match_single_binding)]
         match self {
             TrackSchema::System34 => System34Schema::create_clock_map(markers, clock_map),
+            TrackSchema::Amiga => todo!(),
         }
     }
 
@@ -100,6 +107,7 @@ impl TrackSchemaTrait for TrackSchema {
         #[allow(clippy::match_single_binding)]
         match self {
             TrackSchema::System34 => System34Schema::crc16(track, bit_index, end),
+            TrackSchema::Amiga => todo!(),
         }
     }
 
@@ -107,6 +115,7 @@ impl TrackSchemaTrait for TrackSchema {
         #[allow(clippy::match_single_binding)]
         match self {
             TrackSchema::System34 => System34Schema::crc16_bytes(data),
+            TrackSchema::Amiga => todo!(),
         }
     }
 }

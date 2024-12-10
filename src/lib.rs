@@ -166,7 +166,7 @@ pub enum DiskVisualizationError {
 // Re-export tiny_skia for convenience
 pub use crate::{
     diskimage::DiskImage,
-    file_parsers::{format_from_ext, supported_extensions, ImageParser, ParserWriteCompatibility},
+    file_parsers::{format_from_ext, supported_extensions, ImageFormatParser, ParserWriteCompatibility},
     image_builder::ImageBuilder,
     image_writer::ImageWriter,
     types::{DiskImageFileFormat, SectorMapEntry},

@@ -31,16 +31,16 @@
     MFM format images are bitstream images produced by the HxC disk emulator software.
 */
 use crate::{
-    file_parsers::{FormatCaps, ParserWriteCompatibility},
+    file_parsers::{FormatCaps, ParserReadOptions, ParserWriteCompatibility, ParserWriteOptions},
     io::{ReadSeek, ReadWriteSeek},
-    types::{BitStreamTrackParams, DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskDescriptor},
+    types::{BitStreamTrackParams, DiskCh, DiskDescriptor, Platform, TrackDataEncoding, TrackDataRate, TrackDensity},
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,
     LoadingCallback,
-    DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, BinRead};
+use strum::IntoEnumIterator;
 
 pub struct MfmFormat;
 
@@ -93,6 +93,10 @@ impl MfmFormat {
         FormatCaps::empty()
     }
 
+    pub(crate) fn platforms() -> Vec<Platform> {
+        Platform::iter().collect()
+    }
+
     pub(crate) fn extensions() -> Vec<&'static str> {
         vec!["mfm"]
     }
@@ -117,6 +121,7 @@ impl MfmFormat {
     pub(crate) fn load_image<RWS: ReadSeek>(
         mut read_buf: RWS,
         disk_image: &mut DiskImage,
+        _opts: &ParserReadOptions,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFileFormat::MfmBitstreamImage);
@@ -143,7 +148,7 @@ impl MfmFormat {
             advanced_tracks
         );
 
-        let disk_data_rate = DiskDataRate::from(file_header.bit_rate as u32 * 1000);
+        let disk_data_rate = TrackDataRate::from(file_header.bit_rate as u32 * 1000);
 
         let total_tracks = file_header.track_ct as usize * file_header.head_ct as usize;
 
@@ -247,8 +252,8 @@ impl MfmFormat {
             }
 
             let params = BitStreamTrackParams {
-                encoding: DiskDataEncoding::Mfm,
-                data_rate: DiskDataRate::from(data_rate),
+                encoding: TrackDataEncoding::Mfm,
+                data_rate: TrackDataRate::from(data_rate),
                 rpm: None,
                 ch: DiskCh::from((cylinder as u16, head)),
                 bitcell_ct,
@@ -258,15 +263,14 @@ impl MfmFormat {
                 detect_weak: false,
             };
 
-            disk_image.add_track_bitstream(params)?;
+            disk_image.add_track_bitstream(&params)?;
         }
 
         disk_image.descriptor = DiskDescriptor {
             geometry: DiskCh::from((file_header.track_ct, file_header.head_ct)),
             data_rate: disk_data_rate,
-            data_encoding: DiskDataEncoding::Mfm,
-            density: DiskDensity::from(disk_data_rate),
-            default_sector_size: DEFAULT_SECTOR_SIZE,
+            data_encoding: TrackDataEncoding::Mfm,
+            density: TrackDensity::from(disk_data_rate),
             rpm: None,
             write_protect: None,
         };
@@ -283,7 +287,11 @@ impl MfmFormat {
         Ok(track_data)
     }
 
-    pub fn save_image<RWS: ReadWriteSeek>(_image: &DiskImage, _output: &mut RWS) -> Result<(), DiskImageError> {
+    pub fn save_image<RWS: ReadWriteSeek>(
+        _image: &DiskImage,
+        _opts: &ParserWriteOptions,
+        _output: &mut RWS,
+    ) -> Result<(), DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 }

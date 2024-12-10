@@ -32,8 +32,9 @@
 use crate::{
     file_parsers::FormatCaps,
     prelude::{DiskCh, DiskChsn},
-    track::TrackConsistency,
-    types::{DiskDataEncoding, DiskDataRate, DiskDensity, DiskRpm},
+    track::TrackAnalysis,
+    track_schema::TrackSchema,
+    types::{DiskRpm, TrackDataEncoding, TrackDataRate, TrackDensity},
 };
 
 /// A structure that defines several flags that can apply to a sector.
@@ -48,12 +49,14 @@ pub struct SectorAttributes {
 /// A structure used to describe the parameters of a sector to be created on a `MetaSector`
 /// resolution track.
 #[derive(Default)]
-pub struct SectorDescriptor {
+pub struct AddSectorParams<'a> {
     pub id_chsn: DiskChsn,
-    pub data: Vec<u8>,
-    pub weak_mask: Option<Vec<u8>>,
-    pub hole_mask: Option<Vec<u8>>,
+    pub data: &'a [u8],
+    pub weak_mask: Option<&'a [u8]>,
+    pub hole_mask: Option<&'a [u8]>,
     pub attributes: SectorAttributes,
+    pub alternate: bool,
+    pub bit_index: Option<usize>,
 }
 
 /// A structure to uniquely identify a specific sector on a track.
@@ -79,7 +82,7 @@ pub struct SectorMapEntry {
 /// A DiskConsistency structure maintains information about the consistency of a disk image.
 #[derive(Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct DiskConsistency {
+pub struct DiskAnalysis {
     // A field to hold image format capability flags that this image requires in order to be represented.
     pub image_caps: FormatCaps,
     /// Whether the disk image contains weak bits.
@@ -100,14 +103,14 @@ pub struct DiskConsistency {
     pub consistent_track_length: Option<u32>,
 }
 
-impl DiskConsistency {
-    pub fn set_track_consistency(&mut self, track_consistency: &TrackConsistency) {
-        self.deleted_data = track_consistency.deleted_data;
-        self.bad_address_crc = track_consistency.bad_address_crc;
-        self.bad_data_crc = track_consistency.bad_data_crc;
-        self.no_dam = track_consistency.no_dam;
+impl DiskAnalysis {
+    pub fn set_track_analysis(&mut self, ta: &TrackAnalysis) {
+        self.deleted_data = ta.deleted_data;
+        self.bad_address_crc = ta.bad_address_crc;
+        self.bad_data_crc = ta.bad_data_crc;
+        self.no_dam = ta.no_dam;
 
-        if track_consistency.consistent_sector_size.is_none() {
+        if ta.consistent_sector_size.is_none() {
             self.consistent_sector_size = None;
         }
     }
@@ -119,14 +122,12 @@ impl DiskConsistency {
 pub struct DiskDescriptor {
     /// The basic geometry of the disk. Not all tracks present need to conform to the specified sector count (s).
     pub geometry: DiskCh,
-    /// The "default" sector size of the disk. Larger or smaller sectors may still be present in the disk image.
-    pub default_sector_size: usize,
-    /// The default data encoding used. The disk may still contain tracks in different encodings.
-    pub data_encoding: DiskDataEncoding,
-    /// The density of the disk
-    pub density: DiskDensity,
-    /// The data rate of the disk
-    pub data_rate: DiskDataRate,
+    /// The overall data encoding of the disk. (one or more tracks may have different encodings).
+    pub data_encoding: TrackDataEncoding,
+    /// The overall density of the disk (one or more tracks may have different densities).
+    pub density: TrackDensity,
+    /// The overall data rate of the disk (one or more tracks may have different data rates).
+    pub data_rate: TrackDataRate,
     /// The rotation rate of the disk. If not provided, this can be determined from other parameters.
     pub rpm: Option<DiskRpm>,
     /// Whether the disk image should be considered read-only (None if image did not define this flag)
@@ -301,16 +302,57 @@ pub struct TrackRegion {
     pub end:   usize,
 }
 
+/// `BitStreamTrackParams` structure contains parameters required to create a `BitStream`
+/// resolution track.
+///
+/// `add_track_bitstream()` takes a `BitStreamTrackParams` structure as an argument.
 pub struct BitStreamTrackParams<'a> {
-    pub encoding: DiskDataEncoding,
-    pub data_rate: DiskDataRate,
-    pub rpm: Option<DiskRpm>,
+    /// The physical cylinder and head of the track to add.
     pub ch: DiskCh,
+    pub encoding: TrackDataEncoding,
+    pub data_rate: TrackDataRate,
+    pub rpm: Option<DiskRpm>,
     pub bitcell_ct: Option<usize>,
     pub data: &'a [u8],
     pub weak: Option<&'a [u8]>,
     pub hole: Option<&'a [u8]>,
     pub detect_weak: bool,
+}
+
+/// `FluxStreamTrackParams` contains parameters required to create a `FluxStream` resolution track.
+///
+/// `add_track_fluxstream()` takes a `FluxStreamTrackParams` structure as an argument.
+pub struct FluxStreamTrackParams {
+    /// The physical cylinder and head of the track to add.
+    pub ch: DiskCh,
+    /// The track schema to use for the track, if known. If not known, use `None` and the schema
+    /// will be inferred from the track data.
+    pub schema: Option<TrackSchema>,
+    /// The data encoding used in the track. If not known, use `None` and the encoding will be
+    /// inferred from the track data.
+    pub encoding: Option<TrackDataEncoding>,
+    /// A hint for the base PLL clock frequency to use decoding the track. If not known, use `None`
+    /// and the clock frequency will be inferred from the track data.
+    pub clock: Option<f64>,
+    /// A hint for the disk rotation rate to use decoding the track. If not known, use `None`
+    /// and the rotation rate will be inferred from the track data.
+    pub rpm: Option<DiskRpm>,
+}
+
+/// `MetaSectorTrackParams` contains parameters required to create a `MetaSector` resolution track.
+///
+/// `add_track_metasector()` takes a `MetaSectorTrackParams` structure as an argument.
+pub struct MetaSectorTrackParams {
+    /// The physical cylinder and head of the track to add.
+    /// This should be the next available track in the disk image.
+    pub ch: DiskCh,
+    /// The track data encoding used in the track. This may not be specified by a `MetaSector`
+    /// disk image, but can be inferred from the `Platform` or `StandardFormat`.
+    /// It does not really affect the operation of a `MetaSector` track, but incorrect values may
+    /// persist in exported disk images.
+    pub encoding: TrackDataEncoding,
+    /// The track data rate. Similar caveats to the ones discussed for `encoding` apply.
+    pub data_rate: TrackDataRate,
 }
 
 #[derive(Default)]

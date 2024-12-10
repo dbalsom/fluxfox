@@ -33,7 +33,7 @@ use crate::{
     bitstream::{EncodingVariant, TrackCodec},
     io::{Error, ErrorKind, Read, Result, Seek, SeekFrom},
     range_check::RangeChecker,
-    types::{DiskDataEncoding, TrackRegion},
+    types::{TrackDataEncoding, TrackRegion},
 };
 use bit_vec::BitVec;
 use std::ops::Index;
@@ -55,6 +55,18 @@ macro_rules! fm_offset {
     };
 }
 
+// FmCodec is very similar to MfmCodec, and subsequently contains a lot of repeated code.
+// It would be nice to refactor this to reduce the amount of duplicated code - perhaps we could
+// implement Mfm as a Fm variant.
+
+/// Implements a bitstream codec for FM encoded data.
+///
+/// FM encoding is a simple encoding scheme where each data bit is encoded as two bits, with a
+/// clock bit between each data bit. FM encoding is used on 'standard density' diskettes, typically
+/// seen in 8" formats, and occasionally on certain 5.25" diskettes.
+///
+/// FM encoded tracks are often present at the end of the standard track count on a diskette,
+/// used by commercial disk duplicators to store additional data about the disk being mastered.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FmCodec {
     bit_vec: BitVec,
@@ -103,8 +115,8 @@ pub fn find_sync(track: &BitVec, start_idx: usize) -> Option<usize> {
 
 #[cfg_attr(feature = "serde", typetag::serde)]
 impl TrackCodec for FmCodec {
-    fn encoding(&self) -> DiskDataEncoding {
-        DiskDataEncoding::Fm
+    fn encoding(&self) -> TrackDataEncoding {
+        TrackDataEncoding::Fm
     }
 
     fn len(&self) -> usize {
@@ -227,6 +239,15 @@ impl TrackCodec for FmCodec {
         Some(byte)
     }
 
+    fn read_raw_buf(&self, buf: &mut [u8], offset: usize) -> usize {
+        let mut bytes_read = 0;
+        for byte in buf.iter_mut() {
+            *byte = self.read_raw_byte(offset + (bytes_read * 8)).unwrap();
+            bytes_read += 1;
+        }
+        bytes_read
+    }
+
     fn write_raw_byte(&mut self, index: usize, byte: u8) {
         if index >= self.len() {
             return;
@@ -234,6 +255,22 @@ impl TrackCodec for FmCodec {
         for bi in index..std::cmp::min(index + 8, self.bit_vec.len()) {
             self.bit_vec.set(bi, byte & (0x80 >> bi) != 0);
         }
+    }
+
+    fn write_raw_buf(&mut self, buf: &[u8], offset: usize) -> usize {
+        let mut bytes_written = 0;
+        let mut offset = offset;
+
+        for byte in buf {
+            for bit_pos in (0..8).rev() {
+                let bit = byte & (0x01 << bit_pos) != 0;
+                self.bit_vec.set(offset, bit);
+                offset += 1;
+            }
+            bytes_written += 1;
+        }
+
+        bytes_written
     }
 
     fn read_decoded_byte(&self, index: usize) -> Option<u8> {
@@ -285,22 +322,6 @@ impl TrackCodec for FmCodec {
         }
 
         (bits_written + 7) / 8
-    }
-
-    fn write_raw_buf(&mut self, buf: &[u8], offset: usize) -> usize {
-        let mut bytes_written = 0;
-        let mut offset = offset;
-
-        for byte in buf {
-            for bit_pos in (0..8).rev() {
-                let bit = byte & (0x01 << bit_pos) != 0;
-                self.bit_vec.set(offset, bit);
-                offset += 1;
-            }
-            bytes_written += 1;
-        }
-
-        bytes_written
     }
 
     fn encode(&self, data: &[u8], prev_bit: bool, encoding_type: EncodingVariant) -> BitVec {

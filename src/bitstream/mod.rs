@@ -30,21 +30,27 @@ pub mod mfm;
 
 use crate::{
     io::{Read, Seek},
-    types::DiskDataEncoding,
+    types::TrackDataEncoding,
 };
 use bit_vec::BitVec;
 use std::ops::Index;
 
+/// When encoding data with a `TrackCodex`, an `EncodingVariant` specifies if the encoding should
+/// use the standard `Data` encoding, or encode the data using the special clock pattern to make
+/// it an `AddressMark`.
+#[derive(Copy, Clone, Debug)]
 pub enum EncodingVariant {
     Data,
     AddressMark,
 }
 
+/// A `TrackCodec` is a trait that represents the data encoding of a disk track.
+/// Data encodings
 #[cfg_attr(feature = "serde", typetag::serde(tag = "type"))]
 pub trait TrackCodec: Read + Seek + Index<usize, Output = bool> + Send + Sync {
     /// Return the `[DiskDataEncoding]` of the data on this track.
     /// A single track may only have one encoding.
-    fn encoding(&self) -> DiskDataEncoding;
+    fn encoding(&self) -> TrackDataEncoding;
     /// Return the length of the track in bits.
     fn len(&self) -> usize;
     /// Return a bool indicating if the track is empty.
@@ -74,11 +80,12 @@ pub trait TrackCodec: Read + Seek + Index<usize, Output = bool> + Send + Sync {
     fn error_map(&self) -> &BitVec;
     fn set_track_padding(&mut self);
     fn read_raw_byte(&self, index: usize) -> Option<u8>;
+    fn read_raw_buf(&self, buf: &mut [u8], offset: usize) -> usize;
     fn write_raw_byte(&mut self, index: usize, byte: u8);
+    fn write_raw_buf(&mut self, buf: &[u8], offset: usize) -> usize;
     fn read_decoded_byte(&self, index: usize) -> Option<u8>;
     fn read_decoded_buf(&self, buf: &mut [u8], offset: usize) -> usize;
     fn write_encoded_buf(&mut self, buf: &[u8], offset: usize) -> usize;
-    fn write_raw_buf(&mut self, buf: &[u8], offset: usize) -> usize;
     fn encode(&self, data: &[u8], prev_bit: bool, encoding_type: EncodingVariant) -> BitVec;
     fn find_marker(&self, marker: u64, mask: Option<u64>, start: usize, limit: Option<usize>) -> Option<(usize, u16)>;
 

@@ -42,14 +42,14 @@ use crate::{
 };
 
 use crate::{
+    file_parsers::{ParserReadOptions, ParserWriteOptions},
     track::bitstream::BitStreamTrack,
-    types::{chs::DiskCh, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity},
+    types::{chs::DiskCh, DiskDataResolution, Platform, TrackDataEncoding, TrackDataRate, TrackDensity},
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,
     FoxHashSet,
     LoadingCallback,
-    DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, meta::WriteEndian, BinRead, BinWrite};
 
@@ -172,6 +172,13 @@ impl PriFormat {
 
     pub(crate) fn capabilities() -> FormatCaps {
         bitstream_flags() | FormatCaps::CAP_COMMENT | FormatCaps::CAP_WEAK_BITS
+    }
+
+    pub fn platforms() -> Vec<Platform> {
+        // PRI images should in theory support any platform that can be represented as bitstream
+        // tracks. PCE itself only supports PC and Macintosh platforms, however, so for now we'll
+        // limit it to those.
+        vec![Platform::IbmPc, Platform::Macintosh]
     }
 
     pub(crate) fn extensions() -> Vec<&'static str> {
@@ -394,6 +401,7 @@ impl PriFormat {
     pub(crate) fn load_image<RWS: ReadSeek>(
         mut read_buf: RWS,
         disk_image: &mut DiskImage,
+        _opts: &ParserReadOptions,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFileFormat::PceBitstreamImage);
@@ -472,12 +480,12 @@ impl PriFormat {
 
                     // Set the global disk data rate once.
                     if disk_data_rate.is_none() {
-                        disk_data_rate = Some(DiskDataRate::from(ctx.bit_clock));
+                        disk_data_rate = Some(TrackDataRate::from(ctx.bit_clock));
                     }
 
                     let params = BitStreamTrackParams {
-                        encoding: DiskDataEncoding::Mfm,
-                        data_rate: DiskDataRate::from(ctx.bit_clock),
+                        encoding: TrackDataEncoding::Mfm,
+                        data_rate: TrackDataRate::from(ctx.bit_clock),
                         rpm: None,
                         ch: ctx.phys_ch,
                         bitcell_ct: Some(track_header.bit_length as usize),
@@ -487,7 +495,7 @@ impl PriFormat {
                         detect_weak: false,
                     };
 
-                    disk_image.add_track_bitstream(params)?;
+                    disk_image.add_track_bitstream(&params)?;
                 }
                 PriChunkType::WeakMask => {
                     let weak_table_len = chunk.size / 8;
@@ -545,9 +553,8 @@ impl PriFormat {
         disk_image.descriptor = DiskDescriptor {
             geometry: DiskCh::from((cylinder_ct, head_ct)),
             data_rate: disk_data_rate.unwrap(),
-            data_encoding: DiskDataEncoding::Mfm,
-            density: DiskDensity::from(disk_data_rate.unwrap()),
-            default_sector_size: DEFAULT_SECTOR_SIZE,
+            data_encoding: TrackDataEncoding::Mfm,
+            density: TrackDensity::from(disk_data_rate.unwrap()),
             rpm: None,
             write_protect: None,
         };
@@ -555,7 +562,11 @@ impl PriFormat {
         Ok(())
     }
 
-    pub fn save_image<RWS: ReadWriteSeek>(image: &DiskImage, output: &mut RWS) -> Result<(), DiskImageError> {
+    pub fn save_image<RWS: ReadWriteSeek>(
+        image: &DiskImage,
+        _opts: &ParserWriteOptions,
+        output: &mut RWS,
+    ) -> Result<(), DiskImageError> {
         if matches!(image.resolution(), DiskDataResolution::BitStream) {
             log::trace!("Saving PRI image...");
         }
@@ -572,9 +583,7 @@ impl PriFormat {
         PriFormat::write_chunk(output, PriChunkType::FileHeader, &file_header)?;
 
         // Write any comments present in the image to a TEXT chunk.
-        image
-            .get_comment()
-            .map(|comment| PriFormat::write_text(output, comment));
+        image.comment().map(|comment| PriFormat::write_text(output, comment));
 
         // Iterate through tracks and write track headers and data.
         for track in image.track_iter() {

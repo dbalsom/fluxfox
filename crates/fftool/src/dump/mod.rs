@@ -28,7 +28,7 @@ pub(crate) mod args;
 
 use crate::{args::GlobalOptions, dump::args::DumpParams, read_file};
 use anyhow::{bail, Error, Result};
-use fluxfox::{io::ReadWriteSeek, prelude::*};
+use fluxfox::prelude::*;
 use std::io::{BufWriter, Write};
 
 pub(crate) fn run(global: &GlobalOptions, params: &args::DumpParams) -> Result<(), Error> {
@@ -207,7 +207,7 @@ fn dump_track<W: Write>(
             );
         }
 
-        let rtr = match track.read_track_raw(None) {
+        let rtr = match track.read_raw(None) {
             Ok(rtr) => {
                 //println!("* read track raw *");
                 rtr
@@ -286,7 +286,7 @@ fn dump_clock_map<W: Write>(
         );
     }
 
-    if let Some(codec) = track.track_stream_mut() {
+    if let Some(codec) = track.stream_mut() {
         let map_vec = codec.clock_map().to_bytes();
         _ = fluxfox::util::dump_slice(&map_vec, 0, row_size, 8, buf);
     }

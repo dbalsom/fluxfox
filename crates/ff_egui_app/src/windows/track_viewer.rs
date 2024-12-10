@@ -27,7 +27,6 @@
 use fluxfox::prelude::*;
 use fluxfox_egui::{
     widgets::data_table::{DataRange, DataTableWidget},
-    SectorSelection,
     TrackSelection,
 };
 use std::sync::{Arc, RwLock};
@@ -68,7 +67,7 @@ impl TrackViewer {
             }
         };
 
-        let rtr = match track_ref.read_track(None) {
+        let rtr = match track_ref.read(None) {
             Ok(rtr) => rtr,
             Err(e) => {
                 log::error!("Error reading sector: {:?}", e);

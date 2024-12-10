@@ -54,9 +54,9 @@ pub(crate) fn run(_global: &GlobalOptions, params: &args::InfoParams) -> Result<
     let _ = disk.dump_info(&mut std::io::stdout());
     println!();
 
-    println!("Disk consistency report:");
+    println!("Disk analysis:");
     println!("{}", "-".repeat(79));
-    let _ = disk.dump_consistency(&mut std::io::stdout());
+    let _ = disk.dump_analysis(&mut std::io::stdout());
 
     println!("Image can be represented by the following formats with write support:");
     let formats = disk.compatible_formats(true);
@@ -90,7 +90,7 @@ pub fn dump_track_map<W: std::io::Write>(
     sectors: bool,
     revolutions: bool,
 ) -> Result<(), Error> {
-    let head_map = disk.get_sector_map();
+    let head_map = disk.sector_map();
 
     for (head_idx, head) in head_map.iter().enumerate() {
         out.write_fmt(format_args!("Head {} [{} tracks]\n", head_idx, head.len()))?;
@@ -103,7 +103,7 @@ pub fn dump_track_map<W: std::io::Write>(
                         out.write_fmt(format_args!("\tTrack {}\n", track_idx))?;
                     }
                     DiskDataResolution::FluxStream | DiskDataResolution::BitStream => {
-                        let stream = track_ref.track_stream().expect("Couldn't retrieve track stream!");
+                        let stream = track_ref.stream().expect("Couldn't retrieve track stream!");
                         out.write_fmt(format_args!(
                             "\tTrack {}: [{} encoding, {} bits]\n",
                             track_idx,

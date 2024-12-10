@@ -102,7 +102,7 @@ pub(crate) fn run(global: &GlobalOptions, params: &args::ConvertParams) -> Resul
 
     // Create an output buffer
     let mut out_buffer = Cursor::new(Vec::new());
-    match output_format.save_image(&mut in_disk, &mut out_buffer) {
+    match output_format.save_image(&mut in_disk, &ParserWriteOptions::default(), &mut out_buffer) {
         Ok(_) => {
             let out_inner: Vec<u8> = out_buffer.into_inner();
             match std::fs::write(params.out_file.clone(), out_inner) {

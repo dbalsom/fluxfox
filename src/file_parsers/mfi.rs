@@ -23,18 +23,29 @@
     DEALINGS IN THE SOFTWARE.
 
     --------------------------------------------------------------------------
-
-    src/parsers/pfi.rs
-
-    A parser for the PFI disk image format.
-
-    PFI format images are PCE flux stream images, an internal format used by the PCE emulator and
-    devised by Hampa Hug.
-
-    It is a chunk-based format similar to RIFF.
-
 */
 
+//! A parser for the MFI disk image format.
+//!
+//! MFI format images are MAME flux images, an internal format used by the MAME emulator and
+//! designed to store normalized (resolved) flux transitions from disk images.
+//!
+//! Flux timings are encoded in 32-bit words, 28-bits thereof used to store the flux time in
+//! increments of 1/200_000_000th of a track, or 1 nanosecond increments at 300RPM.
+//! This requires conversion of flux times for 360RPM images.
+//!
+//! Some older MFI images may use a slightly different format, indicated by a "MESSFLOPPYIMAGE"
+//! signature in the header. These images are not currently supported.
+//!
+//! MFI track data is compressed with the 'deflate' algorithm, thus MFI support requires the 'mfi'
+//! feature which enables the 'flate2' dependency.
+//!
+//! Unformatted tracks are indicated by a track header with a zero offset and zero compressed size.
+//!
+//! MFI supports specification of the physical disk form factor, which appears to be set somewhat
+//! reliably in the header.
+//! A format variant field can specify the density of the disk, but the most prolific writer of MFI
+//! files (Applesauce) did not populate this field until v2.0, so we cannot rely on it to be present.
 use crate::{
     file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility},
     format_ms,
@@ -47,15 +58,25 @@ use crate::{
 };
 
 use crate::{
+    file_parsers::{ParserReadOptions, ParserWriteOptions},
     flux::histogram::FluxHistogram,
-    types::{chs::DiskCh, DiskDataEncoding, DiskDensity, DiskPhysicalDimensions, DiskRpm},
+    types::{
+        chs::DiskCh,
+        DiskPhysicalDimensions,
+        DiskRpm,
+        FluxStreamTrackParams,
+        Platform,
+        TrackDataEncoding,
+        TrackDensity,
+    },
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,
     LoadingCallback,
-    DEFAULT_SECTOR_SIZE,
 };
+
 use binrw::{binrw, BinRead};
+use strum::IntoEnumIterator;
 
 pub const OLD_SIGNATURE: &[u8; 15] = b"MESSFLOPPYIMAGE";
 pub const NEW_SIGNATURE: &[u8; 15] = b"MAMEFLOPPYIMAGE";
@@ -175,6 +196,10 @@ impl MfiFormat {
         bitstream_flags() | FormatCaps::CAP_COMMENT | FormatCaps::CAP_WEAK_BITS
     }
 
+    pub(crate) fn platforms() -> Vec<Platform> {
+        Platform::iter().collect()
+    }
+
     pub(crate) fn extensions() -> Vec<&'static str> {
         vec!["mfi"]
     }
@@ -192,7 +217,6 @@ impl MfiFormat {
         detected
     }
 
-    /// Return the compatibility of the image with the parser.
     pub(crate) fn can_write(_image: Option<&DiskImage>) -> ParserWriteCompatibility {
         ParserWriteCompatibility::UnsupportedFormat
     }
@@ -200,6 +224,7 @@ impl MfiFormat {
     pub(crate) fn load_image<RWS: ReadSeek>(
         mut read_buf: RWS,
         disk_image: &mut DiskImage,
+        _opts: &ParserReadOptions,
         callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
         if let Some(ref callback_fn) = callback {
@@ -391,13 +416,21 @@ impl MfiFormat {
 
                 disk_image.add_empty_track(
                     track.ch,
-                    DiskDataEncoding::Mfm,
+                    TrackDataEncoding::Mfm,
                     last_data_rate.unwrap(),
                     last_bitcell_ct.unwrap(),
                 )?;
             }
             else {
-                let new_track = disk_image.add_track_fluxstream(track.ch, flux_track, None, None)?;
+                let params = FluxStreamTrackParams {
+                    ch: track.ch,
+                    schema: None,
+                    encoding: None,
+                    clock: None,
+                    rpm: None,
+                };
+
+                let new_track = disk_image.add_track_fluxstream(flux_track, &params)?;
                 let info = new_track.info();
 
                 log::debug!(
@@ -431,10 +464,9 @@ impl MfiFormat {
 
         disk_image.descriptor = DiskDescriptor {
             geometry: file_ch,
-            data_rate: disk_density.unwrap_or(DiskDensity::Double).into(),
-            density: disk_density.unwrap_or(DiskDensity::Double),
-            data_encoding: DiskDataEncoding::Mfm,
-            default_sector_size: DEFAULT_SECTOR_SIZE,
+            data_rate: disk_density.unwrap_or(TrackDensity::Double).into(),
+            density: disk_density.unwrap_or(TrackDensity::Double),
+            data_encoding: TrackDataEncoding::Mfm,
             rpm: disk_rpm,
             write_protect: Some(true),
         };
@@ -644,7 +676,11 @@ impl MfiFormat {
         (flux_type, flux_entry & 0x3FFFFFFF)
     }
 
-    pub fn save_image<RWS: ReadWriteSeek>(_image: &DiskImage, _output: &mut RWS) -> Result<(), DiskImageError> {
+    pub fn save_image<RWS: ReadWriteSeek>(
+        _image: &DiskImage,
+        _opts: &ParserWriteOptions,
+        _output: &mut RWS,
+    ) -> Result<(), DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 }

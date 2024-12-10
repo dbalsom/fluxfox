@@ -29,15 +29,15 @@
     Implements the MetaSector track type and the Track trait for same.
 
 */
-use super::{Track, TrackConsistency, TrackInfo};
+use super::{Track, TrackAnalysis, TrackInfo};
 
 use crate::types::{
+    AddSectorParams,
     ReadSectorResult,
     ReadTrackResult,
     RwSectorScope,
     ScanSectorResult,
     SectorAttributes,
-    SectorDescriptor,
     SharedDiskContext,
     WriteSectorResult,
 };
@@ -47,7 +47,7 @@ use crate::track_schema::{system34::System34Standard, TrackMetadata, TrackSchema
 use crate::{
     bitstream::TrackDataStream,
     track::{bitstream::BitStreamTrack, fluxstream::FluxStreamTrack},
-    types::{chs::DiskChsnQuery, DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskDataResolution},
+    types::{chs::DiskChsnQuery, DiskCh, DiskChs, DiskChsn, DiskDataResolution, TrackDataEncoding, TrackDataRate},
     DiskImageError,
     FoxHashSet,
     SectorMapEntry,
@@ -186,9 +186,9 @@ impl MetaSector {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MetaSectorTrack {
     pub(crate) ch: DiskCh,
-    pub(crate) encoding: DiskDataEncoding,
+    pub(crate) encoding: TrackDataEncoding,
     pub(crate) schema: Option<TrackSchema>,
-    pub(crate) data_rate: DiskDataRate,
+    pub(crate) data_rate: TrackDataRate,
     pub(crate) sectors: Vec<MetaSector>,
 
     #[cfg_attr(feature = "serde", serde(skip))]
@@ -232,7 +232,7 @@ impl Track for MetaSectorTrack {
         self.ch = new_ch;
     }
 
-    fn encoding(&self) -> DiskDataEncoding {
+    fn encoding(&self) -> TrackDataEncoding {
         self.encoding
     }
 
@@ -285,32 +285,32 @@ impl Track for MetaSectorTrack {
             .collect()
     }
 
-    fn add_sector(&mut self, sd: &SectorDescriptor, alternate: bool) -> Result<(), DiskImageError> {
+    fn add_sector(&mut self, params: &AddSectorParams) -> Result<(), DiskImageError> {
         // Create an empty weak bit mask if none is provided.
-        let weak_mask = match &sd.weak_mask {
+        let weak_mask = match &params.weak_mask {
             Some(weak_buf) => MetaMask::from(weak_buf),
-            None => MetaMask::empty(sd.data.len()),
+            None => MetaMask::empty(params.data.len()),
         };
 
-        let hole_mask = match &sd.hole_mask {
+        let hole_mask = match &params.hole_mask {
             Some(hole_buf) => MetaMask::from(hole_buf),
-            None => MetaMask::empty(sd.data.len()),
+            None => MetaMask::empty(params.data.len()),
         };
 
         let new_sector = MetaSector {
-            id_chsn: sd.id_chsn,
-            address_crc_error: !sd.attributes.address_crc_valid,
-            data_crc_error: !sd.attributes.data_crc_valid,
-            deleted_mark: sd.attributes.deleted_mark,
-            no_dam: sd.attributes.no_dam,
-            data: sd.data.clone(),
+            id_chsn: params.id_chsn,
+            address_crc_error: !params.attributes.address_crc_valid,
+            data_crc_error: !params.attributes.data_crc_valid,
+            deleted_mark: params.attributes.deleted_mark,
+            no_dam: params.attributes.no_dam,
+            data: params.data.to_vec(),
             weak_mask,
             hole_mask,
         };
 
-        if alternate {
+        if params.alternate {
             // Look for existing sector.
-            let existing_sector = self.sectors.iter_mut().find(|s| s.id_chsn == sd.id_chsn);
+            let existing_sector = self.sectors.iter_mut().find(|s| s.id_chsn == params.id_chsn);
 
             if let Some(es) = existing_sector {
                 // Update the existing sector.
@@ -590,7 +590,7 @@ impl Track for MetaSectorTrack {
         })
     }
 
-    fn get_next_id(&self, chs: DiskChs) -> Option<DiskChsn> {
+    fn next_id(&self, chs: DiskChs) -> Option<DiskChsn> {
         let first_sector = self.sectors.first()?;
         let mut sector_matched = false;
         for si in self.sectors.iter() {
@@ -617,11 +617,11 @@ impl Track for MetaSectorTrack {
         }
     }
 
-    fn read_track(&mut self, _overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
+    fn read(&mut self, _overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 
-    fn read_track_raw(&mut self, _overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
+    fn read_raw(&mut self, _overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 
@@ -640,9 +640,9 @@ impl Track for MetaSectorTrack {
         Err(DiskImageError::UnsupportedFormat)
     }
 
-    fn track_consistency(&self) -> Result<TrackConsistency, DiskImageError> {
+    fn analysis(&self) -> Result<TrackAnalysis, DiskImageError> {
         let sector_ct = self.sectors.len();
-        let mut consistency = TrackConsistency::default();
+        let mut consistency = TrackAnalysis::default();
 
         let mut n_set: FoxHashSet<u8> = FoxHashSet::new();
         let mut last_n = 0;
@@ -674,11 +674,11 @@ impl Track for MetaSectorTrack {
         Ok(consistency)
     }
 
-    fn track_stream(&self) -> Option<&TrackDataStream> {
+    fn stream(&self) -> Option<&TrackDataStream> {
         None
     }
 
-    fn track_stream_mut(&mut self) -> Option<&mut TrackDataStream> {
+    fn stream_mut(&mut self) -> Option<&mut TrackDataStream> {
         None
     }
 }

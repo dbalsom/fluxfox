@@ -28,30 +28,90 @@
 
     Defines common enum types
 */
-use crate::{DiskChs, StandardFormat};
+use crate::StandardFormat;
 use std::{
     fmt,
     fmt::{Display, Formatter},
     path::PathBuf,
 };
 
+/// The type of computer system that a disk image is intended to be used with - not necessarily the
+/// system that the disk image was created on.
+///
+/// A `Platform` may be used as a hint to a disk image format parser, or provided in a
+/// [BitStreamTrackParams] struct to help determine the appropriate [TrackSchema] for a track.
+/// A `Platform` may not be specified (or reliable) in all disk image formats, nor can it always
+/// be determined from a [DiskImage] (High density MFM Macintosh 3.5" diskettes look nearly
+/// identical to PC 3.5" diskettes, unless you examine the boot sector).
+/// It may be the most pragmatic option to have the user specify the platform when loading/saving a
+/// disk image.
+#[repr(usize)]
+#[derive(Copy, Clone, Debug, strum::EnumIter)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum Platform {
+    #[doc = "IBM PC and compatibles"]
+    IbmPc,
+    #[doc = "Commodore Amiga"]
+    Amiga,
+    #[doc = "Apple Macintosh"]
+    Macintosh,
+}
+
+impl Display for Platform {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Platform::IbmPc => write!(f, "IBM PC"),
+            Platform::Amiga => write!(f, "Commodore Amiga"),
+            Platform::Macintosh => write!(f, "Apple Macintosh"),
+        }
+    }
+}
+
+impl From<StandardFormat> for Platform {
+    fn from(format: StandardFormat) -> Self {
+        use StandardFormat::*;
+        match format {
+            PcFloppy160 | PcFloppy180 | PcFloppy320 | PcFloppy360 | PcFloppy720 | PcFloppy1200 | PcFloppy1440
+            | PcFloppy2880 => Platform::IbmPc,
+            #[cfg(feature = "amiga")]
+            AmigaFloppy880 => Platform::Amiga,
+        }
+    }
+}
+
 /// The resolution of the data in the disk image.
-/// Currently only MetaSector and BitStream are implemented.
+/// fluxfox supports three types of disk images:
+/// * MetaSector images hold only sector data along with optional metadata per sector.
+/// * BitStream images hold a bitwise representation of each track on a disk.
+/// * FluxStream images hold one or more `revolutions` of flux transition delta times per track,
+///   which are resolved to a single bitstream.
+///
 #[repr(usize)]
 #[derive(Copy, Clone, Default, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DiskDataResolution {
     #[default]
+    #[doc = "MetaSector images hold only sector data along with optional metadata per sector."]
     MetaSector = 0,
+    #[doc = "BitStream images hold a bitwise representation of each track on a disk."]
     BitStream = 1,
+    #[doc = "FluxStream images hold one or more `revolutions` of flux transition delta times per track, which are resolved to a single bitstream."]
     FluxStream = 2,
 }
 
-/// The base bitcell encoding method of the data in a disk image.
+/// The type of data encoding used by a track in a disk image.
 /// Note that some disk images may contain tracks with different encodings.
+/// fluxfox supports two types of data encodings:
+/// * Fm: Frequency Modulation encoding. Used by older 8" diskettes, and 'duplication mark' tracks
+///   on some 3.5" and 5.25" diskettes.
+/// * Mfm: Modified Frequency Modulation encoding. Used by almost all PC 5.25" and 3.5" diskettes,
+///   Amiga 3.5" diskettes, and Macintosh 1.44MB 3.5" diskettes.
+///
+/// Not implemented are:
+/// * Gcr: Group Code Recording encoding. Used by Apple and Macintosh diskettes.
 #[derive(Default, Copy, Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum DiskDataEncoding {
+pub enum TrackDataEncoding {
     #[default]
     #[doc = "Frequency Modulation encoding. Used by older 8&quot; diskettes, and duplication tracks on some 5.25&quot; diskettes."]
     Fm,
@@ -61,36 +121,38 @@ pub enum DiskDataEncoding {
     Gcr,
 }
 
-impl DiskDataEncoding {
+impl TrackDataEncoding {
     pub fn byte_size(&self) -> usize {
         match self {
-            DiskDataEncoding::Fm => 16,
-            DiskDataEncoding::Mfm => 16,
-            DiskDataEncoding::Gcr => 0,
+            TrackDataEncoding::Fm => 16,
+            TrackDataEncoding::Mfm => 16,
+            TrackDataEncoding::Gcr => 0,
         }
     }
 
     pub fn marker_size(&self) -> usize {
         match self {
-            DiskDataEncoding::Fm => 64,
-            DiskDataEncoding::Mfm => 64,
-            DiskDataEncoding::Gcr => 0,
+            TrackDataEncoding::Fm => 64,
+            TrackDataEncoding::Mfm => 64,
+            TrackDataEncoding::Gcr => 0,
         }
     }
 }
 
-impl Display for DiskDataEncoding {
+impl Display for TrackDataEncoding {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            DiskDataEncoding::Fm => write!(f, "FM"),
-            DiskDataEncoding::Mfm => write!(f, "MFM"),
-            DiskDataEncoding::Gcr => write!(f, "GCR"),
+            TrackDataEncoding::Fm => write!(f, "FM"),
+            TrackDataEncoding::Mfm => write!(f, "MFM"),
+            TrackDataEncoding::Gcr => write!(f, "GCR"),
         }
     }
 }
 
-/// The physical dimensions of a disk corresponding to the format of the image.
-/// This is rarely stored by disk image formats, so it is determined automatically.
+/// The physical dimensions of a disk.
+/// A few disk image formats such as MFI have a metadata field to specify a disk's dimensions.
+/// There is not a perfect way to determine  this heuristically, but one can take a pretty good
+/// guess based on the cylinder count, density, data rate, RPM, and other parameters.
 #[derive(Default, Copy, Clone, Debug)]
 pub enum DiskPhysicalDimensions {
     #[doc = "An 8\" Diskette"]
@@ -102,14 +164,16 @@ pub enum DiskPhysicalDimensions {
     Dimension3_5,
 }
 
-/// The density of the disk image.
+/// The density of a track on a disk.
+/// A disk image may contain tracks with different densities.
 ///
-/// * 8" diskettes were FM-encoded and standard density.
-/// * 5.25" diskettes were available in double and high densities.
-/// * 3.5" diskettes were available in double, high and extended densities.
+/// * 'Standard' density: referring to FM encoding, typically used by 8" diskettes.
+/// * 'Double' density: referring to MFM encoding at 250/300Kbps. Appeared on 5.25" and 3.5" diskettes.
+/// * 'High' density: referring to MFM encoding at 500Kbps. Appeared on 5.25" and 3.5" diskettes.
+/// * 'Extended' density: referring to MFM encoding at 1Mbps. Appeared on 3.5" diskettes.
 #[derive(Default, Copy, Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum DiskDensity {
+pub enum TrackDensity {
     Standard,
     #[default]
     Double,
@@ -117,30 +181,30 @@ pub enum DiskDensity {
     Extended,
 }
 
-impl From<DiskDataRate> for DiskDensity {
-    fn from(rate: DiskDataRate) -> Self {
+impl From<TrackDataRate> for TrackDensity {
+    fn from(rate: TrackDataRate) -> Self {
         match rate {
-            DiskDataRate::Rate125Kbps(_) => DiskDensity::Standard,
-            DiskDataRate::Rate250Kbps(_) => DiskDensity::Double,
-            DiskDataRate::Rate500Kbps(_) => DiskDensity::High,
-            DiskDataRate::Rate1000Kbps(_) => DiskDensity::Extended,
-            _ => DiskDensity::Double,
+            TrackDataRate::Rate125Kbps(_) => TrackDensity::Standard,
+            TrackDataRate::Rate250Kbps(_) => TrackDensity::Double,
+            TrackDataRate::Rate500Kbps(_) => TrackDensity::High,
+            TrackDataRate::Rate1000Kbps(_) => TrackDensity::Extended,
+            _ => TrackDensity::Double,
         }
     }
 }
 
-impl Display for DiskDensity {
+impl Display for TrackDensity {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            DiskDensity::Standard => write!(f, "Standard"),
-            DiskDensity::Double => write!(f, "Double"),
-            DiskDensity::High => write!(f, "High"),
-            DiskDensity::Extended => write!(f, "Extended"),
+            TrackDensity::Standard => write!(f, "Standard"),
+            TrackDensity::Double => write!(f, "Double"),
+            TrackDensity::High => write!(f, "High"),
+            TrackDensity::Extended => write!(f, "Extended"),
         }
     }
 }
 
-impl DiskDensity {
+impl TrackDensity {
     /// Return the base number of bitcells for a given disk density.
     /// It is ideal to provide the disk RPM to get the most accurate bitcell count as high
     /// density 5.25 disks have different bitcell counts than high density 3.5 disks.
@@ -149,11 +213,11 @@ impl DiskDensity {
     /// may vary depending on variances in the disk drive used to write the diskette.
     pub fn bitcells(&self, rpm: Option<DiskRpm>) -> Option<usize> {
         match (self, rpm) {
-            (DiskDensity::Standard, _) => Some(50_000),
-            (DiskDensity::Double, _) => Some(100_000),
-            (DiskDensity::High, Some(DiskRpm::Rpm360)) => Some(166_666),
-            (DiskDensity::High, Some(DiskRpm::Rpm300) | None) => Some(200_000),
-            (DiskDensity::Extended, _) => Some(400_000),
+            (TrackDensity::Standard, _) => Some(50_000),
+            (TrackDensity::Double, _) => Some(100_000),
+            (TrackDensity::High, Some(DiskRpm::Rpm360)) => Some(166_666),
+            (TrackDensity::High, Some(DiskRpm::Rpm300) | None) => Some(200_000),
+            (TrackDensity::Extended, _) => Some(400_000),
         }
     }
 
@@ -162,20 +226,20 @@ impl DiskDensity {
     /// double-density disks read in high-density 360RPM drives.
     pub fn base_clock(&self, rpm: Option<DiskRpm>) -> f64 {
         match (self, rpm) {
-            (DiskDensity::Standard, _) => 4e-6,
-            (DiskDensity::Double, None | Some(DiskRpm::Rpm300)) => 2e-6,
-            (DiskDensity::Double, Some(DiskRpm::Rpm360)) => 1.666e-6,
-            (DiskDensity::High, _) => 1e-6,
-            (DiskDensity::Extended, _) => 5e-7,
+            (TrackDensity::Standard, _) => 4e-6,
+            (TrackDensity::Double, None | Some(DiskRpm::Rpm300)) => 2e-6,
+            (TrackDensity::Double, Some(DiskRpm::Rpm360)) => 1.666e-6,
+            (TrackDensity::High, _) => 1e-6,
+            (TrackDensity::Extended, _) => 5e-7,
         }
     }
 
     /// Attempt to determine the disk density from the base clock of a PLL.
-    pub fn from_base_clock(clock: f64) -> Option<DiskDensity> {
+    pub fn from_base_clock(clock: f64) -> Option<TrackDensity> {
         match clock {
-            0.375e-6..0.625e-6 => Some(DiskDensity::Extended),
-            0.75e-6..1.25e-6 => Some(DiskDensity::High),
-            1.5e-6..2.5e-6 => Some(DiskDensity::Double),
+            0.375e-6..0.625e-6 => Some(TrackDensity::Extended),
+            0.75e-6..1.25e-6 => Some(TrackDensity::High),
+            1.5e-6..2.5e-6 => Some(TrackDensity::Double),
             _ => None,
         }
     }
@@ -187,7 +251,7 @@ impl DiskDensity {
 /// make possible calculation of the exact data rate if required.
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum DiskDataRate {
+pub enum TrackDataRate {
     RateNonstandard(u32),
     Rate125Kbps(f64),
     Rate250Kbps(f64),
@@ -196,60 +260,60 @@ pub enum DiskDataRate {
     Rate1000Kbps(f64),
 }
 
-impl Default for DiskDataRate {
+impl Default for TrackDataRate {
     fn default() -> Self {
-        DiskDataRate::Rate250Kbps(1.0)
+        TrackDataRate::Rate250Kbps(1.0)
     }
 }
 
-impl From<DiskDataRate> for u32 {
-    fn from(rate: DiskDataRate) -> Self {
+impl From<TrackDataRate> for u32 {
+    fn from(rate: TrackDataRate) -> Self {
         match rate {
-            DiskDataRate::Rate125Kbps(f) => (125_000.0 * f) as u32,
-            DiskDataRate::Rate250Kbps(f) => (250_000.0 * f) as u32,
-            DiskDataRate::Rate300Kbps(f) => (300_000.0 * f) as u32,
-            DiskDataRate::Rate500Kbps(f) => (500_000.0 * f) as u32,
-            DiskDataRate::Rate1000Kbps(f) => (1_000_000.0 * f) as u32,
-            DiskDataRate::RateNonstandard(rate) => rate,
+            TrackDataRate::Rate125Kbps(f) => (125_000.0 * f) as u32,
+            TrackDataRate::Rate250Kbps(f) => (250_000.0 * f) as u32,
+            TrackDataRate::Rate300Kbps(f) => (300_000.0 * f) as u32,
+            TrackDataRate::Rate500Kbps(f) => (500_000.0 * f) as u32,
+            TrackDataRate::Rate1000Kbps(f) => (1_000_000.0 * f) as u32,
+            TrackDataRate::RateNonstandard(rate) => rate,
         }
     }
 }
 
 /// Implement a conversion from a u32 to a DiskDataRate.
 /// An 8-15% rate deviance is allowed for standard rates, otherwise a RateNonstandard is returned.
-impl From<u32> for DiskDataRate {
+impl From<u32> for TrackDataRate {
     fn from(rate: u32) -> Self {
         match rate {
-            93_750..143_750 => DiskDataRate::Rate125Kbps(rate as f64 / 125_000.0),
-            212_000..271_000 => DiskDataRate::Rate250Kbps(rate as f64 / 250_000.0),
-            271_000..345_000 => DiskDataRate::Rate300Kbps(rate as f64 / 300_000.0),
-            425_000..575_000 => DiskDataRate::Rate500Kbps(rate as f64 / 500_000.0),
-            850_000..1_150_000 => DiskDataRate::Rate1000Kbps(rate as f64 / 1_000_000.0),
-            _ => DiskDataRate::RateNonstandard(rate),
+            93_750..143_750 => TrackDataRate::Rate125Kbps(rate as f64 / 125_000.0),
+            212_000..271_000 => TrackDataRate::Rate250Kbps(rate as f64 / 250_000.0),
+            271_000..345_000 => TrackDataRate::Rate300Kbps(rate as f64 / 300_000.0),
+            425_000..575_000 => TrackDataRate::Rate500Kbps(rate as f64 / 500_000.0),
+            850_000..1_150_000 => TrackDataRate::Rate1000Kbps(rate as f64 / 1_000_000.0),
+            _ => TrackDataRate::RateNonstandard(rate),
         }
     }
 }
 
-impl From<DiskDensity> for DiskDataRate {
-    fn from(density: DiskDensity) -> Self {
+impl From<TrackDensity> for TrackDataRate {
+    fn from(density: TrackDensity) -> Self {
         match density {
-            DiskDensity::Standard => DiskDataRate::Rate125Kbps(1.0),
-            DiskDensity::Double => DiskDataRate::Rate250Kbps(1.0),
-            DiskDensity::High => DiskDataRate::Rate500Kbps(1.0),
-            DiskDensity::Extended => DiskDataRate::Rate1000Kbps(1.0),
+            TrackDensity::Standard => TrackDataRate::Rate125Kbps(1.0),
+            TrackDensity::Double => TrackDataRate::Rate250Kbps(1.0),
+            TrackDensity::High => TrackDataRate::Rate500Kbps(1.0),
+            TrackDensity::Extended => TrackDataRate::Rate1000Kbps(1.0),
         }
     }
 }
 
-impl Display for DiskDataRate {
+impl Display for TrackDataRate {
     fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
         match self {
-            DiskDataRate::RateNonstandard(rate) => write!(fmt, "*{}Kbps", rate / 1000),
-            DiskDataRate::Rate125Kbps(f) => write!(fmt, "125Kbps (x{:.2})", f),
-            DiskDataRate::Rate250Kbps(f) => write!(fmt, "250Kbps (x{:.2})", f),
-            DiskDataRate::Rate300Kbps(f) => write!(fmt, "300Kbps (x{:.2})", f),
-            DiskDataRate::Rate500Kbps(f) => write!(fmt, "500Kbps (x{:.2})", f),
-            DiskDataRate::Rate1000Kbps(f) => write!(fmt, "1000Kbps (x{:.2})", f),
+            TrackDataRate::RateNonstandard(rate) => write!(fmt, "*{}Kbps", rate / 1000),
+            TrackDataRate::Rate125Kbps(f) => write!(fmt, "125Kbps (x{:.2})", f),
+            TrackDataRate::Rate250Kbps(f) => write!(fmt, "250Kbps (x{:.2})", f),
+            TrackDataRate::Rate300Kbps(f) => write!(fmt, "300Kbps (x{:.2})", f),
+            TrackDataRate::Rate500Kbps(f) => write!(fmt, "500Kbps (x{:.2})", f),
+            TrackDataRate::Rate1000Kbps(f) => write!(fmt, "1000Kbps (x{:.2})", f),
         }
     }
 }
@@ -375,6 +439,8 @@ pub enum DiskImageFileFormat {
     /// A MAME floppy image. Typically, has extension MFI.
     #[cfg(feature = "mfi")]
     MameFloppyImage,
+    #[cfg(feature = "adf")]
+    AmigaDiskFile,
 }
 
 impl DiskImageFileFormat {
@@ -382,68 +448,77 @@ impl DiskImageFileFormat {
     /// Used to sort returned lists of disk image formats, hopefully returning the most desirable
     /// format first.
     pub fn priority(self) -> usize {
+        use DiskImageFileFormat::*;
         match self {
-            DiskImageFileFormat::KryofluxStream => 0,
+            KryofluxStream => 0,
             // Supported bytestream formats (low priority)
-            DiskImageFileFormat::RawSectorImage => 1,
+            RawSectorImage => 1,
             #[cfg(feature = "td0")]
-            DiskImageFileFormat::TeleDisk => 0,
-            DiskImageFileFormat::ImageDisk => 0,
+            TeleDisk => 0,
+            ImageDisk => 0,
 
-            DiskImageFileFormat::PceSectorImage => 1,
+            PceSectorImage => 1,
             // Supported bitstream formats (high priority)
-            DiskImageFileFormat::TransCopyImage => 0,
-            DiskImageFileFormat::MfmBitstreamImage => 0,
-            DiskImageFileFormat::HfeImage => 0,
-            DiskImageFileFormat::PceBitstreamImage => 7,
-            DiskImageFileFormat::F86Image => 8,
+            TransCopyImage => 0,
+            MfmBitstreamImage => 0,
+            HfeImage => 0,
+            PceBitstreamImage => 7,
+            F86Image => 8,
             // Flux images (not supported for writes)
-            DiskImageFileFormat::SuperCardPro => 0,
-            DiskImageFileFormat::PceFluxImage => 0,
+            SuperCardPro => 0,
+            PceFluxImage => 0,
             #[cfg(feature = "mfi")]
-            DiskImageFileFormat::MameFloppyImage => 0,
+            MameFloppyImage => 0,
+            #[cfg(feature = "adf")]
+            AmigaDiskFile => 0,
         }
     }
 
     pub fn resolution(self) -> DiskDataResolution {
+        use DiskImageFileFormat::*;
         match self {
-            DiskImageFileFormat::RawSectorImage => DiskDataResolution::MetaSector,
-            DiskImageFileFormat::ImageDisk => DiskDataResolution::MetaSector,
-            DiskImageFileFormat::PceSectorImage => DiskDataResolution::MetaSector,
-            DiskImageFileFormat::PceBitstreamImage => DiskDataResolution::BitStream,
-            DiskImageFileFormat::MfmBitstreamImage => DiskDataResolution::BitStream,
+            RawSectorImage => DiskDataResolution::MetaSector,
+            ImageDisk => DiskDataResolution::MetaSector,
+            PceSectorImage => DiskDataResolution::MetaSector,
+            PceBitstreamImage => DiskDataResolution::BitStream,
+            MfmBitstreamImage => DiskDataResolution::BitStream,
             #[cfg(feature = "td0")]
-            DiskImageFileFormat::TeleDisk => DiskDataResolution::MetaSector,
-            DiskImageFileFormat::KryofluxStream => DiskDataResolution::FluxStream,
-            DiskImageFileFormat::HfeImage => DiskDataResolution::BitStream,
-            DiskImageFileFormat::F86Image => DiskDataResolution::BitStream,
-            DiskImageFileFormat::TransCopyImage => DiskDataResolution::BitStream,
-            DiskImageFileFormat::SuperCardPro => DiskDataResolution::FluxStream,
-            DiskImageFileFormat::PceFluxImage => DiskDataResolution::FluxStream,
+            TeleDisk => DiskDataResolution::MetaSector,
+            KryofluxStream => DiskDataResolution::FluxStream,
+            HfeImage => DiskDataResolution::BitStream,
+            F86Image => DiskDataResolution::BitStream,
+            TransCopyImage => DiskDataResolution::BitStream,
+            SuperCardPro => DiskDataResolution::FluxStream,
+            PceFluxImage => DiskDataResolution::FluxStream,
             #[cfg(feature = "mfi")]
-            DiskImageFileFormat::MameFloppyImage => DiskDataResolution::FluxStream,
+            MameFloppyImage => DiskDataResolution::FluxStream,
+            #[cfg(feature = "adf")]
+            AmigaDiskFile => DiskDataResolution::MetaSector,
         }
     }
 }
 
 impl Display for DiskImageFileFormat {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        use DiskImageFileFormat::*;
         let str = match self {
-            DiskImageFileFormat::RawSectorImage => "Raw Sector".to_string(),
-            DiskImageFileFormat::PceSectorImage => "PCE Sector".to_string(),
-            DiskImageFileFormat::PceBitstreamImage => "PCE Bitstream".to_string(),
-            DiskImageFileFormat::ImageDisk => "ImageDisk Sector".to_string(),
+            RawSectorImage => "Raw Sector".to_string(),
+            PceSectorImage => "PCE Sector".to_string(),
+            PceBitstreamImage => "PCE Bitstream".to_string(),
+            ImageDisk => "ImageDisk Sector".to_string(),
             #[cfg(feature = "td0")]
-            DiskImageFileFormat::TeleDisk => "TeleDisk Sector".to_string(),
-            DiskImageFileFormat::KryofluxStream => "Kryoflux Flux Stream".to_string(),
-            DiskImageFileFormat::MfmBitstreamImage => "HxC MFM Bitstream".to_string(),
-            DiskImageFileFormat::HfeImage => "HFEv1 Bitstream".to_string(),
-            DiskImageFileFormat::F86Image => "86F Bitstream".to_string(),
-            DiskImageFileFormat::TransCopyImage => "TransCopy Bitstream".to_string(),
-            DiskImageFileFormat::SuperCardPro => "SuperCard Pro Flux".to_string(),
-            DiskImageFileFormat::PceFluxImage => "PCE Flux Stream".to_string(),
+            TeleDisk => "TeleDisk Sector".to_string(),
+            KryofluxStream => "Kryoflux Flux Stream".to_string(),
+            MfmBitstreamImage => "HxC MFM Bitstream".to_string(),
+            HfeImage => "HFEv1 Bitstream".to_string(),
+            F86Image => "86F Bitstream".to_string(),
+            TransCopyImage => "TransCopy Bitstream".to_string(),
+            SuperCardPro => "SuperCard Pro Flux".to_string(),
+            PceFluxImage => "PCE Flux Stream".to_string(),
             #[cfg(feature = "mfi")]
-            DiskImageFileFormat::MameFloppyImage => "MAME Flux Stream".to_string(),
+            MameFloppyImage => "MAME Flux Stream".to_string(),
+            #[cfg(feature = "adf")]
+            AmigaDiskFile => "Amiga Disk File".to_string(),
         };
         write!(f, "{}", str)
     }
@@ -458,9 +533,9 @@ pub enum DiskFormat {
     /// A non-standard disk format. This format is used for disk images that do not conform to a
     /// standard format, such a copy-protected titles that may have varying track lengths,
     /// non-consecutive sectors, or other non-standard features.
-    Nonstandard(DiskChs),
+    Nonstandard,
     /// A standard disk format. This format is used for disk images that conform to a standard
-    /// IBM PC format type, determined by a `StandardFormat` enum.
+    /// format type, determined by a `StandardFormat` enum.
     Standard(StandardFormat),
 }
 

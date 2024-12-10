@@ -24,7 +24,7 @@
 
     --------------------------------------------------------------------------
 */
-use crate::types::{DiskDataEncoding, DiskDensity};
+use crate::types::{TrackDataEncoding, TrackDensity};
 use std::{
     fmt,
     fmt::{Display, Formatter},
@@ -120,7 +120,7 @@ impl Display for FluxStats {
 }
 
 impl FluxStats {
-    pub fn detect_density(&self, mfi: bool) -> Option<DiskDensity> {
+    pub fn detect_density(&self, mfi: bool) -> Option<TrackDensity> {
         let mut avg = self.short_avg();
         log::debug!(
             "FluxStats::detect_density(): Transition average: {:.4}",
@@ -132,8 +132,8 @@ impl FluxStats {
         }
 
         match avg {
-            1.0e-6..=3e-6 => Some(DiskDensity::High),
-            3e-6..=5e-6 => Some(DiskDensity::Double),
+            1.0e-6..=3e-6 => Some(TrackDensity::High),
+            3e-6..=5e-6 => Some(TrackDensity::Double),
             _ => None,
         }
     }
@@ -149,15 +149,15 @@ impl FluxStats {
 }
 
 impl FluxStats {
-    pub fn detect_encoding(&self) -> Option<DiskDataEncoding> {
+    pub fn detect_encoding(&self) -> Option<TrackDataEncoding> {
         let medium_freq = self.medium as f64 / self.total as f64;
 
         // If we have fewer than 5% medium transitions, it is likely an FM track
         if medium_freq > 0.05 {
-            Some(DiskDataEncoding::Mfm)
+            Some(TrackDataEncoding::Mfm)
         }
         else {
-            Some(DiskDataEncoding::Fm)
+            Some(TrackDataEncoding::Fm)
         }
     }
 }

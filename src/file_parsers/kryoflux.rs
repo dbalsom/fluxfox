@@ -35,12 +35,12 @@
 
 */
 use crate::{
-    file_parsers::{bitstream_flags, FormatCaps},
+    file_parsers::{bitstream_flags, FormatCaps, ParserReadOptions, ParserWriteOptions},
     format_us,
     io,
     io::{ReadBytesExt, ReadSeek, ReadWriteSeek},
     track::fluxstream::FluxStreamTrack,
-    types::{DiskCh, DiskDataEncoding, DiskDataResolution, DiskDescriptor},
+    types::{DiskCh, DiskDataResolution, DiskDescriptor, FluxStreamTrackParams, Platform, TrackDataEncoding},
     util::read_ascii,
     DiskImage,
     DiskImageError,
@@ -48,10 +48,10 @@ use crate::{
     FoxHashSet,
     LoadingCallback,
     ParserWriteCompatibility,
-    DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, BinRead};
 use std::path::{Path, PathBuf};
+use strum::IntoEnumIterator;
 
 pub const KFX_DEFAULT_MCK: f64 = ((18432000.0 * 73.0) / 14.0) / 2.0;
 pub const KFX_DEFAULT_SCK: f64 = KFX_DEFAULT_MCK / 2.0;
@@ -154,6 +154,11 @@ impl KfxFormat {
         bitstream_flags()
     }
 
+    pub fn platforms() -> Vec<Platform> {
+        // Kryoflux images support just about every platform.
+        Platform::iter().collect()
+    }
+
     pub fn detect<RWS: ReadSeek>(mut image: RWS) -> bool {
         if image.seek(io::SeekFrom::Start(0)).is_err() {
             return false;
@@ -172,6 +177,7 @@ impl KfxFormat {
     pub(crate) fn load_image<RWS: ReadSeek>(
         mut image: RWS,
         disk_image: &mut DiskImage,
+        _opts: &ParserReadOptions,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
         disk_image.set_resolution(DiskDataResolution::FluxStream);
@@ -435,7 +441,15 @@ impl KfxFormat {
             (None, None)
         };
 
-        let new_track = disk_image.add_track_fluxstream(next_ch, flux_track, clock_hint, rpm_hint)?;
+        let params = FluxStreamTrackParams {
+            ch: next_ch,
+            schema: None,
+            encoding: None,
+            clock: clock_hint,
+            rpm: rpm_hint,
+        };
+
+        let new_track = disk_image.add_track_fluxstream(flux_track, &params)?;
 
         let (new_density, new_rpm) = if new_track.sector_ct() == 0 {
             log::warn!("Track did not decode any sectors. Not updating disk image descriptor.");
@@ -457,8 +471,7 @@ impl KfxFormat {
             geometry: disk_image.geometry(),
             data_rate,
             density: new_density,
-            data_encoding: DiskDataEncoding::Mfm,
-            default_sector_size: DEFAULT_SECTOR_SIZE,
+            data_encoding: TrackDataEncoding::Mfm,
             rpm: new_rpm,
             write_protect: Some(true),
         };
@@ -466,7 +479,11 @@ impl KfxFormat {
         Ok(())
     }
 
-    pub fn save_image<RWS: ReadWriteSeek>(_image: &DiskImage, _output: &mut RWS) -> Result<(), DiskImageError> {
+    pub fn save_image<RWS: ReadWriteSeek>(
+        _image: &DiskImage,
+        _opts: &ParserWriteOptions,
+        _output: &mut RWS,
+    ) -> Result<(), DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 

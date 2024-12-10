@@ -45,18 +45,22 @@ use crate::{
             lzw::{Options, OptionsPreset},
         },
         FormatCaps,
+        ParserReadOptions,
         ParserWriteCompatibility,
+        ParserWriteOptions,
     },
     io::{Cursor, Read, ReadBytesExt, ReadSeek, ReadWriteSeek, Seek},
     types::{
+        AddSectorParams,
         DiskCh,
         DiskChsn,
-        DiskDataEncoding,
-        DiskDataRate,
-        DiskDensity,
         DiskDescriptor,
+        MetaSectorTrackParams,
+        Platform,
         SectorAttributes,
-        SectorDescriptor,
+        TrackDataEncoding,
+        TrackDataRate,
+        TrackDensity,
     },
     DiskImage,
     DiskImageError,
@@ -149,14 +153,14 @@ pub struct RepeatedDataEntry {
 
 pub struct Td0Format {}
 
-fn td0_data_rate(rate: u8) -> DiskDataRate {
+fn td0_data_rate(rate: u8) -> TrackDataRate {
     match rate & 0x03 {
-        0 => DiskDataRate::Rate250Kbps(1.0),
-        1 => DiskDataRate::Rate300Kbps(1.0),
-        2 => DiskDataRate::Rate500Kbps(1.0),
+        0 => TrackDataRate::Rate250Kbps(1.0),
+        1 => TrackDataRate::Rate300Kbps(1.0),
+        2 => TrackDataRate::Rate500Kbps(1.0),
         _ => {
             log::warn!("TD0 Data Rate out of range: {} Assuming 300Kbps", rate);
-            DiskDataRate::Rate300Kbps(1.0)
+            TrackDataRate::Rate300Kbps(1.0)
         }
     }
 }
@@ -198,6 +202,12 @@ impl Td0Format {
         FormatCaps::empty()
     }
 
+    pub fn platforms() -> Vec<Platform> {
+        // The Teledisk utility was a DOS-based program, so we'll assume that TD0 images are
+        // intended only for the PC platform.
+        vec![Platform::IbmPc]
+    }
+
     pub(crate) fn extensions() -> Vec<&'static str> {
         vec!["td0"]
     }
@@ -222,6 +232,7 @@ impl Td0Format {
     pub(crate) fn load_image<RWS: ReadSeek>(
         mut read_buf: RWS,
         disk_image: &mut DiskImage,
+        _opts: &ParserReadOptions,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFileFormat::TeleDisk);
@@ -369,11 +380,14 @@ impl Td0Format {
             }
 
             log::trace!("Adding track: c:{} h:{}...", track_header.cylinder, track_header.head);
-            let new_track = disk_image.add_track_metasector(
-                DiskDataEncoding::Mfm,
-                disk_data_rate,
-                DiskCh::from((track_header.cylinder as u16, track_header.head)),
-            )?;
+
+            let params = MetaSectorTrackParams {
+                ch: DiskCh::from((track_header.cylinder as u16, track_header.head)),
+                data_rate: disk_data_rate,
+                encoding: TrackDataEncoding::Mfm,
+            };
+
+            let new_track = disk_image.add_track_metasector(&params)?;
             cylinder_set.insert(track_header.cylinder as u16);
 
             for _s in 0..track_header.sectors {
@@ -445,25 +459,27 @@ impl Td0Format {
                     }
 
                     // Add this sector to track.
-                    let sd = SectorDescriptor {
+                    let params = AddSectorParams {
                         id_chsn: DiskChsn::new(
                             sector_header.cylinder as u16,
                             sector_header.head,
                             sector_header.sector_id,
                             DiskChsn::bytes_to_n(sector_data_vec.len()),
                         ),
-                        data: sector_data_vec,
+                        data: &sector_data_vec,
                         weak_mask: None,
                         hole_mask: None,
                         attributes: SectorAttributes {
                             address_crc_valid: true,
-                            data_crc_valid: !(sector_header.flags & SECTOR_CRC_ERROR != 0),
+                            data_crc_valid: sector_header.flags & SECTOR_CRC_ERROR == 0,
                             deleted_mark: sector_header.flags & SECTOR_DELETED != 0,
                             no_dam: false,
                         },
+                        alternate: false,
+                        bit_index: None,
                     };
 
-                    new_track.add_sector(&sd, false)?;
+                    new_track.add_sector(&params)?;
                 }
             }
 
@@ -474,9 +490,8 @@ impl Td0Format {
         disk_image.descriptor = DiskDescriptor {
             geometry: DiskCh::from((cylinder_set.len() as u16, file_header.heads)),
             data_rate: disk_data_rate,
-            data_encoding: DiskDataEncoding::Mfm,
-            density: DiskDensity::from(disk_data_rate),
-            default_sector_size: 512,
+            data_encoding: TrackDataEncoding::Mfm,
+            density: TrackDensity::from(disk_data_rate),
             rpm: None,
             write_protect: None,
         };
@@ -568,7 +583,11 @@ impl Td0Format {
         Ok(())
     }
 
-    pub fn save_image<RWS: ReadWriteSeek>(_image: &DiskImage, _output: &mut RWS) -> Result<(), DiskImageError> {
+    pub fn save_image<RWS: ReadWriteSeek>(
+        _image: &DiskImage,
+        _opts: &ParserWriteOptions,
+        _output: &mut RWS,
+    ) -> Result<(), DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 }

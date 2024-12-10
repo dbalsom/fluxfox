@@ -25,10 +25,7 @@
     --------------------------------------------------------------------------
 */
 use fluxfox::prelude::*;
-use fluxfox_egui::{
-    widgets::data_table::{DataRange, DataTableWidget},
-    SectorSelection,
-};
+use fluxfox_egui::{widgets::data_table::DataTableWidget, SectorSelection};
 use std::sync::{Arc, RwLock};
 
 #[derive(Default)]

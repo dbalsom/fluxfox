@@ -30,34 +30,48 @@ use std::cmp::Ordering;
 use crate::{
     detect::chs_from_raw_size,
     diskimage::DiskImage,
-    file_parsers::{FormatCaps, ParserWriteCompatibility},
+    file_parsers::{FormatCaps, ParserReadOptions, ParserWriteCompatibility, ParserWriteOptions},
     io::{ReadSeek, ReadWriteSeek},
+    prelude::DiskChs,
     track_schema::system34::System34Standard,
     types::{
         chs::{DiskChsn, DiskChsnQuery},
+        AddSectorParams,
         DiskCh,
         DiskDataResolution,
-        DiskDensity,
         DiskDescriptor,
+        MetaSectorTrackParams,
+        Platform,
+        TrackDensity,
     },
     util::get_length,
     DiskImageError,
     DiskImageFileFormat,
     LoadingCallback,
     StandardFormat,
-    DEFAULT_SECTOR_SIZE,
 };
 
 pub struct RawFormat;
 
 impl RawFormat {
     #[allow(dead_code)]
-    fn format() -> DiskImageFileFormat {
+    pub(crate) fn format() -> DiskImageFileFormat {
         DiskImageFileFormat::RawSectorImage
     }
 
     pub(crate) fn extensions() -> Vec<&'static str> {
-        vec!["img", "ima", "dsk", "bin"]
+        const BASE_EXTENSIONS: &[&str] = &["img", "ima", "dsk", "bin"];
+
+        #[cfg(feature = "amiga")]
+        const EXTRA_EXTENSIONS: &[&str] = &["adf"];
+        #[cfg(not(feature = "amiga"))]
+        const EXTRA_EXTENSIONS: &[&str] = &[];
+
+        [BASE_EXTENSIONS, EXTRA_EXTENSIONS].concat()
+    }
+
+    pub(crate) fn platforms() -> Vec<Platform> {
+        vec![Platform::IbmPc, Platform::Amiga]
     }
 
     pub(crate) fn capabilities() -> FormatCaps {
@@ -72,7 +86,7 @@ impl RawFormat {
     pub(crate) fn can_write(image: Option<&DiskImage>) -> ParserWriteCompatibility {
         image
             .map(|image| {
-                if !image.consistency.image_caps.is_empty() {
+                if !image.analysis.image_caps.is_empty() {
                     // RAW sector images support no capability flags.
                     log::warn!("RAW sector images do not support capability flags.");
                     ParserWriteCompatibility::DataLoss
@@ -87,6 +101,7 @@ impl RawFormat {
     pub(crate) fn load_image<RWS: ReadSeek>(
         mut raw: RWS,
         disk_image: &mut DiskImage,
+        _opts: &ParserReadOptions,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFileFormat::RawSectorImage);
@@ -107,16 +122,8 @@ impl RawFormat {
         };
 
         let disk_chs = floppy_format.chs();
-        log::trace!("Raw::load_image(): Disk CHS: {}", disk_chs);
-        let data_rate = floppy_format.data_rate();
-        let data_encoding = floppy_format.encoding();
-        let bitcell_ct = floppy_format.bitcell_ct();
-        let rpm = floppy_format.rpm();
-        let gap3 = floppy_format.gap3();
 
-        raw.seek(std::io::SeekFrom::Start(0))?;
-
-        let track_size = disk_chs.s() as usize * DEFAULT_SECTOR_SIZE;
+        let track_size = disk_chs.s() as usize * floppy_format.sector_size();
         let track_ct = raw_len / track_size;
 
         if disk_chs.c() as usize * disk_chs.h() as usize != track_ct {
@@ -129,18 +136,65 @@ impl RawFormat {
             return Err(DiskImageError::UnknownFormat);
         }
 
+        match Platform::from(floppy_format) {
+            Platform::Amiga => {
+                #[cfg(feature = "adf")]
+                {
+                    log::warn!(
+                        "Raw::load_image(): ADF will be loaded as MetaSector until Amiga formatting is implemented."
+                    );
+                    RawFormat::load_as_metasector(raw, disk_image, floppy_format, _opts, _callback)
+                }
+                #[cfg(not(feature = "adf"))]
+                {
+                    log::error!("Raw::load_image(): Detected ADF raw image but `adf` feature not enabled.");
+                    Err(DiskImageError::UnsupportedFormat)
+                }
+            }
+            Platform::IbmPc => RawFormat::load_as_bitstream(raw, disk_image, floppy_format, _opts, _callback),
+            _ => {
+                log::error!(
+                    "Raw::load_image(): Unsupported format/platform: {}/{}",
+                    floppy_format,
+                    Platform::from(floppy_format)
+                );
+                Err(DiskImageError::UnsupportedFormat)
+            }
+        }
+    }
+
+    fn load_as_bitstream<RWS: ReadSeek>(
+        mut raw: RWS,
+        disk_image: &mut DiskImage,
+        floppy_format: StandardFormat,
+        _opts: &ParserReadOptions,
+        _callback: Option<LoadingCallback>,
+    ) -> Result<(), DiskImageError> {
+        let disk_chs = floppy_format.chs();
+        log::trace!("Raw::load_as_bitstream(): Disk CHS: {}", disk_chs);
+        let data_rate = floppy_format.data_rate();
+        let data_encoding = floppy_format.encoding();
+        let bitcell_ct = floppy_format.bitcell_ct();
+        let rpm = floppy_format.rpm();
+        let gap3 = floppy_format.gap3();
+
+        raw.seek(std::io::SeekFrom::Start(0))?;
+
         // Despite being a sector-based format, we convert to a bitstream based image by providing
         // the raw sector data to each track's format function.
-        let mut sector_buffer = vec![0u8; DEFAULT_SECTOR_SIZE];
+        let mut sector_buffer = vec![0u8; floppy_format.sector_size()];
 
-        // Insert sectors in order encountered.
+        // Iterate through all standard tracks
         for DiskCh { c, h } in disk_chs.ch().iter() {
-            log::trace!("Raw::load_image(): Adding new track: c:{} h:{}", c, h);
+            log::trace!("Raw::load_as_bitstream(): Adding new track: c:{} h:{}", c, h);
             let new_track_idx = disk_image.add_empty_track(DiskCh::new(c, h), data_encoding, data_rate, bitcell_ct)?;
             let mut format_buffer = Vec::with_capacity(disk_chs.s() as usize);
-            let mut track_pattern = Vec::with_capacity(DEFAULT_SECTOR_SIZE * disk_chs.s() as usize);
+            let mut track_pattern = Vec::with_capacity(floppy_format.sector_size() * disk_chs.s() as usize);
 
-            log::trace!("Raw::load_image(): Formatting track with {} sectors", disk_chs.s());
+            log::trace!(
+                "Raw::load_as_bitstream(): Formatting track with {} sectors",
+                disk_chs.s()
+            );
             for s in 1..disk_chs.s() + 1 {
                 let sector_chsn = DiskChsn::new(c, h, s, 2);
                 raw.read_exact(&mut sector_buffer)?;
@@ -161,8 +215,7 @@ impl RawFormat {
             geometry: disk_chs.into(),
             data_rate,
             data_encoding,
-            density: DiskDensity::from(data_rate),
-            default_sector_size: DEFAULT_SECTOR_SIZE,
+            density: TrackDensity::from(data_rate),
             rpm: Some(rpm),
             write_protect: None,
         };
@@ -170,11 +223,76 @@ impl RawFormat {
         Ok(())
     }
 
-    pub fn save_image<RWS: ReadWriteSeek>(disk: &mut DiskImage, output: &mut RWS) -> Result<(), DiskImageError> {
+    fn load_as_metasector<RWS: ReadSeek>(
+        mut raw: RWS,
+        disk_image: &mut DiskImage,
+        floppy_format: StandardFormat,
+        _opts: &ParserReadOptions,
+        _callback: Option<LoadingCallback>,
+    ) -> Result<(), DiskImageError> {
+        let disk_chs = floppy_format.chs();
+        log::trace!("Raw::load_as_metasector(): Disk CHS: {}", disk_chs);
+        let data_rate = floppy_format.data_rate();
+        let data_encoding = floppy_format.encoding();
+        let rpm = floppy_format.rpm();
+
+        let mut sector_buffer = vec![0u8; floppy_format.sector_size()];
+
+        // Seek to the beginning of image reader
+        raw.seek(std::io::SeekFrom::Start(0))?;
+
+        // Iterate through all sectors in the standard format
+        for ch in disk_chs.ch().iter() {
+            log::trace!("Raw::load_as_metasector(): Adding new track: {}", ch);
+            let params = MetaSectorTrackParams {
+                ch,
+                encoding: data_encoding,
+                data_rate,
+            };
+            let new_track = disk_image.add_track_metasector(&params)?;
+
+            for DiskChs { s, .. } in disk_chs.iter() {
+                log::trace!("Raw::load_as_metasector(): Adding sector {} to track", s);
+                raw.read_exact(&mut sector_buffer)?;
+
+                let chs = DiskChs::from((ch, s));
+                let sector_params = AddSectorParams {
+                    id_chsn: DiskChsn::from((chs, floppy_format.chsn().n())),
+                    data: &sector_buffer,
+                    weak_mask: None,
+                    hole_mask: None,
+                    attributes: Default::default(),
+                    alternate: false,
+                    bit_index: None,
+                };
+
+                new_track.add_sector(&sector_params)?;
+            }
+        }
+
+        disk_image.descriptor = DiskDescriptor {
+            geometry: disk_chs.into(),
+            data_rate,
+            data_encoding,
+            density: TrackDensity::from(data_rate),
+            rpm: Some(rpm),
+            write_protect: None,
+        };
+
+        Ok(())
+    }
+
+    pub fn save_image<RWS: ReadWriteSeek>(
+        disk: &mut DiskImage,
+        _opts: &ParserWriteOptions,
+        output: &mut RWS,
+    ) -> Result<(), DiskImageError> {
         let format = disk.closest_format(true).ok_or(DiskImageError::UnsupportedFormat)?;
 
         // An IMG file basically represents DOS's view of a disk. Non-standard sectors may as well not
-        // exist. We'll just write out the sectors in the standard order using DiskChsn::iter().
+        // exist. The same basically applies for ADF files as well.
+
+        // Write out the sectors in the standard order using DiskChsn::iter().
         for chsn in format.chsn().iter() {
             log::debug!("Raw::save_image(): Writing sector: {}...", chsn);
 

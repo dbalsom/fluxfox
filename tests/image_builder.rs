@@ -1,4 +1,4 @@
-use fluxfox::{image_builder::ImageBuilder, prelude::*, DiskImageFileFormat, ImageParser, StandardFormat};
+use fluxfox::{image_builder::ImageBuilder, prelude::*, DiskImageFileFormat, ImageFormatParser, StandardFormat};
 use std::io::Cursor;
 
 mod common;
@@ -24,7 +24,7 @@ fn test_image_builder() {
 
     let mut out_buffer = Cursor::new(Vec::new());
     let output_fmt = DiskImageFileFormat::F86Image;
-    match output_fmt.save_image(&mut image, &mut out_buffer) {
+    match output_fmt.save_image(&mut image, &ParserWriteOptions::default(), &mut out_buffer) {
         Ok(_) => println!("Wrote 86F image."),
         Err(e) => panic!("Failed to write 86F image: {}", e),
     };

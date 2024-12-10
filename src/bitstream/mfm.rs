@@ -37,7 +37,7 @@ use crate::{
     bitstream::{EncodingVariant, TrackCodec},
     io::{Error, ErrorKind, Read, Result, Seek, SeekFrom},
     range_check::RangeChecker,
-    types::{DiskDataEncoding, TrackRegion},
+    types::{TrackDataEncoding, TrackRegion},
 };
 use bit_vec::BitVec;
 
@@ -96,8 +96,8 @@ pub fn find_sync(track: &BitVec, start_idx: usize) -> Option<usize> {
 
 #[cfg_attr(feature = "serde", typetag::serde)]
 impl TrackCodec for MfmCodec {
-    fn encoding(&self) -> DiskDataEncoding {
-        DiskDataEncoding::Mfm
+    fn encoding(&self) -> TrackDataEncoding {
+        TrackDataEncoding::Mfm
     }
 
     fn len(&self) -> usize {
@@ -217,6 +217,15 @@ impl TrackCodec for MfmCodec {
             byte = (byte << 1) | self.bits[bi] as u8;
         }
         Some(byte)
+    }
+
+    fn read_raw_buf(&self, buf: &mut [u8], offset: usize) -> usize {
+        let mut bytes_read = 0;
+        for byte in buf.iter_mut() {
+            *byte = self.read_raw_byte(offset + (bytes_read * 8)).unwrap();
+            bytes_read += 1;
+        }
+        bytes_read
     }
 
     fn write_raw_byte(&mut self, index: usize, byte: u8) {

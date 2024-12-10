@@ -30,7 +30,7 @@ use crate::{
         FluxStats,
         FluxTransition,
     },
-    types::{DiskCh, DiskDataEncoding},
+    types::{DiskCh, TrackDataEncoding},
 };
 use bit_vec::BitVec;
 use std::cmp::Ordering;
@@ -51,7 +51,7 @@ pub struct FluxRevolutionStats {
     /// The type of revolution.
     pub rev_type: FluxRevolutionType,
     /// The data encoding detected for the revolution.
-    pub encoding: DiskDataEncoding,
+    pub encoding: TrackDataEncoding,
     /// The data rate of the revolution in bits per second.
     pub data_rate: f64,
     /// The time taken to read the revolution in seconds.
@@ -86,14 +86,14 @@ pub struct FluxRevolution {
     /// The bit errors found in the bitstream.
     pub biterrors: BitVec,
     /// The data encoding detected for the revolution.
-    pub encoding: DiskDataEncoding,
+    pub encoding: TrackDataEncoding,
     /// Statistics from the PLL decoding process.
     pub pll_stats: Vec<PllDecodeStatEntry>,
 }
 
 impl FluxRevolution {
     /// Retrieve the data encoding detected for the revolution.
-    pub fn encoding(&self) -> DiskDataEncoding {
+    pub fn encoding(&self) -> TrackDataEncoding {
         self.encoding
     }
 
@@ -123,7 +123,7 @@ impl FluxRevolution {
             transitions: Vec::with_capacity(deltas.len()),
             bitstream: BitVec::with_capacity(deltas.len() * 3),
             biterrors: BitVec::with_capacity(deltas.len() * 3),
-            encoding: DiskDataEncoding::Mfm,
+            encoding: TrackDataEncoding::Mfm,
             pll_stats: Vec::new(),
         }
     }
@@ -141,7 +141,7 @@ impl FluxRevolution {
             transitions: Vec::with_capacity(data.len()),
             bitstream: BitVec::with_capacity(data.len() * 3),
             biterrors: BitVec::with_capacity(data.len() * 3),
-            encoding: DiskDataEncoding::Mfm,
+            encoding: TrackDataEncoding::Mfm,
             pll_stats: Vec::new(),
         };
         let mut nfa_count = 0;
@@ -188,7 +188,7 @@ impl FluxRevolution {
                     flux_deltas: first_deltas,
                     bitstream: BitVec::with_capacity(first.bitstream.capacity()),
                     biterrors: BitVec::with_capacity(first.bitstream.capacity()),
-                    encoding: DiskDataEncoding::Mfm,
+                    encoding: TrackDataEncoding::Mfm,
                     pll_stats: Vec::new(),
                 };
 
@@ -201,7 +201,7 @@ impl FluxRevolution {
                     flux_deltas: second_deltas,
                     bitstream: BitVec::with_capacity(second.bitstream.capacity()),
                     biterrors: BitVec::with_capacity(second.bitstream.capacity()),
-                    encoding: DiskDataEncoding::Mfm,
+                    encoding: TrackDataEncoding::Mfm,
                     pll_stats: Vec::new(),
                 };
 
@@ -228,7 +228,7 @@ impl FluxRevolution {
                     flux_deltas: first_deltas,
                     bitstream: BitVec::with_capacity(first.bitstream.capacity()),
                     biterrors: BitVec::with_capacity(first.bitstream.capacity()),
-                    encoding: DiskDataEncoding::Mfm,
+                    encoding: TrackDataEncoding::Mfm,
                     pll_stats: Vec::new(),
                 };
 
@@ -241,7 +241,7 @@ impl FluxRevolution {
                     flux_deltas: second_deltas,
                     bitstream: BitVec::with_capacity(second.bitstream.capacity()),
                     biterrors: BitVec::with_capacity(second.bitstream.capacity()),
-                    encoding: DiskDataEncoding::Mfm,
+                    encoding: TrackDataEncoding::Mfm,
                     pll_stats: Vec::new(),
                 };
 
@@ -300,24 +300,24 @@ impl FluxRevolution {
 
     pub fn decode_direct(&mut self, pll: &mut Pll) -> FluxStats {
         let pll_flags = PllDecodeFlags::empty();
-        let mut decode_result = pll.decode(self, DiskDataEncoding::Mfm, pll_flags);
+        let mut decode_result = pll.decode(self, TrackDataEncoding::Mfm, pll_flags);
         let encoding = decode_result
             .flux_stats
             .detect_encoding()
-            .unwrap_or(DiskDataEncoding::Mfm);
+            .unwrap_or(TrackDataEncoding::Mfm);
 
-        if decode_result.markers.is_empty() && matches!(encoding, DiskDataEncoding::Fm) {
+        if decode_result.markers.is_empty() && matches!(encoding, TrackDataEncoding::Fm) {
             // If we detected FM encoding, decode again as FM
             log::warn!("FluxRevolution::decode(): No markers found. Track might be FM encoded? Re-decoding...");
 
-            let fm_result = pll.decode(self, DiskDataEncoding::Fm, pll_flags);
+            let fm_result = pll.decode(self, TrackDataEncoding::Fm, pll_flags);
             if fm_result.markers.is_empty() {
                 log::warn!("FluxRevolution::decode(): No markers found in FM decode. Keeping MFM.");
-                self.encoding = DiskDataEncoding::Mfm;
+                self.encoding = TrackDataEncoding::Mfm;
             }
             else {
                 log::debug!("FluxRevolution::decode(): Found FM marker! Setting track to FM encoding.");
-                self.encoding = DiskDataEncoding::Fm;
+                self.encoding = TrackDataEncoding::Fm;
                 decode_result = fm_result;
             }
         }

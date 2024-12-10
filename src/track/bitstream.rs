@@ -29,7 +29,7 @@
     Implements the Bitstream track type and the Track trait for same.
 
 */
-use super::{Track, TrackConsistency, TrackInfo, TrackSectorScanResult};
+use super::{Track, TrackAnalysis, TrackInfo, TrackSectorScanResult};
 use crate::{
     bitstream::{
         fm::FmCodec,
@@ -56,14 +56,12 @@ use crate::{
     },
     types::{
         chs::DiskChsnQuery,
+        AddSectorParams,
         BitStreamTrackParams,
         DiskCh,
         DiskChs,
         DiskChsn,
-        DiskDataEncoding,
-        DiskDataRate,
         DiskDataResolution,
-        DiskDensity,
         DiskRpm,
         ReadSectorResult,
         ReadTrackResult,
@@ -71,8 +69,10 @@ use crate::{
         ScanSectorResult,
         SectorAttributes,
         SectorCrc,
-        SectorDescriptor,
         SharedDiskContext,
+        TrackDataEncoding,
+        TrackDataRate,
+        TrackDensity,
         WriteSectorResult,
     },
     util::crc_ibm_3740,
@@ -89,8 +89,8 @@ use std::{
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct BitStreamTrack {
-    pub(crate) encoding: DiskDataEncoding,
-    pub(crate) data_rate: DiskDataRate,
+    pub(crate) encoding: TrackDataEncoding,
+    pub(crate) data_rate: TrackDataRate,
     pub(crate) rpm: Option<DiskRpm>,
     pub(crate) ch: DiskCh,
     pub(crate) data: TrackDataStream,
@@ -139,7 +139,7 @@ impl Track for BitStreamTrack {
         self.ch = new_ch;
     }
 
-    fn encoding(&self) -> DiskDataEncoding {
+    fn encoding(&self) -> TrackDataEncoding {
         self.encoding
     }
 
@@ -148,7 +148,7 @@ impl Track for BitStreamTrack {
             encoding: self.encoding,
             schema: self.schema,
             data_rate: self.data_rate,
-            density: Some(DiskDensity::from(self.data_rate)),
+            density: Some(TrackDensity::from(self.data_rate)),
             rpm: self.rpm,
             bit_length: self.data.len(),
             sector_ct: self.sector_ids.len(),
@@ -208,7 +208,7 @@ impl Track for BitStreamTrack {
         sector_list
     }
 
-    fn add_sector(&mut self, _sd: &SectorDescriptor, _alternate: bool) -> Result<(), DiskImageError> {
+    fn add_sector(&mut self, _sd: &AddSectorParams) -> Result<(), DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 
@@ -776,7 +776,7 @@ impl Track for BitStreamTrack {
         })
     }
 
-    fn get_next_id(&self, chs: DiskChs) -> Option<DiskChsn> {
+    fn next_id(&self, chs: DiskChs) -> Option<DiskChsn> {
         if self.sector_ids.is_empty() {
             log::warn!("get_next_id(): No sector_id vector for track!");
         }
@@ -802,7 +802,7 @@ impl Track for BitStreamTrack {
         }
     }
 
-    fn read_track(&mut self, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
+    fn read(&mut self, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
         let extra_bytes = overdump.unwrap_or(0);
 
         let data_size = self.data.len() / 16 + if self.data.len() % 16 > 0 { 1 } else { 0 };
@@ -829,7 +829,7 @@ impl Track for BitStreamTrack {
         })
     }
 
-    fn read_track_raw(&mut self, _overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
+    fn read_raw(&mut self, _overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
         //let extra_bytes = overdump.unwrap_or(0);
 
         let data_size = self.data.len() / 8 + if self.data.len() % 8 > 0 { 1 } else { 0 };
@@ -898,7 +898,7 @@ impl Track for BitStreamTrack {
         //     new_metadata.items.len()
         // );
 
-        let new_sector_ids = new_metadata.get_sector_ids();
+        let new_sector_ids = new_metadata.sector_ids();
         if new_sector_ids.is_empty() {
             log::warn!("TrackData::format(): No sectors ids found in track metadata post-format");
         }
@@ -909,9 +909,9 @@ impl Track for BitStreamTrack {
         Ok(())
     }
 
-    fn track_consistency(&self) -> Result<TrackConsistency, DiskImageError> {
+    fn analysis(&self) -> Result<TrackAnalysis, DiskImageError> {
         let sector_ct = self.sector_ids.len();
-        let mut consistency = TrackConsistency::default();
+        let mut consistency = TrackAnalysis::default();
         let mut n_set: FoxHashSet<u8> = FoxHashSet::new();
         let mut last_n = 0;
 
@@ -957,18 +957,18 @@ impl Track for BitStreamTrack {
         Ok(consistency)
     }
 
-    fn track_stream(&self) -> Option<&TrackDataStream> {
+    fn stream(&self) -> Option<&TrackDataStream> {
         Some(&self.data)
     }
 
-    fn track_stream_mut(&mut self) -> Option<&mut TrackDataStream> {
+    fn stream_mut(&mut self) -> Option<&mut TrackDataStream> {
         Some(&mut self.data)
     }
 }
 
 impl BitStreamTrack {
     pub(crate) fn new(
-        params: BitStreamTrackParams,
+        params: &BitStreamTrackParams,
         shared: Arc<Mutex<SharedDiskContext>>,
     ) -> Result<BitStreamTrack, DiskImageError> {
         if params.data.is_empty() {
@@ -991,7 +991,7 @@ impl BitStreamTrack {
         let weak_bitvec_opt = params.weak.map(BitVec::from_bytes);
 
         let (mut data_stream, markers) = match params.encoding {
-            DiskDataEncoding::Mfm => {
+            TrackDataEncoding::Mfm => {
                 let mut codec;
                 // If a weak bit mask was provided by the file format, we will honor it.
                 // Otherwise, if 'detect_weak' is set we will try to detect weak bits from the MFM stream.
@@ -1026,7 +1026,7 @@ impl BitStreamTrack {
 
                 (data_stream, markers)
             }
-            DiskDataEncoding::Fm => {
+            TrackDataEncoding::Fm => {
                 let mut codec;
 
                 // If a weak bit mask was provided by the file format, we will honor it.
@@ -1076,7 +1076,7 @@ impl BitStreamTrack {
         // };
 
         let metadata = TrackMetadata::new(System34Schema::scan_track_metadata(&mut data_stream, markers));
-        let sector_ids = metadata.get_sector_ids();
+        let sector_ids = metadata.sector_ids();
         if sector_ids.is_empty() {
             log::warn!(
                 "add_track_bitstream(): No sector ids found in track {} metadata.",

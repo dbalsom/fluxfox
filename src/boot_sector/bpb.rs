@@ -36,7 +36,7 @@
     image format, or the disk will not be bootable.
 */
 
-use crate::StandardFormat;
+use crate::{DiskImageError, StandardFormat};
 use binrw::binrw;
 
 // Offset of the bios parameter block in the boot sector.
@@ -126,9 +126,10 @@ impl TryFrom<&BiosParameterBlock2> for StandardFormat {
     }
 }
 
-impl From<StandardFormat> for BiosParameterBlock2 {
-    fn from(format: StandardFormat) -> Self {
-        match format {
+impl TryFrom<StandardFormat> for BiosParameterBlock2 {
+    type Error = DiskImageError;
+    fn try_from(format: StandardFormat) -> Result<BiosParameterBlock2, DiskImageError> {
+        let pc_fmt = match format {
             StandardFormat::PcFloppy160 => BiosParameterBlock2 {
                 bytes_per_sector: 512,
                 sectors_per_cluster: 2,
@@ -209,7 +210,11 @@ impl From<StandardFormat> for BiosParameterBlock2 {
                 media_descriptor: 0xF0,
                 sectors_per_fat: 9,
             },
-        }
+            _ => {
+                return Err(DiskImageError::UnsupportedFormat);
+            }
+        };
+        Ok(pc_fmt)
     }
 }
 
@@ -224,9 +229,10 @@ pub struct BiosParameterBlock3 {
     pub hidden_sectors:    u32,
 }
 
-impl From<StandardFormat> for BiosParameterBlock3 {
-    fn from(format: StandardFormat) -> Self {
-        match format {
+impl TryFrom<StandardFormat> for BiosParameterBlock3 {
+    type Error = DiskImageError;
+    fn try_from(format: StandardFormat) -> Result<BiosParameterBlock3, DiskImageError> {
+        let pc_fmt = match format {
             StandardFormat::PcFloppy160 => BiosParameterBlock3 {
                 sectors_per_track: 8,
                 number_of_heads:   1,
@@ -267,6 +273,10 @@ impl From<StandardFormat> for BiosParameterBlock3 {
                 number_of_heads:   2,
                 hidden_sectors:    0,
             },
-        }
+            _ => {
+                return Err(DiskImageError::UnsupportedFormat);
+            }
+        };
+        Ok(pc_fmt)
     }
 }

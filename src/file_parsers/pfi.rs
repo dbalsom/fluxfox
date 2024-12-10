@@ -23,32 +23,30 @@
     DEALINGS IN THE SOFTWARE.
 
     --------------------------------------------------------------------------
-
-    src/parsers/pfi.rs
-
-    A parser for the PFI disk image format.
-
-    PFI format images are PCE flux stream images, an internal format used by the PCE emulator and
-    devised by Hampa Hug.
-
-    It is a chunk-based format similar to RIFF.
-
 */
 
-use binrw::{binrw, BinRead};
+//! A parser for the PFI disk image format.
+//!
+//! PFI format images are PCE flux stream images, a format associated with the PCE emulator and disk
+//! tool suite, invented by Hampa Hug.
+//!
+//! It is a chunk-based format similar to RIFF.
+//!
+//! Flux transition times are stored in a variable-length encoding similar to Kryoflux.
 
 use crate::{
-    file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility},
+    file_parsers::{bitstream_flags, FormatCaps, ParserReadOptions, ParserWriteCompatibility, ParserWriteOptions},
     io::{Cursor, ReadBytesExt, ReadSeek, ReadWriteSeek},
     track::fluxstream::FluxStreamTrack,
-    types::{chs::DiskCh, DiskDataEncoding, DiskDensity, DiskDescriptor},
+    types::{chs::DiskCh, DiskDescriptor, FluxStreamTrackParams, Platform, TrackDataEncoding, TrackDensity},
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,
     FoxHashSet,
     LoadingCallback,
-    DEFAULT_SECTOR_SIZE,
 };
+use binrw::{binrw, BinRead};
+use strum::IntoEnumIterator;
 
 pub struct PfiFormat;
 pub const MAXIMUM_CHUNK_SIZE: usize = 0x1000000; // Reasonable 10MB limit for chunk sizes.
@@ -143,6 +141,11 @@ impl PfiFormat {
         bitstream_flags() | FormatCaps::CAP_COMMENT | FormatCaps::CAP_WEAK_BITS
     }
 
+    pub fn platforms() -> Vec<Platform> {
+        // PFI images should basically support every platform that Kryoflux does
+        Platform::iter().collect()
+    }
+
     pub(crate) fn extensions() -> Vec<&'static str> {
         vec!["pfi"]
     }
@@ -221,6 +224,7 @@ impl PfiFormat {
     pub(crate) fn load_image<RWS: ReadSeek>(
         mut read_buf: RWS,
         disk_image: &mut DiskImage,
+        _opts: &ParserReadOptions,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFileFormat::PceFluxImage);
@@ -337,7 +341,15 @@ impl PfiFormat {
                     };
 
                     let data_rate = disk_image.data_rate();
-                    let new_track = disk_image.add_track_fluxstream(next_ch, flux_track, clock_hint, rpm_hint)?;
+
+                    let params = FluxStreamTrackParams {
+                        ch: next_ch,
+                        schema: None,
+                        encoding: None,
+                        clock: clock_hint,
+                        rpm: rpm_hint,
+                    };
+                    let new_track = disk_image.add_track_fluxstream(flux_track, &params)?;
 
                     let (new_density, new_rpm) = if new_track.sector_ct() == 0 {
                         log::warn!("Track did not decode any sectors. Not updating disk image descriptor.");
@@ -359,8 +371,7 @@ impl PfiFormat {
                         geometry: DiskCh::from((cylinders_seen.len() as u16, heads_seen.len() as u8)),
                         data_rate,
                         density: new_density,
-                        data_encoding: DiskDataEncoding::Mfm,
-                        default_sector_size: DEFAULT_SECTOR_SIZE,
+                        data_encoding: TrackDataEncoding::Mfm,
                         rpm: new_rpm,
                         write_protect: Some(true),
                     };
@@ -394,9 +405,8 @@ impl PfiFormat {
         disk_image.descriptor = DiskDescriptor {
             geometry: DiskCh::from((cylinder_ct, head_ct)),
             data_rate: clock_rate,
-            data_encoding: DiskDataEncoding::Mfm,
-            density: DiskDensity::from(clock_rate),
-            default_sector_size: DEFAULT_SECTOR_SIZE,
+            data_encoding: TrackDataEncoding::Mfm,
+            density: TrackDensity::from(clock_rate),
             rpm: None,
             write_protect: None,
         };
@@ -500,7 +510,11 @@ impl PfiFormat {
         Ok(revs)
     }
 
-    pub fn save_image<RWS: ReadWriteSeek>(_image: &DiskImage, _output: &mut RWS) -> Result<(), DiskImageError> {
+    pub fn save_image<RWS: ReadWriteSeek>(
+        _image: &DiskImage,
+        _opts: &ParserWriteOptions,
+        _output: &mut RWS,
+    ) -> Result<(), DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 }

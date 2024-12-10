@@ -23,37 +23,46 @@
     DEALINGS IN THE SOFTWARE.
 
     --------------------------------------------------------------------------
-
-    src/parsers/scp.rs
-
-    A parser for the SuperCardPro format.
-
-    SCP is a flux stream format originally invented for use by the SuperCardPro
-    hardware.
-
-    SCP images can be produced by a variety of different tools, and usually
-    contain bad metadata fields because these tools do not require them to be
-    set properly on export.
-
-    Fields like disk type and RPM are almost universally unreliable. We attempt
-    to calculate the disk parameters ourselves as a result.
-
 */
+
+//! A parser for the SuperCardPro format (SCP)
+//!
+//! SCP is a flux stream format originally invented for use by the SuperCardPro hardware.
+//!
+//! SCP images can be produced by a variety of different tools, and usually contain bad metadata
+//! fields because these tools do not require the user to specify them before exporting the image.
+//!
+//! Fields like disk type and RPM are almost universally unreliable. We attempt to calculate the
+//! disk parameters ourselves as a result.
+//!
+//! In contrast to Kryoflux streams, SCP images store only complete revolutions, normalized to start
+//! at the track index.
+
 use crate::{
-    file_parsers::{bitstream_flags, FormatCaps},
+    file_parsers::{bitstream_flags, FormatCaps, ParserReadOptions, ParserWriteOptions},
     flux::pll::{Pll, PllPreset},
     io::{ReadSeek, ReadWriteSeek},
     track::fluxstream::FluxStreamTrack,
-    types::{BitStreamTrackParams, DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskDescriptor, DiskRpm},
+    types::{
+        BitStreamTrackParams,
+        DiskCh,
+        DiskDescriptor,
+        DiskRpm,
+        Platform,
+        TrackDataEncoding,
+        TrackDataRate,
+        TrackDensity,
+    },
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,
     LoadingCallback,
     ParserWriteCompatibility,
     StandardFormat,
-    DEFAULT_SECTOR_SIZE,
 };
+
 use binrw::{binrw, BinRead, BinReaderExt};
+use strum::IntoEnumIterator;
 
 pub const BASE_CAPTURE_RES: u32 = 25;
 pub const SCP_FLUX_TIME_BASE: u32 = 25;
@@ -181,6 +190,11 @@ impl ScpFormat {
         bitstream_flags()
     }
 
+    pub fn platforms() -> Vec<Platform> {
+        // SCP supports just about everything
+        Platform::iter().collect()
+    }
+
     pub fn detect<RWS: ReadSeek>(mut image: RWS) -> bool {
         if image.seek(std::io::SeekFrom::Start(0)).is_err() {
             return false;
@@ -202,6 +216,7 @@ impl ScpFormat {
     pub(crate) fn load_image<RWS: ReadSeek>(
         mut read_buf: RWS,
         disk_image: &mut DiskImage,
+        _opts: &ParserReadOptions,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFileFormat::SuperCardPro);
@@ -504,7 +519,7 @@ impl ScpFormat {
             // };
 
             if disk_datarate.is_none() {
-                disk_datarate = Some(DiskDataRate::from(rev_density));
+                disk_datarate = Some(TrackDataRate::from(rev_density));
             }
             // }
             // log::trace!("Track density: {:?} bitrate: {:?}", rev_density, rev_bitrate);
@@ -512,8 +527,8 @@ impl ScpFormat {
             let (track_data, track_bits) = flux_track.revolution_mut(rev).unwrap().bitstream_data();
 
             let params = BitStreamTrackParams {
-                encoding: DiskDataEncoding::Mfm,
-                data_rate: DiskDataRate::from(rev_density),
+                encoding: TrackDataEncoding::Mfm,
+                data_rate: TrackDataRate::from(rev_density),
                 rpm: None,
                 ch: DiskCh::new(c, h),
                 bitcell_ct: Some(track_bits),
@@ -523,7 +538,7 @@ impl ScpFormat {
                 detect_weak: false,
             };
 
-            disk_image.add_track_bitstream(params)?;
+            disk_image.add_track_bitstream(&params)?;
 
             // Increment cylinder/head for next track
             h += 1;
@@ -538,9 +553,8 @@ impl ScpFormat {
         disk_image.descriptor = DiskDescriptor {
             geometry: DiskCh::from((c, disk_heads)),
             data_rate: disk_datarate.unwrap(),
-            density: DiskDensity::from(disk_datarate.unwrap()),
-            data_encoding: DiskDataEncoding::Mfm,
-            default_sector_size: DEFAULT_SECTOR_SIZE,
+            density: TrackDensity::from(disk_datarate.unwrap()),
+            data_encoding: TrackDataEncoding::Mfm,
             rpm: None,
             write_protect: Some(disk_readonly),
         };
@@ -548,7 +562,11 @@ impl ScpFormat {
         Ok(())
     }
 
-    pub fn save_image<RWS: ReadWriteSeek>(_image: &DiskImage, _output: &mut RWS) -> Result<(), DiskImageError> {
+    pub fn save_image<RWS: ReadWriteSeek>(
+        _image: &DiskImage,
+        _opts: &ParserWriteOptions,
+        _output: &mut RWS,
+    ) -> Result<(), DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 }

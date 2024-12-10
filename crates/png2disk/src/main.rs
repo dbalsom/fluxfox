@@ -220,10 +220,10 @@ fn main() {
             std::process::exit(1);
         });
 
-    match ImageWriter::new()
+    match ImageWriter::new(&mut disk)
         .with_format(output_format)
         .with_path(opts.out_disk)
-        .write(&mut disk)
+        .write()
     {
         Ok(_) => {
             println!("Successfully wrote disk image.");

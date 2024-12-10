@@ -278,7 +278,7 @@ const POPCOUNT_TABLE: [u8; 256] = {
 fn stream(ch: DiskCh, disk_image: &DiskImage) -> &TrackDataStream {
     disk_image.track_map[ch.h() as usize]
         .get(ch.c() as usize)
-        .map(|track_i| disk_image.track_pool[*track_i].track_stream().unwrap())
+        .map(|track_i| disk_image.track_pool[*track_i].stream().unwrap())
         .unwrap()
 }
 
@@ -292,29 +292,21 @@ fn metadata(ch: DiskCh, disk_image: &DiskImage) -> &TrackMetadata {
 fn collect_streams(head: u8, disk_image: &DiskImage) -> Vec<&TrackDataStream> {
     disk_image.track_map[head as usize]
         .iter()
-        .filter_map(|track_i| disk_image.track_pool[*track_i].track_stream())
+        .filter_map(|track_i| disk_image.track_pool[*track_i].stream())
         .collect()
 }
 
 fn collect_weak_masks(head: u8, disk_image: &DiskImage) -> Vec<&BitVec> {
     disk_image.track_map[head as usize]
         .iter()
-        .filter_map(|track_i| {
-            disk_image.track_pool[*track_i]
-                .track_stream()
-                .map(|track| track.weak_mask())
-        })
+        .filter_map(|track_i| disk_image.track_pool[*track_i].stream().map(|track| track.weak_mask()))
         .collect()
 }
 
 fn collect_error_maps(head: u8, disk_image: &DiskImage) -> Vec<&BitVec> {
     disk_image.track_map[head as usize]
         .iter()
-        .filter_map(|track_i| {
-            disk_image.track_pool[*track_i]
-                .track_stream()
-                .map(|track| track.error_map())
-        })
+        .filter_map(|track_i| disk_image.track_pool[*track_i].stream().map(|track| track.error_map()))
         .collect()
 }
 

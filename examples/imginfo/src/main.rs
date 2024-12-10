@@ -104,9 +104,9 @@ fn main() {
     let _ = disk.dump_info(&mut std::io::stdout());
     println!();
 
-    println!("Disk consistency report:");
+    println!("Disk analysis:");
     println!("{}", "-".repeat(79));
-    let _ = disk.dump_consistency(&mut std::io::stdout());
+    let _ = disk.dump_analysis(&mut std::io::stdout());
 
     println!("Image can be represented by the following formats with write support:");
     let formats = disk.compatible_formats(true);

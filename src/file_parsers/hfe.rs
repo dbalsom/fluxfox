@@ -32,16 +32,16 @@
 
 */
 use crate::{
-    file_parsers::{FormatCaps, ParserWriteCompatibility},
+    file_parsers::{FormatCaps, ParserReadOptions, ParserWriteCompatibility, ParserWriteOptions},
     io::{ReadSeek, ReadWriteSeek},
-    types::{BitStreamTrackParams, DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskDescriptor},
+    types::{BitStreamTrackParams, DiskCh, DiskDescriptor, Platform, TrackDataEncoding, TrackDataRate, TrackDensity},
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,
     LoadingCallback,
-    DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, BinRead};
+use strum::IntoEnumIterator;
 
 const fn reverse_bits(mut byte: u8) -> u8 {
     //byte = (byte >> 4) | (byte << 4);
@@ -109,25 +109,62 @@ impl From<u8> for HfeFloppyInterface {
     }
 }
 
-impl From<HfeFloppyInterface> for DiskDensity {
+impl From<(Platform, TrackDensity)> for HfeFloppyInterface {
+    fn from(value: (Platform, TrackDensity)) -> Self {
+        match value {
+            (Platform::IbmPc, TrackDensity::Double) => HfeFloppyInterface::IbmPcDd,
+            (Platform::IbmPc, TrackDensity::High) => HfeFloppyInterface::IbmPcHd,
+            (Platform::IbmPc, TrackDensity::Extended) => HfeFloppyInterface::IbmPcEd,
+            (Platform::Amiga, TrackDensity::Double) => HfeFloppyInterface::AmigaDd,
+            (Platform::Amiga, TrackDensity::High) => HfeFloppyInterface::AmigaHd,
+            _ => HfeFloppyInterface::Unknown,
+        }
+    }
+}
+
+impl TryFrom<HfeFloppyInterface> for Platform {
+    type Error = ();
+    fn try_from(value: HfeFloppyInterface) -> Result<Self, Self::Error> {
+        match value {
+            HfeFloppyInterface::IbmPcDd => Ok(Platform::IbmPc),
+            HfeFloppyInterface::IbmPcHd => Ok(Platform::IbmPc),
+            HfeFloppyInterface::AtariStDd => Err(()),
+            HfeFloppyInterface::AtariStHd => Err(()),
+            HfeFloppyInterface::AmigaDd => Ok(Platform::Amiga),
+            HfeFloppyInterface::AmigaHd => Ok(Platform::Amiga),
+            HfeFloppyInterface::CpcDd => Err(()),
+            HfeFloppyInterface::GenericShugartDd => Err(()),
+            HfeFloppyInterface::IbmPcEd => Ok(Platform::IbmPc),
+            HfeFloppyInterface::Msx2Dd => Err(()),
+            HfeFloppyInterface::C64Dd => Err(()),
+            HfeFloppyInterface::EmuShugart => Err(()),
+            HfeFloppyInterface::S950Dd => Err(()),
+            HfeFloppyInterface::S950Hd => Err(()),
+            HfeFloppyInterface::Disable => Err(()),
+            HfeFloppyInterface::Unknown => Err(()),
+        }
+    }
+}
+
+impl From<HfeFloppyInterface> for TrackDensity {
     fn from(value: HfeFloppyInterface) -> Self {
         match value {
-            HfeFloppyInterface::IbmPcDd => DiskDensity::Double,
-            HfeFloppyInterface::IbmPcHd => DiskDensity::High,
-            HfeFloppyInterface::AtariStDd => DiskDensity::Double,
-            HfeFloppyInterface::AtariStHd => DiskDensity::High,
-            HfeFloppyInterface::AmigaDd => DiskDensity::Double,
-            HfeFloppyInterface::AmigaHd => DiskDensity::High,
-            HfeFloppyInterface::CpcDd => DiskDensity::Double,
-            HfeFloppyInterface::GenericShugartDd => DiskDensity::Double,
-            HfeFloppyInterface::IbmPcEd => DiskDensity::Extended,
-            HfeFloppyInterface::Msx2Dd => DiskDensity::Double,
-            HfeFloppyInterface::C64Dd => DiskDensity::Double,
-            HfeFloppyInterface::EmuShugart => DiskDensity::Double,
-            HfeFloppyInterface::S950Dd => DiskDensity::Double,
-            HfeFloppyInterface::S950Hd => DiskDensity::High,
-            HfeFloppyInterface::Disable => DiskDensity::Double,
-            HfeFloppyInterface::Unknown => DiskDensity::Double,
+            HfeFloppyInterface::IbmPcDd => TrackDensity::Double,
+            HfeFloppyInterface::IbmPcHd => TrackDensity::High,
+            HfeFloppyInterface::AtariStDd => TrackDensity::Double,
+            HfeFloppyInterface::AtariStHd => TrackDensity::High,
+            HfeFloppyInterface::AmigaDd => TrackDensity::Double,
+            HfeFloppyInterface::AmigaHd => TrackDensity::High,
+            HfeFloppyInterface::CpcDd => TrackDensity::Double,
+            HfeFloppyInterface::GenericShugartDd => TrackDensity::Double,
+            HfeFloppyInterface::IbmPcEd => TrackDensity::Extended,
+            HfeFloppyInterface::Msx2Dd => TrackDensity::Double,
+            HfeFloppyInterface::C64Dd => TrackDensity::Double,
+            HfeFloppyInterface::EmuShugart => TrackDensity::Double,
+            HfeFloppyInterface::S950Dd => TrackDensity::Double,
+            HfeFloppyInterface::S950Hd => TrackDensity::High,
+            HfeFloppyInterface::Disable => TrackDensity::Double,
+            HfeFloppyInterface::Unknown => TrackDensity::Double,
         }
     }
 }
@@ -204,6 +241,11 @@ impl HfeFormat {
         vec!["hfe"]
     }
 
+    pub(crate) fn platforms() -> Vec<Platform> {
+        // HFE images support a wide variety of platforms
+        Platform::iter().collect()
+    }
+
     pub(crate) fn detect<RWS: ReadSeek>(mut image: RWS) -> bool {
         let mut detected = false;
         _ = image.seek(std::io::SeekFrom::Start(0));
@@ -224,6 +266,7 @@ impl HfeFormat {
     pub(crate) fn load_image<RWS: ReadSeek>(
         mut read_buf: RWS,
         disk_image: &mut DiskImage,
+        _opts: &ParserReadOptions,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFileFormat::HfeImage);
@@ -352,8 +395,8 @@ impl HfeFormat {
             );
 
             let params = BitStreamTrackParams {
-                encoding: DiskDataEncoding::Mfm,
-                data_rate: DiskDataRate::from(file_header.bit_rate as u32 * 100),
+                encoding: TrackDataEncoding::Mfm,
+                data_rate: TrackDataRate::from(file_header.bit_rate as u32 * 100),
                 rpm: None,
                 ch: DiskCh::from((ti as u16, 0)),
                 bitcell_ct: None,
@@ -363,7 +406,7 @@ impl HfeFormat {
                 detect_weak: false,
             };
 
-            disk_image.add_track_bitstream(params)?;
+            disk_image.add_track_bitstream(&params)?;
 
             // And the track data for head 1.
             log::trace!(
@@ -374,8 +417,8 @@ impl HfeFormat {
             );
 
             let params = BitStreamTrackParams {
-                encoding: DiskDataEncoding::Mfm,
-                data_rate: DiskDataRate::from(file_header.bit_rate as u32 * 100),
+                encoding: TrackDataEncoding::Mfm,
+                data_rate: TrackDataRate::from(file_header.bit_rate as u32 * 100),
                 rpm: None,
                 ch: DiskCh::from((ti as u16, 1)),
                 bitcell_ct: None,
@@ -385,15 +428,14 @@ impl HfeFormat {
                 detect_weak: false,
             };
 
-            disk_image.add_track_bitstream(params)?;
+            disk_image.add_track_bitstream(&params)?;
         }
 
         disk_image.descriptor = DiskDescriptor {
             geometry: DiskCh::from((file_header.number_of_tracks as u16, file_header.number_of_sides)),
-            data_rate: DiskDataRate::from(file_header.bit_rate as u32 * 1000),
-            density: DiskDensity::from(hfe_floppy_interface),
-            data_encoding: DiskDataEncoding::Mfm,
-            default_sector_size: DEFAULT_SECTOR_SIZE,
+            data_rate: TrackDataRate::from(file_header.bit_rate as u32 * 1000),
+            density: TrackDensity::from(hfe_floppy_interface),
+            data_encoding: TrackDataEncoding::Mfm,
             rpm: None,
             write_protect: Some(file_header.write_allowed == 0),
         };
@@ -401,7 +443,11 @@ impl HfeFormat {
         Ok(())
     }
 
-    pub fn save_image<RWS: ReadWriteSeek>(_image: &DiskImage, _output: &mut RWS) -> Result<(), DiskImageError> {
+    pub fn save_image<RWS: ReadWriteSeek>(
+        _image: &DiskImage,
+        _opts: &ParserWriteOptions,
+        _output: &mut RWS,
+    ) -> Result<(), DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 }

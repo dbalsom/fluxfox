@@ -36,9 +36,9 @@ pub struct DiskInfoWidget {
     pub filename: Option<String>,
     pub resolution: DiskDataResolution,
     pub geometry: DiskCh,
-    pub rate: DiskDataRate,
-    pub encoding: DiskDataEncoding,
-    pub density: DiskDensity,
+    pub rate: TrackDataRate,
+    pub encoding: TrackDataEncoding,
+    pub density: TrackDensity,
 }
 
 impl DiskInfoWidget {

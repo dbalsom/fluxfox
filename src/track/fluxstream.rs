@@ -35,7 +35,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use super::{Track, TrackConsistency, TrackInfo};
+use super::{Track, TrackAnalysis, TrackInfo};
 use crate::{
     bitstream::TrackDataStream,
     flux::{
@@ -48,21 +48,21 @@ use crate::{
     track_schema::{system34::System34Standard, TrackMetadata, TrackSchema},
     types::{
         chs::DiskChsnQuery,
+        AddSectorParams,
         BitStreamTrackParams,
         DiskCh,
         DiskChs,
         DiskChsn,
-        DiskDataEncoding,
-        DiskDataRate,
         DiskDataResolution,
-        DiskDensity,
         DiskRpm,
         ReadSectorResult,
         ReadTrackResult,
         RwSectorScope,
         ScanSectorResult,
-        SectorDescriptor,
         SharedDiskContext,
+        TrackDataEncoding,
+        TrackDataRate,
+        TrackDensity,
         WriteSectorResult,
     },
     DiskImageError,
@@ -73,15 +73,15 @@ use sha1_smol::Digest;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FluxStreamTrack {
-    encoding: DiskDataEncoding,
+    encoding: TrackDataEncoding,
     schema: Option<TrackSchema>,
-    data_rate: DiskDataRate,
+    data_rate: TrackDataRate,
     ch: DiskCh,
 
     revolutions: Vec<FluxRevolution>,
     decoded_revolutions: Vec<Option<BitStreamTrack>>,
     best_revolution: usize,
-    density: DiskDensity,
+    density: TrackDensity,
     rpm: DiskRpm,
 
     dirty:    bool,
@@ -129,7 +129,7 @@ impl Track for FluxStreamTrack {
         self.ch = new_ch;
     }
 
-    fn encoding(&self) -> DiskDataEncoding {
+    fn encoding(&self) -> TrackDataEncoding {
         self.encoding
     }
 
@@ -144,7 +144,7 @@ impl Track for FluxStreamTrack {
             encoding: self.encoding,
             schema: self.schema,
             data_rate: self.data_rate,
-            density: Some(DiskDensity::from(self.data_rate)),
+            density: Some(TrackDensity::from(self.data_rate)),
             rpm: Some(self.rpm),
             bit_length: 0,
             sector_ct: 0,
@@ -179,7 +179,7 @@ impl Track for FluxStreamTrack {
         Vec::new()
     }
 
-    fn add_sector(&mut self, _sd: &SectorDescriptor, _alternate: bool) -> Result<(), DiskImageError> {
+    fn add_sector(&mut self, _sd: &AddSectorParams) -> Result<(), DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 
@@ -262,23 +262,23 @@ impl Track for FluxStreamTrack {
         Err(DiskImageError::ResolveError)
     }
 
-    fn get_next_id(&self, chs: DiskChs) -> Option<DiskChsn> {
+    fn next_id(&self, chs: DiskChs) -> Option<DiskChsn> {
         if let Some(resolved) = self.get_bitstream() {
-            return resolved.get_next_id(chs);
+            return resolved.next_id(chs);
         }
         None
     }
 
-    fn read_track(&mut self, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
+    fn read(&mut self, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
         if let Some(resolved) = self.get_bitstream_mut() {
-            return resolved.read_track(overdump);
+            return resolved.read(overdump);
         }
         Err(DiskImageError::ResolveError)
     }
 
-    fn read_track_raw(&mut self, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
+    fn read_raw(&mut self, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
         if let Some(resolved) = self.get_bitstream_mut() {
-            return resolved.read_track_raw(overdump);
+            return resolved.read_raw(overdump);
         }
         Err(DiskImageError::ResolveError)
     }
@@ -306,23 +306,23 @@ impl Track for FluxStreamTrack {
         Err(DiskImageError::ResolveError)
     }
 
-    fn track_consistency(&self) -> Result<TrackConsistency, DiskImageError> {
+    fn analysis(&self) -> Result<TrackAnalysis, DiskImageError> {
         if let Some(resolved) = self.get_bitstream() {
-            return resolved.track_consistency();
+            return resolved.analysis();
         }
         Err(DiskImageError::ResolveError)
     }
 
-    fn track_stream(&self) -> Option<&TrackDataStream> {
+    fn stream(&self) -> Option<&TrackDataStream> {
         if let Some(resolved) = self.get_bitstream() {
-            return resolved.track_stream();
+            return resolved.stream();
         }
         None
     }
 
-    fn track_stream_mut(&mut self) -> Option<&mut TrackDataStream> {
+    fn stream_mut(&mut self) -> Option<&mut TrackDataStream> {
         if let Some(resolved) = self.get_bitstream_mut() {
-            return resolved.track_stream_mut();
+            return resolved.stream_mut();
         }
         None
     }
@@ -344,7 +344,7 @@ impl FluxStreamTrack {
             revolutions: Vec::new(),
             decoded_revolutions: Vec::new(),
             best_revolution: 0,
-            density: DiskDensity::Double,
+            density: TrackDensity::Double,
             rpm: DiskRpm::Rpm300,
             dirty: false,
             resolved: None,
@@ -352,11 +352,11 @@ impl FluxStreamTrack {
         }
     }
 
-    pub fn density(&self) -> DiskDensity {
+    pub fn density(&self) -> TrackDensity {
         self.density
     }
 
-    pub fn set_density(&mut self, density: DiskDensity) {
+    pub fn set_density(&mut self, density: TrackDensity) {
         self.density = density;
     }
 
@@ -364,6 +364,7 @@ impl FluxStreamTrack {
         self.revolutions.is_empty()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn normalize(&mut self) {
         // Drop revolutions that didn't decode at least 100 bits
         // TODO: Can we do this while keeping the best revolution index valid?
@@ -564,7 +565,7 @@ impl FluxStreamTrack {
             let (bitstream_data, bitcell_ct) = revolution.bitstream_data();
             let params = BitStreamTrackParams {
                 encoding: revolution.encoding,
-                data_rate: DiskDataRate::from(revolution.data_rate.unwrap() as u32), // Data rate should be Some after decoding
+                data_rate: TrackDataRate::from(revolution.data_rate.unwrap() as u32), // Data rate should be Some after decoding
                 rpm: Some(base_rpm),
                 ch: revolution.ch,
                 bitcell_ct: Some(bitcell_ct),
@@ -574,7 +575,7 @@ impl FluxStreamTrack {
                 detect_weak: false,
             };
             let bitstream_track = BitStreamTrack::new(
-                params,
+                &params,
                 self.shared
                     .clone()
                     .expect("Attempted to decode track before adding it."),
