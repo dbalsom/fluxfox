@@ -1138,7 +1138,7 @@ impl DiskImage {
         boot_sector: Option<&[u8]>,
         creator: Option<&[u8; 8]>,
     ) -> Result<(), DiskImageError> {
-        let chsn = format.chsn();
+        let layout = format.layout();
         let encoding = format.encoding();
         let data_rate = format.data_rate();
         let bitcell_size = format.bitcell_ct();
@@ -1160,23 +1160,23 @@ impl DiskImage {
         }
 
         // Repopulate the image with empty tracks.
-        for head in 0..chsn.h() {
-            for cylinder in 0..chsn.c() {
+        for head in 0..layout.h() {
+            for cylinder in 0..layout.c() {
                 let ch = DiskCh::new(cylinder, head);
                 self.add_empty_track(ch, encoding, data_rate, bitcell_size)?;
             }
         }
 
         // Format each track with the specified format
-        for head in 0..chsn.h() {
-            for cylinder in 0..chsn.c() {
+        for head in 0..layout.h() {
+            for cylinder in 0..layout.c() {
                 let ch = DiskCh::new(cylinder, head);
 
                 // Build the format buffer we provide to format_track() that specifies the sector
                 // layout parameters.
                 let mut format_buffer = Vec::new();
-                for s in 0..chsn.s() {
-                    format_buffer.push(DiskChsn::new(ch.c(), ch.h(), s + 1, chsn.n()));
+                for s in 0..layout.s() {
+                    format_buffer.push(DiskChsn::new(ch.c(), ch.h(), s + 1, layout.n()));
                 }
 
                 let gap3 = format.gap3();
@@ -1310,10 +1310,10 @@ impl DiskImage {
         let mut removed_odd = false;
 
         fn normalize_cylinders(c: usize) -> usize {
-            if c > 80 {
+            if c > 79 {
                 80
             }
-            else if c > 40 {
+            else if c > 39 {
                 40
             }
             else {

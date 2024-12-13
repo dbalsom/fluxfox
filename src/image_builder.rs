@@ -112,7 +112,7 @@ impl ImageBuilder {
         let mut disk_image = DiskImage::create(format);
         disk_image.set_resolution(DiskDataResolution::BitStream);
 
-        let chsn = format.chsn();
+        let chsn = format.layout();
         let encoding = format.encoding();
         let data_rate = format.data_rate();
         let bitcell_size = format.bitcell_ct();
@@ -209,12 +209,12 @@ mod tests {
         assert!(result.is_ok());
 
         let mut disk = result.unwrap();
-        for sector in format.chsn().iter() {
+        for sector in format.layout().chsn_iter() {
             assert!(disk.read_sector_basic(sector.ch(), sector.into(), None).is_ok());
         }
 
         let write_vec = vec![0x55; 512];
-        for sector in format.chsn().iter() {
+        for sector in format.layout().chsn_iter() {
             assert!(disk
                 .write_sector_basic(sector.ch(), sector.into(), None, &write_vec)
                 .is_ok());

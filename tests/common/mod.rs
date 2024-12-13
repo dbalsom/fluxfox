@@ -105,8 +105,8 @@ pub fn verify_sector_test_sectors(disk_lock: Arc<RwLock<DiskImage>>) {
 /// incrementing in the same way as the sector test image.
 #[allow(dead_code)]
 pub fn verify_sector_test_sectors_direct(disk: &mut DiskImage) {
-    let chsn = disk.closest_format(false).unwrap().chsn();
-    for (si, sector) in chsn.iter().skip(1).enumerate() {
+    let layout = disk.closest_format(false).unwrap().layout();
+    for (si, sector) in layout.chsn_iter().skip(1).enumerate() {
         let sector_byte = si + 1;
         let sector_data = disk
             .read_sector_basic(sector.ch(), sector.into(), None)

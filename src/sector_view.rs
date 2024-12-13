@@ -63,7 +63,7 @@ impl StandardSectorView {
             disk_format,
             track_cursor: DiskCh::new(0, 0),
             sector_id_cursor: 1,
-            spt: disk_format.sectors_per_track(),
+            spt: disk_format.layout().s(),
             sector_buffer: vec![0; disk_format.sector_size()].into_boxed_slice(),
             sector_size: disk_format.sector_size(),
             sector_dirty: false,
@@ -91,14 +91,14 @@ impl StandardSectorView {
     pub fn seek_to_chs(&mut self, chs: impl Into<DiskChs>) -> crate::io::Result<u64> {
         let chs = chs.into();
         let offset = chs
-            .to_raw_offset(self.disk_format.chsn())
+            .to_raw_offset(&self.disk_format.layout())
             .ok_or(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid CHS"))?;
 
         self.seek_to_offset(offset)
     }
 
     fn seek_to_offset(&mut self, offset: usize) -> crate::io::Result<u64> {
-        let (chs, sector_offset) = match DiskChs::from_raw_offset(offset, self.disk_format.chsn()) {
+        let (chs, sector_offset) = match DiskChs::from_raw_offset(offset, &self.disk_format.layout()) {
             Some(chs) => chs,
             None => return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid offset")),
         };
@@ -137,7 +137,7 @@ impl StandardSectorView {
 
     fn offset(&self) -> usize {
         let chs = DiskChs::from((self.track_cursor, self.sector_id_cursor));
-        chs.to_raw_offset(self.disk_format.chsn()).unwrap_or(0) + self.sector_byte_cursor
+        chs.to_raw_offset(&self.disk_format.layout()).unwrap_or(0) + self.sector_byte_cursor
     }
 
     fn read_sector(&mut self, sector_id: u8) -> Result<(), DiskImageError> {

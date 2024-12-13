@@ -1,4 +1,4 @@
-#![cfg(feature = "td0")]
+#![cfg(all(feature = "td0", feature = "amiga"))]
 mod common;
 
 use common::*;
@@ -21,7 +21,7 @@ fn test_adf() {
     let geometry = img_image.image_format().geometry;
 
     println!("Loaded ADF of geometry {}...", geometry);
-    let format = img_image.closest_format(true).unwrap();
+    let format = img_image.closest_format(false).unwrap();
     println!("Closest format is {:?}", format);
 
     assert_eq!(format, StandardFormat::AmigaFloppy880);

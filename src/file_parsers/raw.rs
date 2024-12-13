@@ -105,7 +105,6 @@ impl RawFormat {
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFileFormat::RawSectorImage);
-        disk_image.set_resolution(DiskDataResolution::BitStream);
 
         // Assign the disk geometry or return error.
         let raw_len = get_length(&mut raw).map_err(|_e| DiskImageError::UnknownFormat)? as usize;
@@ -170,8 +169,9 @@ impl RawFormat {
         _opts: &ParserReadOptions,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
-        let disk_chs = floppy_format.chs();
-        log::debug!("Raw::load_as_bitstream(): Disk CHS: {}", disk_chs);
+        disk_image.set_resolution(DiskDataResolution::BitStream);
+        let layout = floppy_format.layout();
+        log::debug!("Raw::load_as_bitstream(): Disk geometry: {}", layout);
         let data_rate = floppy_format.data_rate();
         let data_encoding = floppy_format.encoding();
         let bitcell_ct = floppy_format.bitcell_ct();
@@ -185,18 +185,16 @@ impl RawFormat {
         let mut sector_buffer = vec![0u8; floppy_format.sector_size()];
 
         // Iterate through all standard tracks
-        for DiskCh { c, h } in disk_chs.ch().iter() {
+        for DiskCh { c, h } in layout.ch().iter() {
             log::trace!("Raw::load_as_bitstream(): Adding new track: c:{} h:{}", c, h);
             let new_track_idx = disk_image.add_empty_track(DiskCh::new(c, h), data_encoding, data_rate, bitcell_ct)?;
-            let mut format_buffer = Vec::with_capacity(disk_chs.s() as usize);
-            let mut track_pattern = Vec::with_capacity(floppy_format.sector_size() * disk_chs.s() as usize);
+            let mut format_buffer = Vec::with_capacity(layout.s() as usize);
+            let mut track_pattern = Vec::with_capacity(layout.size() * layout.s() as usize);
 
-            log::trace!(
-                "Raw::load_as_bitstream(): Formatting track with {} sectors",
-                disk_chs.s()
-            );
-            for s in 1..disk_chs.s() + 1 {
-                let sector_chsn = DiskChsn::new(c, h, s, 2);
+            log::trace!("Raw::load_as_bitstream(): Formatting track with {} sectors", layout.s());
+            for s in 0..layout.s() {
+                let s_adj = s + layout.s_off();
+                let sector_chsn = DiskChsn::new(c, h, s_adj, layout.n());
                 raw.read_exact(&mut sector_buffer)?;
                 //log::warn!("Raw::load_image(): Sector data: {:X?}", sector_buffer);
                 track_pattern.extend(sector_buffer.clone());
@@ -212,7 +210,7 @@ impl RawFormat {
         }
 
         disk_image.descriptor = DiskDescriptor {
-            geometry: disk_chs.into(),
+            geometry: layout.ch(),
             data_rate,
             data_encoding,
             density: TrackDensity::from(data_rate),
@@ -230,8 +228,10 @@ impl RawFormat {
         _opts: &ParserReadOptions,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
-        let disk_chs = floppy_format.chs();
-        log::trace!("Raw::load_as_metasector(): Disk CHS: {}", disk_chs);
+        disk_image.set_resolution(DiskDataResolution::MetaSector);
+        let layout = floppy_format.layout();
+        log::trace!("Raw::load_as_metasector(): Disk Geometry: {}", layout);
+
         let data_rate = floppy_format.data_rate();
         let data_encoding = floppy_format.encoding();
         let rpm = floppy_format.rpm();
@@ -242,7 +242,7 @@ impl RawFormat {
         raw.seek(std::io::SeekFrom::Start(0))?;
 
         // Iterate through all sectors in the standard format
-        for ch in disk_chs.ch().iter() {
+        for ch in layout.ch_iter() {
             log::trace!("Raw::load_as_metasector(): Adding new track: {}", ch);
             let params = MetaSectorTrackParams {
                 ch,
@@ -251,13 +251,14 @@ impl RawFormat {
             };
             let new_track = disk_image.add_track_metasector(&params)?;
 
-            for DiskChs { s, .. } in disk_chs.iter() {
-                log::trace!("Raw::load_as_metasector(): Adding sector {} to track", s);
+            for s in 0..layout.s() {
+                let adj_s = s + layout.s_off();
+                log::trace!("Raw::load_as_metasector(): Adding sector {} to track", adj_s);
                 raw.read_exact(&mut sector_buffer)?;
 
-                let chs = DiskChs::from((ch, s));
+                let chs = DiskChs::from((ch, adj_s));
                 let sector_params = AddSectorParams {
-                    id_chsn: DiskChsn::from((chs, floppy_format.chsn().n())),
+                    id_chsn: DiskChsn::from((chs, floppy_format.layout().n())),
                     data: &sector_buffer,
                     weak_mask: None,
                     hole_mask: None,
@@ -271,7 +272,7 @@ impl RawFormat {
         }
 
         disk_image.descriptor = DiskDescriptor {
-            geometry: disk_chs.into(),
+            geometry: layout.ch(),
             data_rate,
             data_encoding,
             density: TrackDensity::from(data_rate),
@@ -293,9 +294,7 @@ impl RawFormat {
         // exist. The same basically applies for ADF files as well.
 
         // Write out the sectors in the standard order using DiskChsn::iter().
-        for chsn in format.chsn().iter() {
-            log::debug!("Raw::save_image(): Writing sector: {}...", chsn);
-
+        for chsn in format.layout().chsn_iter() {
             match disk.read_sector_basic(chsn.ch(), DiskChsnQuery::from(chsn), None) {
                 Ok(read_buf) => {
                     log::trace!("Raw::save_image(): Read {} bytes from sector: {}", read_buf.len(), chsn);
@@ -322,6 +321,8 @@ impl RawFormat {
                         }
                         Ordering::Equal => {}
                     }
+
+                    log::trace!("Raw::save_image(): Writing sector to output: {}...", chsn);
 
                     //println!("Raw::save_image(): Writing chs: {}...", chs);
                     output.write_all(new_buf.as_ref())?;

@@ -54,6 +54,7 @@ use crate::{
     DiskChsn,
 };
 
+use crate::types::sector_layout::SectorLayout;
 use std::{
     fmt::{Display, Formatter},
     str::FromStr,
@@ -199,18 +200,18 @@ impl StandardFormat {
     }
 
     /// Returns the geometry corresponding to the `StandardFormat` as a `DiskChsn` struct.
-    pub fn chsn(&self) -> DiskChsn {
+    pub fn layout(&self) -> SectorLayout {
         match self {
-            StandardFormat::PcFloppy160 => DiskChsn::new(40, 1, 8, 2),
-            StandardFormat::PcFloppy180 => DiskChsn::new(40, 1, 9, 2),
-            StandardFormat::PcFloppy320 => DiskChsn::new(40, 2, 8, 2),
-            StandardFormat::PcFloppy360 => DiskChsn::new(40, 2, 9, 2),
-            StandardFormat::PcFloppy720 => DiskChsn::new(80, 2, 9, 2),
-            StandardFormat::PcFloppy1200 => DiskChsn::new(80, 2, 15, 2),
-            StandardFormat::PcFloppy1440 => DiskChsn::new(80, 2, 18, 2),
-            StandardFormat::PcFloppy2880 => DiskChsn::new(80, 2, 36, 2),
+            StandardFormat::PcFloppy160 => SectorLayout::new(40, 1, 8, 1, 512),
+            StandardFormat::PcFloppy180 => SectorLayout::new(40, 1, 9, 1, 512),
+            StandardFormat::PcFloppy320 => SectorLayout::new(40, 2, 8, 1, 512),
+            StandardFormat::PcFloppy360 => SectorLayout::new(40, 2, 9, 1, 512),
+            StandardFormat::PcFloppy720 => SectorLayout::new(80, 2, 9, 1, 512),
+            StandardFormat::PcFloppy1200 => SectorLayout::new(80, 2, 15, 1, 512),
+            StandardFormat::PcFloppy1440 => SectorLayout::new(80, 2, 18, 1, 512),
+            StandardFormat::PcFloppy2880 => SectorLayout::new(80, 2, 36, 1, 512),
             #[cfg(feature = "amiga")]
-            StandardFormat::AmigaFloppy880 => DiskChsn::new(80, 2, 11, 2),
+            StandardFormat::AmigaFloppy880 => SectorLayout::new(80, 2, 11, 0, 512),
         }
     }
 
@@ -222,24 +223,23 @@ impl StandardFormat {
         }
     }
 
-    pub fn sectors_per_track(&self) -> u8 {
-        self.chsn().s()
-    }
-
     /// Return the sector size in bytes corresponding to the `StandardFormat`.
     /// Note: This is always 512 for standard PC disk formats.
     pub fn sector_size(&self) -> usize {
-        self.chsn().n_size()
-    }
-
-    /// Returns the geometry corresponding to the D`StandardFormat` as a `DiskChs` struct.
-    pub fn chs(&self) -> DiskChs {
-        self.chsn().into()
+        self.layout().size()
     }
 
     /// Returns the geometry corresponding to the `StandardFormat` as a `DiskCh` struct.
     pub fn ch(&self) -> DiskCh {
-        self.chs().into()
+        self.layout().ch()
+    }
+    /// Returns the geometry corresponding to the D`StandardFormat` as a `DiskChs` struct.
+    pub fn chs(&self) -> DiskChs {
+        self.layout().chs()
+    }
+    /// Returns the geometry corresponding to the D`StandardFormat` as a `DiskChsn` struct.
+    pub fn chsn(&self) -> DiskChsn {
+        self.layout().chsn()
     }
 
     /// Returns the `DiskDataEncoding` corresponding to the `StandardFormat`.
