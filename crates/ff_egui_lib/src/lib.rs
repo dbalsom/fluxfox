@@ -24,10 +24,10 @@
 
     --------------------------------------------------------------------------
 */
-
 use fluxfox::{file_system::FileEntry, prelude::*};
 use std::fmt::{Debug, Formatter, Result};
 
+pub mod encoding;
 mod range_check;
 pub mod widgets;
 
