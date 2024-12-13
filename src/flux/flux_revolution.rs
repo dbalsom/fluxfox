@@ -128,38 +128,6 @@ impl FluxRevolution {
         }
     }
 
-    /// Create a new `FluxRevolution` from a list of durations between flux transitions, given
-    /// in integer ticks of the provided clock period `timebase`.
-    pub fn from_u16(ch: DiskCh, data: &[u16], index_time: f64, timebase: f64) -> Self {
-        log::debug!("FluxRevolution::from_u16(): Using timebase of {:.3}ns", timebase * 1e9);
-        let mut new = FluxRevolution {
-            rev_type: FluxRevolutionType::Source,
-            ch,
-            data_rate: None,
-            index_time,
-            flux_deltas: Vec::with_capacity(data.len()),
-            transitions: Vec::with_capacity(data.len()),
-            bitstream: BitVec::with_capacity(data.len() * 3),
-            biterrors: BitVec::with_capacity(data.len() * 3),
-            encoding: TrackDataEncoding::Mfm,
-            pll_stats: Vec::new(),
-        };
-        let mut nfa_count = 0;
-        for cell in data {
-            if *cell == 0 {
-                nfa_count += 1;
-                continue;
-            }
-
-            // Convert to float seconds
-            let seconds = *cell as f64 * timebase;
-            new.flux_deltas.push(seconds);
-        }
-
-        log::warn!("FluxRevolution::from_u16(): {} NFA cells found", nfa_count);
-        new
-    }
-
     /// Create new synthetic `FluxRevolution`s from a pair of adjacent revolutions.
     /// Fluxes are shifted from one revolution to another to correct for index jitter.
     pub(crate) fn from_adjacent_pair(first: &FluxRevolution, second: &FluxRevolution) -> Vec<FluxRevolution> {

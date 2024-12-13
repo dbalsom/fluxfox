@@ -42,6 +42,7 @@ use crate::{
 use crate::{
     file_parsers::{ParserReadOptions, ParserWriteOptions},
     track::bitstream::BitStreamTrack,
+    track_schema::TrackSchema,
     types::{DiskCh, DiskDataResolution, DiskRpm, Platform, TrackDataEncoding, TrackDataRate, TrackDensity},
     DiskImage,
     DiskImageError,
@@ -572,6 +573,7 @@ impl F86Format {
                 }
             }
             else {
+                #[allow(clippy::comparison_chain)]
                 if raw_track_data_size < read_length_expected_words * 2 {
                     log::error!(
                         "Track data length is less than expected: {} < {}",
@@ -671,6 +673,7 @@ impl F86Format {
             );
 
             let params = BitStreamTrackParams {
+                schema: Some(TrackSchema::System34),
                 encoding: track_encoding,
                 data_rate: track_data_rate,
                 rpm: disk_rpm,

@@ -190,7 +190,7 @@ pub fn render_pixmap_to_disk(
 
                                 // Alpha channel controls whether we write the pixel or not
                                 if alpha_value >= 128 {
-                                    track.write_raw_byte(bit_index, mfm_data);
+                                    track.write_raw_u8(bit_index, mfm_data);
                                 }
                             }
                         }

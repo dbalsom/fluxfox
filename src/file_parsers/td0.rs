@@ -470,8 +470,8 @@ impl Td0Format {
                         weak_mask: None,
                         hole_mask: None,
                         attributes: SectorAttributes {
-                            address_crc_valid: true,
-                            data_crc_valid: sector_header.flags & SECTOR_CRC_ERROR == 0,
+                            address_error: false,
+                            data_error: sector_header.flags & SECTOR_CRC_ERROR != 0,
                             deleted_mark: sector_header.flags & SECTOR_DELETED != 0,
                             no_dam: false,
                         },

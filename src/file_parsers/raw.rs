@@ -171,7 +171,7 @@ impl RawFormat {
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
         let disk_chs = floppy_format.chs();
-        log::trace!("Raw::load_as_bitstream(): Disk CHS: {}", disk_chs);
+        log::debug!("Raw::load_as_bitstream(): Disk CHS: {}", disk_chs);
         let data_rate = floppy_format.data_rate();
         let data_encoding = floppy_format.encoding();
         let bitcell_ct = floppy_format.bitcell_ct();
@@ -288,7 +288,7 @@ impl RawFormat {
         output: &mut RWS,
     ) -> Result<(), DiskImageError> {
         let format = disk.closest_format(true).ok_or(DiskImageError::UnsupportedFormat)?;
-
+        log::debug!("Raw::save_image(): Using format: {}", format);
         // An IMG file basically represents DOS's view of a disk. Non-standard sectors may as well not
         // exist. The same basically applies for ADF files as well.
 
@@ -299,7 +299,7 @@ impl RawFormat {
             match disk.read_sector_basic(chsn.ch(), DiskChsnQuery::from(chsn), None) {
                 Ok(read_buf) => {
                     log::trace!("Raw::save_image(): Read {} bytes from sector: {}", read_buf.len(), chsn);
-                    let mut new_buf = read_buf.clone();
+                    let mut new_buf = read_buf.to_vec();
 
                     match new_buf.len().cmp(&chsn.n_size()) {
                         Ordering::Greater => {

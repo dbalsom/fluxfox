@@ -307,8 +307,8 @@ impl ImdFormat {
                             weak_mask: None,
                             hole_mask: None,
                             attributes: SectorAttributes {
-                                address_crc_valid: true,
-                                data_crc_valid: !data.error,
+                                address_error: false,
+                                data_error: data.error,
                                 deleted_mark: data.deleted,
                                 no_dam: false,
                             },

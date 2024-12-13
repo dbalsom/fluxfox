@@ -371,14 +371,20 @@ impl Pll {
                 shift_reg |= 1;
             }
 
-            // Look for marker.
-            if shift_reg & 0xFFFF_FFFF_FFFF_0000 == 0x4489_4489_4489_0000 {
+            // Look for MFM markers.
+            // System34 uses 0x4489_4489_4489, Amiga uses 0x4489_4489, but they both start with
+            // encoded 0x00 sync bytes (0xAAAA encoded). So we look for half sync / half marker
+            // to match either.
+            if (shift_reg & !0x8000_0000_0000_0000) == 0x2AAA_AAAA_4489_4489 {
+                //if shift_reg & 0x0000_0000_FFFF_FFFF == 0x0000_0000_4489_4489 {
                 log::trace!(
-                    "decode_mfm(): Marker detected at {}, bitcell: {}",
+                    "decode_mfm(): Marker detected at {:10}, value: {:08X}/{:64b} bitcell: {}",
                     format_ms!(time),
-                    flux_ct - 64
+                    shift_reg,
+                    shift_reg,
+                    output_bits.len() - 32
                 );
-                markers.push(output_bits.len() - 64);
+                markers.push(output_bits.len() - 32);
             }
 
             if zero_ct > 16 {
@@ -651,7 +657,7 @@ impl Pll {
 
             // Look for FM marker.
             if shift_reg & 0xAAAA_AAAA_AAAA_AAAA == 0xAAAA_AAAA_AAAA_A02A {
-                log::debug!(
+                log::trace!(
                     "decode_fm(): Marker detected at {}, bitcell: {}",
                     format_ms!(time),
                     flux_ct - 16

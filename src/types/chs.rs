@@ -91,7 +91,7 @@ impl DiskChsnQuery {
             .map(|n| std::cmp::min(MAXIMUM_SECTOR_SIZE, 128usize.overflowing_shl(n as u32).0))
     }
     /// Return a boolean indicating whether the specified `DiskChsn` matches the query.
-    pub fn matches(&self, id_chsn: DiskChsn) -> bool {
+    pub fn matches(&self, id_chsn: &DiskChsn) -> bool {
         if self.s != id_chsn.s() {
             return false;
         }

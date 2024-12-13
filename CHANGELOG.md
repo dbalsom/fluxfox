@@ -34,6 +34,14 @@
 
 ### Breaking changes:
 
+#### This list is getting a bit long... basically, the library has been heavily refactored. Just rewrite everything :)
+
+- Error flags have been normalized so that aberrant conditions are positive states:
+    - `address_crc_valid` renamed to `address_error` in several contexts
+    - `data_crc_valid` renamed to `data_error` in several contexts
+    - This allows construction of 'normal' data structures using Default in a consistent way.
+- `ReadSectorResult` now contains a `DataIntegrity` struct instead of `SectorCrc` to support schemas that use different
+  integrity checks (CRC vs checksum)
 - Removed `default_sector_size` from `DiskDescriptor`.
 - `add_track_bitstream` now takes a `BitStreamTrackParams` reference.
 - `add_track_fluxstream` now takes a `FluxStreamTrackParams` reference.

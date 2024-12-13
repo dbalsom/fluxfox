@@ -45,7 +45,6 @@ impl Default for FileListWidget {
 
 impl FileListWidget {
     pub fn new() -> Self {
-        log::warn!("FileListWidget::new()");
         Self {
             is_web:    {
                 #[cfg(target_arch = "wasm32")]

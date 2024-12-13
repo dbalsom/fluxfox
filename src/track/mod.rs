@@ -48,7 +48,7 @@ use crate::{
         DiskRpm,
         ReadSectorResult,
         ReadTrackResult,
-        RwSectorScope,
+        RwScope,
         ScanSectorResult,
         TrackDataEncoding,
         TrackDataRate,
@@ -83,21 +83,19 @@ pub struct TrackInfo {
 }
 
 /// A struct representing the result of a sector scan operation on a track.
-pub enum TrackSectorScanResult {
+pub(crate) enum TrackSectorScanResult {
     /// A variant indicating the specified sector ID was found on the track.
     Found {
-        /// The starting bit offset of the sector element on the track.
-        element_start: usize,
-        /// The ending bit offset of the sector element on the track.
-        element_end: usize,
+        /// The index of the [TrackElementInstance] that was found.
+        ei: usize,
         /// The matching sector ID found on the track.
         sector_chsn: DiskChsn,
-        /// A boolean flag indicating whether the sector's address CRC is valid.
-        address_crc_valid: bool,
-        /// A boolean flag indicating whether the sector's data CRC is valid.
-        data_crc_valid: bool,
-        /// A boolean flag indicating whether the sector had a deleted data marker.
-        deleted: bool,
+        /// Whether the specified sector failed a header data integrity check.
+        address_error: bool,
+        /// Whether the specified sector failed a data integrity check.
+        data_error: bool,
+        /// Whether the specific sector has a "deleted data" address mark.
+        deleted_mark: bool,
         /// A boolean flag indicating whether the sector ID was matched, but no sector data was found.
         no_dam: bool,
     },
@@ -117,13 +115,45 @@ pub enum TrackSectorScanResult {
     Incompatible,
 }
 
+impl From<TrackSectorScanResult> for ScanSectorResult {
+    fn from(other: TrackSectorScanResult) -> Self {
+        match other {
+            TrackSectorScanResult::Found {
+                address_error,
+                data_error,
+                deleted_mark,
+                no_dam,
+                ..
+            } => ScanSectorResult {
+                not_found: false,
+                no_dam,
+                deleted_mark,
+                address_error,
+                data_error,
+                ..Default::default()
+            },
+            TrackSectorScanResult::NotFound {
+                wrong_cylinder,
+                bad_cylinder,
+                wrong_head,
+            } => ScanSectorResult {
+                wrong_cylinder,
+                bad_cylinder,
+                wrong_head,
+                ..Default::default()
+            },
+            TrackSectorScanResult::Incompatible => Default::default(),
+        }
+    }
+}
+
 /// A structure containing information about a track's consistency vs a standard track.
 #[derive(Debug, Default)]
 pub struct TrackAnalysis {
     /// A boolean flag indicating whether the track contains sectors with bad data CRCs.
-    pub bad_data_crc: bool,
+    pub data_error: bool,
     /// A boolean flag indicating whether the track contains sectors with bad address CRCs.
-    pub bad_address_crc: bool,
+    pub address_error: bool,
     /// A boolean flag indicating whether the track contains sectors with deleted data.
     pub deleted_data: bool,
     /// A boolean flag indicating whether the track contains sectors with no DAM.
@@ -144,8 +174,8 @@ pub struct TrackAnalysis {
 impl TrackAnalysis {
     /// Merge a [TrackAnalysis] struct with another, by OR'ing together their boolean values.
     pub fn join(&mut self, other: &TrackAnalysis) {
-        self.bad_data_crc |= other.bad_data_crc;
-        self.bad_address_crc |= other.bad_address_crc;
+        self.data_error |= other.data_error;
+        self.address_error |= other.address_error;
         self.deleted_data |= other.deleted_data;
         self.no_dam |= other.no_dam;
         self.nonconsecutive_sectors |= other.nonconsecutive_sectors;
@@ -259,23 +289,18 @@ pub trait Track: Any + Send + Sync {
         id: SectorIdQuery,
         n: Option<u8>,
         offset: Option<usize>,
-        scope: RwSectorScope,
+        scope: RwScope,
         debug: bool,
     ) -> Result<ReadSectorResult, DiskImageError>;
 
-    fn scan_sector(
-        &self,
-        id: SectorIdQuery,
-        n: Option<u8>,
-        offset: Option<usize>,
-    ) -> Result<ScanSectorResult, DiskImageError>;
+    fn scan_sector(&self, id: SectorIdQuery, offset: Option<usize>) -> Result<ScanSectorResult, DiskImageError>;
 
     fn write_sector(
         &mut self,
         id: DiskChsnQuery,
         offset: Option<usize>,
         write_data: &[u8],
-        scope: RwSectorScope,
+        scope: RwScope,
         write_deleted: bool,
         debug: bool,
     ) -> Result<WriteSectorResult, DiskImageError>;

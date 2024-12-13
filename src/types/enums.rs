@@ -28,7 +28,7 @@
 
     Defines common enum types
 */
-use crate::StandardFormat;
+use crate::{types::IntegrityField, StandardFormat};
 use std::{
     fmt,
     fmt::{Display, Formatter},
@@ -164,13 +164,13 @@ pub enum DiskPhysicalDimensions {
     Dimension3_5,
 }
 
-/// The density of a track on a disk.
+/// The density of data recording on a disk track.
 /// A disk image may contain tracks with different densities.
 ///
-/// * 'Standard' density: referring to FM encoding, typically used by 8" diskettes.
-/// * 'Double' density: referring to MFM encoding at 250/300Kbps. Appeared on 5.25" and 3.5" diskettes.
-/// * 'High' density: referring to MFM encoding at 500Kbps. Appeared on 5.25" and 3.5" diskettes.
-/// * 'Extended' density: referring to MFM encoding at 1Mbps. Appeared on 3.5" diskettes.
+/// * `Standard` density: typically referring to FM encoding, typically used by 8" diskettes.
+/// * `Double` density: typically referring to MFM encoding at 250/300Kbps. Appeared on 5.25" and 3.5" diskettes.
+/// * `High` density: typically referring to MFM encoding at 500Kbps. Appeared on 5.25" and 3.5" diskettes.
+/// * `Extended` density: typically referring to MFM encoding at 1Mbps. Appeared on 3.5" diskettes.
 #[derive(Default, Copy, Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum TrackDensity {
@@ -183,11 +183,13 @@ pub enum TrackDensity {
 
 impl From<TrackDataRate> for TrackDensity {
     fn from(rate: TrackDataRate) -> Self {
+        use TrackDataRate::*;
         match rate {
-            TrackDataRate::Rate125Kbps(_) => TrackDensity::Standard,
-            TrackDataRate::Rate250Kbps(_) => TrackDensity::Double,
-            TrackDataRate::Rate500Kbps(_) => TrackDensity::High,
-            TrackDataRate::Rate1000Kbps(_) => TrackDensity::Extended,
+            Rate125Kbps(_) => TrackDensity::Standard,
+            Rate250Kbps(_) => TrackDensity::Double,
+            Rate300Kbps(_) => TrackDensity::Double,
+            Rate500Kbps(_) => TrackDensity::High,
+            Rate1000Kbps(_) => TrackDensity::Extended,
             _ => TrackDensity::Double,
         }
     }
@@ -195,11 +197,12 @@ impl From<TrackDataRate> for TrackDensity {
 
 impl Display for TrackDensity {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        use TrackDensity::*;
         match self {
-            TrackDensity::Standard => write!(f, "Standard"),
-            TrackDensity::Double => write!(f, "Double"),
-            TrackDensity::High => write!(f, "High"),
-            TrackDensity::Extended => write!(f, "Extended"),
+            Standard => write!(f, "Standard"),
+            Double => write!(f, "Double"),
+            High => write!(f, "High"),
+            Extended => write!(f, "Extended"),
         }
     }
 }
@@ -212,12 +215,13 @@ impl TrackDensity {
     /// The value provided is only an estimate for the ideal bitcell count. The actual bitcell
     /// may vary depending on variances in the disk drive used to write the diskette.
     pub fn bitcells(&self, rpm: Option<DiskRpm>) -> Option<usize> {
+        use TrackDensity::*;
         match (self, rpm) {
-            (TrackDensity::Standard, _) => Some(50_000),
-            (TrackDensity::Double, _) => Some(100_000),
-            (TrackDensity::High, Some(DiskRpm::Rpm360)) => Some(166_666),
-            (TrackDensity::High, Some(DiskRpm::Rpm300) | None) => Some(200_000),
-            (TrackDensity::Extended, _) => Some(400_000),
+            (Standard, _) => Some(50_000),
+            (Double, _) => Some(100_000),
+            (High, Some(DiskRpm::Rpm360)) => Some(166_666),
+            (High, Some(DiskRpm::Rpm300) | None) => Some(200_000),
+            (Extended, _) => Some(400_000),
         }
     }
 
@@ -268,13 +272,14 @@ impl Default for TrackDataRate {
 
 impl From<TrackDataRate> for u32 {
     fn from(rate: TrackDataRate) -> Self {
+        use TrackDataRate::*;
         match rate {
-            TrackDataRate::Rate125Kbps(f) => (125_000.0 * f) as u32,
-            TrackDataRate::Rate250Kbps(f) => (250_000.0 * f) as u32,
-            TrackDataRate::Rate300Kbps(f) => (300_000.0 * f) as u32,
-            TrackDataRate::Rate500Kbps(f) => (500_000.0 * f) as u32,
-            TrackDataRate::Rate1000Kbps(f) => (1_000_000.0 * f) as u32,
-            TrackDataRate::RateNonstandard(rate) => rate,
+            Rate125Kbps(f) => (125_000.0 * f) as u32,
+            Rate250Kbps(f) => (250_000.0 * f) as u32,
+            Rate300Kbps(f) => (300_000.0 * f) as u32,
+            Rate500Kbps(f) => (500_000.0 * f) as u32,
+            Rate1000Kbps(f) => (1_000_000.0 * f) as u32,
+            RateNonstandard(rate) => rate,
         }
     }
 }
@@ -283,37 +288,40 @@ impl From<TrackDataRate> for u32 {
 /// An 8-15% rate deviance is allowed for standard rates, otherwise a RateNonstandard is returned.
 impl From<u32> for TrackDataRate {
     fn from(rate: u32) -> Self {
+        use TrackDataRate::*;
         match rate {
-            93_750..143_750 => TrackDataRate::Rate125Kbps(rate as f64 / 125_000.0),
-            212_000..271_000 => TrackDataRate::Rate250Kbps(rate as f64 / 250_000.0),
-            271_000..345_000 => TrackDataRate::Rate300Kbps(rate as f64 / 300_000.0),
-            425_000..575_000 => TrackDataRate::Rate500Kbps(rate as f64 / 500_000.0),
-            850_000..1_150_000 => TrackDataRate::Rate1000Kbps(rate as f64 / 1_000_000.0),
-            _ => TrackDataRate::RateNonstandard(rate),
+            93_750..143_750 => Rate125Kbps(rate as f64 / 125_000.0),
+            212_000..271_000 => Rate250Kbps(rate as f64 / 250_000.0),
+            271_000..345_000 => Rate300Kbps(rate as f64 / 300_000.0),
+            425_000..575_000 => Rate500Kbps(rate as f64 / 500_000.0),
+            850_000..1_150_000 => Rate1000Kbps(rate as f64 / 1_000_000.0),
+            _ => RateNonstandard(rate),
         }
     }
 }
 
 impl From<TrackDensity> for TrackDataRate {
     fn from(density: TrackDensity) -> Self {
+        use TrackDensity::*;
         match density {
-            TrackDensity::Standard => TrackDataRate::Rate125Kbps(1.0),
-            TrackDensity::Double => TrackDataRate::Rate250Kbps(1.0),
-            TrackDensity::High => TrackDataRate::Rate500Kbps(1.0),
-            TrackDensity::Extended => TrackDataRate::Rate1000Kbps(1.0),
+            Standard => TrackDataRate::Rate125Kbps(1.0),
+            Double => TrackDataRate::Rate250Kbps(1.0),
+            High => TrackDataRate::Rate500Kbps(1.0),
+            Extended => TrackDataRate::Rate1000Kbps(1.0),
         }
     }
 }
 
 impl Display for TrackDataRate {
     fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
+        use TrackDataRate::*;
         match self {
-            TrackDataRate::RateNonstandard(rate) => write!(fmt, "*{}Kbps", rate / 1000),
-            TrackDataRate::Rate125Kbps(f) => write!(fmt, "125Kbps (x{:.2})", f),
-            TrackDataRate::Rate250Kbps(f) => write!(fmt, "250Kbps (x{:.2})", f),
-            TrackDataRate::Rate300Kbps(f) => write!(fmt, "300Kbps (x{:.2})", f),
-            TrackDataRate::Rate500Kbps(f) => write!(fmt, "500Kbps (x{:.2})", f),
-            TrackDataRate::Rate1000Kbps(f) => write!(fmt, "1000Kbps (x{:.2})", f),
+            RateNonstandard(rate) => write!(fmt, "*{}Kbps", rate / 1000),
+            Rate125Kbps(f) => write!(fmt, "125Kbps (x{:.2})", f),
+            Rate250Kbps(f) => write!(fmt, "250Kbps (x{:.2})", f),
+            Rate300Kbps(f) => write!(fmt, "300Kbps (x{:.2})", f),
+            Rate500Kbps(f) => write!(fmt, "500Kbps (x{:.2})", f),
+            Rate1000Kbps(f) => write!(fmt, "1000Kbps (x{:.2})", f),
         }
     }
 }
@@ -524,7 +532,7 @@ impl Display for DiskImageFileFormat {
     }
 }
 
-/// A `DiskFormat` enumeration describes the format of a disk image.
+/// A [DiskFormat] enumeration describes the format of a disk image.
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
 pub enum DiskFormat {
     /// An unknown format. This is the default format for a disk image before a disk's format can
@@ -539,13 +547,53 @@ pub enum DiskFormat {
     Standard(StandardFormat),
 }
 
-/// An enum that defines the scope of a sector operation.
+/// An enum that defines the scope of a track element read/write operation.
+/// Not all operations for any given [TrackSchema] may support all scopes.
 #[derive(Copy, Clone, Debug)]
-pub enum RwSectorScope {
-    /// The operation will include the entire data element, including address marker and CRC bytes.
-    DataElement,
-    /// The operation will include only the sector data, excluding address marker and CRC bytes.
+pub enum RwScope {
+    /// The operation will include the entire track data element, including address marker,
+    /// CRC/checksum, or other track schema metadata.
+    EntireElement,
+    /// The operation will include only the element data. For sector data elements, this would
+    /// return just the sector data, excluding address marker and CRC bytes.
     DataOnly,
-    /// The operation will only affect the sector CRC.
+    /// The operation will only affect the element CRC or Checksum.
     CrcOnly,
+}
+
+/// An enum that encompasses data integrity verification strategies.
+/// Some track schemas may use a CRC to verify the integrity of the data on a track, others may
+/// use a checksum.  Other types can be added here as needed as support for new track schemas is
+/// added.
+#[derive(Copy, Clone, Debug)]
+pub enum IntegrityCheck {
+    /// Represents the result of a 16-bit CRC (Cyclic Redundancy Check)
+    Crc16(IntegrityField<u16>),
+    /// Represents the result of a 16-bit checksum
+    Checksum16(IntegrityField<u16>),
+}
+
+impl Display for IntegrityCheck {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        use IntegrityCheck::*;
+        match self {
+            Crc16(result) if result.is_valid() => write!(f, "Valid"),
+            Crc16(_) => write!(f, "Invalid"),
+            Checksum16(result) if result.is_valid() => write!(f, "Valid"),
+            Checksum16(_) => write!(f, "Invalid"),
+        }
+    }
+}
+
+impl IntegrityCheck {
+    pub fn is_valid(&self) -> bool {
+        use IntegrityCheck::*;
+        match self {
+            Crc16(result) => result.is_valid(),
+            Checksum16(result) => result.is_valid(),
+        }
+    }
+    pub fn is_error(&self) -> bool {
+        !self.is_valid()
+    }
 }

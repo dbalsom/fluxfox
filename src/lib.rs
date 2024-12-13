@@ -42,8 +42,6 @@
 //!
 //! It is recommended to use the [`ImageBuilder`] interface to load or create a disk image.
 
-extern crate core;
-
 mod bit_ring;
 pub mod bitstream;
 pub mod boot_sector;

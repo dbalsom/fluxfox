@@ -139,7 +139,7 @@ impl DataBlock {
                     DiskChsnQuery::new(chs.c(), chs.h(), chs.s(), None),
                     None,
                     None,
-                    RwSectorScope::DataOnly,
+                    RwScope::DataOnly,
                     true,
                 )?;
 

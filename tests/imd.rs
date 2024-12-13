@@ -54,7 +54,6 @@ fn test_imd() {
 #[test]
 fn test_imd_sector_test_360k() {
     init();
-    init();
     run_sector_test(
         PathBuf::from(".\\tests\\images\\sector_test\\sector_test_360k.imd"),
         DiskImageFileFormat::ImageDisk,

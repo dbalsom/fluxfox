@@ -46,7 +46,7 @@ pub use crate::{
         DiskChsnQuery,
         DiskDataResolution,
         DiskImageFileFormat,
-        RwSectorScope,
+        RwScope,
         SectorMapEntry,
         StandardFormat,
         StandardFormatParam,

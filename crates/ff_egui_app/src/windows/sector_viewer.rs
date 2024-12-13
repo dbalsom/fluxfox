@@ -25,7 +25,10 @@
     --------------------------------------------------------------------------
 */
 use fluxfox::prelude::*;
-use fluxfox_egui::{widgets::data_table::DataTableWidget, SectorSelection};
+use fluxfox_egui::{
+    widgets::{data_table::DataTableWidget, error_banner::ErrorBanner},
+    SectorSelection,
+};
 use std::sync::{Arc, RwLock};
 
 #[derive(Default)]
@@ -63,7 +66,9 @@ impl SectorViewer {
             selection.sector_id.s(),
             selection.sector_id.n(),
         );
-        let rsr = match disk.read_sector(self.phys_ch, query, None, None, RwSectorScope::DataOnly, false) {
+
+        log::debug!("Reading sector: {:?}", query);
+        let rsr = match disk.read_sector(self.phys_ch, query, None, None, RwScope::DataOnly, false) {
             Ok(rsr) => rsr,
             Err(e) => {
                 log::error!("Error reading sector: {:?}", e);
@@ -82,11 +87,12 @@ impl SectorViewer {
         // When is id_chsn None after a successful read?
         if let Some(chsn) = rsr.id_chsn {
             self.sector_id = chsn;
-            self.table.set_data(rsr.read_buf);
+            self.table.set_data(&rsr.read_buf[rsr.data_range]);
             self.valid = true;
         }
         else {
             self.error_string = Some("Sector ID not found".to_string());
+            self.table.set_data(&[0; 512]);
             self.valid = false;
         }
 
@@ -109,6 +115,9 @@ impl SectorViewer {
     pub fn show(&mut self, ctx: &egui::Context) {
         egui::Window::new("Sector Viewer").open(&mut self.open).show(ctx, |ui| {
             ui.vertical(|ui| {
+                if let Some(error_string) = &self.error_string {
+                    ErrorBanner::new(error_string).small().show(ui);
+                }
                 ui.label(format!("Physical Track: {}", self.phys_ch));
                 ui.label(format!("Sector ID: {}", self.sector_id));
 

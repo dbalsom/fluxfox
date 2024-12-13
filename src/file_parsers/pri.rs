@@ -484,6 +484,7 @@ impl PriFormat {
                     }
 
                     let params = BitStreamTrackParams {
+                        schema: None,
                         encoding: TrackDataEncoding::Mfm,
                         data_rate: TrackDataRate::from(ctx.bit_clock),
                         rpm: None,
@@ -589,9 +590,8 @@ impl PriFormat {
         for track in image.track_iter() {
             if let Some(track) = track.as_any().downcast_ref::<BitStreamTrack>() {
                 log::trace!(
-                    "Track ch: {} sectors: {} encoding: {:?} data_rate: {:?} bit length: {}",
+                    "Track {}: encoding: {:?} data_rate: {:?} bit length: {}",
                     track.ch,
-                    track.sector_ids.len(),
                     track.encoding,
                     track.data_rate,
                     track.data.len(),

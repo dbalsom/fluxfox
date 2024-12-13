@@ -69,7 +69,7 @@ use crate::{
         DiskSelection,
         ReadSectorResult,
         ReadTrackResult,
-        RwSectorScope,
+        RwScope,
         SharedDiskContext,
         TrackDataEncoding,
         TrackDataRate,
@@ -90,13 +90,16 @@ use crate::types::{FluxStreamTrackParams, MetaSectorTrackParams};
 pub(crate) const DEFAULT_BOOT_SECTOR: &[u8] = include_bytes!("../resources/bootsector.bin");
 
 /// A [`DiskImage`] represents the structure of a floppy disk. It contains a pool of track data
-/// structures, which are indexed by a head vector which contains cylinder vectors.
+/// structures, which are indexed by head and cylinder.
 ///
-/// A [`DiskImage`] can be created from a specified disk format using an ImageBuilder.
+/// A [`DiskImage`] can be created from a specified disk format using an [ImageBuilder].
 ///
-/// A [`DiskImage`] may be of two [`DiskDataResolution`] levels: MetaSector or BitStream. MetaSector images
-/// are sourced from sector-based disk image formats, while BitStream images are sourced from
-/// bitstream-based disk image formats.
+/// A [`DiskImage`] may be any of the defined [`DiskDataResolution`] levels:
+/// * `MetaSector`: These images are sourced from sector-based disk image formats such as
+///                 `IMG`, `IMD`, `TD0`, `ADF`, or `PSI`.
+/// * `BitStream` : These images are sourced from file formats such as `HFE`, `MFM`, `86F`, or `PRI`.
+/// * `FluxStream`: These images are sourced from flux-based formats such as `Kryoflux`, `SCP`, or
+///                 `MFI`.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DiskImage {
     // Flags that can be applied to a disk image.
@@ -165,8 +168,8 @@ impl DiskImage {
                 weak: false,
                 deleted_data: false,
                 no_dam: false,
-                bad_address_crc: false,
-                bad_data_crc: false,
+                address_error: false,
+                data_error: false,
                 overlapped: false,
                 consistent_sector_size: Some(2),
                 consistent_track_length: Some(disk_format.chs().s() as u32),
@@ -873,7 +876,7 @@ impl DiskImage {
         id: DiskChsnQuery,
         n: Option<u8>,
         offset: Option<usize>,
-        scope: RwSectorScope,
+        scope: RwScope,
         debug: bool,
     ) -> Result<ReadSectorResult, DiskImageError> {
         // Check that the head and cylinder are within the bounds of the track map.
@@ -901,12 +904,12 @@ impl DiskImage {
         }
         let ti = self.track_map[phys_ch.h() as usize][phys_ch.c() as usize];
         let track = &self.track_pool[ti];
-        let rsr = track.read_sector(id, id.n(), offset, RwSectorScope::DataOnly, false)?;
+        let rsr = track.read_sector(id, id.n(), offset, RwScope::DataOnly, false)?;
 
         if rsr.not_found || rsr.address_crc_error || rsr.no_dam {
             return Err(DiskImageError::IdError);
         }
-        Ok(rsr.read_buf)
+        Ok(rsr.read_buf[rsr.data_range].to_vec())
     }
 
     pub fn write_sector(
@@ -915,7 +918,7 @@ impl DiskImage {
         id: DiskChsnQuery,
         offset: Option<usize>,
         data: &[u8],
-        scope: RwSectorScope,
+        scope: RwScope,
         deleted: bool,
         debug: bool,
     ) -> Result<WriteSectorResult, DiskImageError> {
@@ -946,7 +949,7 @@ impl DiskImage {
 
         let ti = self.track_map[phys_ch.h() as usize][phys_ch.c() as usize];
         let track = &mut self.track_pool[ti];
-        let wsr = track.write_sector(id, offset, data, RwSectorScope::DataOnly, false, false)?;
+        let wsr = track.write_sector(id, offset, data, RwScope::DataOnly, false, false)?;
 
         if wsr.not_found || wsr.address_crc_error || wsr.no_dam {
             return Err(DiskImageError::IdError);
@@ -1055,7 +1058,6 @@ impl DiskImage {
                     data: stream,
                     metadata: TrackMetadata::default(),
                     schema: Some(TrackSchema::System34),
-                    sector_ids: Vec::new(),
                     shared: Some(self.shared.clone().expect("Shared context not found")),
                 }));
 
@@ -1204,14 +1206,8 @@ impl DiskImage {
         let ti = self.track_map[0][0];
         let track = &mut self.track_pool[ti];
 
-        match track.read_sector(
-            DiskChsnQuery::new(0, 0, 1, 2),
-            None,
-            None,
-            RwSectorScope::DataOnly,
-            true,
-        ) {
-            Ok(result) => Ok(result.read_buf),
+        match track.read_sector(DiskChsnQuery::new(0, 0, 1, 2), None, None, RwScope::DataOnly, true) {
+            Ok(result) => Ok(result.read_buf[result.data_range].to_vec()),
             Err(e) => Err(e),
         }
     }
@@ -1222,7 +1218,7 @@ impl DiskImage {
             DiskChsnQuery::new(0, 0, 1, 2),
             None,
             buf,
-            RwSectorScope::DataOnly,
+            RwScope::DataOnly,
             false,
             false,
         )?;
@@ -1441,8 +1437,8 @@ impl DiskImage {
             FormatCaps::CAP_VARIABLE_SSPT,
             self.analysis.consistent_sector_size.is_none(),
         );
-        new_caps.set(FormatCaps::CAP_DATA_CRC, self.analysis.bad_data_crc);
-        new_caps.set(FormatCaps::CAP_ADDRESS_CRC, self.analysis.bad_address_crc);
+        new_caps.set(FormatCaps::CAP_DATA_CRC, self.analysis.data_error);
+        new_caps.set(FormatCaps::CAP_ADDRESS_CRC, self.analysis.address_error);
         new_caps.set(FormatCaps::CAP_DATA_DELETED, self.analysis.deleted_data);
         new_caps.set(FormatCaps::CAP_NO_DAM, self.analysis.no_dam);
 
@@ -1645,14 +1641,14 @@ impl DiskImage {
     }
 
     pub fn dump_analysis<W: crate::io::Write>(&mut self, mut out: W) -> Result<(), crate::io::Error> {
-        if self.analysis.bad_data_crc {
+        if self.analysis.data_error {
             out.write_fmt(format_args!("Disk contains sectors with bad data CRCs\n"))?;
         }
         else {
             out.write_fmt(format_args!("No sectors on disk have bad data CRCs\n"))?;
         }
 
-        if self.analysis.bad_address_crc {
+        if self.analysis.address_error {
             out.write_fmt(format_args!("Disk contains sectors with bad address CRCs\n"))?;
         }
         else {
@@ -1753,8 +1749,8 @@ impl DiskImage {
                     out.write_fmt(format_args!(
                         "\t\t{} address_crc_valid: {} data_crc_valid: {} deleted: {}\n",
                         sector.chsn,
-                        sector.attributes.address_crc_valid,
-                        sector.attributes.data_crc_valid,
+                        !sector.attributes.address_error,
+                        !sector.attributes.data_error,
                         sector.attributes.no_dam
                     ))?;
                 }
@@ -1770,15 +1766,15 @@ impl DiskImage {
         id: DiskChsnQuery,
         n: Option<u8>,
         offset: Option<usize>,
-        scope: RwSectorScope,
+        scope: RwScope,
         bytes_per_row: usize,
         mut out: W,
     ) -> Result<(), DiskImageError> {
         let rsr = self.read_sector(phys_ch, id, n, offset, scope, true)?;
 
         let data_slice = match scope {
-            RwSectorScope::DataOnly => &rsr.read_buf[rsr.data_idx..rsr.data_idx + rsr.data_len],
-            RwSectorScope::DataElement => &rsr.read_buf,
+            RwScope::DataOnly => &rsr.read_buf[rsr.data_range],
+            RwScope::EntireElement => &rsr.read_buf,
             _ => return Err(DiskImageError::ParameterError),
         };
 
@@ -1792,7 +1788,7 @@ impl DiskImage {
         n: Option<u8>,
         offset: Option<usize>,
     ) -> Result<String, DiskImageError> {
-        let rsr = self.read_sector(phys_ch, id, n, offset, RwSectorScope::DataOnly, true)?;
+        let rsr = self.read_sector(phys_ch, id, n, offset, RwScope::DataOnly, true)?;
 
         Ok(util::dump_string(&rsr.read_buf))
     }
@@ -1834,8 +1830,8 @@ impl DiskImage {
         formats
     }
 
-    /// Attempt to determine the StandardFormat that most closely conforms to the disk image.
-    /// This function is used for exporting to IMG and for constructing a StandardSectorView.
+    /// Attempt to determine the [StandardFormat] that most closely conforms to the disk image.
+    /// This function is used for exporting to IMG and for constructing a [StandardSectorView].
     ///
     /// The guess is based off the following criteria:
     /// - The number of heads in the disk image

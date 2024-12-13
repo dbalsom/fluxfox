@@ -64,7 +64,7 @@ pub(crate) fn run(global: &GlobalOptions, params: &args::DumpParams) -> Result<(
                 DiskChsnQuery::from(dupe_chsn),
                 None,
                 None,
-                RwSectorScope::DataOnly,
+                RwScope::DataOnly,
                 true,
             ) {
                 Ok(rsr) => rsr,
@@ -123,7 +123,7 @@ pub(crate) fn run(global: &GlobalOptions, params: &args::DumpParams) -> Result<(
 
         let id_chs = DiskChs::new(params.cylinder, params.head, sector);
 
-        let scope = RwSectorScope::DataOnly;
+        let scope = RwScope::DataOnly;
         let calc_crc = false;
         // let (scope, calc_crc) = match params.structure {
         //     true => (RwSectorScope::DataBlock, true),
@@ -140,23 +140,28 @@ pub(crate) fn run(global: &GlobalOptions, params: &args::DumpParams) -> Result<(
             }
         };
 
-        _ = writeln!(&mut buf, "Data idx: {} length: {}", rsr.data_idx, rsr.data_len);
+        _ = writeln!(
+            &mut buf,
+            "Data idx: {} length: {}",
+            rsr.data_range.start,
+            rsr.data_range.len()
+        );
 
-        let data_slice = match scope {
-            RwSectorScope::DataOnly => &rsr.read_buf[rsr.data_idx..rsr.data_idx + rsr.data_len],
-            RwSectorScope::DataElement => &rsr.read_buf,
-            _ => unreachable!(),
-        };
+        let data_slice = rsr.data();
 
         if !global.silent {
             println!(
-                "Dumping sector from {} with id {} in hex format, with scope {:?}:",
+                "Dumping sector from track {} with id {} in hex format, with scope {:?}:",
                 phys_ch,
                 DiskChsn::from((id_chs, params.n.unwrap_or(2))),
                 scope
             );
         }
 
+        if data_slice.len() >= 16 {
+            log::debug!("read buf: {:02X?}", &rsr.read_buf[0..16]);
+            log::debug!("data slice: {:02X?}", &data_slice[0..16]);
+        }
         _ = fluxfox::util::dump_slice(data_slice, 0, row_size, 1, &mut buf);
 
         // If we requested DataBlock scope, we can independently calculate the CRC, so do that now.

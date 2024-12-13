@@ -8,7 +8,7 @@ fn init() {
 }
 
 #[test]
-fn test_scp_sector_test() {
+fn test_scp_sector_test_360k() {
     init();
     run_sector_test(
         "tests/images/sector_test/sector_test_360k.scp".into(),

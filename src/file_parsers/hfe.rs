@@ -395,6 +395,7 @@ impl HfeFormat {
             );
 
             let params = BitStreamTrackParams {
+                schema: None,
                 encoding: TrackDataEncoding::Mfm,
                 data_rate: TrackDataRate::from(file_header.bit_rate as u32 * 100),
                 rpm: None,
@@ -417,6 +418,7 @@ impl HfeFormat {
             );
 
             let params = BitStreamTrackParams {
+                schema: None,
                 encoding: TrackDataEncoding::Mfm,
                 data_rate: TrackDataRate::from(file_header.bit_rate as u32 * 100),
                 rpm: None,

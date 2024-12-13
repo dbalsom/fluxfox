@@ -41,7 +41,7 @@ pub use pixmap_to_disk::PixmapToDiskParams;
 
 use crate::{
     bitstream::TrackDataStream,
-    track_schema::{system34::System34Element, TrackElement, TrackGenericElement, TrackMetadata},
+    track_schema::{system34::System34Element, GenericTrackElement, TrackElement, TrackMetadata},
     DiskCh,
 };
 
@@ -149,7 +149,7 @@ pub struct RenderTrackMetadataParams {
     /// Rotational direction for rendering (Clockwise or CounterClockwise)
     pub direction: RotationDirection,
     /// Palette to use for rendering metadata elements
-    pub palette: FoxHashMap<TrackGenericElement, Color>,
+    pub palette: FoxHashMap<GenericTrackElement, Color>,
     /// Whether to draw empty tracks as black rings
     pub draw_empty_tracks: bool,
     /// Set the inner radius to the last standard track instead of last track
@@ -432,11 +432,11 @@ pub fn render_track_data(
                                 && rtracks[track_index].is_data(decoded_bit_idx, false);
 
                             let byte_value = match decode_override {
-                                false => rtracks[track_index].read_raw_byte(bit_index).unwrap_or_default(),
+                                false => rtracks[track_index].read_raw_u8(bit_index).unwrap_or_default(),
                                 true => {
                                     // Only render bits in 16-bit steps.
                                     rtracks[track_index]
-                                        .read_decoded_byte(decoded_bit_idx)
+                                        .read_decoded_u8(decoded_bit_idx)
                                         .unwrap_or_default()
                                 }
                             };
@@ -688,7 +688,7 @@ pub fn render_track_metadata_quadrant(
                     color = Color::from_rgba8(p.head, phys_c as u8, phys_s, 255);
                 }
                 false => {
-                    let generic_elem = TrackGenericElement::from(element_type);
+                    let generic_elem = GenericTrackElement::from(element_type);
                     color = *p.palette.get(&generic_elem).unwrap_or(&null_color);
                 }
             }
@@ -789,7 +789,7 @@ pub fn render_track_metadata_quadrant(
                             false,
                             0,
                             0,
-                            Some(meta_item.elem_type),
+                            Some(meta_item.element),
                         );
 
                         //let overlap_long = false;
@@ -836,7 +836,7 @@ pub fn render_track_metadata_quadrant(
 
             // Draw non-overlapping metadata.
             for (_mi, meta_item) in track_meta.items.iter().enumerate() {
-                if let TrackElement::System34(System34Element::Marker(..)) = meta_item.elem_type {
+                if let TrackElement::System34(System34Element::Marker(..)) = meta_item.element {
                     if !*draw_markers {
                         continue;
                     }
@@ -846,7 +846,7 @@ pub fn render_track_metadata_quadrant(
                 }
 
                 // Advance physical sector number for each sector header encountered.
-                if meta_item.elem_type.is_sector_header() {
+                if meta_item.element.is_sector_header() {
                     phys_s = phys_s.wrapping_add(1);
                 }
 
@@ -898,7 +898,7 @@ pub fn render_track_metadata_quadrant(
                     p.draw_sector_lookup,
                     ti as u16,
                     phys_s,
-                    Some(meta_item.elem_type),
+                    Some(meta_item.element),
                 );
 
                 if let Some(path) = path_builder.finish() {
@@ -1022,7 +1022,7 @@ pub fn render_disk_selection(
 
         // Draw non-overlapping metadata.
         for (_mi, meta_item) in track_meta.items.iter().enumerate() {
-            if let TrackElement::System34(System34Element::Marker(..)) = meta_item.elem_type {
+            if let TrackElement::System34(System34Element::Marker(..)) = meta_item.element {
                 if !*draw_markers {
                     continue;
                 }
@@ -1032,11 +1032,11 @@ pub fn render_disk_selection(
             }
 
             // Advance physical sector number for each sector header encountered.
-            if meta_item.elem_type.is_sector_header() {
+            if meta_item.element.is_sector_header() {
                 phys_s = phys_s.wrapping_add(1);
             }
 
-            if !meta_item.elem_type.is_sector_data() || ((phys_s as usize) < p.sector_idx) {
+            if !meta_item.element.is_sector_data() || ((phys_s as usize) < p.sector_idx) {
                 continue;
             }
 

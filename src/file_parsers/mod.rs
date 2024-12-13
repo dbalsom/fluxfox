@@ -170,7 +170,10 @@ pub(crate) const IMAGE_FORMATS: &[DiskImageFileFormat] = &[
 /// on file extension, but by image file content (and occasionally size, in the case of raw sector
 /// images)
 pub fn supported_extensions() -> Vec<&'static str> {
-    IMAGE_FORMATS.iter().flat_map(|f| f.extensions()).collect()
+    let mut ext_vec: Vec<&str> = IMAGE_FORMATS.iter().flat_map(|f| f.extensions()).collect();
+    ext_vec.sort();
+    ext_vec.dedup();
+    ext_vec
 }
 
 /// Returns a DiskImageFormat enum variant based on the file extension provided. If the extension

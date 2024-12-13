@@ -23,11 +23,6 @@
     DEALINGS IN THE SOFTWARE.
 
     --------------------------------------------------------------------------
-
-    src/boot_sector/bootsector.rs
-
-    Routines for reading and modifying boot sector data
-
 */
 
 use crate::{
@@ -75,6 +70,10 @@ impl BootSignature {
     }
 }
 
+/// A struct representing a DOS boot sector.
+/// [BootSector] is designed to be created from byte data instead of directly from a [DiskImage].
+/// This allows flexibility in creating and interpreting a boot sector from other sources, such
+/// as in external .bin file.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct BootSector {
     pub(crate) bpb2: BiosParameterBlock2,

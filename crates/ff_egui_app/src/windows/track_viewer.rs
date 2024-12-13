@@ -83,15 +83,14 @@ impl TrackViewer {
             return;
         }
 
-        self.table.set_data(rtr.read_buf);
+        self.table.set_data(&rtr.read_buf);
         self.valid = true;
 
         if let Some(metadata) = track_ref.metadata() {
             for item in metadata.marker_ranges() {
                 let range = DataRange {
                     name: "Marker".to_string(),
-                    start: item.0 / 16,
-                    end: (item.1 / 16).saturating_sub(1),
+                    range: (item.0 / 16)..(item.1 / 16).saturating_sub(1),
                     fg_color: egui::Color32::from_rgb(0x53, 0xdd, 0xff),
                 };
                 self.table.add_range(range);

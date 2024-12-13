@@ -252,6 +252,7 @@ impl MfmFormat {
             }
 
             let params = BitStreamTrackParams {
+                schema: None,
                 encoding: TrackDataEncoding::Mfm,
                 data_rate: TrackDataRate::from(data_rate),
                 rpm: None,

@@ -36,7 +36,7 @@ use fluxfox::{
     prelude::*,
     tiny_skia,
     tiny_skia::{Color, Pixmap},
-    track_schema::TrackGenericElement,
+    track_schema::GenericTrackElement,
     visualization::{
         render_disk_selection,
         render_track_data,
@@ -80,7 +80,7 @@ pub struct VisualizationState {
     pub metadata_img: [Pixmap; 2],
     pub composite_img: [Pixmap; 2],
     pub sector_lookup_img: [Pixmap; 2],
-    pub meta_palette: HashMap<TrackGenericElement, Color>,
+    pub meta_palette: HashMap<GenericTrackElement, Color>,
     pub have_render: [bool; 2],
     pub canvas: [Option<PixelCanvas>; 2],
     pub sides: usize,
@@ -178,13 +178,13 @@ impl VisualizationState {
         Self {
             meta_pixmap_pool,
             meta_palette: HashMap::from([
-                (TrackGenericElement::SectorData, pal_medium_green),
-                (TrackGenericElement::SectorBadData, pal_orange),
-                (TrackGenericElement::SectorDeletedData, pal_dark_green),
-                (TrackGenericElement::SectorBadDeletedData, viz_light_red),
-                (TrackGenericElement::SectorHeader, pal_light_blue),
-                (TrackGenericElement::SectorBadHeader, pal_medium_blue),
-                (TrackGenericElement::Marker, vis_purple),
+                (GenericTrackElement::SectorData, pal_medium_green),
+                (GenericTrackElement::SectorBadData, pal_orange),
+                (GenericTrackElement::SectorDeletedData, pal_dark_green),
+                (GenericTrackElement::SectorBadDeletedData, viz_light_red),
+                (GenericTrackElement::SectorHeader, pal_light_blue),
+                (GenericTrackElement::SectorBadHeader, pal_medium_blue),
+                (GenericTrackElement::Marker, vis_purple),
             ]),
             canvas: [Some(canvas0), Some(canvas1)],
             ..VisualizationState::default()

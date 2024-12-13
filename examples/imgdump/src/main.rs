@@ -225,8 +225,8 @@ fn main() {
         let id_chs = DiskChs::new(opts.cylinder.unwrap(), opts.head.unwrap(), sector);
 
         let (scope, calc_crc) = match opts.structure {
-            true => (RwSectorScope::DataElement, true),
-            false => (RwSectorScope::DataOnly, false),
+            true => (RwScope::EntireElement, true),
+            false => (RwScope::DataOnly, false),
         };
 
         let rsr = match disk.read_sector(
@@ -244,13 +244,9 @@ fn main() {
             }
         };
 
-        _ = writeln!(&mut buf, "Data length: {}", rsr.data_len);
+        _ = writeln!(&mut buf, "Data length: {}", rsr.data_range.len());
 
-        let data_slice = match scope {
-            RwSectorScope::DataOnly => &rsr.read_buf[rsr.data_idx..rsr.data_idx + rsr.data_len],
-            RwSectorScope::DataElement => &rsr.read_buf,
-            RwSectorScope::CrcOnly => unreachable!(),
-        };
+        let data_slice = &rsr.read_buf[rsr.data_range];
 
         if let Some(find_string) = &opts.find {
             let find_bytes = find_string.as_bytes();

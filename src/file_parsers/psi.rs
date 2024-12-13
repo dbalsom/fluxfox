@@ -390,8 +390,8 @@ impl PsiFormat {
                                 weak_mask: None,
                                 hole_mask: None,
                                 attributes: SectorAttributes {
-                                    address_crc_valid: true, // Compressed data cannot encode address CRC state.
-                                    data_crc_valid: !ctx.data_crc_error,
+                                    address_error: false, // Compressed data cannot encode address CRC state.
+                                    data_error: ctx.data_crc_error,
                                     deleted_mark: false,
                                     no_dam: false,
                                 },
@@ -443,8 +443,8 @@ impl PsiFormat {
                             weak_mask: None,
                             hole_mask: None,
                             attributes: SectorAttributes {
-                                address_crc_valid: !ctx.address_crc_error,
-                                data_crc_valid: !ctx.data_crc_error,
+                                address_error: ctx.address_crc_error,
+                                data_error: ctx.data_crc_error,
                                 deleted_mark: ctx.deleted,
                                 no_dam: ctx.no_dam,
                             },

@@ -28,23 +28,26 @@
 
     Disk Info widget for displaying basic disk information.
 */
+use std::ops::Range;
+
 use crate::{
+    encoding::CharacterEncoding,
     range_check::RangeChecker,
     widgets::{data_visualizer::DataVisualizerWidget, tab_group::TabGroup},
 };
-
 use egui_extras::{Column, TableBuilder};
+use strum::IntoEnumIterator;
 
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct DataRange {
     pub name: String,
     pub fg_color: egui::Color32,
-    pub start: usize,
-    pub end: usize,
+    pub range: Range<usize>,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct DataTableWidget {
+    encoding: CharacterEncoding,
     num_columns: usize,
     num_rows: usize,
     scroll_to_row_slider: usize,
@@ -57,12 +60,14 @@ pub struct DataTableWidget {
     row_string_width: usize,
     tabs: TabGroup,
     viz_widget: Option<DataVisualizerWidget>,
+
     ranges: Vec<DataRange>,
 }
 
 impl Default for DataTableWidget {
     fn default() -> Self {
         Self {
+            encoding: CharacterEncoding::IsoIec8559_1,
             num_columns: 16,
             num_rows: 512 / 16,
             scroll_to_row_slider: 0,
@@ -87,6 +92,15 @@ impl DataTableWidget {
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            egui::ComboBox::from_id_salt("Encoding")
+                .selected_text(self.encoding.to_string())
+                .show_ui(ui, |ui| {
+                    for encoding in CharacterEncoding::iter() {
+                        ui.selectable_value(&mut self.encoding, encoding, encoding.to_string());
+                    }
+                });
+        });
         self.tabs.show(ui);
         ui.separator();
 
@@ -214,7 +228,13 @@ impl DataTableWidget {
             }
 
             // Create range checker
-            let range_checker = RangeChecker::new(&self.ranges.iter().map(|r| (r.start, r.end)).collect::<Vec<_>>());
+            let range_checker = RangeChecker::new(
+                &self
+                    .ranges
+                    .iter()
+                    .map(|r| (r.range.start, r.range.end))
+                    .collect::<Vec<_>>(),
+            );
 
             let mut any_row_hovered_idx = None;
 
@@ -224,10 +244,10 @@ impl DataTableWidget {
                         ui.strong("Addr");
                     });
                     header.col(|ui| {
-                        ui.strong("Hex View");
+                        ui.strong("Hex");
                     });
                     header.col(|ui| {
-                        ui.strong("ASCII View");
+                        ui.strong("Char");
                     });
                 })
                 .body(|body| {
@@ -291,9 +311,9 @@ impl DataTableWidget {
         });
     }
 
-    pub fn set_data(&mut self, data: Vec<u8>) {
+    pub fn set_data(&mut self, data: &[u8]) {
         self.ranges = Vec::new();
-        self.data = data;
+        self.data = data.to_vec();
         self.calc_layout();
     }
 
@@ -342,17 +362,11 @@ impl DataTableWidget {
 
         let mut row_elements = Vec::new();
         for (bi, byte) in data_slice.iter().enumerate() {
-            let mut label_text = if *byte >= 0x20 && *byte <= 0x7E {
-                egui::RichText::new(format!("{}", *byte as char)).monospace()
-            }
-            else {
-                egui::RichText::new(".").monospace()
-            };
-
+            let char = self.encoding.display_byte(*byte);
+            let mut label_text = egui::RichText::new(char).monospace();
             if Some(bi) == hovered {
                 label_text = label_text.strong();
             }
-
             row_elements.push(egui::Label::new(label_text));
         }
 
@@ -365,17 +379,7 @@ impl DataTableWidget {
             return egui::RichText::new("");
         }
         let data_slice = &self.data[data_index..std::cmp::min(data_index + self.num_columns, self.data.len())];
-
-        let mut row_string = String::new();
-        for byte in data_slice {
-            if *byte >= 0x20 && *byte <= 0x7E {
-                row_string.push(*byte as char);
-            }
-            else {
-                row_string.push('.');
-            }
-        }
-
+        let row_string = self.encoding.slice_to_string(data_slice);
         egui::RichText::new(row_string).monospace()
     }
 

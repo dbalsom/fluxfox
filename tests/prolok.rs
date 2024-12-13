@@ -17,12 +17,12 @@ fn test_prolok() {
 
     println!("Loaded PRI image of geometry {}...", disk.image_format().geometry);
 
-    let mut read_sector_result = match disk.read_sector(
+    let rsr = match disk.read_sector(
         DiskCh::new(39, 0),
         DiskChsnQuery::new(39, 0, 5, None),
         None,
         None,
-        RwSectorScope::DataOnly,
+        RwScope::DataOnly,
         false,
     ) {
         Ok(result) => result,
@@ -32,8 +32,8 @@ fn test_prolok() {
         Err(e) => panic!("Error reading sector: {:?}", e),
     };
 
-    let sector_data = read_sector_result.read_buf;
-    let original_data = sector_data.clone();
+    let sector_data = rsr.data();
+    let original_data = sector_data.to_vec();
 
     println!(
         "Read sector data: {:02X?} of length {}",
@@ -47,8 +47,8 @@ fn test_prolok() {
         DiskCh::new(39, 0),
         DiskChsnQuery::new(39, 0, 5, 2),
         None,
-        &sector_data,
-        RwSectorScope::DataOnly,
+        sector_data,
+        RwScope::DataOnly,
         false,
         false,
     ) {
@@ -60,12 +60,12 @@ fn test_prolok() {
     };
 
     // Read the sector back. It should have different data.
-    read_sector_result = match disk.read_sector(
+    let rsr = match disk.read_sector(
         DiskCh::new(39, 0),
         DiskChsnQuery::new(39, 0, 5, 2),
         None,
         None,
-        RwSectorScope::DataOnly,
+        RwScope::DataOnly,
         false,
     ) {
         Ok(result) => result,
@@ -75,10 +75,12 @@ fn test_prolok() {
         Err(e) => panic!("Error reading sector: {:?}", e),
     };
 
-    let sector_data = read_sector_result.read_buf;
+    let sector_data = rsr.data();
 
-    println!("Original data: {:02X?}", &original_data[0..8]);
-    println!("Post-write data: {:02X?}", &sector_data[0..8]);
+    if sector_data.len() == 512 {
+        println!("Original data: {:02X?}", &original_data[0..8]);
+        println!("Post-write data: {:02X?}", &sector_data[0..8]);
+    }
 
     if sector_data == original_data {
         panic!("Data read back from written sector did not change - no hole detected!");

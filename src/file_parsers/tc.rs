@@ -370,6 +370,7 @@ impl TCFormat {
             );
 
             let params = BitStreamTrackParams {
+                schema: None,
                 encoding: disk_encoding,
                 data_rate: disk_data_rate,
                 rpm: Some(disk_rpm),
