@@ -103,6 +103,8 @@ pub enum DiskImageError {
     IoError(String),
     #[error("A filesystem error occurred or path not found")]
     FsError,
+    #[error("An error occurred reading or writing a file archive: {0}")]
+    ArchiveError(FileArchiveError),
     #[error("Unknown disk image format")]
     UnknownFormat,
     #[error("Unsupported disk image format for requested operation")]
@@ -146,6 +148,12 @@ impl From<io::Error> for DiskImageError {
     }
 }
 
+impl From<FileArchiveError> for DiskImageError {
+    fn from(err: FileArchiveError) -> Self {
+        DiskImageError::ArchiveError(err)
+    }
+}
+
 // Manually implement `From<binrw::Error>` for `DiskImageError`
 impl From<binrw::Error> for DiskImageError {
     fn from(err: binrw::Error) -> Self {
@@ -174,6 +182,7 @@ pub use tiny_skia;
 
 use types::{DiskCh, DiskChs, DiskChsn, DiskChsnQuery};
 // Re-export tiny_skia for convenience
+use crate::containers::archive::FileArchiveError;
 pub use types::standard_format::StandardFormat;
 
 pub type SectorId = DiskChsn;

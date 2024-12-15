@@ -29,6 +29,12 @@
     Common support routines for tests
 */
 #![allow(dead_code)]
+#![allow(unused_imports)]
+pub mod convert_exact;
+pub mod invertibility;
+
+pub use convert_exact::test_convert_exact;
+pub use invertibility::test_invertibility;
 
 use fluxfox::{io::Read, prelude::*, DiskImage, DiskImageFileFormat, DEFAULT_SECTOR_SIZE};
 
@@ -71,9 +77,9 @@ pub fn get_raw_image_address(chs: DiskChs, geom: DiskChs) -> usize {
     lba * DEFAULT_SECTOR_SIZE
 }
 
-pub fn run_sector_test(file_path: PathBuf, fmt: DiskImageFileFormat) {
+pub fn run_sector_test(file_path: impl Into<PathBuf>, fmt: DiskImageFileFormat) {
     use std::io::Cursor;
-
+    let file_path = file_path.into();
     let disk_image_buf = std::fs::read(file_path).unwrap();
     let mut in_buffer = Cursor::new(disk_image_buf);
 

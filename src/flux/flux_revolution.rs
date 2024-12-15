@@ -27,7 +27,7 @@
 use crate::{
     flux::{
         pll::{Pll, PllDecodeFlags, PllDecodeStatEntry},
-        FluxStats,
+        BasicFluxStats,
         FluxTransition,
     },
     types::{DiskCh, TrackDataEncoding},
@@ -266,7 +266,7 @@ impl FluxRevolution {
         );
     }
 
-    pub fn decode_direct(&mut self, pll: &mut Pll) -> FluxStats {
+    pub fn decode_direct(&mut self, pll: &mut Pll) -> BasicFluxStats {
         let pll_flags = PllDecodeFlags::empty();
         let mut decode_result = pll.decode(self, TrackDataEncoding::Mfm, pll_flags);
         let encoding = decode_result

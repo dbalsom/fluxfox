@@ -46,7 +46,7 @@ use crate::{
     bitstream::{fm::FmCodec, TrackDataStream},
     boot_sector::BootSector,
     containers::DiskImageContainer,
-    detect::detect_image_format,
+    detect::detect_container_format,
     file_parsers::{
         filter_writable,
         formats_from_caps,
@@ -67,6 +67,8 @@ use crate::{
         DiskDescriptor,
         DiskImageFlags,
         DiskSelection,
+        FluxStreamTrackParams,
+        MetaSectorTrackParams,
         ReadSectorResult,
         ReadTrackResult,
         RwScope,
@@ -82,10 +84,6 @@ use crate::{
     LoadingCallback,
     LoadingStatus,
 };
-
-#[cfg(feature = "zip")]
-use crate::containers::zip::{extract_file, extract_first_file};
-use crate::types::{FluxStreamTrackParams, MetaSectorTrackParams};
 
 pub(crate) const DEFAULT_BOOT_SECTOR: &[u8] = include_bytes!("../resources/bootsector.bin");
 
@@ -150,8 +148,11 @@ impl Default for DiskImage {
 }
 
 impl DiskImage {
-    pub fn detect_format<RS: ReadSeek>(mut image: &mut RS) -> Result<DiskImageContainer, DiskImageError> {
-        detect_image_format(&mut image)
+    pub fn detect_format<RS: ReadSeek>(
+        image: &mut RS,
+        path: Option<PathBuf>,
+    ) -> Result<DiskImageContainer, DiskImageError> {
+        detect_container_format(image, path)
     }
 
     /// Create a new [`DiskImage`] with the specified disk format. This function should not be called
@@ -270,108 +271,110 @@ impl DiskImage {
         disk_selection: Option<DiskSelection>,
         callback: Option<LoadingCallback>,
     ) -> Result<Self, DiskImageError> {
-        let container = DiskImage::detect_format(image_io)?;
+        let container = DiskImage::detect_format(image_io, image_path.clone())?;
 
         // TODO: DiskImage should probably not concern itself with archives or disk sets...
         //       We should probably move most of this into an ImageLoader interface similar to
         //       ImageBuilder
         match container {
-            DiskImageContainer::Raw(format) => {
+            DiskImageContainer::File(format, _path) => {
                 let mut image = DiskImage::default();
                 format.load_image(image_io, &mut image, &ParserReadOptions::default(), callback)?;
                 image.post_load_process();
                 Ok(image)
             }
-            DiskImageContainer::Zip(format) => {
-                #[cfg(feature = "zip")]
-                {
-                    let file_vec = extract_first_file(image_io)?;
-                    let file_cursor = Cursor::new(file_vec);
+            DiskImageContainer::ResolvedFile(format, file_vec, _path, _archive_path) => {
+                let mut cursor = Cursor::new(file_vec);
+                let mut image = DiskImage::default();
+                format.load_image(&mut cursor, &mut image, &ParserReadOptions::default(), callback)?;
+                image.post_load_process();
+                Ok(image)
+            }
+            DiskImageContainer::Archive(_archive_format, _containers, _path) => {
+                // We should have received any single-file archives as ResolvedFiles, so this
+                // archive contains multiple files (but wasn't detected as a FileSet).
+                //
+                // This isn't currently supported.
+                // let file_vec = extract_first_file(image_io)?;
+                // let file_cursor = Cursor::new(file_vec);
+                // let mut image = DiskImage::default();
+                // format.load_image(file_cursor, &mut image, &ParserReadOptions::default(), callback)?;
+                // image.post_load_process();
+                // Ok(image)
+                Err(DiskImageError::UnknownFormat)
+            }
+            DiskImageContainer::ZippedKryofluxSet(disks) => {
+                let disk_opt = match disk_selection {
+                    Some(DiskSelection::Index(idx)) => disks.get(idx),
+                    Some(DiskSelection::Path(ref path)) => disks.iter().find(|disk| disk.base_path == *path),
+                    _ => {
+                        if disks.len() == 1 {
+                            disks.first()
+                        }
+                        else {
+                            log::error!("Multiple disks found in Kryoflux set without a selection.");
+                            return Err(DiskImageError::MultiDiskError(
+                                "No disk selection provided.".to_string(),
+                            ));
+                        }
+                    }
+                };
+
+                if let Some(disk) = disk_opt {
+                    // Create an empty image. We will loop through all the files in the set and
+                    // append tracks to them as we go.
                     let mut image = DiskImage::default();
-                    format.load_image(file_cursor, &mut image, &ParserReadOptions::default(), callback)?;
+                    image.descriptor.geometry = disk.geometry;
+
+                    if let Some(ref callback_fn) = callback {
+                        // Let caller know to show a progress bar
+                        callback_fn(LoadingStatus::ProgressSupport);
+                    }
+
+                    for (fi, file_path) in disk.file_set.iter().enumerate() {
+                        let mut file_vec = crate::containers::zip::extract_file(image_io, &file_path.clone())?;
+                        let mut cursor = Cursor::new(&mut file_vec);
+                        log::debug!("load(): Loading Kryoflux stream file from zip: {:?}", file_path);
+
+                        // We won't give the callback to the kryoflux loader - instead we will call it here ourselves
+                        // updating percentage complete as a fraction of files loaded.
+                        match KfxFormat::load_image(&mut cursor, &mut image, &ParserReadOptions::default(), None) {
+                            Ok(_) => {}
+                            Err(e) => {
+                                // It's okay to fail if we have already added the standard number of tracks to an image.
+                                log::error!("load(): Error loading Kryoflux stream file: {:?}", e);
+                                //return Err(e);
+                                break;
+                            }
+                        }
+
+                        if let Some(ref callback_fn) = callback {
+                            let completion = (fi + 1) as f64 / disk.file_set.len() as f64;
+                            callback_fn(LoadingStatus::Progress(completion));
+                        }
+                    }
+
+                    if let Some(callback_fn) = callback {
+                        callback_fn(LoadingStatus::Complete);
+                    }
+
                     image.post_load_process();
                     Ok(image)
                 }
-                #[cfg(not(feature = "zip"))]
-                {
-                    Err(DiskImageError::UnknownFormat)
+                else {
+                    log::error!(
+                        "Disk selection {} not found in Kryoflux set.",
+                        disk_selection.clone().unwrap()
+                    );
+                    Err(DiskImageError::MultiDiskError(format!(
+                        "Disk selection {} not found in set.",
+                        disk_selection.unwrap()
+                    )))
                 }
             }
-            DiskImageContainer::ZippedKryofluxSet(disks) => {
-                #[cfg(feature = "zip")]
-                {
-                    let disk_opt = match disk_selection {
-                        Some(DiskSelection::Index(idx)) => disks.get(idx),
-                        Some(DiskSelection::Path(ref path)) => disks.iter().find(|disk| disk.base_path == *path),
-                        _ => {
-                            if disks.len() == 1 {
-                                disks.first()
-                            }
-                            else {
-                                log::error!("Multiple disks found in Kryoflux set without a selection.");
-                                return Err(DiskImageError::MultiDiskError(
-                                    "No disk selection provided.".to_string(),
-                                ));
-                            }
-                        }
-                    };
-
-                    if let Some(disk) = disk_opt {
-                        // Create an empty image. We will loop through all the files in the set and
-                        // append tracks to them as we go.
-                        let mut image = DiskImage::default();
-                        image.descriptor.geometry = disk.geometry;
-
-                        if let Some(ref callback_fn) = callback {
-                            // Let caller know to show a progress bar
-                            callback_fn(LoadingStatus::ProgressSupport);
-                        }
-
-                        for (fi, file_path) in disk.file_set.iter().enumerate() {
-                            let mut file_vec = extract_file(image_io, &file_path.clone())?;
-                            let mut cursor = Cursor::new(&mut file_vec);
-                            log::debug!("load(): Loading Kryoflux stream file from zip: {:?}", file_path);
-
-                            // We won't give the callback to the kryoflux loader - instead we will call it here ourselves
-                            // updating percentage complete as a fraction of files loaded.
-                            match KfxFormat::load_image(&mut cursor, &mut image, &ParserReadOptions::default(), None) {
-                                Ok(_) => {}
-                                Err(e) => {
-                                    // It's okay to fail if we have already added the standard number of tracks to an image.
-                                    log::error!("load(): Error loading Kryoflux stream file: {:?}", e);
-                                    //return Err(e);
-                                    break;
-                                }
-                            }
-
-                            if let Some(ref callback_fn) = callback {
-                                let completion = (fi + 1) as f64 / disk.file_set.len() as f64;
-                                callback_fn(LoadingStatus::Progress(completion));
-                            }
-                        }
-
-                        if let Some(callback_fn) = callback {
-                            callback_fn(LoadingStatus::Complete);
-                        }
-
-                        image.post_load_process();
-                        Ok(image)
-                    }
-                    else {
-                        log::error!(
-                            "Disk selection {} not found in Kryoflux set.",
-                            disk_selection.clone().unwrap()
-                        );
-                        Err(DiskImageError::MultiDiskError(format!(
-                            "Disk selection {} not found in set.",
-                            disk_selection.unwrap()
-                        )))
-                    }
-                }
-                #[cfg(not(feature = "zip"))]
-                {
-                    Err(DiskImageError::UnknownFormat)
-                }
+            DiskImageContainer::FileSet(_format, _files, _src_file) => {
+                // Eventually this should replace KryofluxSet, but just stub it for now.
+                Err(DiskImageError::UnsupportedFormat)
             }
             DiskImageContainer::KryofluxSet => {
                 if let Some(image_path) = image_path {
@@ -435,33 +438,41 @@ impl DiskImage {
     #[cfg(feature = "async")]
     pub async fn load_async<RS: ReadSeek>(
         image_io: &mut RS,
-        _image_path: Option<PathBuf>,
+        image_path: Option<PathBuf>,
         disk_selection: Option<DiskSelection>,
         callback: Option<LoadingCallback>,
     ) -> Result<Self, DiskImageError> {
-        let container = DiskImage::detect_format(image_io)?;
+        let container = DiskImage::detect_format(image_io, image_path)?;
 
         match container {
-            DiskImageContainer::Raw(format) => {
+            DiskImageContainer::File(format, _) => {
                 let mut image = DiskImage::default();
                 format.load_image(image_io, &mut image, &ParserReadOptions::default(), callback)?;
                 image.post_load_process();
                 Ok(image)
             }
-            DiskImageContainer::Zip(format) => {
-                #[cfg(feature = "zip")]
-                {
-                    let file_vec = extract_first_file(image_io)?;
-                    let file_cursor = Cursor::new(file_vec);
-                    let mut image = DiskImage::default();
-                    format.load_image(file_cursor, &mut image, &ParserReadOptions::default(), callback)?;
-                    image.post_load_process();
-                    Ok(image)
-                }
-                #[cfg(not(feature = "zip"))]
-                {
-                    Err(DiskImageError::UnknownFormat)
-                }
+            DiskImageContainer::ResolvedFile(format, file_vec, _path, _archive_path) => {
+                let mut cursor = Cursor::new(file_vec);
+                let mut image = DiskImage::default();
+                format.load_image(&mut cursor, &mut image, &ParserReadOptions::default(), callback)?;
+                image.post_load_process();
+                Ok(image)
+            }
+            DiskImageContainer::Archive(archive, items, _) => {
+                // We should have received any single-file archives as ResolvedFiles, so this
+                // archive contains multiple files (but wasn't detected as a FileSet).
+                //
+                // This isn't currently supported.
+
+                // let (file_vec, inner_path) = archive.extract_first_file(image_io)?;
+                // let file_cursor = Cursor::new(file_vec);
+                //
+                // // Create a default disk image and attempt to load the image from the archive.
+                // let mut image = DiskImage::default();
+                // format.load_image(file_cursor, &mut image, &ParserReadOptions::default(), callback)?;
+                // image.post_load_process();
+                // Ok(image)
+                Err(DiskImageError::UnknownFormat)
             }
             DiskImageContainer::ZippedKryofluxSet(disks) => {
                 #[cfg(feature = "zip")]
@@ -496,7 +507,7 @@ impl DiskImage {
                         let image_arc = Arc::new(Mutex::new(image));
 
                         for (fi, file_path) in disk.file_set.iter().enumerate() {
-                            let file_vec = extract_file(image_io, &file_path.clone())?;
+                            let file_vec = crate::containers::zip::extract_file(image_io, &file_path.clone())?;
                             let cursor = Cursor::new(file_vec);
                             log::debug!("load(): Loading Kryoflux stream file from zip: {:?}", file_path);
 
@@ -544,6 +555,8 @@ impl DiskImage {
                     Err(DiskImageError::UnknownFormat)
                 }
             }
+            #[cfg(feature = "wasm")]
+            DiskImageContainer::FileSet(_format, _path, _) => Err(DiskImageError::UnsupportedFormat),
             #[cfg(feature = "wasm")]
             DiskImageContainer::KryofluxSet => Err(DiskImageError::UnsupportedFormat),
             #[cfg(feature = "tokio-async")]

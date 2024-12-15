@@ -105,7 +105,7 @@ sha1 = "0.10"
 hex = "0.4"    # or the latest version
 
 [features]
-default = ["viz", "zip", "tar", "mfi", "fat", "flux", "ibmpc", "amiga"]
+default = ["viz", "archives", "mfi", "fat", "flux", "ibmpc", "amiga"]
 wasm = ["async", "wasm-bindgen", "wasm-bindgen-futures"]
 serde = ["dep:serde", "dep:typetag", "bit-vec/serde_std", "bitflags/serde"]
 tokio-async = ["async", "tokio"]
@@ -116,16 +116,23 @@ ibmpc = ["td0"]
 amiga = ["adf"]
 # viz feature enables visualization functions - will pull in tiny-skia dependency for drawing
 viz = ["dep:tiny-skia"]
-# zip feature enables reading zipped images, as well as reading/writing zip files from FileSystem interfaces
-zip = ["dep:zip"]
-# tar feature enables reading tar files from FileSystem interfaces
-tar = ["dep:tar"]
 # fat feature enables reading FAT12/16/32 filesystems. This will pull in fluxfox_fat dependency
 fat = ["dep:fluxfox_fat"]
 # flux feature enables reading flux images. This will pull in histogram dependency
 flux = ["dep:histogram"]
 # plotly feature enables export of flux timings to plotly (perhaps this should not be internal to fluxfox?)
 plot = ["dep:plotly"]
+
+# Archive File Features
+# ----------------------------------------------------------------------------------------------------------------------
+# meta-feature to enable all archive formats
+archives = ["zip", "gzip", "tar"]
+# zip feature enables reading zipped images, as well as reading/writing zip files from FileSystem interfaces
+zip = ["dep:zip"]
+# gzip feature enables reading gzipped images, as well as reading/writing gzip files from FileSystem interfaces
+gzip = ["dep:flate2"]
+# tar feature enables reading tarred image sets, as well as writing tar files from FileSystem interfaces
+tar = ["dep:tar"]
 
 # Disk Image File Format Features
 # ----------------------------------------------------------------------------------------------------------------------

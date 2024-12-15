@@ -989,6 +989,10 @@ impl BitStreamTrack {
         }
         let data_ranges = track_metadata.data_ranges();
         if !data_ranges.is_empty() {
+            log::debug!(
+                "add_track_bitstream(): Adding {} data ranges to track stream",
+                data_ranges.len(),
+            );
             data_stream.set_data_ranges(data_ranges);
         }
 

@@ -25,72 +25,97 @@
     --------------------------------------------------------------------------
 */
 use crate::{
-    containers::DiskImageContainer,
-    file_parsers::{ImageFormatParser, IMAGE_FORMATS},
+    containers::{
+        archive::{FileArchiveType, StatelessFileArchive},
+        DiskImageContainer,
+    },
+    file_parsers::ImageFormatParser,
     io::ReadSeek,
+    types::{chs::DiskChs, standard_format::StandardFormat},
     util::natural_sort,
     DiskImageError,
     DiskImageFileFormat,
 };
-
-#[cfg(feature = "zip")]
-use crate::{
-    containers::{zip, KryoFluxSet},
-    file_parsers::kryoflux::KfxFormat,
-};
-
-use crate::types::{chs::DiskChs, standard_format::StandardFormat};
-#[cfg(feature = "zip")]
 use std::path::PathBuf;
 
-/// Attempt to detect the format of a disk image. If the format cannot be determined, UnknownFormat is returned.
-pub fn detect_image_format<T: ReadSeek>(image_io: &mut T) -> Result<DiskImageContainer, DiskImageError> {
-    // If the zip feature is present, we can look into and identify images in zip files.
-    // Most common of these are WinImage's "Compressed Disk Image" format, IMZ, which is simply
-    // a zip file containing a single raw disk image with .IMA extension.
-    // However, we can extend this to support simple zip containers of other file image formats.
-    // Note only the first file in the ZIP is checked.
+#[cfg(feature = "zip")]
+use crate::{containers::KryoFluxSet, file_parsers::kryoflux::KfxFormat};
 
-    // Given MartyPC's feature set, it can either mount the files within a zip as a FAT filesystem,
-    // or it can let fluxfox mount the image inside the zip instead. Choosing which is the correct
-    // behavior desired may not be trivial; so we assume a compressed disk image will only contain
-    // one file. You could override loading by adding a second dummy file.
+use strum::IntoEnumIterator;
 
-    // The exception to this are Kryoflux images which span multiple files, but these  are easily
-    // differentiated due to their large size and regular naming conventions.
-
-    // The smallest kryoflux set I have seen is of a 160K disk, 5_741_334 bytes uncompressed.
-    // Therefore, I assume a cutoff point of 5MB for Kryoflux sets.
-    #[cfg(feature = "zip")]
+/// Attempt to detect the container format of an input stream implementing [Read] + [Seek]. If the
+/// format cannot be determined, `[DiskImageError::UnknownFormat]` is returned.
+///
+/// If at least one archive format feature is enabled, we can look into and identify images in
+/// archives such as `zip`, `gzip`, and `tar`.
+///
+/// Most common of these are WinImage's "Compressed Disk Image" format, `IMZ`, which is simply
+/// a `zip` file containing a single raw sector image with `IMA` extension. Similarly, `ADZ` files
+/// are Amiga `ADF` images compressed with gzip.
+///
+/// However, we can extend this to support simple archive containers of other file image formats.
+/// if an archive contains a single file, it will be assumed to be a disk image of some sort.
+///
+/// Given MartyPC's feature set, it can either mount the files within a zip as a FAT filesystem,
+/// or it can let fluxfox mount the image inside the zip instead. Choosing which is the correct
+/// behavior desired may not be trivial; so we assume a compressed disk image will only contain
+/// one file. You could override loading by adding a second dummy file.
+///
+/// The exception to this are Kryoflux images which span multiple files, but these  are easily
+/// differentiated due to their large size and regular naming conventions.
+///
+/// The smallest Kryoflux set I have seen is of a 160K disk, 5_741_334 bytes uncompressed.
+/// Therefore, I assume a cutoff point of 5MB for Kryoflux sets. This may need to be tweaked
+/// to support even older, lower capacity disks in the future.
+///
+pub fn detect_container_format<T: ReadSeek>(
+    image_io: &mut T,
+    path: Option<PathBuf>,
+) -> Result<DiskImageContainer, DiskImageError> {
+    #[cfg(any(feature = "zip", feature = "gzip", feature = "tar"))]
     {
-        // First of all, is the input file a zip?
-        let (is_zip, file_ct, total_size) = zip::detect_zip(image_io);
+        // First of all, is the input file an archive?
+        if let Some(archive) = FileArchiveType::detect_archive_type(image_io) {
+            log::debug!("Archive detected: {:?}", archive);
 
-        // If it is a zip, we need to check if it contains a supported image format
-        if is_zip & (file_ct > 0) {
-            log::debug!("ZIP file detected with {} files, total size: {}", file_ct, total_size);
-            if file_ct == 1 {
-                let file_buf = match zip::extract_first_file(image_io) {
-                    Ok(buf) => buf,
-                    Err(e) => return Err(e),
-                };
+            // Get the archive info
+            let a_info = archive.info(image_io)?;
 
-                // Wrap buffer in Cursor, and send it through all the format detectors.
+            if a_info.file_count > 0 {
+                log::debug!(
+                    "{:?} archive file detected with {} files, total size: {}",
+                    a_info.archive_type,
+                    a_info.file_count,
+                    a_info.total_size
+                );
+            }
+
+            // If there's only one file, we can assume it should be a disk image
+            if a_info.file_count == 1 {
+                let (file_buf, file_path) = archive.extract_first_file(image_io)?;
+
+                // Wrap buffer in Cursor, and send it through all our format detectors.
                 let mut file_io = std::io::Cursor::new(file_buf);
-                for format in IMAGE_FORMATS {
+                for format in DiskImageFileFormat::iter() {
                     if format.detect(&mut file_io) {
-                        return Ok(DiskImageContainer::Zip(*format));
+                        // If we made a detection, we can return this single file as a ResolvedFile
+                        // container. The caller doesn't even need to know it was in an archive.
+                        return Ok(DiskImageContainer::ResolvedFile(
+                            format,
+                            file_io.into_inner(),
+                            Some(file_path),
+                            path,
+                        ));
                     }
                 }
 
                 return Err(DiskImageError::UnknownFormat);
             }
-            else if total_size > 5_000_000 {
-                // Multiple files in the zip, of at least 5MB
-                // Get the file listing
+            else if a_info.total_size > 5_000_000 {
+                // Multiple files in the zip, of at least 5MB - this assumes a Kryoflux set
 
-                let zip_listing = zip::file_listing(image_io)?;
-                let path_vec: Vec<PathBuf> = zip_listing
+                let file_listing = archive.file_listing(image_io)?;
+                let path_vec: Vec<PathBuf> = file_listing
                     .files
                     .iter()
                     .map(|entry| PathBuf::from(&entry.name))
@@ -102,21 +127,21 @@ pub fn detect_image_format<T: ReadSeek>(image_io: &mut T) -> Result<DiskImageCon
                     .filter(|&path| {
                         path.file_name()
                             .and_then(|name| name.to_str())
-                            .map_or(false, |name| name.ends_with("00.0.raw"))
+                            .is_some_and(|name| name.ends_with("00.0.raw"))
                     })
                     .collect();
 
-                // Sort the matches, alphabetically. This is intended to match the first disk if
+                // Sort the matches using alphabetic natural sort. This is intended to match the first disk if
                 // a zip archive has multiple disks in it.
                 raw_files.sort_by(|a: &&PathBuf, b: &&PathBuf| natural_sort(a, b));
-                log::warn!("raw files: {:?}", raw_files);
+                log::debug!("Raw files: {:?}", raw_files);
 
                 let mut set_vec = Vec::new();
                 for file in raw_files {
-                    log::debug!("Found .raw file in zip: {:?}", file);
+                    log::debug!("Found .raw file in archive: {:?}", file);
                     let kryo_set = KfxFormat::expand_kryoflux_set(file.clone(), Some(path_vec.clone()))?;
                     log::debug!(
-                        "Expanded to kryoflux set of {} files, geometry: {}",
+                        "Expanded to Kryoflux set of {} files, geometry: {}",
                         kryo_set.0.len(),
                         kryo_set.1
                     );
@@ -145,12 +170,15 @@ pub fn detect_image_format<T: ReadSeek>(image_io: &mut T) -> Result<DiskImageCon
         }
     }
 
-    for format in IMAGE_FORMATS {
+    // Format is not an archive.
+    for format in DiskImageFileFormat::iter() {
         if format.detect(&mut *image_io) {
+            // If this a Kryoflux stream file, we need to resolve the set of files it belongs to.
             if let DiskImageFileFormat::KryofluxStream = format {
                 return Ok(DiskImageContainer::KryofluxSet);
             }
-            return Ok(DiskImageContainer::Raw(*format));
+            // Otherwise this must just be a plain File container.
+            return Ok(DiskImageContainer::File(format, path));
         }
     }
     Err(DiskImageError::UnknownFormat)

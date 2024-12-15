@@ -260,11 +260,17 @@ impl TrackMetadata {
     pub fn data_ranges(&self) -> Vec<(usize, usize)> {
         let mut data_ranges = Vec::new();
 
-        for item in &self.items {
-            if let TrackElement::System34(System34Element::SectorData { .. }) = item.element {
-                // Should the data range for a sector include the address mark?
-                // For now we will exclude it.
-                data_ranges.push((item.start + (4 * MFM_BYTE_LEN), item.end));
+        for instance in &self.items {
+            match instance.element {
+                TrackElement::System34(System34Element::SectorData { .. }) => {
+                    // Should the data range for a sector include the address mark?
+                    // For now we will exclude it.
+                    data_ranges.push((instance.start + (4 * MFM_BYTE_LEN), instance.end));
+                }
+                TrackElement::Amiga(AmigaElement::SectorData { .. }) => {
+                    data_ranges.push((instance.start, instance.end));
+                }
+                _ => {}
             }
         }
 

@@ -416,7 +416,7 @@ impl Display for DiskSelection {
 
 /// `DiskImageFileFormat` is an enumeration listing the various disk image file formats that can be
 /// read or written by FluxFox.
-#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, strum::EnumIter)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DiskImageFileFormat {
     /// A raw sector image. Typically, has extensions IMG, IMA, DSK.

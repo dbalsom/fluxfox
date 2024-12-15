@@ -30,7 +30,7 @@ use bit_vec::BitVec;
 use bitflags::bitflags;
 
 use crate::{
-    flux::{flux_revolution::FluxRevolution, FluxStats, FluxTransition},
+    flux::{flux_revolution::FluxRevolution, BasicFluxStats, FluxTransition},
     format_ms,
     format_us,
     types::{TrackDataEncoding, TrackDataRate},
@@ -49,6 +49,7 @@ bitflags! {
     #[rustfmt::skip]
     pub struct PllDecodeFlags: u32 {
         const COLLECT_FLUX_STATS     = 0b0000_0000_0000_0001; // Collect flux statistics. Memory intensive!
+        const COLLECT_ENUMS          = 0b0000_0000_0000_0010; // Collect enumerated values representing each flux category
     }
 }
 
@@ -73,7 +74,7 @@ pub enum PllPreset {
 pub struct PllDecodeResult {
     pub transitions: Vec<FluxTransition>,
     pub bits: BitVec,
-    pub flux_stats: FluxStats,
+    pub flux_stats: BasicFluxStats,
     pub pll_stats: Vec<PllDecodeStatEntry>,
     pub markers: Vec<usize>,
 }
@@ -179,7 +180,7 @@ impl Pll {
 
         let delta_avg = delta_avg / valid_deltas as f64;
 
-        let other_ct = transitions.iter().filter(|t| **t == FluxTransition::Other).count();
+        let other_ct = transitions.iter().filter(|t| t.abnormal()).count();
         log::warn!(
             "Pll::decode_transitions(): {} avg transition time, {} unclassified transitions",
             delta_avg,
@@ -210,7 +211,7 @@ impl Pll {
         }
         else {
             //log::trace!("unclassified duration: {}", duration);
-            FluxTransition::Other
+            FluxTransition::TooLong
         }
     }
 
@@ -231,10 +232,27 @@ impl Pll {
     }
 
     fn decode_mfm(&mut self, stream: &FluxRevolution, flags: PllDecodeFlags) -> PllDecodeResult {
+        // Average conversion factor between flux transition count and bitcell count is ~ 2.6.
+        // We will use x3 to set the capacity for some headroom.
         let mut output_bits = BitVec::with_capacity(stream.flux_deltas.len() * 3);
         let mut error_bits = BitVec::with_capacity(stream.flux_deltas.len() * 3);
+
+        // The transitions vector will hold the classification of each flux transition as a
+        // `FluxTransition` enum - Short, Medium, Long, or Other. This again takes more space, and
+        // we're not currently using it for anything, however it may be useful for debugging
+        let mut transitions = if flags.contains(PllDecodeFlags::COLLECT_ENUMS) {
+            log::debug!("decode_mfm(): Collecting FluxTransition classifications...");
+            Vec::with_capacity(stream.flux_deltas.len())
+        }
+        else {
+            Vec::new()
+        };
+
+        // Collecting PllDecodeStatEntry uses tons of RAM - over 1GB easily, so we should only do it
+        // when requested. We the stats for plotting, but perhaps a track can be re-decoded with stats
+        // enabled on demand to produce a plot
         let mut pll_stats = if flags.contains(PllDecodeFlags::COLLECT_FLUX_STATS) {
-            log::debug!("decode_mfm(): Collecting flux statistics...");
+            log::debug!("decode_mfm(): Collecting PLL statistics...");
             Vec::with_capacity(stream.flux_deltas.len())
         }
         else {
@@ -243,7 +261,6 @@ impl Pll {
         let mut phase_error: f64 = 0.0;
         let mut phase_adjust: f64 = 0.0;
 
-        let mut transitions = Vec::new();
         let mut this_flux_time;
         // The first entry of the flux stream represents a transition time, so we start off the track
         // at the first actual flux transition. We will assume that this transition is perfectly
@@ -263,11 +280,10 @@ impl Pll {
 
         //let p_term = self.pll_period * self.phase_gain;
 
-        let mut flux_stats = FluxStats {
+        let mut flux_stats = BasicFluxStats {
             total: stream.flux_deltas.len() as u32,
-            ..FluxStats::default()
+            ..BasicFluxStats::default()
         };
-
         let mut last_bit = false;
         let mut adjust_gate: i32 = 0;
 
@@ -333,28 +349,40 @@ impl Pll {
                 flux_stats.too_slow_bits += (flux_length - 4) as u32;
             }
 
+            // Categorize the flux length into short, medium, or long.
             match flux_length {
+                0..2 => {
+                    if flags.contains(PllDecodeFlags::COLLECT_ENUMS) {
+                        transitions.push(FluxTransition::TooShort);
+                    }
+                }
                 2 => {
                     flux_stats.short_time += delta_time;
                     flux_stats.short += 1;
-                    transitions.push(FluxTransition::Short);
+                    if flags.contains(PllDecodeFlags::COLLECT_ENUMS) {
+                        transitions.push(FluxTransition::Short);
+                    }
                 }
                 3 => {
                     flux_stats.medium += 1;
-                    transitions.push(FluxTransition::Medium);
+                    if flags.contains(PllDecodeFlags::COLLECT_ENUMS) {
+                        transitions.push(FluxTransition::Medium);
+                    }
                 }
 
                 4 => {
                     flux_stats.long += 1;
-                    transitions.push(FluxTransition::Long);
+                    if flags.contains(PllDecodeFlags::COLLECT_ENUMS) {
+                        transitions.push(FluxTransition::Long);
+                    }
                 }
                 _ => {}
             }
 
             if flux_length > 0 {
                 for _ in 0..flux_length - 1 {
-                    zero_ct += 1;
                     output_bits.push(false);
+                    zero_ct += 1;
                     last_bit = false;
                     shift_reg <<= 1;
                     // More than 3 0's in a row is an MFM error.
@@ -567,9 +595,9 @@ impl Pll {
             format_us!(max_clock)
         );
 
-        let mut flux_stats = FluxStats {
+        let mut flux_stats = BasicFluxStats {
             total: stream.flux_deltas.len() as u32,
-            ..FluxStats::default()
+            ..BasicFluxStats::default()
         };
 
         // Each delta time represents the time in seconds between two flux transitions.
@@ -618,7 +646,7 @@ impl Pll {
             phase_accumulator = 0.0;
 
             let flux_length = clock_ticks_since_flux;
-            log::trace!("flux length: {}", flux_length);
+            //log::trace!("decode_fm(): flux length: {}", flux_length);
 
             match flux_length {
                 0 => {

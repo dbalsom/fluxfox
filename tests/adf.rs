@@ -1,4 +1,4 @@
-#![cfg(all(feature = "td0", feature = "amiga"))]
+#![cfg(all(feature = "adf", feature = "amiga"))]
 mod common;
 
 use common::*;
@@ -11,46 +11,23 @@ fn init() {
 #[test]
 fn test_adf() {
     init();
-    use std::io::Cursor;
-
-    let disk_image_buf = std::fs::read(".\\tests\\images\\adf\\flightyfox.adf").unwrap();
-    let mut in_buffer = Cursor::new(disk_image_buf);
-
-    let mut img_image = DiskImage::load(&mut in_buffer, None, None, None).unwrap();
-
-    let geometry = img_image.image_format().geometry;
-
-    println!("Loaded ADF of geometry {}...", geometry);
-    let format = img_image.closest_format(false).unwrap();
-    println!("Closest format is {:?}", format);
-
-    assert_eq!(format, StandardFormat::AmigaFloppy880);
-
-    let mut out_buffer = Cursor::new(Vec::new());
-    let fmt = DiskImageFileFormat::RawSectorImage;
-
-    fmt.save_image(&mut img_image, &ParserWriteOptions::default(), &mut out_buffer)
-        .unwrap();
-
-    let in_inner: Vec<u8> = in_buffer.into_inner();
-    let out_inner: Vec<u8> = out_buffer.into_inner();
-
-    let in_hash = compute_slice_hash(&in_inner);
-
-    //println!("Input file is {} bytes.", in_inner.len());
-    //println!("First bytes of input file: {:02X?}", &in_inner[0..16]);
-    println!("Input file SHA1: {}", in_hash);
-
-    //println!("Output file is {} bytes.", out_inner.len());
-    //println!("First bytes of output file: {:02X?}", &out_inner[0..16]);
-    //std::fs::write("test_out.img", out_inner.clone()).unwrap();
-    let out_hash = compute_slice_hash(&out_inner);
-    println!("Output file SHA1: {:}", out_hash);
-
-    assert_eq!(in_hash, out_hash);
-    println!("Hashes match!");
+    test_invertibility(
+        ".\\tests\\images\\adf\\flightyfox.adf",
+        DiskImageFileFormat::AmigaDiskFile,
+    );
 }
-//
+
+#[test]
+#[cfg(feature = "gzip")]
+fn test_adz() {
+    init();
+    test_convert_exact(
+        ".\\tests\\images\\adf\\flightyfox.adz",
+        ".\\tests\\images\\adf\\flightyfox.adf",
+        DiskImageFileFormat::AmigaDiskFile,
+    );
+}
+
 // #[test]
 // fn test_img_sector_test() {
 //     init();

@@ -58,19 +58,30 @@ macro_rules! format_ms {
 #[derive(PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum FluxTransition {
+    TooShort,
     Short,
     Medium,
     Long,
-    Other,
+    TooLong,
+}
+
+impl FluxTransition {
+    pub fn abnormal(&self) -> bool {
+        match self {
+            FluxTransition::TooShort | FluxTransition::TooLong => true,
+            _ => false,
+        }
+    }
 }
 
 impl Display for FluxTransition {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
+            FluxTransition::TooShort => write!(f, "s"),
             FluxTransition::Short => write!(f, "S"),
             FluxTransition::Medium => write!(f, "M"),
             FluxTransition::Long => write!(f, "L"),
-            FluxTransition::Other => write!(f, "X"),
+            FluxTransition::TooLong => write!(f, "X"),
         }
     }
 }
@@ -82,13 +93,13 @@ impl FluxTransition {
             FluxTransition::Short => &[true, false],
             FluxTransition::Medium => &[true, false, false],
             FluxTransition::Long => &[true, false, false, false],
-            FluxTransition::Other => &[],
+            _ => &[],
         }
     }
 }
 
 #[derive(Default)]
-pub struct FluxStats {
+pub struct BasicFluxStats {
     pub total: u32,
     pub short: u32,
     pub short_time: f64,
@@ -102,7 +113,7 @@ pub struct FluxStats {
     pub longest_flux:  f64,
 }
 
-impl Display for FluxStats {
+impl Display for BasicFluxStats {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(
             f,
@@ -119,7 +130,7 @@ impl Display for FluxStats {
     }
 }
 
-impl FluxStats {
+impl BasicFluxStats {
     pub fn detect_density(&self, mfi: bool) -> Option<TrackDensity> {
         let mut avg = self.short_avg();
         log::debug!(
@@ -148,7 +159,7 @@ impl FluxStats {
     }
 }
 
-impl FluxStats {
+impl BasicFluxStats {
     pub fn detect_encoding(&self) -> Option<TrackDataEncoding> {
         let medium_freq = self.medium as f64 / self.total as f64;
 
