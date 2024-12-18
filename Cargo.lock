@@ -1818,6 +1818,7 @@ dependencies = [
  "binrw",
  "bit-vec",
  "bitflags 2.6.0",
+ "bytemuck",
  "dyn-clone",
  "env_logger",
  "fatfs",
@@ -1826,7 +1827,7 @@ dependencies = [
  "hex",
  "histogram",
  "log 0.4.22",
- "logger",
+ "modular-bitfield",
  "num-derive",
  "num-traits",
  "plotly",
@@ -2951,6 +2952,27 @@ name = "modifier"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "41f5c9112cb662acd3b204077e0de5bc66305fa8df65c8019d5adb10e9ab6e58"
+
+[[package]]
+name = "modular-bitfield"
+version = "0.11.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a53d79ba8304ac1c4f9eb3b9d281f21f7be9d4626f72ce7df4ad8fbde4f38a74"
+dependencies = [
+ "modular-bitfield-impl",
+ "static_assertions",
+]
+
+[[package]]
+name = "modular-bitfield-impl"
+version = "0.11.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a7d5f7076603ebc68de2dc6a650ec331a062a13abaa346975be747bbfa4b789"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
 
 [[package]]
 name = "ndk"
