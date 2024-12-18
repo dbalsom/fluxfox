@@ -338,6 +338,10 @@ pub fn render_track_data(
     let rmetadata = collect_metadata(p.head, disk_image);
     let num_tracks = min(rtracks.len(), p.track_limit);
 
+    if num_tracks == 0 {
+        return Err(DiskImageError::IncompatibleImage("No tracks to visualize!".to_string()));
+    }
+
     log::trace!("collected {} track references.", num_tracks);
     for (ti, track) in rtracks.iter().enumerate() {
         log::trace!("track {} length: {}", ti, track.len());
@@ -399,6 +403,9 @@ pub fn render_track_data(
                 let track_index = (num_tracks - 1).saturating_sub(track_offset.floor() as usize);
 
                 if track_index < num_tracks {
+                    if rtracks[track_index].is_empty() {
+                        continue;
+                    }
                     // Adjust angle for clockwise or counter-clockwise
                     let mut normalized_angle = match p.direction {
                         RotationDirection::Clockwise => angle - p.index_angle,
@@ -483,7 +490,9 @@ pub fn render_track_map(
         RenderMapType::Errors => collect_error_maps(p.head, disk_image),
     };
     let num_tracks = min(track_refs.len(), p.track_limit);
-
+    if num_tracks == 0 {
+        return Err(DiskImageError::IncompatibleImage("No tracks to visualize!".to_string()));
+    }
     // log::trace!("collected {} maps of type {:?}", num_tracks, map);
     // for (ti, track) in track_refs.iter().enumerate() {
     //     log::debug!("map {} has {} bits", ti, track.count_ones());
