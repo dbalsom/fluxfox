@@ -107,20 +107,12 @@ impl Track for BitStreamTrack {
         self
     }
 
-    fn as_metasector_track(&self) -> Option<&MetaSectorTrack> {
-        None
-    }
-
     fn as_bitstream_track(&self) -> Option<&BitStreamTrack> {
         self.as_any().downcast_ref::<BitStreamTrack>()
     }
 
-    fn as_fluxstream_track(&self) -> Option<&FluxStreamTrack> {
-        None
-    }
-
-    fn as_fluxstream_track_mut(&mut self) -> Option<&mut FluxStreamTrack> {
-        None
+    fn as_bitstream_track_mut(&mut self) -> Option<&mut BitStreamTrack> {
+        self.as_any_mut().downcast_mut::<BitStreamTrack>()
     }
 
     fn ch(&self) -> DiskCh {
@@ -855,10 +847,17 @@ impl BitStreamTrack {
         params: &BitStreamTrackParams,
         shared: Arc<Mutex<SharedDiskContext>>,
     ) -> Result<BitStreamTrack, DiskImageError> {
-        if params.data.is_empty() {
-            log::error!("add_track_bitstream(): Data is empty.");
-            return Err(DiskImageError::ParameterError);
-        }
+        Self::new_optional_ctx(params, Some(shared))
+    }
+
+    pub(crate) fn new_optional_ctx(
+        params: &BitStreamTrackParams,
+        shared: Option<Arc<Mutex<SharedDiskContext>>>,
+    ) -> Result<BitStreamTrack, DiskImageError> {
+        // if params.data.is_empty() {
+        //     log::error!("add_track_bitstream(): Data is empty.");
+        //     return Err(DiskImageError::ParameterError);
+        // }
         if params.weak.is_some() && (params.data.len() != params.weak.unwrap().len()) {
             log::error!("add_track_bitstream(): Data and weak bit mask lengths do not match.");
             return Err(DiskImageError::ParameterError);
@@ -871,7 +870,28 @@ impl BitStreamTrack {
             params.bitcell_ct.unwrap_or(params.data.len() * 8)
         );
 
-        let data = BitVec::from_bytes(params.data);
+        // The data vec is optional if we have a bitcell count and MFM/FM encoding.
+        let data = if params.data.is_empty() {
+            if let Some(bitcell_ct) = params.bitcell_ct {
+                match params.encoding {
+                    TrackDataEncoding::Mfm | TrackDataEncoding::Fm => BitVec::from_fn(bitcell_ct, |i| i % 2 == 0),
+                    _ => {
+                        log::error!(
+                            "add_track_bitstream(): Unsupported data encoding: {:?}",
+                            params.encoding
+                        );
+                        return Err(DiskImageError::UnsupportedFormat);
+                    }
+                }
+            }
+            else {
+                log::error!("add_track_bitstream(): Data or Bitcell count not provided.");
+                return Err(DiskImageError::ParameterError);
+            }
+        }
+        else {
+            BitVec::from_bytes(params.data)
+        };
         let weak_bitvec_opt = params.weak.map(BitVec::from_bytes);
         let default_schema = params.schema.unwrap_or(TrackSchema::System34);
         let mut track_schema = None;
@@ -1024,8 +1044,47 @@ impl BitStreamTrack {
             data: data_stream,
             metadata: track_metadata,
             schema: track_schema,
-            shared: Some(shared),
+            shared,
         })
+    }
+
+    pub fn set_schema(&mut self, schema: TrackSchema) {
+        self.schema = Some(schema);
+    }
+
+    /// Rescan the track for markers and metadata. This can be called if we have manually
+    /// written the track and need to update the metadata.
+    /// A schema must be set for the track before calling this function.
+    /// After all, if you were writing to the track you really should know what format the track was...
+    pub fn rescan(&mut self) -> Result<(), DiskImageError> {
+        let schema = self.schema.ok_or(DiskImageError::SchemaError)?;
+
+        let track_markers = schema.scan_for_markers(&self.data);
+        if !track_markers.is_empty() {
+            log::trace!(
+                "Schema {:?} found {} markers, first marker at {}",
+                schema,
+                track_markers.len(),
+                track_markers[0].start
+            );
+
+            schema.create_clock_map(&track_markers, self.data.clock_map_mut());
+        }
+        else {
+            log::warn!("Schema {:?} failed to detect track markers.", schema);
+        }
+
+        self.metadata = TrackMetadata::new(schema.scan_for_elements(&mut self.data, track_markers));
+        let sector_ids = self.metadata.sector_ids();
+        if sector_ids.is_empty() {
+            log::warn!("rescan(): No sector ids found in track {} metadata.", self.ch.c());
+        }
+        let data_ranges = self.metadata.data_ranges();
+        if !data_ranges.is_empty() {
+            log::debug!("rescan(): Adding {} data ranges to track stream", data_ranges.len(),);
+            self.data.set_data_ranges(data_ranges);
+        }
+        Ok(())
     }
 
     #[allow(dead_code)]
