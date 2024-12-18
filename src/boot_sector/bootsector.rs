@@ -144,7 +144,9 @@ impl BootSector {
 
         if creator_string.bytes != "fluxfox ".as_bytes() {
             // We can only set the creator if we're using the included boot sector, otherwise we'd overwrite some random data.
-            return Err(DiskImageError::IncompatibleImage);
+            return Err(DiskImageError::IncompatibleImage(
+                "Creator string requires using default bootsector".to_string(),
+            ));
         }
 
         cursor.seek(SeekFrom::Start(creator_offset))?;
