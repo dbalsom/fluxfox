@@ -25,16 +25,55 @@
     --------------------------------------------------------------------------
 */
 
-pub mod chs;
-pub mod enums;
-pub mod flags;
-pub mod sector_layout;
-pub mod standard_format;
-pub mod structs;
+/// 'CRC32 Reverse' Hasher for IPF files.
+pub(crate) struct IpfCrcHasher {
+    crc: u32,
+}
 
-// Expose all types under types module namespace
-pub use chs::*;
-pub use enums::*;
-pub use flags::*;
-pub use standard_format::*;
-pub use structs::*;
+impl IpfCrcHasher {
+    pub(crate) fn new() -> Self {
+        Self { crc: 0xFFFF_FFFF }
+    }
+
+    pub(crate) fn update(&mut self, data: &[u8]) {
+        for &byte in data.iter() {
+            self.crc ^= byte as u32;
+            for _ in 0..8 {
+                if self.crc & 1 != 0 {
+                    self.crc = (self.crc >> 1) ^ 0xEDB8_8320;
+                }
+                else {
+                    self.crc >>= 1;
+                }
+            }
+        }
+    }
+
+    pub(crate) fn finalize(&self) -> u32 {
+        !self.crc
+    }
+}
+
+impl Default for IpfCrcHasher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Reference implementation of the CRC algorithm used by IPF files.
+#[allow(dead_code)]
+pub(crate) fn ipf_crc_u32r(data: &[u8], start: Option<u32>) -> u32 {
+    let mut crc = start.unwrap_or(0xFFFF_FFFF);
+    for byte in data.iter() {
+        crc ^= *byte as u32;
+        for _ in 0..8 {
+            if crc & 1 != 0 {
+                crc = (crc >> 1) ^ 0xEDB8_8320;
+            }
+            else {
+                crc >>= 1;
+            }
+        }
+    }
+    !crc
+}

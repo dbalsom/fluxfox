@@ -49,12 +49,14 @@ use std::{
 #[derive(Copy, Clone, Debug, strum::EnumIter)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Platform {
-    #[doc = "IBM PC and compatibles"]
+    /// IBM PC and compatibles
     IbmPc,
-    #[doc = "Commodore Amiga"]
+    /// Commodore Amiga
     Amiga,
-    #[doc = "Apple Macintosh"]
+    /// Apple Macintosh
     Macintosh,
+    /// Atari ST
+    AtariSt,
 }
 
 impl Display for Platform {
@@ -63,6 +65,7 @@ impl Display for Platform {
             Platform::IbmPc => write!(f, "IBM PC"),
             Platform::Amiga => write!(f, "Commodore Amiga"),
             Platform::Macintosh => write!(f, "Apple Macintosh"),
+            Platform::AtariSt => write!(f, "Atari ST"),
         }
     }
 }
@@ -449,6 +452,8 @@ pub enum DiskImageFileFormat {
     MameFloppyImage,
     #[cfg(feature = "adf")]
     AmigaDiskFile,
+    #[cfg(feature = "ipf")]
+    IpFormat,
 }
 
 impl DiskImageFileFormat {
@@ -479,6 +484,8 @@ impl DiskImageFileFormat {
             MameFloppyImage => 0,
             #[cfg(feature = "adf")]
             AmigaDiskFile => 0,
+            #[cfg(feature = "ipf")]
+            IpFormat => 0,
         }
     }
 
@@ -502,6 +509,8 @@ impl DiskImageFileFormat {
             MameFloppyImage => DiskDataResolution::FluxStream,
             #[cfg(feature = "adf")]
             AmigaDiskFile => DiskDataResolution::MetaSector,
+            #[cfg(feature = "ipf")]
+            IpFormat => DiskDataResolution::BitStream,
         }
     }
 }
@@ -527,6 +536,8 @@ impl Display for DiskImageFileFormat {
             MameFloppyImage => "MAME Flux Stream".to_string(),
             #[cfg(feature = "adf")]
             AmigaDiskFile => "Amiga Disk File".to_string(),
+            #[cfg(feature = "ipf")]
+            IpFormat => "IPF Disk".to_string(),
         };
         write!(f, "{}", str)
     }

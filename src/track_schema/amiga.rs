@@ -121,6 +121,11 @@ impl From<&[u8]> for System34FormatBuffer {
     }
 }*/
 
+/// Not sure if there are any others to define, but if GCR has a different format, we can add it here.
+pub enum AmigaVariant {
+    MfmTrackDisk,
+}
+
 #[derive(Default, Debug)]
 pub struct AmigaSectorQuery {
     pub t: Option<u8>,        // Track number
@@ -150,7 +155,7 @@ impl From<AmigaSectorQuery> for SectorIdQuery {
 
 #[allow(dead_code)]
 #[derive(Default, Debug)]
-struct AmigaSectorHeader {
+struct AmigaSectorId {
     fmt: u8, // Usually 0xFF (Amiga v1.0 format)
     tt:  u8, // Track number (lba-type address)
     ss:  u8, // Sector number (not necessarily consecutive)
@@ -675,6 +680,7 @@ impl AmigaSchema {
                 for (b, cb) in buf.iter_mut().zip(recorded_checksum.to_be_bytes().iter()) {
                     *b = *cb;
                 }
+
                 // Decode the sector data to the buffer.
                 for (i, out_byte) in buf.iter_mut().skip(4).take((raw_bytes_read / 2) - 4).enumerate() {
                     let odd_byte = raw_buf[i] & 0x55;
@@ -766,11 +772,11 @@ impl AmigaSchema {
         dword
     }
 
-    fn decode_sector_header(stream: &TrackDataStream, index: usize) -> AmigaSectorHeader {
+    fn decode_sector_header(stream: &TrackDataStream, index: usize) -> AmigaSectorId {
         let dword = Self::decode_interleaved_u32(stream, index + mfm_offset!(2));
 
         let info_block: [u8; 4] = dword.to_be_bytes();
-        let sector_header = AmigaSectorHeader {
+        let sector_header = AmigaSectorId {
             fmt: info_block[0],
             tt:  info_block[1],
             ss:  info_block[2],

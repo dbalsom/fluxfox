@@ -127,7 +127,7 @@ pub fn detect_container_format<T: ReadSeek>(
                     .filter(|&path| {
                         path.file_name()
                             .and_then(|name| name.to_str())
-                            .is_some_and(|name| name.ends_with("00.0.raw"))
+                            .map_or(false, |name| name.ends_with("00.0.raw"))
                     })
                     .collect();
 

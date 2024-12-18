@@ -35,7 +35,14 @@
 //! Flux transition times are stored in a variable-length encoding similar to Kryoflux.
 
 use crate::{
-    file_parsers::{bitstream_flags, FormatCaps, ParserReadOptions, ParserWriteCompatibility, ParserWriteOptions},
+    file_parsers::{
+        bitstream_flags,
+        pce::crc::pce_crc,
+        FormatCaps,
+        ParserReadOptions,
+        ParserWriteCompatibility,
+        ParserWriteOptions,
+    },
     io::{Cursor, ReadBytesExt, ReadSeek, ReadWriteSeek},
     track::fluxstream::FluxStreamTrack,
     types::{chs::DiskCh, DiskDescriptor, FluxStreamTrackParams, Platform, TrackDataEncoding, TrackDensity},
@@ -98,23 +105,6 @@ pub struct PfiChunk {
     pub chunk_type: PfiChunkType,
     pub size: u32,
     pub data: Vec<u8>,
-}
-
-pub(crate) fn pfi_crc(buf: &[u8]) -> u32 {
-    let mut crc = 0;
-    for i in 0..buf.len() {
-        crc ^= ((buf[i] & 0xff) as u32) << 24;
-
-        for _j in 0..8 {
-            if crc & 0x80000000 != 0 {
-                crc = (crc << 1) ^ 0x1edc6f41;
-            }
-            else {
-                crc <<= 1;
-            }
-        }
-    }
-    crc & 0xffffffff
 }
 
 #[derive(Default)]
@@ -204,7 +194,7 @@ impl PfiFormat {
         image.seek(std::io::SeekFrom::Start(chunk_pos))?;
         image.read_exact(&mut buffer)?;
 
-        let crc_calc = pfi_crc(&buffer);
+        let crc_calc = pce_crc(&buffer);
         let chunk_crc = PfiChunkCrc::read(&mut image)?;
 
         if chunk_crc.crc != crc_calc {

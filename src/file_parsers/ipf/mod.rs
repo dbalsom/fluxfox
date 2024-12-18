@@ -25,16 +25,14 @@
     --------------------------------------------------------------------------
 */
 
-pub mod chs;
-pub mod enums;
-pub mod flags;
-pub mod sector_layout;
-pub mod standard_format;
-pub mod structs;
+pub mod chunk;
+pub mod crc;
+mod data_record;
+pub mod image_record;
+pub mod info_record;
+pub mod ipf_parser;
+mod platforms;
+mod source_map;
+mod stream_element;
 
-// Expose all types under types module namespace
-pub use chs::*;
-pub use enums::*;
-pub use flags::*;
-pub use standard_format::*;
-pub use structs::*;
+pub use ipf_parser::IpfParser as IpFormat;

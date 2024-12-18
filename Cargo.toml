@@ -37,21 +37,42 @@ members = [
 # Required dependencies
 # ----------------------------------------------------------------------------------------------------------------------
 [dependencies]
+# bit-vec provides the BitVec type which is the fundamental data structure BitStream tracks are built on.
+# It has no extra dependencies.
 bit-vec = "0.8"
+# bitflags simplifies binary flag handling.
 bitflags = "2.6"
+# binrw is a powerful crate for reading and writing binary data - it powers all of fluxfox's disk image parsers.
 binrw = "0.14"
+# bytemuck is a safe wrapper around transumte for working with slices at different alignments. it can significantly
+# improve performance when parsing data from byte slices.
+bytemuck = "1.7"
+# thiserror simplifies error handling for library crates.
 thiserror = "2.0"
-logger = "0.4"
+# envlogger is a logger backend for control over logging levels via the RUST_LOG environment variable
 env_logger = "0.11"
+# regular expressions are used for file matching - notably expanding a raw kryoflux stream filename into a file set
 regex = "1.11"
+# log is a logging facade
 log = "0.4"
-rand = "0.8"
+# sha1_smol is used for hashing track data to detect duplicate tracks
 sha1_smol = "1.0"
+# dyn-clone is used to clone trait objects
 dyn-clone = "1.0"
+# strum is used to for useful macros, such as deriving iterators over enums
 strum = { version = "0.26", features = ["derive"] }
 
 # Optional dependencies
 # ----------------------------------------------------------------------------------------------------------------------
+
+# Bytemuck is used for data transformation, especially for odd/even Amiga encoding
+
+# rand is used for generating random numbers - primarily for genering random bits for fuzzy/weak bits
+# if the 'rand' feature is not enabled we will fall back to using an inexpensive pseudo-random bit generation
+rand = { version = "0.8", optional = true }
+
+# Modular-bitfield is used by the IPF parser
+modular-bitfield = { version = "0.11", optional = true }
 
 # Num-traits and num-derive are used by retrocompressor ('td0' feature)
 num-traits = { version = "0.2", optional = true }
@@ -75,10 +96,17 @@ serde = { version = "1.0", optional = true }
 # typetag is used for serialization / deserialization of dyn trait objects ('serde' feature)
 typetag = { version = "0.2", optional = true }
 
-wasm-bindgen-futures = { version = "0.4", optional = true }
+#wasm-bindgen-futures = { version = "0.4", optional = true }
 
 # fluxfox_fat is used for reading FAT12/16/32 filesystems if 'fat' feature is enabled
-fluxfox_fat = { git = "https://github.com/dbalsom/fluxfox_fat.git", package = "fatfs", branch = "bpb_fix", default-features = false, features = ["std", "alloc", "log_level_debug"], optional = true }
+# fluxfox_fat is a fork of rust-fatfs with a few fixes for reading older/odd boot sectors
+[dependencies.fluxfox_fat]
+git = "https://github.com/dbalsom/fluxfox_fat.git"
+package = "fatfs"
+branch = "bpb_fix"
+default-features = false
+features = ["std", "alloc", "log_level_debug"]
+optional = true
 
 # Native dependencies
 # ----------------------------------------------------------------------------------------------------------------------
@@ -105,15 +133,22 @@ sha1 = "0.10"
 hex = "0.4"    # or the latest version
 
 [features]
-default = ["viz", "archives", "mfi", "fat", "flux", "ibmpc", "amiga"]
+default = ["rand", "viz", "archives", "mfi", "fat", "flux", "ibmpc", "amiga"]
+# the rand feature enables use of the rand crate for random number generation.
+# note: it is intended to be optional but the fallback is not yet implemented
+rand = ["dep:rand"]
 wasm = ["async", "wasm-bindgen", "wasm-bindgen-futures"]
 serde = ["dep:serde", "dep:typetag", "bit-vec/serde_std", "bitflags/serde"]
 tokio-async = ["async", "tokio"]
 async = []
 # ibmpc feature enables IBM PC-specific disk image support (not fully factored out at the moment)
 ibmpc = ["td0"]
-# amiga feature enables Amiga-specific disk image support
-amiga = ["adf"]
+# amiga feature enables Amiga-specific disk image support. It will enable IPF and enable Amiga platform support
+# in the IPF parser. Note - at least one of the 'atarist' or 'amiga' features must be enabled to enable IPF support!
+amiga = ["adf", "ipf"]
+# atarist feature enables Atari ST-specific disk image support. It will enable IPF and enable Atari platform support
+# in the IPF parser.
+atarist = ["ipf", "st"]
 # viz feature enables visualization functions - will pull in tiny-skia dependency for drawing
 viz = ["dep:tiny-skia"]
 # fat feature enables reading FAT12/16/32 filesystems. This will pull in fluxfox_fat dependency
@@ -145,6 +180,12 @@ td0 = ["dep:num-traits", "dep:num-derive"]
 # enable reading/writing StandardFormat::Amiga880k images in the `raw` parser and StandardSectorView, as well as
 # advertising the ADF extension.
 adf = []
+# st feature enables reading Atari ST 'ST' images. Like ADF, this is just another form of raw sector image and will
+# simply enable the raw parser to work with it and advertise the extension.
+st = []
+# ipf feature enables reading SPS IPF images. This will pull in modular-bitfield
+ipf = ["dep:modular-bitfield"]
+
 
 # Clippy lint control
 # ----------------------------------------------------------------------------------------------------------------------

@@ -35,7 +35,7 @@ pub(crate) fn run(global: &GlobalOptions, params: &args::DumpParams) -> Result<(
     let row_size = params.row_size.unwrap_or(16) as usize;
     let mut cursor = read_file(&params.in_file)?;
 
-    let disk_image_type = match DiskImage::detect_format(&mut cursor) {
+    let disk_image_type = match DiskImage::detect_format(&mut cursor, Some(params.in_file.clone())) {
         Ok(disk_image_type) => disk_image_type,
         Err(e) => {
             eprintln!("Error detecting disk image type: {}", e);

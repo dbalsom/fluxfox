@@ -24,10 +24,30 @@
 
     --------------------------------------------------------------------------
 */
+use crate::io::SeekFrom;
 use bitflags::bitflags;
+
+pub mod compression;
+pub mod f86;
+pub mod hfe;
+pub mod imd;
+#[cfg(feature = "ipf")]
+pub mod ipf;
+pub mod kryoflux;
+#[cfg(feature = "mfi")]
+pub mod mfi;
+pub mod mfm;
+pub mod pce;
+pub mod raw;
+pub mod scp;
+pub mod tc;
+#[cfg(feature = "td0")]
+pub mod td0;
 
 #[cfg(feature = "async")]
 use std::sync::{Arc, Mutex};
+
+use pce::{pfi, pri, psi};
 
 use crate::{
     io::{ReadSeek, ReadWriteSeek},
@@ -38,22 +58,7 @@ use crate::{
     LoadingCallback,
 };
 
-pub mod compression;
-pub mod f86;
-pub mod hfe;
-pub mod imd;
-pub mod kryoflux;
-#[cfg(feature = "mfi")]
-pub mod mfi;
-pub mod mfm;
-pub mod pfi;
-pub mod pri;
-pub mod psi;
-pub mod raw;
-pub mod scp;
-pub mod tc;
-#[cfg(feature = "td0")]
-pub mod td0;
+use strum::IntoEnumIterator;
 
 #[allow(dead_code)]
 #[derive(Clone, Debug, Default)]
@@ -77,6 +82,7 @@ bitflags! {
         const NFA_TO_WEAK_BITS        = 0b0000_0000_0000_0010; // Convert NFA zones to weak bits
         const DETECT_WEAK_BITS        = 0b0000_0000_0000_0100; // Analyze multiple revolutions for weak bits (requires flux image)
         const WEAK_BITS_TO_HOLES      = 0b0000_0000_0000_1000; // Convert weak bits to holes
+        const CREATE_SOURCE_MAP       = 0b0000_0000_0001_0000; // Generate a SourceMap for the image (not all parsers support)
     }
 }
 
@@ -141,36 +147,12 @@ pub enum ParserWriteCompatibility {
     UnsupportedFormat,
 }
 
-/// A list of all supported image formats. This list is used to determine which parsers to attempt
-/// to use when detecting and loading disk images, and may also be enumerated in UIs
-/// We use a reference to the array to avoid having to specify the length in the const declaration,
-/// which may change depending on which features are enabled.
-pub(crate) const IMAGE_FORMATS: &[DiskImageFileFormat] = &[
-    DiskImageFileFormat::ImageDisk,
-    #[cfg(feature = "td0")]
-    DiskImageFileFormat::TeleDisk,
-    DiskImageFileFormat::PceSectorImage,
-    DiskImageFileFormat::PceBitstreamImage,
-    DiskImageFileFormat::MfmBitstreamImage,
-    DiskImageFileFormat::HfeImage,
-    DiskImageFileFormat::F86Image,
-    DiskImageFileFormat::TransCopyImage,
-    DiskImageFileFormat::SuperCardPro,
-    DiskImageFileFormat::PceFluxImage,
-    #[cfg(feature = "mfi")]
-    DiskImageFileFormat::MameFloppyImage,
-    DiskImageFileFormat::KryofluxStream,
-    DiskImageFileFormat::RawSectorImage,
-    #[cfg(feature = "adf")]
-    DiskImageFileFormat::AmigaDiskFile,
-];
-
 /// Returns a list of advertised file extensions supported by available image format parsers.
 /// This is a convenience function for use in file dialogs - internal image detection is not based
 /// on file extension, but by image file content (and occasionally size, in the case of raw sector
 /// images)
 pub fn supported_extensions() -> Vec<&'static str> {
-    let mut ext_vec: Vec<&str> = IMAGE_FORMATS.iter().flat_map(|f| f.extensions()).collect();
+    let mut ext_vec: Vec<&str> = DiskImageFileFormat::iter().flat_map(|f| f.extensions()).collect();
     ext_vec.sort();
     ext_vec.dedup();
     ext_vec
@@ -179,9 +161,9 @@ pub fn supported_extensions() -> Vec<&'static str> {
 /// Returns a DiskImageFormat enum variant based on the file extension provided. If the extension
 /// is not recognized, None is returned.
 pub fn format_from_ext(ext: &str) -> Option<DiskImageFileFormat> {
-    for format in IMAGE_FORMATS {
+    for format in DiskImageFileFormat::iter() {
         if format.extensions().contains(&ext.to_lowercase().as_str()) {
-            return Some(*format);
+            return Some(format);
         }
     }
     None
@@ -193,10 +175,9 @@ pub fn formats_from_caps(caps: FormatCaps) -> Vec<(DiskImageFileFormat, Vec<Stri
     // if caps.is_empty() {
     //     log::warn!("formats_from_caps(): called with empty capabilities");
     // }
-    let format_vec = IMAGE_FORMATS
-        .iter()
+    let format_vec = DiskImageFileFormat::iter()
         .filter(|f| caps.is_empty() || f.capabilities().contains(caps))
-        .map(|f| (*f, f.extensions().iter().map(|s| s.to_string()).collect()))
+        .map(|f| (f, f.extensions().iter().map(|s| s.to_string()).collect()))
         .collect();
 
     format_vec
@@ -284,6 +265,8 @@ impl ImageFormatParser for DiskImageFileFormat {
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::capabilities(),
             #[cfg(feature = "adf")]
             DiskImageFileFormat::AmigaDiskFile => raw::RawFormat::capabilities(),
+            #[cfg(feature = "ipf")]
+            DiskImageFileFormat::IpFormat => ipf::IpFormat::capabilities(),
         }
     }
 
@@ -306,6 +289,8 @@ impl ImageFormatParser for DiskImageFileFormat {
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::platforms(),
             #[cfg(feature = "adf")]
             DiskImageFileFormat::AmigaDiskFile => raw::RawFormat::platforms(),
+            #[cfg(feature = "ipf")]
+            DiskImageFileFormat::IpFormat => ipf::IpFormat::platforms(),
         }
     }
 
@@ -328,6 +313,8 @@ impl ImageFormatParser for DiskImageFileFormat {
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::detect(image_buf),
             #[cfg(feature = "adf")]
             DiskImageFileFormat::AmigaDiskFile => raw::RawFormat::detect(image_buf),
+            #[cfg(feature = "ipf")]
+            DiskImageFileFormat::IpFormat => ipf::IpFormat::detect(image_buf),
         }
     }
 
@@ -350,6 +337,8 @@ impl ImageFormatParser for DiskImageFileFormat {
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::extensions(),
             #[cfg(feature = "adf")]
             DiskImageFileFormat::AmigaDiskFile => raw::RawFormat::extensions(),
+            #[cfg(feature = "ipf")]
+            DiskImageFileFormat::IpFormat => ipf::IpFormat::extensions(),
         }
     }
 
@@ -378,6 +367,8 @@ impl ImageFormatParser for DiskImageFileFormat {
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::load_image(read_buf, image, opts, callback),
             #[cfg(feature = "adf")]
             DiskImageFileFormat::AmigaDiskFile => raw::RawFormat::load_image(read_buf, image, opts, callback),
+            #[cfg(feature = "ipf")]
+            DiskImageFileFormat::IpFormat => ipf::IpFormat::load_image(read_buf, image, opts, callback),
         }
     }
 
@@ -440,6 +431,8 @@ impl ImageFormatParser for DiskImageFileFormat {
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::can_write(image),
             #[cfg(feature = "adf")]
             DiskImageFileFormat::AmigaDiskFile => raw::RawFormat::can_write(image),
+            #[cfg(feature = "ipf")]
+            DiskImageFileFormat::IpFormat => ipf::IpFormat::can_write(image),
         }
     }
 
@@ -467,8 +460,18 @@ impl ImageFormatParser for DiskImageFileFormat {
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::save_image(image, opts, write_buf),
             #[cfg(feature = "adf")]
             DiskImageFileFormat::AmigaDiskFile => raw::RawFormat::save_image(image, opts, write_buf),
+            #[cfg(feature = "ipf")]
+            DiskImageFileFormat::IpFormat => ipf::IpFormat::save_image(image, opts, write_buf),
         }
     }
+}
+
+// Helper function to retrieve the length of a reader
+fn reader_len<R: ReadSeek>(reader: &mut R) -> Result<u64, DiskImageError> {
+    let pos = reader.seek(SeekFrom::Current(0))?;
+    let len = reader.seek(SeekFrom::End(0))?;
+    reader.seek(SeekFrom::Start(pos))?;
+    Ok(len)
 }
 
 #[cfg(test)]

@@ -34,14 +34,6 @@
 
 use crate::{bitstream::mfm::MfmCodec, track::bitstream::BitStreamTrack, DiskImageFileFormat, SectorMapEntry};
 
-use bit_vec::BitVec;
-use sha1_smol::Digest;
-use std::{
-    io::Cursor,
-    path::PathBuf,
-    sync::{Arc, Mutex, RwLock},
-};
-
 use crate::{
     bitstream::{fm::FmCodec, TrackDataStream},
     boot_sector::BootSector,
@@ -83,6 +75,13 @@ use crate::{
     FoxHashSet,
     LoadingCallback,
     LoadingStatus,
+};
+use bit_vec::BitVec;
+use sha1_smol::Digest;
+use std::{
+    io::Cursor,
+    path::PathBuf,
+    sync::{Arc, Mutex, RwLock},
 };
 
 pub(crate) const DEFAULT_BOOT_SECTOR: &[u8] = include_bytes!("../resources/bootsector.bin");
@@ -738,7 +737,9 @@ impl DiskImage {
                         "add_track_fluxstream(): Disk resolution is incompatible with FluxStream: {:?}",
                         self.resolution
                     );
-                    Err(DiskImageError::IncompatibleImage)
+                    Err(DiskImageError::IncompatibleImage(
+                        "Disk resolution is incompatible with FluxStream.".to_string(),
+                    ))
                 }
             }
         }
@@ -790,7 +791,11 @@ impl DiskImage {
                 log::debug!("add_track_bitstream(): Disk resolution is now: {:?}", self.resolution);
             }
             Some(DiskDataResolution::BitStream) => {}
-            _ => return Err(DiskImageError::IncompatibleImage),
+            _ => {
+                return Err(DiskImageError::IncompatibleImage(
+                    "Disk resolution is incompatible with BitStream.".to_string(),
+                ))
+            }
         }
 
         log::debug!(
@@ -837,7 +842,11 @@ impl DiskImage {
         match self.resolution {
             None => self.resolution = Some(DiskDataResolution::MetaSector),
             Some(DiskDataResolution::MetaSector) => {}
-            _ => return Err(DiskImageError::IncompatibleImage),
+            _ => {
+                return Err(DiskImageError::IncompatibleImage(
+                    "Disk resolution is incompatible with MetaSector.".to_string(),
+                ))
+            }
         }
 
         self.track_pool.push(Box::new(MetaSectorTrack {
@@ -1100,7 +1109,9 @@ impl DiskImage {
                     "add_empty_track(): Disk image resolution not set: {:?}",
                     self.resolution
                 );
-                return Err(DiskImageError::IncompatibleImage);
+                return Err(DiskImageError::IncompatibleImage(
+                    "Disk image resolution not set".to_string(),
+                ));
             }
         }
 
@@ -1214,7 +1225,7 @@ impl DiskImage {
 
     pub(crate) fn read_boot_sector(&mut self) -> Result<Vec<u8>, DiskImageError> {
         if self.track_map.is_empty() || self.track_map[0].is_empty() {
-            return Err(DiskImageError::IncompatibleImage);
+            return Err(DiskImageError::IncompatibleImage("No tracks found.".to_string()));
         }
         let ti = self.track_map[0][0];
         let track = &mut self.track_pool[ti];

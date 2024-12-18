@@ -25,16 +25,20 @@
     --------------------------------------------------------------------------
 */
 
-pub mod chs;
-pub mod enums;
-pub mod flags;
-pub mod sector_layout;
-pub mod standard_format;
-pub mod structs;
+//! The shared CRC algorith mused by all PCE disk image formats.
 
-// Expose all types under types module namespace
-pub use chs::*;
-pub use enums::*;
-pub use flags::*;
-pub use standard_format::*;
-pub use structs::*;
+pub(crate) fn pce_crc(buf: &[u8]) -> u32 {
+    let mut crc = 0;
+    for byte in buf {
+        crc ^= ((*byte & 0xFF) as u32) << 24;
+        for _j in 0..8 {
+            if crc & 0x8000_0000 != 0 {
+                crc = (crc << 1) ^ 0x1EDC_6F41;
+            }
+            else {
+                crc <<= 1;
+            }
+        }
+    }
+    crc & 0xFFFF_FFFF
+}

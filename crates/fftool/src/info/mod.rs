@@ -33,7 +33,7 @@ pub mod args;
 pub(crate) fn run(_global: &GlobalOptions, params: &args::InfoParams) -> Result<(), Error> {
     let mut reader = read_file(&params.in_file)?;
 
-    let disk_image_type = match DiskImage::detect_format(&mut reader) {
+    let disk_image_type = match DiskImage::detect_format(&mut reader, Some(params.in_file.clone())) {
         Ok(disk_image_type) => disk_image_type,
         Err(e) => {
             bail!("Error detecting disk image type: {}", e);

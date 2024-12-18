@@ -25,16 +25,17 @@
     --------------------------------------------------------------------------
 */
 
-pub mod chs;
-pub mod enums;
-pub mod flags;
-pub mod sector_layout;
-pub mod standard_format;
-pub mod structs;
+//! Parsers for the various formats associated with the PCE emulator and disk
+//! tool suite, invented by Hampa Hug.
+//!
+//! These include:
+//! * PFI - PCE Flux Image - A single-file flux container format.
+//! * PRI - PCE Raw Image - A track-based, bitstream container format.
+//! * PSI - PCE Sector Image - A sector-based container format containing lots
+//!         of metadata that can support a surprising number of copy-protected
+//!         titles.
 
-// Expose all types under types module namespace
-pub use chs::*;
-pub use enums::*;
-pub use flags::*;
-pub use standard_format::*;
-pub use structs::*;
+pub(crate) mod crc;
+pub(crate) mod pfi;
+pub(crate) mod pri;
+pub(crate) mod psi;

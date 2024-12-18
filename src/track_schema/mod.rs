@@ -52,27 +52,29 @@ use std::{
 #[cfg(feature = "amiga")]
 pub mod amiga;
 mod dispatch;
+mod meta_encoding;
 pub mod system34;
 
 use crate::{
     bitstream::{mfm::MFM_BYTE_LEN, TrackDataStream},
-    track_schema::system34::{System34Element, System34Marker},
-    types::chs::DiskChsn,
+    track::{TrackAnalysis, TrackSectorScanResult},
+    track_schema::system34::{System34Element, System34Marker, System34Variant},
+    types::{chs::DiskChsn, IntegrityCheck, Platform, RwScope, SectorAttributes},
     SectorId,
     SectorIdQuery,
     SectorMapEntry,
 };
 
 #[cfg(feature = "amiga")]
-use crate::track_schema::amiga::AmigaElement;
-#[cfg(feature = "amiga")]
-use crate::track_schema::amiga::AmigaMarker;
+use crate::track_schema::amiga::{AmigaElement, AmigaMarker, AmigaVariant};
 
-use crate::{
-    track::{TrackAnalysis, TrackSectorScanResult},
-    types::{IntegrityCheck, Platform, RwScope, SectorAttributes},
-};
 use bit_vec::BitVec;
+
+pub enum TrackSchemaVariant {
+    System34(System34Variant),
+    #[cfg(feature = "amiga")]
+    Amiga(AmigaVariant),
+}
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, strum::EnumIter)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -101,6 +103,7 @@ impl From<Platform> for TrackSchema {
             #[cfg(feature = "amiga")]
             Platform::Amiga => TrackSchema::Amiga,
             Platform::Macintosh => TrackSchema::System34,
+            Platform::AtariSt => TrackSchema::System34,
         }
     }
 }

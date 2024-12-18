@@ -94,6 +94,13 @@ pub const IDAM_MARKER_BYTES: [u8; 4] = [0xA1, 0xA1, 0xA1, 0xFE];
 pub const DAM_MARKER_BYTES: [u8; 4] = [0xA1, 0xA1, 0xA1, 0xFB];
 pub const DDAM_MARKER_BYTES: [u8; 4] = [0xA1, 0xA1, 0xA1, 0xF8];
 
+pub enum System34Variant {
+    Ibm3740,
+    Ibm,
+    Iso,
+    Perpendicular,
+}
+
 #[derive(Debug)]
 pub struct System34FormatBuffer {
     pub chs_vec: Vec<DiskChsn>,

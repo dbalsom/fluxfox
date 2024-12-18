@@ -25,16 +25,10 @@
     --------------------------------------------------------------------------
 */
 
-pub mod chs;
-pub mod enums;
-pub mod flags;
-pub mod sector_layout;
-pub mod standard_format;
-pub mod structs;
+//! A module for handling IPF platforms.
+//!
+//! Parsing IPF files requires certain domain knowledge about the format being
+//! parsed. For example, Amiga disks encoded as CAPS IPF tracks use certain
+//! conventions that may not be obvious.
 
-// Expose all types under types module namespace
-pub use chs::*;
-pub use enums::*;
-pub use flags::*;
-pub use standard_format::*;
-pub use structs::*;
+pub mod amiga;

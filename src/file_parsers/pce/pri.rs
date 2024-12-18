@@ -42,7 +42,7 @@ use crate::{
 };
 
 use crate::{
-    file_parsers::{ParserReadOptions, ParserWriteOptions},
+    file_parsers::{pce::crc::pce_crc, ParserReadOptions, ParserWriteOptions},
     track::bitstream::BitStreamTrack,
     types::{chs::DiskCh, DiskDataResolution, Platform, TrackDataEncoding, TrackDataRate, TrackDensity},
     DiskImage,
@@ -147,23 +147,6 @@ pub struct TrackContext {
     bit_clock: u32,
 }
 
-pub(crate) fn pri_crc(buf: &[u8]) -> u32 {
-    let mut crc = 0;
-    for i in 0..buf.len() {
-        crc ^= ((buf[i] & 0xff) as u32) << 24;
-
-        for _j in 0..8 {
-            if crc & 0x80000000 != 0 {
-                crc = (crc << 1) ^ 0x1edc6f41;
-            }
-            else {
-                crc <<= 1;
-            }
-        }
-    }
-    crc & 0xffffffff
-}
-
 impl PriFormat {
     #[allow(dead_code)]
     fn format() -> DiskImageFileFormat {
@@ -258,7 +241,7 @@ impl PriFormat {
         image.seek(std::io::SeekFrom::Start(chunk_pos))?;
         image.read_exact(&mut buffer)?;
 
-        let crc_calc = pri_crc(&buffer);
+        let crc_calc = pce_crc(&buffer);
         let chunk_crc = PriChunkCrc::read(&mut image)?;
 
         if chunk_crc.crc != crc_calc {
@@ -312,7 +295,7 @@ impl PriFormat {
         chunk_buf.write_all(data_buf.get_ref())?;
 
         // Calculate CRC for chunk, over header and data bytes.
-        let crc_calc = pri_crc(chunk_buf.get_ref());
+        let crc_calc = pce_crc(chunk_buf.get_ref());
 
         // Write the CRC to the chunk.
         let chunk_crc = PriChunkCrc { crc: crc_calc };
@@ -344,7 +327,7 @@ impl PriFormat {
         chunk_buf.write_all(text.as_bytes())?;
 
         // Calculate CRC for chunk, over header and data bytes.
-        let crc_calc = pri_crc(chunk_buf.get_ref());
+        let crc_calc = pce_crc(chunk_buf.get_ref());
 
         // Write the CRC to the chunk.
         let chunk_crc = PriChunkCrc { crc: crc_calc };
@@ -386,7 +369,7 @@ impl PriFormat {
         chunk_buf.write_all(data)?;
 
         // Calculate CRC for chunk, over header and data bytes.
-        let crc_calc = pri_crc(chunk_buf.get_ref());
+        let crc_calc = pce_crc(chunk_buf.get_ref());
 
         // Write the CRC to the chunk.
         let chunk_crc = PriChunkCrc { crc: crc_calc };

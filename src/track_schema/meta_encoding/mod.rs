@@ -25,16 +25,9 @@
     --------------------------------------------------------------------------
 */
 
-pub mod chs;
-pub mod enums;
-pub mod flags;
-pub mod sector_layout;
-pub mod standard_format;
-pub mod structs;
+//! A module for 'meta-encodings', basically any track data encoding that sits
+//! on top of the base encoding (FM,MFM or GCR).
+//!
+//! The best example of this is the odd-even encoding of the Amiga.
 
-// Expose all types under types module namespace
-pub use chs::*;
-pub use enums::*;
-pub use flags::*;
-pub use standard_format::*;
-pub use structs::*;
+pub mod odd_even;

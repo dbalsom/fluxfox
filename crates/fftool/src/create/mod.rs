@@ -79,12 +79,12 @@ pub(crate) fn run(global: &GlobalOptions, params: &args::CreateParams) -> Result
     // Create a sector test image if requested.
     if params.sector_test {
         // Iterate through all sectors, skipping the boot sector, and write the sector index to the sector.
-        let chsn = StandardFormat::from(params.disk_format).chsn();
-        for (idx, sector) in chsn.iter().skip(1).enumerate() {
+        let layout = StandardFormat::from(params.disk_format).layout();
+        for (idx, sector) in layout.chsn_iter().skip(1).enumerate() {
             let sector_value = (idx + 1) as u8; // Let the sector value roll over at 255.
 
             // Write the sector value to the sector.
-            match disk.write_sector_basic(sector.ch(), sector.into(), None, &vec![sector_value; chsn.n_size()]) {
+            match disk.write_sector_basic(sector.ch(), sector.into(), None, &vec![sector_value; layout.size()]) {
                 Ok(()) => {
                     global.loud(|| println!("Wrote sector {} with value {}", sector, sector_value));
                 }

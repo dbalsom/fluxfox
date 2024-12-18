@@ -60,6 +60,7 @@ use crate::{
     LoadingCallback,
 };
 
+use crate::file_parsers::pce::crc::pce_crc;
 use binrw::{binrw, BinRead};
 
 pub struct PsiFormat;
@@ -176,23 +177,6 @@ pub struct PsiChunk {
     pub data: Vec<u8>,
 }
 
-pub(crate) fn psi_crc(buf: &[u8]) -> u32 {
-    let mut crc = 0;
-    for i in 0..buf.len() {
-        crc ^= ((buf[i] & 0xff) as u32) << 24;
-
-        for _j in 0..8 {
-            if crc & 0x80000000 != 0 {
-                crc = (crc << 1) ^ 0x1edc6f41;
-            }
-            else {
-                crc <<= 1;
-            }
-        }
-    }
-    crc & 0xffffffff
-}
-
 pub(crate) fn decode_psi_sector_format(sector_format: [u8; 2]) -> Option<(TrackDataEncoding, TrackDensity)> {
     match sector_format {
         [0x00, 0x00] => Some((TrackDataEncoding::Fm, TrackDensity::Standard)),
@@ -283,7 +267,7 @@ impl PsiFormat {
         image.seek(std::io::SeekFrom::Start(chunk_pos))?;
         image.read_exact(&mut buffer)?;
 
-        let crc_calc = psi_crc(&buffer);
+        let crc_calc = pce_crc(&buffer);
         let chunk_crc = PsiChunkCrc::read(&mut image)?;
 
         if chunk_crc.crc != crc_calc {
