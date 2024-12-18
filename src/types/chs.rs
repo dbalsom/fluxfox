@@ -29,7 +29,7 @@
 //! addressing and sector IDs.
 
 use crate::{types::sector_layout::SectorLayout, MAXIMUM_SECTOR_SIZE};
-use std::fmt::Display;
+use std::{cmp::Ordering, fmt::Display};
 
 /// A structure representing a query against the four components of sector header:
 ///  - Cylinder ID (c)
@@ -582,6 +582,20 @@ impl DiskChs {
 pub struct DiskCh {
     pub(crate) c: u16,
     pub(crate) h: u8,
+}
+
+impl PartialOrd for DiskCh {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for DiskCh {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.c
+            .cmp(&other.c) // Compare by cylinder first
+            .then_with(|| self.h.cmp(&other.h)) // Then by head
+    }
 }
 
 impl From<(u16, u8)> for DiskCh {
