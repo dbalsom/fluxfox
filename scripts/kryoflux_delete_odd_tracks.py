@@ -23,13 +23,16 @@
 #
 # --------------------------------------------------------------------------
 
+# Script to delete odd tracks from a Kryoflux raw stream set and rename
+# the files appropriately.
+
+
 import os
 import re
 import argparse
 import sys
 
 FILE_REX = re.compile(r".*(\d{2})\.(\d)\.raw")
-
 
 def delete_odd_tracks(directory_path):
     """Deletes files with odd track numbers from the directory."""
