@@ -65,6 +65,8 @@ pub mod track;
 pub mod types;
 
 mod sector_view;
+pub mod source_map;
+mod tree_map;
 #[cfg(feature = "viz")]
 pub mod visualization;
 
