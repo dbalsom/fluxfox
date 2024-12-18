@@ -212,16 +212,8 @@ impl Track for MetaSectorTrack {
         self.as_any().downcast_ref::<MetaSectorTrack>()
     }
 
-    fn as_bitstream_track(&self) -> Option<&BitStreamTrack> {
-        None
-    }
-
-    fn as_fluxstream_track(&self) -> Option<&FluxStreamTrack> {
-        None
-    }
-
-    fn as_fluxstream_track_mut(&mut self) -> Option<&mut FluxStreamTrack> {
-        None
+    fn as_metasector_track_mut(&mut self) -> Option<&mut MetaSectorTrack> {
+        self.as_any_mut().downcast_mut::<MetaSectorTrack>()
     }
 
     fn ch(&self) -> DiskCh {

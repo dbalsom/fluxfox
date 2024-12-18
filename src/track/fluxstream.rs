@@ -105,14 +105,6 @@ impl Track for FluxStreamTrack {
         self
     }
 
-    fn as_metasector_track(&self) -> Option<&MetaSectorTrack> {
-        None
-    }
-
-    fn as_bitstream_track(&self) -> Option<&BitStreamTrack> {
-        None
-    }
-
     fn as_fluxstream_track(&self) -> Option<&FluxStreamTrack> {
         self.as_any().downcast_ref::<FluxStreamTrack>()
     }

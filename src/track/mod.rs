@@ -202,16 +202,34 @@ pub trait Track: Any + Send + Sync {
     fn as_any_mut(&mut self) -> &mut dyn Any;
 
     /// Downcast the track to a `MetaSectorTrack` reference, if possible.
-    fn as_metasector_track(&self) -> Option<&MetaSectorTrack>;
+    fn as_metasector_track(&self) -> Option<&MetaSectorTrack> {
+        None
+    }
+
+    /// Downcast the track to a mutable `MetaSectorTrack` reference, if possible.
+    fn as_metasector_track_mut(&mut self) -> Option<&mut MetaSectorTrack> {
+        None
+    }
 
     /// Downcast the track to a `BitStreamTrack` reference, if possible.
-    fn as_bitstream_track(&self) -> Option<&BitStreamTrack>;
+    fn as_bitstream_track(&self) -> Option<&BitStreamTrack> {
+        None
+    }
+
+    /// Downcast the track to a `BitStreamTrack` reference, if possible.
+    fn as_bitstream_track_mut(&mut self) -> Option<&mut BitStreamTrack> {
+        None
+    }
 
     /// Downcast the track to a `FluxStreamTrack` reference, if possible.
-    fn as_fluxstream_track(&self) -> Option<&FluxStreamTrack>;
+    fn as_fluxstream_track(&self) -> Option<&FluxStreamTrack> {
+        None
+    }
 
     /// Downcast the track to a mutable `FluxStreamTrack` reference, if possible.
-    fn as_fluxstream_track_mut(&mut self) -> Option<&mut FluxStreamTrack>;
+    fn as_fluxstream_track_mut(&mut self) -> Option<&mut FluxStreamTrack> {
+        None
+    }
 
     /// Return the track's physical cylinder and head as a `DiskCh`.
     fn ch(&self) -> DiskCh;
