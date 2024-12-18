@@ -322,20 +322,25 @@ impl TrackCodec for MfmCodec {
     }
 
     fn write_encoded_buf(&mut self, buf: &[u8], offset: usize) -> usize {
+        let mut offset = offset;
         let encoded_buf = self.encode(buf, false, EncodingVariant::Data);
 
-        let mut copy_len = encoded_buf.len();
-        if self.bits.len() < offset + encoded_buf.len() {
-            copy_len = self.bits.len() - offset;
-        }
+        // let mut copy_len = encoded_buf.len();
+        // if self.bits.len() < offset + encoded_buf.len() {
+        //     copy_len = self.bits.len() - offset;
+        // }
 
         let mut bits_written = 0;
 
-        let phase = !self.clock_map[offset] as usize;
-        log::trace!("write_buf(): offset: {} phase: {}", offset, phase);
+        // If we landed on a data bit, advance to the next clock bit.
+        // If the next bit is not a clock bit either, we are in an unsynchronized region, so don't
+        // bother.
+        if !self.clock_map[offset] && self.clock_map[offset + 1] {
+            offset += 1;
+        }
 
-        for (i, bit) in encoded_buf.into_iter().enumerate().take(copy_len) {
-            self.bits.set(offset + phase + i, bit);
+        for (i, bit) in encoded_buf.into_iter().enumerate() {
+            self.bits.set(offset + i, bit);
             bits_written += 1;
         }
 
