@@ -62,12 +62,15 @@ impl RawFormat {
     pub(crate) fn extensions() -> Vec<&'static str> {
         const BASE_EXTENSIONS: &[&str] = &["img", "ima", "dsk", "bin"];
 
-        #[cfg(feature = "amiga")]
-        const EXTRA_EXTENSIONS: &[&str] = &["adf"];
-        #[cfg(not(feature = "amiga"))]
-        const EXTRA_EXTENSIONS: &[&str] = &[];
+        let mut extra_extensions = Vec::new();
 
-        [BASE_EXTENSIONS, EXTRA_EXTENSIONS].concat()
+        #[cfg(feature = "adf")]
+        extra_extensions.push("adf");
+
+        #[cfg(feature = "st")]
+        extra_extensions.push("st");
+
+        [BASE_EXTENSIONS, &extra_extensions].concat()
     }
 
     pub(crate) fn platforms() -> Vec<Platform> {
@@ -187,7 +190,8 @@ impl RawFormat {
         // Iterate through all standard tracks
         for DiskCh { c, h } in layout.ch().iter() {
             log::trace!("Raw::load_as_bitstream(): Adding new track: c:{} h:{}", c, h);
-            let new_track_idx = disk_image.add_empty_track(DiskCh::new(c, h), data_encoding, data_rate, bitcell_ct)?;
+            let new_track_idx =
+                disk_image.add_empty_track(DiskCh::new(c, h), data_encoding, data_rate, bitcell_ct, Some(false))?;
             let mut format_buffer = Vec::with_capacity(layout.s() as usize);
             let mut track_pattern = Vec::with_capacity(layout.size() * layout.s() as usize);
 

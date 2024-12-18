@@ -419,6 +419,7 @@ impl MfiFormat {
                     TrackDataEncoding::Mfm,
                     last_data_rate.unwrap(),
                     last_bitcell_ct.unwrap(),
+                    Some(false),
                 )?;
             }
             else {

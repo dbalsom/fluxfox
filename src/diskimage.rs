@@ -35,7 +35,7 @@
 use crate::{bitstream::mfm::MfmCodec, track::bitstream::BitStreamTrack, DiskImageFileFormat, SectorMapEntry};
 
 use crate::{
-    bitstream::{fm::FmCodec, TrackDataStream},
+    bitstream::{fm::FmCodec, TrackCodec, TrackDataStream},
     boot_sector::BootSector,
     containers::DiskImageContainer,
     detect::detect_container_format,
@@ -1047,6 +1047,7 @@ impl DiskImage {
         encoding: TrackDataEncoding,
         data_rate: TrackDataRate,
         bitcells: usize,
+        start_clock: Option<bool>,
     ) -> Result<usize, DiskImageError> {
         if ch.h() >= 2 {
             return Err(DiskImageError::SeekError);
@@ -1061,14 +1062,29 @@ impl DiskImage {
                     return Err(DiskImageError::ParameterError);
                 }
 
-                let stream: TrackDataStream = match encoding {
-                    TrackDataEncoding::Mfm => {
-                        Box::new(MfmCodec::new(BitVec::from_fn(bitcells, |i| i % 2 == 0), None, None))
+                let stream: Box<dyn TrackCodec> = if let Some(start_clock) = start_clock {
+                    match encoding {
+                        TrackDataEncoding::Mfm => Box::new(MfmCodec::new(
+                            BitVec::from_fn(bitcells, |i| i % 2 == start_clock as usize),
+                            None,
+                            None,
+                        )),
+                        TrackDataEncoding::Fm => Box::new(FmCodec::new(
+                            BitVec::from_fn(bitcells, |i| i % 2 == start_clock as usize),
+                            None,
+                            None,
+                        )),
+                        _ => return Err(DiskImageError::UnsupportedFormat),
                     }
-                    TrackDataEncoding::Fm => {
-                        Box::new(FmCodec::new(BitVec::from_fn(bitcells, |i| i % 2 == 0), None, None))
+                }
+                else {
+                    match encoding {
+                        TrackDataEncoding::Mfm => {
+                            Box::new(MfmCodec::new(BitVec::from_elem(bitcells, false), None, None))
+                        }
+                        TrackDataEncoding::Fm => Box::new(FmCodec::new(BitVec::from_elem(bitcells, false), None, None)),
+                        _ => return Err(DiskImageError::UnsupportedFormat),
                     }
-                    _ => return Err(DiskImageError::UnsupportedFormat),
                 };
 
                 // TODO: Add an empty track with a schema of None and set it on format
@@ -1187,7 +1203,7 @@ impl DiskImage {
         for head in 0..layout.h() {
             for cylinder in 0..layout.c() {
                 let ch = DiskCh::new(cylinder, head);
-                self.add_empty_track(ch, encoding, data_rate, bitcell_size)?;
+                self.add_empty_track(ch, encoding, data_rate, bitcell_size, Some(false))?;
             }
         }
 

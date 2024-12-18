@@ -64,6 +64,7 @@ mod range_check;
 pub mod track;
 pub mod types;
 
+mod platform;
 mod sector_view;
 pub mod source_map;
 mod tree_map;

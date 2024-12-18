@@ -263,8 +263,6 @@ impl ImageFormatParser for DiskImageFileFormat {
             DiskImageFileFormat::KryofluxStream => kryoflux::KfxFormat::capabilities(),
             #[cfg(feature = "mfi")]
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::capabilities(),
-            #[cfg(feature = "adf")]
-            DiskImageFileFormat::AmigaDiskFile => raw::RawFormat::capabilities(),
             #[cfg(feature = "ipf")]
             DiskImageFileFormat::IpFormat => ipf::IpFormat::capabilities(),
         }
@@ -287,8 +285,6 @@ impl ImageFormatParser for DiskImageFileFormat {
             DiskImageFileFormat::KryofluxStream => kryoflux::KfxFormat::platforms(),
             #[cfg(feature = "mfi")]
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::platforms(),
-            #[cfg(feature = "adf")]
-            DiskImageFileFormat::AmigaDiskFile => raw::RawFormat::platforms(),
             #[cfg(feature = "ipf")]
             DiskImageFileFormat::IpFormat => ipf::IpFormat::platforms(),
         }
@@ -311,8 +307,6 @@ impl ImageFormatParser for DiskImageFileFormat {
             DiskImageFileFormat::KryofluxStream => kryoflux::KfxFormat::detect(image_buf),
             #[cfg(feature = "mfi")]
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::detect(image_buf),
-            #[cfg(feature = "adf")]
-            DiskImageFileFormat::AmigaDiskFile => raw::RawFormat::detect(image_buf),
             #[cfg(feature = "ipf")]
             DiskImageFileFormat::IpFormat => ipf::IpFormat::detect(image_buf),
         }
@@ -335,8 +329,6 @@ impl ImageFormatParser for DiskImageFileFormat {
             DiskImageFileFormat::KryofluxStream => kryoflux::KfxFormat::extensions(),
             #[cfg(feature = "mfi")]
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::extensions(),
-            #[cfg(feature = "adf")]
-            DiskImageFileFormat::AmigaDiskFile => raw::RawFormat::extensions(),
             #[cfg(feature = "ipf")]
             DiskImageFileFormat::IpFormat => ipf::IpFormat::extensions(),
         }
@@ -365,8 +357,6 @@ impl ImageFormatParser for DiskImageFileFormat {
             DiskImageFileFormat::KryofluxStream => kryoflux::KfxFormat::load_image(read_buf, image, opts, callback),
             #[cfg(feature = "mfi")]
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::load_image(read_buf, image, opts, callback),
-            #[cfg(feature = "adf")]
-            DiskImageFileFormat::AmigaDiskFile => raw::RawFormat::load_image(read_buf, image, opts, callback),
             #[cfg(feature = "ipf")]
             DiskImageFileFormat::IpFormat => ipf::IpFormat::load_image(read_buf, image, opts, callback),
         }
@@ -381,7 +371,7 @@ impl ImageFormatParser for DiskImageFileFormat {
         callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
         // For WASM, use `spawn_local` to run synchronously on the main thread
-        #[cfg(feature = "wasm")]
+        #[cfg(target_arch = "wasm32")]
         {
             let self_clone = self.clone();
             let opts_clone = opts.clone();
@@ -429,8 +419,6 @@ impl ImageFormatParser for DiskImageFileFormat {
             DiskImageFileFormat::KryofluxStream => kryoflux::KfxFormat::can_write(image),
             #[cfg(feature = "mfi")]
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::can_write(image),
-            #[cfg(feature = "adf")]
-            DiskImageFileFormat::AmigaDiskFile => raw::RawFormat::can_write(image),
             #[cfg(feature = "ipf")]
             DiskImageFileFormat::IpFormat => ipf::IpFormat::can_write(image),
         }
@@ -458,8 +446,6 @@ impl ImageFormatParser for DiskImageFileFormat {
             DiskImageFileFormat::KryofluxStream => kryoflux::KfxFormat::save_image(image, opts, write_buf),
             #[cfg(feature = "mfi")]
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::save_image(image, opts, write_buf),
-            #[cfg(feature = "adf")]
-            DiskImageFileFormat::AmigaDiskFile => raw::RawFormat::save_image(image, opts, write_buf),
             #[cfg(feature = "ipf")]
             DiskImageFileFormat::IpFormat => ipf::IpFormat::save_image(image, opts, write_buf),
         }

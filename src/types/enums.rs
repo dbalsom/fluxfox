@@ -35,52 +35,7 @@ use std::{
     path::PathBuf,
 };
 
-/// The type of computer system that a disk image is intended to be used with - not necessarily the
-/// system that the disk image was created on.
-///
-/// A `Platform` may be used as a hint to a disk image format parser, or provided in a
-/// [BitStreamTrackParams] struct to help determine the appropriate [TrackSchema] for a track.
-/// A `Platform` may not be specified (or reliable) in all disk image formats, nor can it always
-/// be determined from a [DiskImage] (High density MFM Macintosh 3.5" diskettes look nearly
-/// identical to PC 3.5" diskettes, unless you examine the boot sector).
-/// It may be the most pragmatic option to have the user specify the platform when loading/saving a
-/// disk image.
-#[repr(usize)]
-#[derive(Copy, Clone, Debug, strum::EnumIter)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum Platform {
-    /// IBM PC and compatibles
-    IbmPc,
-    /// Commodore Amiga
-    Amiga,
-    /// Apple Macintosh
-    Macintosh,
-    /// Atari ST
-    AtariSt,
-}
-
-impl Display for Platform {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self {
-            Platform::IbmPc => write!(f, "IBM PC"),
-            Platform::Amiga => write!(f, "Commodore Amiga"),
-            Platform::Macintosh => write!(f, "Apple Macintosh"),
-            Platform::AtariSt => write!(f, "Atari ST"),
-        }
-    }
-}
-
-impl From<StandardFormat> for Platform {
-    fn from(format: StandardFormat) -> Self {
-        use StandardFormat::*;
-        match format {
-            PcFloppy160 | PcFloppy180 | PcFloppy320 | PcFloppy360 | PcFloppy720 | PcFloppy1200 | PcFloppy1440
-            | PcFloppy2880 => Platform::IbmPc,
-            #[cfg(feature = "amiga")]
-            AmigaFloppy880 => Platform::Amiga,
-        }
-    }
-}
+pub use crate::platform::Platform;
 
 /// The resolution of the data in the disk image.
 /// fluxfox supports three types of disk images:
@@ -225,6 +180,16 @@ impl TrackDensity {
             (High, Some(DiskRpm::Rpm360)) => Some(166_666),
             (High, Some(DiskRpm::Rpm300) | None) => Some(200_000),
             (Extended, _) => Some(400_000),
+        }
+    }
+
+    pub fn from_bitcells(bitcells: u32) -> Option<TrackDensity> {
+        match bitcells {
+            40_000..60_000 => Some(TrackDensity::Standard),
+            80_000..120_000 => Some(TrackDensity::Double),
+            150_000..250_000 => Some(TrackDensity::High),
+            350_000..450_000 => Some(TrackDensity::Extended),
+            _ => None,
         }
     }
 
@@ -450,8 +415,6 @@ pub enum DiskImageFileFormat {
     /// A MAME floppy image. Typically, has extension MFI.
     #[cfg(feature = "mfi")]
     MameFloppyImage,
-    #[cfg(feature = "adf")]
-    AmigaDiskFile,
     #[cfg(feature = "ipf")]
     IpFormat,
 }

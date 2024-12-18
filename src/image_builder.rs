@@ -120,7 +120,7 @@ impl ImageBuilder {
         for head in 0..chsn.h() {
             for cylinder in 0..chsn.c() {
                 let ch = DiskCh::new(cylinder, head);
-                disk_image.add_empty_track(ch, encoding, data_rate, bitcell_size)?;
+                disk_image.add_empty_track(ch, encoding, data_rate, bitcell_size, Some(false))?;
             }
         }
 
