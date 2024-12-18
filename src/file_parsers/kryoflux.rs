@@ -223,7 +223,9 @@ impl KfxFormat {
         // We need to have at least two index markers to have a complete revolution.
         if complete_revs < 1 || index_offsets.len() < 2 {
             log::error!("Stream did not contain a complete revolution.");
-            return Err(DiskImageError::IncompatibleImage);
+            return Err(DiskImageError::IncompatibleImage(
+                "Stream did not contain a complete revolution".to_string(),
+            ));
         }
 
         log::debug!(

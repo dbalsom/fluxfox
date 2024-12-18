@@ -233,7 +233,10 @@ impl TCFormat {
         .contains(&disk_info.disk_type)
         {
             log::error!("Unsupported disk type: {:02X}", disk_info.disk_type);
-            return Err(DiskImageError::IncompatibleImage);
+            return Err(DiskImageError::IncompatibleImage(format!(
+                "Unsupported disk type: {:02X}",
+                disk_info.disk_type
+            )));
         }
 
         let (disk_encoding, disk_data_rate, disk_rpm) = tc_parse_disk_type(disk_info.disk_type)?;
@@ -247,13 +250,19 @@ impl TCFormat {
         if disk_info.starting_c != 0 {
             // I don't know if we'll ever encounter images like this, but for now let's require starting at 0.
             log::error!("Unsupported starting cylinder: {}", disk_info.starting_c);
-            return Err(DiskImageError::IncompatibleImage);
+            return Err(DiskImageError::IncompatibleImage(format!(
+                "Unsupported starting cylinder: {}",
+                disk_info.starting_c
+            )));
         }
 
         if disk_info.cylinder_increment != 1 {
             // Similarly, I am not sure why the track increment would ever be anything other than 1.
             log::error!("Unsupported cylinder increment: {}", disk_info.cylinder_increment);
-            return Err(DiskImageError::IncompatibleImage);
+            return Err(DiskImageError::IncompatibleImage(format!(
+                "Unsupported cylinder increment: {}",
+                disk_info.cylinder_increment
+            )));
         }
 
         let raw_track_skew_ct = disk_info
@@ -286,7 +295,7 @@ impl TCFormat {
             || raw_track_flag_ct != raw_track_data_ct
         {
             log::error!("Mismatched track data counts");
-            return Err(DiskImageError::IncompatibleImage);
+            return Err(DiskImageError::IncompatibleImage("Mismatched track data counts".into()));
         }
 
         // Limit tracks to pairs of sides
@@ -305,12 +314,17 @@ impl TCFormat {
 
             if track_offset == 0 || track_size == 0 {
                 log::error!("Invalid track offset or size: {} {}", track_offset, track_size);
-                return Err(DiskImageError::IncompatibleImage);
+                return Err(DiskImageError::IncompatibleImage(format!(
+                    "Invalid track offset or size: {} {}",
+                    track_offset, track_size
+                )));
             }
 
             if track_offset + track_size > disk_image_size {
                 log::error!("Track data extends beyond end of read_buf");
-                return Err(DiskImageError::IncompatibleImage);
+                return Err(DiskImageError::IncompatibleImage(
+                    "Track data extends beyond end of read_buf".into(),
+                ));
             }
 
             last_track_data_offset = track_offset + adj_track_size;
@@ -351,7 +365,10 @@ impl TCFormat {
             2 => 1,
             _ => {
                 log::error!("Unsupported number of sides: {}", disk_info.num_sides);
-                return Err(DiskImageError::IncompatibleImage);
+                return Err(DiskImageError::IncompatibleImage(format!(
+                    "Unsupported number of sides: {}",
+                    disk_info.num_sides
+                )));
             }
         };
         for i in 0..raw_track_data_ct {

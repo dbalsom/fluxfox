@@ -229,7 +229,10 @@ impl ScpFormat {
             }
             None => {
                 log::error!("Unknown SCP disk type: {:02X} (*unreliable)", header.disk_type);
-                return Err(DiskImageError::IncompatibleImage);
+                return Err(DiskImageError::IncompatibleImage(format!(
+                    "Unknown SCP disk type: {:02X} (*unreliable)",
+                    header.disk_type
+                )));
             }
         };
 
@@ -287,7 +290,9 @@ impl ScpFormat {
 
         if header.flags & SCP_FB_EXTENDED_MODE != 0 {
             log::error!("Extended mode SCP images not supported.");
-            return Err(DiskImageError::IncompatibleImage);
+            return Err(DiskImageError::IncompatibleImage(
+                "Extended mode SCP images not supported.".to_string(),
+            ));
         }
 
         let flux_normalized = header.flags & SCP_FB_TYPE != 0;
@@ -317,7 +322,10 @@ impl ScpFormat {
         );
         if header.bit_cell_width != 0 {
             log::error!("Non-standard bit cell width ({}) not supported.", header.bit_cell_width);
-            return Err(DiskImageError::IncompatibleImage);
+            return Err(DiskImageError::IncompatibleImage(format!(
+                "Non-standard bit cell width ({}) not supported.",
+                header.bit_cell_width
+            )));
         }
 
         let disk_heads = match header.heads {
@@ -325,11 +333,16 @@ impl ScpFormat {
             1 => 1,
             2 => {
                 log::error!("SCP images with just side 1 are not supported.");
-                return Err(DiskImageError::IncompatibleImage);
+                return Err(DiskImageError::IncompatibleImage(
+                    "SCP images with just side 1 are not supported.".to_string(),
+                ));
             }
             _ => {
                 log::error!("Unsupported number of disk heads: {}", header.heads);
-                return Err(DiskImageError::IncompatibleImage);
+                return Err(DiskImageError::IncompatibleImage(format!(
+                    "Unsupported number of disk heads: {}",
+                    header.heads
+                )));
             }
         };
         log::debug!("Image has {} heads.", disk_heads);
@@ -496,7 +509,9 @@ impl ScpFormat {
 
         if disk_data_rate.is_none() {
             log::error!("Unable to determine data rate from any track.");
-            return Err(DiskImageError::IncompatibleImage);
+            return Err(DiskImageError::IncompatibleImage(
+                "Unable to determine data rate from any track.".to_string(),
+            ));
         }
 
         disk_image.descriptor = DiskDescriptor {

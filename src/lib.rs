@@ -112,7 +112,7 @@ pub enum DiskImageError {
     #[error("Unsupported disk image format for requested operation")]
     UnsupportedFormat,
     #[error("The disk image is valid but contains incompatible disk information")]
-    IncompatibleImage,
+    IncompatibleImage(String),
     #[error("The disk image format parser encountered an error")]
     FormatParseError,
     #[error("The disk image format parser reported the image was corrupt: {0}")]
