@@ -62,7 +62,13 @@ pub const APP_NAME: &str = "fluxfox-web";
 
 use crate::{
     widgets::{filename::FilenameWidget, hello::HelloWidget},
-    windows::{file_viewer::FileViewer, sector_viewer::SectorViewer, track_viewer::TrackViewer, viz::VizViewer},
+    windows::{
+        file_viewer::FileViewer,
+        sector_viewer::SectorViewer,
+        source_map::SourceMapViewer,
+        track_viewer::TrackViewer,
+        viz::VizViewer,
+    },
 };
 use fluxfox_egui::widgets::track_list::TrackListWidget;
 
@@ -171,6 +177,7 @@ pub struct AppWindows {
     sector_viewer: SectorViewer,
     track_viewer:  TrackViewer,
     file_viewer:   FileViewer,
+    source_map:    SourceMapViewer,
 }
 
 impl AppWindows {
@@ -179,6 +186,23 @@ impl AppWindows {
         self.sector_viewer = SectorViewer::default();
         self.track_viewer = TrackViewer::default();
         self.file_viewer = FileViewer::default();
+        self.source_map = SourceMapViewer::default();
+    }
+
+    pub fn update(&mut self, disk_lock: Arc<RwLock<DiskImage>>, _name: Option<String>) {
+        log::debug!(
+            "AppWindows::update(): Attempting to lock disk image with {} references",
+            Arc::strong_count(&disk_lock)
+        );
+        let disk = disk_lock.read().unwrap();
+        //self.sector_viewer.update(&disk, SectorSelection::default());
+        self.source_map.update(&disk);
+
+        drop(disk);
+        log::debug!(
+            "AppWindows::update(): Disk image lock released. {} references remaining",
+            Arc::strong_count(&disk_lock)
+        );
     }
 }
 
@@ -302,6 +326,7 @@ impl eframe::App for App {
         // Show windows
         if let Some(disk_image) = &self.disk_image {
             self.windows.viz_viewer.show(ctx, disk_image.clone());
+            self.windows.source_map.show(ctx);
         }
 
         self.windows.sector_viewer.show(ctx);
@@ -458,6 +483,7 @@ impl App {
 
             ui.menu_button("Windows", |ui| {
                 ui.checkbox(self.windows.viz_viewer.open_mut(), "Visualization");
+                ui.checkbox(self.windows.source_map.open_mut(), "Image Source Map");
             });
 
             ui.menu_button("Options", |ui| {
@@ -521,6 +547,8 @@ impl App {
                     self.widgets.update_mut(self.disk_image.as_ref().unwrap().clone());
 
                     log::debug!("Updating sector viewer...");
+                    self.windows
+                        .update(self.disk_image.as_ref().unwrap().clone(), self.disk_image_name.clone());
                     self.windows
                         .sector_viewer
                         .update(self.disk_image.as_ref().unwrap().clone(), SectorSelection::default());

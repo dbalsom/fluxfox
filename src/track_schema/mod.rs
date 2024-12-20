@@ -76,9 +76,10 @@ pub enum TrackSchemaVariant {
     Amiga(AmigaVariant),
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, strum::EnumIter)]
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, strum::EnumIter)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum TrackSchema {
+    #[default]
     System34,
     #[cfg(feature = "amiga")]
     Amiga,
@@ -115,6 +116,7 @@ impl From<Platform> for TrackSchema {
 pub struct TrackMetadata {
     pub(crate) items: Vec<TrackElementInstance>,
     pub(crate) sector_ids: Vec<SectorId>,
+    pub(crate) valid_sector_ids: Vec<SectorId>,
 }
 
 impl TrackMetadata {
@@ -122,8 +124,16 @@ impl TrackMetadata {
     pub(crate) fn new(items: Vec<TrackElementInstance>) -> Self {
         TrackMetadata {
             sector_ids: Self::find_sector_ids(&items),
+            valid_sector_ids: Self::find_valid_sector_ids(&items),
             items,
         }
+    }
+
+    /// Clear all metadata items from the collection.
+    pub(crate) fn clear(&mut self) {
+        self.items.clear();
+        self.sector_ids.clear();
+        self.valid_sector_ids.clear();
     }
 
     /// Return a vector of metadata items contained in the collection as `TrackElementInstance`s.
@@ -230,6 +240,43 @@ impl TrackMetadata {
     /// on copy-protected disks.
     pub fn sector_ids(&self) -> &[SectorId] {
         &self.sector_ids
+    }
+
+    /// Return a reference to a slice of the [SectorId]s represented in the metadata collection
+    /// that have valid sector headers (i.e. no address errors).
+    /// Note that the number of Sector IDs may not match the number of sectors returned by
+    /// sector_list(), as not all sector headers may correspond to valid sector data, especially
+    /// on copy-protected disks.
+    pub fn valid_sector_ids(&self) -> &[SectorId] {
+        &self.valid_sector_ids
+    }
+
+    /// Return a vector of Sector IDs as [SectorId] represented in the metadata collection.
+    /// Note that the number of Sector IDs may not match the number of sectors returned by
+    /// sector_list(), as not all sector headers may correspond to valid sector data, especially
+    /// on copy-protected disks.
+    fn find_valid_sector_ids(items: &[TrackElementInstance]) -> Vec<SectorId> {
+        let mut sector_ids: Vec<SectorId> = Vec::new();
+
+        for item in items {
+            #[allow(clippy::unreachable)]
+            match item.element {
+                TrackElement::System34(System34Element::SectorHeader {
+                    chsn, address_error, ..
+                }) if address_error == false => {
+                    sector_ids.push(chsn);
+                }
+                #[cfg(feature = "amiga")]
+                TrackElement::Amiga(AmigaElement::SectorHeader {
+                    chsn, address_error, ..
+                }) if address_error == false => {
+                    sector_ids.push(chsn);
+                }
+                _ => {}
+            }
+        }
+
+        sector_ids
     }
 
     /// Return a vector of Sector IDs as [SectorId] represented in the metadata collection.

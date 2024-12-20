@@ -24,7 +24,10 @@
 
     --------------------------------------------------------------------------
 */
-use crate::types::Platform;
+use crate::{
+    source_map::{MapDump, OptionalSourceMap, SourceValue},
+    types::Platform,
+};
 use binrw::binrw;
 use core::fmt::{self, Debug, Formatter};
 
@@ -55,8 +58,8 @@ impl TryFrom<u32> for MediaType {
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum EncoderType {
     Unknown = 0,
-    Caps = 1,
-    Sps = 2,
+    V1 = 1, // IPF encoder version 1. Sometimes referred to with an acronym starting with 'C'.
+    V2 = 2, // IPF encoder version 2. Sometimes referred to with an acronym starting with 'S'.
 }
 
 impl TryFrom<u32> for EncoderType {
@@ -65,8 +68,8 @@ impl TryFrom<u32> for EncoderType {
     fn try_from(value: u32) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(EncoderType::Unknown),
-            1 => Ok(EncoderType::Caps),
-            2 => Ok(EncoderType::Sps),
+            1 => Ok(EncoderType::V1),
+            2 => Ok(EncoderType::V2),
             _ => Err(()),
         }
     }
@@ -177,6 +180,35 @@ pub struct InfoRecord {
     pub(crate) disk_number: u32,   // Disk number in a multi-disc release
     pub(crate) creator_id: u32,    // Unique ID of the disk image creator
     pub(crate) reserved: [u8; 12], // Reserve for future use
+}
+
+impl MapDump for InfoRecord {
+    fn write_to_map(&self, map: &mut Box<dyn OptionalSourceMap>, parent: usize) -> usize {
+        #[rustfmt::skip]
+        let _info_node = map
+            .add_child(parent, "Info Record", SourceValue::default())
+            .add_child("mediaType", SourceValue::u32(self.media_type).comment(&format!("{:?}", self.media_type_enum)))
+            .add_sibling("encoderType", SourceValue::u32(self.encoder_type).comment(&format!("{:?}", self.encoder_type_enum)))
+            .add_sibling("encoderRev", SourceValue::u32(self.encoder_rev))
+            .add_sibling("fileKey", SourceValue::u32(self.file_key).bad())
+            .add_sibling("fileRev", SourceValue::u32(self.file_rev))
+            .add_sibling("origin",SourceValue::hex_u32(self.origin).comment("CRC32 of the original .ctr file"))
+            .add_sibling("minTrack", SourceValue::u32(self.min_track))
+            .add_sibling("maxTrack", SourceValue::u32(self.max_track))
+            .add_sibling("minSide", SourceValue::u32(self.min_side))
+            .add_sibling("maxSide", SourceValue::u32(self.max_side))
+            .add_sibling("creationDate", SourceValue::hex_u32(self.creation_date))
+            .add_sibling("creationTime", SourceValue::hex_u32(self.creation_time))
+            .add_sibling("platforms", SourceValue::default())
+            .add_child("[0]", SourceValue::u32(self.platforms[0]).comment(&format!("{:?}", self.platform_enums.get(0).unwrap_or(&IpfPlatform::None))))
+            .add_sibling("[1]", SourceValue::u32(self.platforms[1]).comment(&format!("{:?}", self.platform_enums.get(1).unwrap_or(&IpfPlatform::None))))
+            .add_sibling("[2]", SourceValue::u32(self.platforms[2]).comment(&format!("{:?}", self.platform_enums.get(2).unwrap_or(&IpfPlatform::None))))
+            .add_sibling("[3]", SourceValue::u32(self.platforms[3]).comment(&format!("{:?}", self.platform_enums.get(3).unwrap_or(&IpfPlatform::None))))
+            .up()
+            .add_sibling("diskNumber", SourceValue::u32(self.disk_number))
+            .add_sibling("creatorId", SourceValue::u32(self.creator_id));
+        parent
+    }
 }
 
 impl Debug for InfoRecord {

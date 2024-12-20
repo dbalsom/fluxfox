@@ -36,6 +36,7 @@ pub mod filesystem;
 pub mod header_group;
 pub mod path_selection;
 pub mod sector_status;
+pub mod source_map;
 pub mod tab_group;
 pub mod texture;
 pub mod track_list;

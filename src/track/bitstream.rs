@@ -33,7 +33,6 @@ use super::{Track, TrackAnalysis, TrackInfo, TrackSectorScanResult};
 use crate::{
     bitstream::{fm::FmCodec, mfm::MfmCodec, EncodingVariant, TrackCodec, TrackDataStream},
     io::SeekFrom,
-    track::{fluxstream::FluxStreamTrack, metasector::MetaSectorTrack},
     track_schema::{
         system34::{
             System34Element,
@@ -893,7 +892,7 @@ impl BitStreamTrack {
             BitVec::from_bytes(params.data)
         };
         let weak_bitvec_opt = params.weak.map(BitVec::from_bytes);
-        let default_schema = params.schema.unwrap_or(TrackSchema::System34);
+        let default_schema = params.schema.unwrap_or_default();
         let mut track_schema = None;
         let mut track_metadata = TrackMetadata::default();
 
@@ -1054,36 +1053,48 @@ impl BitStreamTrack {
 
     /// Rescan the track for markers and metadata. This can be called if we have manually
     /// written the track and need to update the metadata.
-    /// A schema must be set for the track before calling this function.
-    /// After all, if you were writing to the track you really should know what format the track was...
-    pub fn rescan(&mut self) -> Result<(), DiskImageError> {
-        let schema = self.schema.ok_or(DiskImageError::SchemaError)?;
+    pub fn rescan(&mut self, schema_hint: Option<TrackSchema>) -> Result<(), DiskImageError> {
+        let schemas = self.schema_list(schema_hint);
 
-        let track_markers = schema.scan_for_markers(&self.data);
-        if !track_markers.is_empty() {
-            log::trace!(
-                "Schema {:?} found {} markers, first marker at {}",
-                schema,
-                track_markers.len(),
-                track_markers[0].start
-            );
+        for schema in schemas {
+            // Just because we find markers doesn't mean that we have found the right schema.
+            // The Amiga track schema will pick up PC sector markers, for example. So we need to
+            // check how many valid sector headers we have - if all sector headers on a track
+            // have a bad crc then we should try the next schema.
+            let track_markers = schema.scan_for_markers(&self.data);
+            if !track_markers.is_empty() {
+                log::trace!(
+                    "Schema {:?} found {} markers, first marker at {}",
+                    schema,
+                    track_markers.len(),
+                    track_markers[0].start
+                );
 
-            schema.create_clock_map(&track_markers, self.data.clock_map_mut());
-        }
-        else {
-            log::warn!("Schema {:?} failed to detect track markers.", schema);
+                schema.create_clock_map(&track_markers, self.data.clock_map_mut());
+            }
+            else {
+                log::warn!("Schema {:?} failed to detect track markers.", schema);
+            }
+
+            self.metadata = TrackMetadata::new(schema.scan_for_elements(&mut self.data, track_markers));
+            let sector_ids = self.metadata.valid_sector_ids();
+            if sector_ids.is_empty() {
+                log::debug!(
+                    "rescan(): No valid sector ids found in track {} metadata. Trying next schema...",
+                    self.ch.c()
+                );
+                // Clear metadata and try the next schema.
+                self.metadata.clear();
+                continue;
+            }
+            let data_ranges = self.metadata.data_ranges();
+            if !data_ranges.is_empty() {
+                log::debug!("rescan(): Adding {} data ranges to track stream", data_ranges.len(),);
+                self.data.set_data_ranges(data_ranges);
+            }
+            break;
         }
 
-        self.metadata = TrackMetadata::new(schema.scan_for_elements(&mut self.data, track_markers));
-        let sector_ids = self.metadata.sector_ids();
-        if sector_ids.is_empty() {
-            log::warn!("rescan(): No sector ids found in track {} metadata.", self.ch.c());
-        }
-        let data_ranges = self.metadata.data_ranges();
-        if !data_ranges.is_empty() {
-            log::debug!("rescan(): Adding {} data ranges to track stream", data_ranges.len(),);
-            self.data.set_data_ranges(data_ranges);
-        }
         Ok(())
     }
 
@@ -1259,5 +1270,15 @@ impl BitStreamTrack {
             }
         }
         score
+    }
+
+    /// Return a list of schemas to try decoding, starting at the provided hint, the currently
+    /// set track schema, or the default if neither are set.
+    /// The list should encompass all schemas enabled by the current feature flags.
+    fn schema_list(&self, hint: Option<TrackSchema>) -> Vec<TrackSchema> {
+        let default_schema = hint.unwrap_or(self.schema.unwrap_or_default());
+        let mut schema_list: Vec<TrackSchema> = vec![default_schema];
+        schema_list.extend(TrackSchema::iter().filter(|s| *s != default_schema));
+        schema_list
     }
 }

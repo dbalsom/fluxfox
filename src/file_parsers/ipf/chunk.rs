@@ -25,7 +25,7 @@
     --------------------------------------------------------------------------
 */
 use crate::{
-    file_parsers::ipf::{crc::IpfCrcHasher, ipf_parser::IpfParser},
+    file_parsers::ipf::{crc::IpfCrcHasher, ipf::IpfParser},
     io::ReadSeek,
     DiskImageError,
 };

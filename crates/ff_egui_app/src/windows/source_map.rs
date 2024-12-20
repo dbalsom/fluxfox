@@ -24,35 +24,41 @@
 
     --------------------------------------------------------------------------
 */
+use crate::windows::sector_viewer::SectorViewer;
+use fluxfox::DiskImage;
+use fluxfox_egui::widgets::source_map::SourceMapWidget;
 
-use crate::source_map::{MapDump, OptionalSourceMap, SourceValue};
-use binrw::binrw;
-
-#[binrw]
-#[brw(big)]
-#[derive(Debug)]
-pub(crate) struct DataRecord {
-    pub(crate) length: u32,   // Length of the Extra Data Block (or 0)
-    pub(crate) bit_size: u32, // Data area size in bits (length * 8)
-    pub(crate) crc: u32,      // CRC32 of the Extra Data Block
-    pub(crate) data_key: u32, // Unique key used to match the same key in an Image record.
+#[derive(Default)]
+pub struct SourceMapViewer {
+    pub open:   bool,
+    pub widget: SourceMapWidget,
 }
 
-impl DataRecord {
-    pub(crate) fn key(&self) -> u32 {
-        self.data_key
+impl SourceMapViewer {
+    #[allow(dead_code)]
+    pub fn new() -> Self {
+        Self {
+            open:   false,
+            widget: SourceMapWidget::new(),
+        }
     }
-}
 
-impl MapDump for DataRecord {
-    fn write_to_map(&self, map: &mut Box<dyn OptionalSourceMap>, parent: usize) -> usize {
-        let record = map.add_child(parent, "Data Record", SourceValue::default());
-        let record_idx = record.index();
-        record
-            .add_child("length", SourceValue::u32(self.length))
-            .add_sibling("bit_size", SourceValue::u32(self.bit_size))
-            .add_sibling("crc", SourceValue::hex_u32(self.crc))
-            .add_sibling("data_key", SourceValue::u32(self.data_key));
-        record_idx
+    pub fn update(&mut self, disk: &DiskImage) {
+        self.widget.update(disk);
+    }
+
+    pub fn set_open(&mut self, open: bool) {
+        self.open = open;
+    }
+
+    pub fn open_mut(&mut self) -> &mut bool {
+        &mut self.open
+    }
+
+    pub fn show(&mut self, ctx: &egui::Context) {
+        egui::Window::new("Source Map")
+            .open(&mut self.open)
+            .resizable(egui::Vec2b::new(true, true))
+            .show(ctx, |ui| self.widget.show(ui));
     }
 }

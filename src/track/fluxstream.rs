@@ -44,7 +44,7 @@ use crate::{
         pll::{Pll, PllPreset},
     },
     format_us,
-    track::{bitstream::BitStreamTrack, metasector::MetaSectorTrack},
+    track::bitstream::BitStreamTrack,
     track_schema::{system34::System34Standard, TrackMetadata, TrackSchema},
     types::{
         chs::DiskChsnQuery,

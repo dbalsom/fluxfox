@@ -27,20 +27,7 @@
 
 use std::fmt::{self, Display, Formatter};
 
-use crate::{
-    StandardFormat,
-    StandardFormat::{
-        AmigaFloppy880,
-        PcFloppy1200,
-        PcFloppy1440,
-        PcFloppy160,
-        PcFloppy180,
-        PcFloppy2880,
-        PcFloppy320,
-        PcFloppy360,
-        PcFloppy720,
-    },
-};
+use crate::StandardFormat;
 
 /// The type of computer system that a disk image is intended to be used with - not necessarily the
 /// system that the disk image was created on.

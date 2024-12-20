@@ -164,7 +164,9 @@ impl TrackListWidget {
                                                     ui.vertical_centered(|ui| {
                                                         let sid = sector.chsn.s();
                                                         let consecutive_sector = match previous_id {
-                                                            Some(prev) => sid == prev + 1,
+                                                            Some(prev) => {
+                                                                sid != u8::MAX && sid == prev.saturating_add(1)
+                                                            }
                                                             None => sid == 1,
                                                         };
                                                         previous_id = Some(sid);

@@ -64,6 +64,7 @@ mod range_check;
 pub mod track;
 pub mod types;
 
+mod image_loader;
 mod platform;
 mod sector_view;
 pub mod source_map;
@@ -112,7 +113,7 @@ pub enum DiskImageError {
     UnknownFormat,
     #[error("Unsupported disk image format for requested operation")]
     UnsupportedFormat,
-    #[error("The disk image is valid but contains incompatible disk information")]
+    #[error("The disk image is valid but contains incompatible disk information: {0}")]
     IncompatibleImage(String),
     #[error("The disk image format parser encountered an error")]
     FormatParseError,
@@ -142,6 +143,10 @@ pub enum DiskImageError {
     MultiDiskError(String),
     #[error("An error occurred attempting to lock a resource: {0}")]
     SyncError(String),
+    #[error("The disk image was not compatible with the requested platform")]
+    PlatformMismatch,
+    #[error("The disk image was not compatible with the requested format")]
+    FormatMismatch,
 }
 
 // Manually implement `From<io::Error>` for `DiskImageError`

@@ -415,8 +415,9 @@ pub enum DiskImageFileFormat {
     /// A MAME floppy image. Typically, has extension MFI.
     #[cfg(feature = "mfi")]
     MameFloppyImage,
+    /// Interchangeable Preservation Format image. Typically, has extension IPF.
     #[cfg(feature = "ipf")]
-    IpFormat,
+    IpfImage,
 }
 
 impl DiskImageFileFormat {
@@ -445,10 +446,8 @@ impl DiskImageFileFormat {
             PceFluxImage => 0,
             #[cfg(feature = "mfi")]
             MameFloppyImage => 0,
-            #[cfg(feature = "adf")]
-            AmigaDiskFile => 0,
             #[cfg(feature = "ipf")]
-            IpFormat => 0,
+            IpfImage => 0,
         }
     }
 
@@ -470,10 +469,8 @@ impl DiskImageFileFormat {
             PceFluxImage => DiskDataResolution::FluxStream,
             #[cfg(feature = "mfi")]
             MameFloppyImage => DiskDataResolution::FluxStream,
-            #[cfg(feature = "adf")]
-            AmigaDiskFile => DiskDataResolution::MetaSector,
             #[cfg(feature = "ipf")]
-            IpFormat => DiskDataResolution::BitStream,
+            IpfImage => DiskDataResolution::BitStream,
         }
     }
 }
@@ -497,10 +494,8 @@ impl Display for DiskImageFileFormat {
             PceFluxImage => "PCE Flux Stream".to_string(),
             #[cfg(feature = "mfi")]
             MameFloppyImage => "MAME Flux Stream".to_string(),
-            #[cfg(feature = "adf")]
-            AmigaDiskFile => "Amiga Disk File".to_string(),
             #[cfg(feature = "ipf")]
-            IpFormat => "IPF Disk".to_string(),
+            IpfImage => "IPF Disk".to_string(),
         };
         write!(f, "{}", str)
     }

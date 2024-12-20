@@ -728,6 +728,10 @@ impl Iterator for MfmCodec {
 
 impl Seek for MfmCodec {
     fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
+        if self.bits.is_empty() {
+            return Err(Error::new(ErrorKind::InvalidInput, "Cannot seek on an empty bitstream"));
+        }
+
         let mut new_cursor = match pos {
             SeekFrom::Start(offset) => offset as usize,
             SeekFrom::End(offset) => self.bits.len().saturating_add_signed(offset as isize),
@@ -749,6 +753,9 @@ impl Seek for MfmCodec {
 
 impl Read for MfmCodec {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        if self.bits.is_empty() {
+            return Err(Error::new(ErrorKind::InvalidInput, "Cannot read an empty bitstream"));
+        }
         let mut bytes_read = 0;
         for byte in buf.iter_mut() {
             let mut byte_val = 0;

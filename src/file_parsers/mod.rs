@@ -264,7 +264,7 @@ impl ImageFormatParser for DiskImageFileFormat {
             #[cfg(feature = "mfi")]
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::capabilities(),
             #[cfg(feature = "ipf")]
-            DiskImageFileFormat::IpFormat => ipf::IpFormat::capabilities(),
+            DiskImageFileFormat::IpfImage => ipf::IpFormat::capabilities(),
         }
     }
 
@@ -286,7 +286,7 @@ impl ImageFormatParser for DiskImageFileFormat {
             #[cfg(feature = "mfi")]
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::platforms(),
             #[cfg(feature = "ipf")]
-            DiskImageFileFormat::IpFormat => ipf::IpFormat::platforms(),
+            DiskImageFileFormat::IpfImage => ipf::IpFormat::platforms(),
         }
     }
 
@@ -308,7 +308,7 @@ impl ImageFormatParser for DiskImageFileFormat {
             #[cfg(feature = "mfi")]
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::detect(image_buf),
             #[cfg(feature = "ipf")]
-            DiskImageFileFormat::IpFormat => ipf::IpFormat::detect(image_buf),
+            DiskImageFileFormat::IpfImage => ipf::IpFormat::detect(image_buf),
         }
     }
 
@@ -330,7 +330,7 @@ impl ImageFormatParser for DiskImageFileFormat {
             #[cfg(feature = "mfi")]
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::extensions(),
             #[cfg(feature = "ipf")]
-            DiskImageFileFormat::IpFormat => ipf::IpFormat::extensions(),
+            DiskImageFileFormat::IpfImage => ipf::IpFormat::extensions(),
         }
     }
 
@@ -358,7 +358,7 @@ impl ImageFormatParser for DiskImageFileFormat {
             #[cfg(feature = "mfi")]
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::load_image(read_buf, image, opts, callback),
             #[cfg(feature = "ipf")]
-            DiskImageFileFormat::IpFormat => ipf::IpFormat::load_image(read_buf, image, opts, callback),
+            DiskImageFileFormat::IpfImage => ipf::IpFormat::load_image(read_buf, image, opts, callback),
         }
     }
 
@@ -420,7 +420,7 @@ impl ImageFormatParser for DiskImageFileFormat {
             #[cfg(feature = "mfi")]
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::can_write(image),
             #[cfg(feature = "ipf")]
-            DiskImageFileFormat::IpFormat => ipf::IpFormat::can_write(image),
+            DiskImageFileFormat::IpfImage => ipf::IpFormat::can_write(image),
         }
     }
 
@@ -447,7 +447,7 @@ impl ImageFormatParser for DiskImageFileFormat {
             #[cfg(feature = "mfi")]
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::save_image(image, opts, write_buf),
             #[cfg(feature = "ipf")]
-            DiskImageFileFormat::IpFormat => ipf::IpFormat::save_image(image, opts, write_buf),
+            DiskImageFileFormat::IpfImage => ipf::IpFormat::save_image(image, opts, write_buf),
         }
     }
 }

@@ -25,14 +25,23 @@
     --------------------------------------------------------------------------
 */
 
+//! An image format parser for the Interchangeable Preservation Format (IPF).
+//!
+//! No code in this module was taken or adapted from proprietary or license-encumbered
+//! sources and is the original work of the author.
+
 pub mod chunk;
 pub mod crc;
+mod data_block;
 mod data_record;
 pub mod image_record;
 pub mod info_record;
-pub mod ipf_parser;
+pub mod ipf;
 mod platforms;
 mod source_map;
 mod stream_element;
+mod track_common;
+mod v1_track;
+mod v2_track;
 
-pub use ipf_parser::IpfParser as IpFormat;
+pub use ipf::IpfParser as IpFormat;

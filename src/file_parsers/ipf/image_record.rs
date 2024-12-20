@@ -24,7 +24,10 @@
 
     --------------------------------------------------------------------------
 */
-use crate::types::DiskCh;
+use crate::{
+    source_map::{MapDump, OptionalSourceMap, SourceValue},
+    types::DiskCh,
+};
 use binrw::binrw;
 use std::cmp::Ordering;
 use strum::IntoEnumIterator;
@@ -89,6 +92,43 @@ impl ImageRecord {
             c: self.track as u16,
             h: self.side as u8,
         }
+    }
+}
+
+impl MapDump for ImageRecord {
+    fn write_to_map(&self, map: &mut Box<dyn OptionalSourceMap>, parent: usize) -> usize {
+        let record = map.add_child(
+            parent,
+            &format!("Image Record {}", DiskCh::new(self.track as u16, self.side as u8)),
+            SourceValue::default(),
+        );
+        let record_idx = record.index();
+        #[rustfmt::skip]
+        record
+            .add_child("track", SourceValue::u32(self.track))
+            .add_sibling("side", SourceValue::u32(self.side))
+            .add_sibling("density", SourceValue::u32(self.density).comment(&format!("{:?}", self.density_enum)))
+            // Signal type should be '1' - mark it questionable if it's not
+            .add_sibling("signalType", SourceValue::u32(self.signal_type).quest_if(self.signal_type != 1))
+            .add_sibling("trackBytes", SourceValue::u32(self.track_bytes))
+            .add_sibling("startBytePos", SourceValue::u32(self.start_byte_pos))
+            .add_sibling("startBitPos", SourceValue::u32(self.start_bit_pos))
+            .add_sibling("dataBits", SourceValue::u32(self.data_bits))
+            .add_sibling("gapBits", SourceValue::u32(self.gap_bits))
+            .add_sibling("trackBits", SourceValue::u32(self.track_bits))
+            .add_sibling("blockCount", SourceValue::u32(self.block_count))
+            // Encoder process should be 0. Mark it questionable if it's not.
+            .add_sibling("encoderProcess", SourceValue::u32(self.encoder_process).quest_if(self.encoder_process != 0))
+            // Only bit 1 of flags is defined. Mark questionable if more bits are set.
+            .add_sibling("trackFlags", SourceValue::hex_u32(self.track_flags).quest_if(self.track_flags & !1 != 0))
+            .add_sibling("dataKey", SourceValue::u32(self.data_key))
+            .add_sibling("reserved", SourceValue::default())
+            // Any of the reserved fields can be marked questionable if they are not 0 - they might represent future use we're not handling.
+            .add_child("[0]", SourceValue::u32(self.reserved[0]).quest_if(self.reserved[0] != 0))
+            .add_sibling("[1]", SourceValue::u32(self.reserved[1]).quest_if(self.reserved[1] != 0))
+            .add_sibling("[2]", SourceValue::u32(self.reserved[2]).quest_if(self.reserved[2] != 0));
+
+        record_idx.into()
     }
 }
 

@@ -23,13 +23,17 @@
     DEALINGS IN THE SOFTWARE.
 
     --------------------------------------------------------------------------
-
-    src/image_builder.rs
-
-    Implements the Builder pattern for DiskImage objects.
-
-    Allows for creation of blank or pre-formatted DiskImages.
 */
+
+//! A module to implement the builder pattern for [DiskImage]. Due to the
+//! complexity of the [DiskImage] object, it is not advisable to attempt to
+//! create one directly.
+//!
+//! An [ImageBuilder] allows for creation of a [DiskImage] with the desired
+//! parameters, at the desired [DiskDataResolution], optionally formatted.
+//!
+//! For IBM PC disk images, a creator tag can be specified which will be
+//! displayed during boot if the disk is left in the drive.
 
 use crate::{
     types::{DiskCh, DiskDataResolution, DiskImageFlags},

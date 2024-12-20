@@ -35,7 +35,7 @@
 use crate::{bitstream::mfm::MfmCodec, track::bitstream::BitStreamTrack, DiskImageFileFormat, SectorMapEntry};
 
 use crate::{
-    bitstream::{fm::FmCodec, TrackCodec, TrackDataStream},
+    bitstream::{fm::FmCodec, TrackCodec},
     boot_sector::BootSector,
     containers::DiskImageContainer,
     detect::detect_container_format,
@@ -48,6 +48,7 @@ use crate::{
         ParserReadOptions,
     },
     io::ReadSeek,
+    source_map::{NullSourceMap, OptionalSourceMap, SourceMap},
     track::{fluxstream::FluxStreamTrack, metasector::MetaSectorTrack, DiskTrack, Track, TrackAnalysis},
     track_schema::{system34::System34Standard, TrackMetadata, TrackSchema},
     types::{
@@ -125,6 +126,9 @@ pub struct DiskImage {
     /// A shared context for the disk image, accessible by Tracks.
     #[cfg_attr(feature = "serde", serde(skip))]
     pub(crate) shared: Option<Arc<Mutex<SharedDiskContext>>>,
+    /// A sourcemap for the disk image. This is not serialized as it is not necessary
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub(crate) source_map: Option<Box<dyn OptionalSourceMap>>,
 }
 
 impl Default for DiskImage {
@@ -142,6 +146,7 @@ impl Default for DiskImage {
             track_pool: Vec::new(),
             track_map: [Vec::new(), Vec::new()],
             shared: Some(Arc::new(Mutex::new(SharedDiskContext::default()))),
+            source_map: Some(Box::new(NullSourceMap::new())),
         }
     }
 }
@@ -180,6 +185,7 @@ impl DiskImage {
             track_pool: Vec::new(),
             track_map: [Vec::new(), Vec::new()],
             shared: Some(Arc::new(Mutex::new(SharedDiskContext::default()))),
+            source_map: Some(Box::new(NullSourceMap::new())),
         }
     }
 
@@ -1964,5 +1970,42 @@ impl DiskImage {
     /// Consume the `DiskImage` and return an `Arc<Mutex<DiskImage>>`.
     pub fn into_arc(self) -> Arc<RwLock<Self>> {
         Arc::new(RwLock::new(self))
+    }
+
+    /// A file parser can use this function to receive a source map reference to use when building
+    /// a disk image. If `null` is set to true, a dummy source map will be returned. This stub
+    /// implementation will ignore data written, to reduce conditional logic.
+    ///
+    /// If an existing source map is present, it will be dropped!
+    pub(crate) fn assign_source_map(&mut self, state: bool) -> &mut Option<Box<dyn OptionalSourceMap>> {
+        if state {
+            // Create a real source map
+            let map_box: Box<dyn OptionalSourceMap> = Box::new(SourceMap::new());
+            //self.source_map = Some(Arc::new(Mutex::new(map_box)));
+            self.source_map = Some(map_box);
+        }
+        else {
+            // Create a null source map
+            let map_box: Box<dyn OptionalSourceMap> = Box::new(NullSourceMap::new());
+            //self.source_map = Some(Arc::new(Mutex::new(map_box)));
+            self.source_map = Some(map_box);
+        }
+        &mut self.source_map
+    }
+
+    pub fn source_map(&self) -> &Box<dyn OptionalSourceMap> {
+        self.source_map.as_ref().unwrap()
+    }
+
+    pub fn source_map_mut(&mut self) -> &mut Box<dyn OptionalSourceMap> {
+        self.source_map.as_mut().unwrap()
+    }
+
+    pub(crate) fn take_source_map(&mut self) -> Option<Box<dyn OptionalSourceMap>> {
+        self.source_map.take()
+    }
+
+    pub(crate) fn put_source_map(&mut self, source_map: Box<dyn OptionalSourceMap>) {
+        self.source_map = Some(source_map);
     }
 }
