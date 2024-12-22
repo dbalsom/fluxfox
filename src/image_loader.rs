@@ -24,7 +24,7 @@
 
     --------------------------------------------------------------------------
 */
-
+#![allow(dead_code)]
 //! A module that implements a builder pattern for [DiskImage] designed around
 //! creation of a [DiskImage] from an existing disk image file.
 //! It is possible to call DiskImage::load() directly, but this module provides
