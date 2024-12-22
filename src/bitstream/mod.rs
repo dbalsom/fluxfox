@@ -33,6 +33,7 @@ use crate::{
     types::TrackDataEncoding,
 };
 use bit_vec::BitVec;
+use dyn_clone::{clone_trait_object, DynClone};
 use std::ops::Index;
 // fn find_marker(&self, marker: u64, mask: Option<u64>, start: usize, limit: Option<usize>) -> Option<(usize, u16)>;
 
@@ -65,7 +66,7 @@ pub enum EncodingVariant {
 /// A `TrackCodec` is a trait that represents the data encoding of a disk track.
 /// Data encodings
 #[cfg_attr(feature = "serde", typetag::serde(tag = "type"))]
-pub trait TrackCodec: Read + Seek + Index<usize, Output = bool> + Send + Sync {
+pub trait TrackCodec: DynClone + Read + Seek + Index<usize, Output = bool> + Send + Sync {
     /// Return the `[DiskDataEncoding]` of the data on this track.
     /// A single track may only have one encoding.
     fn encoding(&self) -> TrackDataEncoding;
@@ -132,5 +133,7 @@ pub trait TrackCodec: Read + Seek + Index<usize, Output = bool> + Send + Sync {
     fn debug_marker(&self, index: usize) -> String;
     fn debug_decode(&self, index: usize) -> String;
 }
+
+clone_trait_object!(TrackCodec);
 
 pub type TrackDataStream = Box<dyn TrackCodec<Output = bool>>;

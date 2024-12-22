@@ -67,6 +67,7 @@ macro_rules! fm_offset {
 ///
 /// FM encoded tracks are often present at the end of the standard track count on a diskette,
 /// used by commercial disk duplicators to store additional data about the disk being mastered.
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FmCodec {
     bit_vec: BitVec,

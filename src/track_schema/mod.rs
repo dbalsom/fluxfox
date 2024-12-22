@@ -111,7 +111,7 @@ impl From<Platform> for TrackSchema {
 
 /// A `TrackMetadata` structure represents a collection of metadata items found in a track,
 /// represented as `TrackElementInstance`s.
-#[derive(Default)]
+#[derive(Clone, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TrackMetadata {
     pub(crate) items: Vec<TrackElementInstance>,

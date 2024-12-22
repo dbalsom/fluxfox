@@ -71,6 +71,7 @@ use crate::{
 
 use sha1_smol::Digest;
 
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FluxStreamTrack {
     encoding: TrackDataEncoding,

@@ -55,7 +55,7 @@ macro_rules! format_ms {
     };
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum FluxTransition {
     TooShort,

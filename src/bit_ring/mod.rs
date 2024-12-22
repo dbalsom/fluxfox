@@ -71,6 +71,7 @@ impl Iterator for BitRingIter<'_> {
 /// adjustable track wrapping strategies. It may also be configured to return a
 /// specific value when indexed beyond the wrap point - this is useful to ignore
 /// any clock bits that may only be valid within the first revolution.
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct BitRing {
     bits: BitVec,

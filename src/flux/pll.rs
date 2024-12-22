@@ -53,6 +53,7 @@ bitflags! {
     }
 }
 
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PllDecodeStatEntry {
     pub time: f64,

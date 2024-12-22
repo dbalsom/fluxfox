@@ -80,6 +80,7 @@ use std::{
 use strum::IntoEnumIterator;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone)]
 pub struct BitStreamTrack {
     pub(crate) encoding: TrackDataEncoding,
     pub(crate) data_rate: TrackDataRate,

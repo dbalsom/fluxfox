@@ -59,6 +59,7 @@ use crate::{
     SectorIdQuery,
     SectorMapEntry,
 };
+use dyn_clone::{clone_trait_object, DynClone};
 use sha1_smol::Digest;
 use std::any::Any;
 
@@ -189,7 +190,7 @@ impl TrackAnalysis {
 }
 
 #[cfg_attr(feature = "serde", typetag::serde)]
-pub trait Track: Any + Send + Sync {
+pub trait Track: DynClone + Any + Send + Sync {
     /// Return the resolution of the track as a `DiskDataResolution`.
     /// This can be used to determine the track's underlying representation, especially if you wish
     /// to downcast the track to a specific type.
@@ -396,5 +397,7 @@ pub trait Track: Any + Send + Sync {
     /// Return a mutable reference to the underlying `TrackDataStream`.
     fn stream_mut(&mut self) -> Option<&mut TrackDataStream>;
 }
+
+clone_trait_object!(Track);
 
 pub type DiskTrack = Box<dyn Track>;

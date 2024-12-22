@@ -67,6 +67,7 @@ pub struct FluxRevolutionStats {
 }
 
 /// A struct representing one revolution of a fluxstream track.
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FluxRevolution {
     /// The type of revolution.

@@ -95,7 +95,7 @@ impl<'a> SectorMatchMut<'a> {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct MetaMask {
     has_bits: bool,
@@ -152,6 +152,7 @@ impl MetaMask {
     }
 }
 
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub(crate) struct MetaSector {
     id_chsn: DiskChsn,
@@ -182,6 +183,7 @@ impl MetaSector {
     }
 }
 
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MetaSectorTrack {
     pub(crate) ch: DiskCh,

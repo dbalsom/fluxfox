@@ -53,6 +53,7 @@ macro_rules! mfm_offset {
     };
 }
 
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MfmCodec {
     bits: BitRing,
