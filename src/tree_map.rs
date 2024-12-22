@@ -180,39 +180,39 @@ impl<T> FoxTreeMap<T> {
     }
 }
 
-pub trait FoxTree {
-    type Data;
-
-    fn tree_mut(&mut self) -> &mut FoxTreeMap<Self::Data>;
-    fn tree(&self) -> &FoxTreeMap<Self::Data>;
-
-    fn root(&self) -> usize {
-        0
-    }
-
-    fn add_child<'a>(&'a mut self, parent: usize, name: &str, data: Self::Data) -> FoxTreeCursor<'a, Self::Data> {
-        let child_index = self.tree_mut().add_child(parent, name, data);
-        FoxTreeCursor {
-            tree: self.tree_mut(),
-            parent_index: parent,
-            current_index: child_index,
-        }
-    }
-
-    fn debug_tree(&self, display: impl Fn(&Self::Data) -> String) {
-        let mut visited = FoxHashSet::new();
-        self.tree().debug_tree(self.root(), 0, &display, &mut visited);
-    }
-
-    fn last_node(&mut self) -> FoxTreeCursor<Self::Data> {
-        let last = self.tree().nodes.len() - 1;
-        FoxTreeCursor {
-            parent_index: self.tree().nodes[last].parent,
-            current_index: last,
-            tree: self.tree_mut(),
-        }
-    }
-}
+// pub trait FoxTree {
+//     type Data;
+//
+//     fn tree_mut(&mut self) -> &mut FoxTreeMap<Self::Data>;
+//     fn tree(&self) -> &FoxTreeMap<Self::Data>;
+//
+//     fn root(&self) -> usize {
+//         0
+//     }
+//
+//     fn add_child<'a>(&'a mut self, parent: usize, name: &str, data: Self::Data) -> FoxTreeCursor<'a, Self::Data> {
+//         let child_index = self.tree_mut().add_child(parent, name, data);
+//         FoxTreeCursor {
+//             tree: self.tree_mut(),
+//             parent_index: parent,
+//             current_index: child_index,
+//         }
+//     }
+//
+//     fn debug_tree(&self, display: impl Fn(&Self::Data) -> String) {
+//         let mut visited = FoxHashSet::new();
+//         self.tree().debug_tree(self.root(), 0, &display, &mut visited);
+//     }
+//
+//     fn last_node(&mut self) -> FoxTreeCursor<Self::Data> {
+//         let last = self.tree().nodes.len() - 1;
+//         FoxTreeCursor {
+//             parent_index: self.tree().nodes[last].parent,
+//             current_index: last,
+//             tree: self.tree_mut(),
+//         }
+//     }
+// }
 
 // Cursor for chaining child and sibling additions
 pub struct FoxTreeCursor<'a, T> {

@@ -41,7 +41,7 @@
 //! in [ParserWriteOptions].
 
 use crate::{
-    tree_map::{FoxTree, FoxTreeCursor, FoxTreeMap},
+    tree_map::{FoxTreeCursor, FoxTreeMap},
     FoxHashSet,
 };
 use std::{
@@ -321,17 +321,17 @@ impl SourceMap {
     }
 }
 
-impl FoxTree for SourceMap {
-    type Data = SourceValue;
-
-    fn tree_mut(&mut self) -> &mut FoxTreeMap<Self::Data> {
-        &mut self.map
-    }
-
-    fn tree(&self) -> &FoxTreeMap<Self::Data> {
-        &self.map
-    }
-}
+// impl FoxTree for SourceMap {
+//     type Data = SourceValue;
+//
+//     fn tree_mut(&mut self) -> &mut FoxTreeMap<Self::Data> {
+//         &mut self.map
+//     }
+//
+//     fn tree(&self) -> &FoxTreeMap<Self::Data> {
+//         &self.map
+//     }
+// }
 
 impl Debug for SourceMap {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
