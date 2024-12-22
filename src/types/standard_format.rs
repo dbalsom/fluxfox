@@ -47,17 +47,24 @@
 //! The `standard_format` module defines the [StandardFormat] enum that defines parameters for
 //! several standard PC disk formats.
 
-use crate::{
-    types::{DiskDescriptor, DiskRpm, TrackDataEncoding, TrackDataRate, TrackDensity},
-    DiskCh,
-    DiskChs,
-    DiskChsn,
-};
-
-use crate::types::sector_layout::SectorLayout;
 use std::{
     fmt::{Display, Formatter},
     str::FromStr,
+};
+
+use crate::{
+    types::{
+        sector_layout::SectorLayout,
+        DiskDescriptor,
+        DiskRpm,
+        Platform,
+        TrackDataEncoding,
+        TrackDataRate,
+        TrackDensity,
+    },
+    DiskCh,
+    DiskChs,
+    DiskChsn,
 };
 
 /// A newtype for [StandardFormat] for use in parsing [StandardFormat] from user-provided strings,
@@ -78,14 +85,18 @@ impl FromStr for StandardFormatParam {
             .strip_prefix("pc_")
             .unwrap_or(s.to_lowercase().as_str())
         {
-            "160k" => Ok(StandardFormatParam(StandardFormat::PcFloppy160)),
-            "180k" => Ok(StandardFormatParam(StandardFormat::PcFloppy180)),
-            "320k" => Ok(StandardFormatParam(StandardFormat::PcFloppy320)),
-            "360k" => Ok(StandardFormatParam(StandardFormat::PcFloppy360)),
-            "720k" => Ok(StandardFormatParam(StandardFormat::PcFloppy720)),
-            "1200k" => Ok(StandardFormatParam(StandardFormat::PcFloppy1200)),
-            "1440k" => Ok(StandardFormatParam(StandardFormat::PcFloppy1440)),
-            "2880k" => Ok(StandardFormatParam(StandardFormat::PcFloppy2880)),
+            "pc_160k" => Ok(StandardFormatParam(StandardFormat::PcFloppy160)),
+            "pc_180k" => Ok(StandardFormatParam(StandardFormat::PcFloppy180)),
+            "pc_320k" => Ok(StandardFormatParam(StandardFormat::PcFloppy320)),
+            "pc_360k" => Ok(StandardFormatParam(StandardFormat::PcFloppy360)),
+            "pc_720k" => Ok(StandardFormatParam(StandardFormat::PcFloppy720)),
+            "pc_1200k" => Ok(StandardFormatParam(StandardFormat::PcFloppy1200)),
+            "pc_1440k" => Ok(StandardFormatParam(StandardFormat::PcFloppy1440)),
+            "pc_2880k" => Ok(StandardFormatParam(StandardFormat::PcFloppy2880)),
+            #[cfg(feature = "amiga")]
+            "amiga_880k" => Ok(StandardFormatParam(StandardFormat::AmigaFloppy880)),
+            #[cfg(feature = "amiga")]
+            "amiga_1760k" => Ok(StandardFormatParam(StandardFormat::AmigaFloppy1760)),
             _ => Err(format!("Invalid format: {}", s)),
         }
     }
@@ -104,6 +115,8 @@ impl Display for StandardFormatParam {
             StandardFormat::PcFloppy2880 => write!(f, "pc_2880k"),
             #[cfg(feature = "amiga")]
             StandardFormat::AmigaFloppy880 => write!(f, "amiga_880k"),
+            #[cfg(feature = "amiga")]
+            StandardFormat::AmigaFloppy1760 => write!(f, "amiga_1760k"),
         }
     }
 }
@@ -135,7 +148,7 @@ impl StandardFormatParam {
 }
 
 /// An enumeration describing one of several standard PC disk formats.
-#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, strum::EnumIter)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum StandardFormat {
     /// A single-sided, 8-sectored, 48tpi, double-density disk
@@ -155,23 +168,28 @@ pub enum StandardFormat {
     /// A double-sided, 36-sectored, 96tpi, high-density disk
     PcFloppy2880,
     #[cfg(feature = "amiga")]
-    /// A double-sided, 11-sectored, 48tpi, double-density disk
+    /// A double-sided, 11-sectored, 96tpi, double-density disk
     AmigaFloppy880,
+    #[cfg(feature = "amiga")]
+    /// A double-sided, 22-sectored, 96tpi, high-density disk
+    AmigaFloppy1760,
 }
 
 impl Display for StandardFormat {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
-            StandardFormat::PcFloppy160 => write!(f, "160K 5.25\" DD"),
-            StandardFormat::PcFloppy180 => write!(f, "180K 5.25\" DD"),
-            StandardFormat::PcFloppy320 => write!(f, "320K 5.25\" DD"),
-            StandardFormat::PcFloppy360 => write!(f, "360K 5.25\" DD"),
-            StandardFormat::PcFloppy720 => write!(f, "720K 3.5\" DD"),
-            StandardFormat::PcFloppy1200 => write!(f, "1.2M 5.25\" HD"),
-            StandardFormat::PcFloppy1440 => write!(f, "1.44M 3.5\" HD"),
-            StandardFormat::PcFloppy2880 => write!(f, "2.88M 3.5\" ED"),
+            StandardFormat::PcFloppy160 => write!(f, "160KB 5.25\" DD"),
+            StandardFormat::PcFloppy180 => write!(f, "180KB 5.25\" DD"),
+            StandardFormat::PcFloppy320 => write!(f, "320KB 5.25\" DD"),
+            StandardFormat::PcFloppy360 => write!(f, "360KB 5.25\" DD"),
+            StandardFormat::PcFloppy720 => write!(f, "720KB 3.5\" DD"),
+            StandardFormat::PcFloppy1200 => write!(f, "1.2MB 5.25\" HD"),
+            StandardFormat::PcFloppy1440 => write!(f, "1.44MB 3.5\" HD"),
+            StandardFormat::PcFloppy2880 => write!(f, "2.88MB 3.5\" ED"),
             #[cfg(feature = "amiga")]
-            StandardFormat::AmigaFloppy880 => write!(f, "880K 3,5\" DD"),
+            StandardFormat::AmigaFloppy880 => write!(f, "880KB 3,5\" DD"),
+            #[cfg(feature = "amiga")]
+            StandardFormat::AmigaFloppy1760 => write!(f, "1.76MB 3,5\" HD"),
         }
     }
 }
@@ -183,22 +201,6 @@ impl From<StandardFormatParam> for StandardFormat {
 }
 
 impl StandardFormat {
-    /// Return a vector of all StandardFormat variants.
-    pub fn list() -> Vec<StandardFormat> {
-        vec![
-            StandardFormat::PcFloppy160,
-            StandardFormat::PcFloppy180,
-            StandardFormat::PcFloppy320,
-            StandardFormat::PcFloppy360,
-            StandardFormat::PcFloppy720,
-            StandardFormat::PcFloppy1200,
-            StandardFormat::PcFloppy1440,
-            StandardFormat::PcFloppy2880,
-            #[cfg(feature = "amiga")]
-            StandardFormat::AmigaFloppy880,
-        ]
-    }
-
     /// Returns the geometry corresponding to the `StandardFormat` as a `DiskChsn` struct.
     pub fn layout(&self) -> SectorLayout {
         match self {
@@ -212,6 +214,8 @@ impl StandardFormat {
             StandardFormat::PcFloppy2880 => SectorLayout::new(80, 2, 36, 1, 512),
             #[cfg(feature = "amiga")]
             StandardFormat::AmigaFloppy880 => SectorLayout::new(80, 2, 11, 0, 512),
+            #[cfg(feature = "amiga")]
+            StandardFormat::AmigaFloppy1760 => SectorLayout::new(80, 2, 22, 0, 512),
         }
     }
 
@@ -260,6 +264,10 @@ impl StandardFormat {
             StandardFormat::PcFloppy2880 => TrackDataRate::Rate1000Kbps(1.0),
             #[cfg(feature = "amiga")]
             StandardFormat::AmigaFloppy880 => TrackDataRate::Rate250Kbps(1.0),
+            // We are going to ignore the fact that Amiga HD drives spun at 150RPM for half the data rate.
+            // From a normalized perspective, we consider them 300RPM and 500Kbps.
+            #[cfg(feature = "amiga")]
+            StandardFormat::AmigaFloppy1760 => TrackDataRate::Rate500Kbps(1.0),
         }
     }
 
@@ -282,6 +290,9 @@ impl StandardFormat {
             StandardFormat::PcFloppy2880 => DiskRpm::Rpm300,
             #[cfg(feature = "amiga")]
             StandardFormat::AmigaFloppy880 => DiskRpm::Rpm300,
+            // See note above in data_rate() for Amiga HD drives.
+            #[cfg(feature = "amiga")]
+            StandardFormat::AmigaFloppy1760 => DiskRpm::Rpm300,
         }
     }
 
@@ -298,6 +309,8 @@ impl StandardFormat {
             StandardFormat::PcFloppy2880 => 400_000,
             #[cfg(feature = "amiga")]
             StandardFormat::AmigaFloppy880 => 100_000,
+            #[cfg(feature = "amiga")]
+            StandardFormat::AmigaFloppy1760 => 200_000,
         }
     }
 
@@ -314,12 +327,15 @@ impl StandardFormat {
             StandardFormat::PcFloppy2880 => 0x53,
             #[cfg(feature = "amiga")]
             StandardFormat::AmigaFloppy880 => 0x50, // TODO: Replace placeholder value
+            #[cfg(feature = "amiga")]
+            StandardFormat::AmigaFloppy1760 => 0x50, // TODO: Replace placeholder value
         }
     }
 
     /// Return a standard `DiskDescriptor` struct corresponding to the `StandardFormat`.
     pub fn descriptor(&self) -> DiskDescriptor {
         DiskDescriptor {
+            platforms: Some(vec![Platform::from(*self)]),
             geometry: self.ch(),
             data_encoding: TrackDataEncoding::Mfm,
             density: self.density(),
@@ -342,6 +358,8 @@ impl StandardFormat {
             StandardFormat::PcFloppy2880 => 2_949_120,
             #[cfg(feature = "amiga")]
             StandardFormat::AmigaFloppy880 => 901_120,
+            #[cfg(feature = "amiga")]
+            StandardFormat::AmigaFloppy1760 => 1_802_240,
         }
     }
 }
