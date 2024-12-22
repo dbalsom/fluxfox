@@ -796,7 +796,7 @@ impl KfxFormat {
     /// This allows building a set from either a directory listing or a list of files from a ZIP
     /// archive.
     pub fn expand_kryoflux_set(
-        filepath: PathBuf,
+        filepath: &Path,
         directory: Option<Vec<PathBuf>>,
     ) -> Result<(Vec<PathBuf>, DiskCh), DiskImageError> {
         let mut set_vec = Vec::new();

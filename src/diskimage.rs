@@ -81,7 +81,7 @@ use bit_vec::BitVec;
 use sha1_smol::Digest;
 use std::{
     io::Cursor,
-    path::PathBuf,
+    path::Path,
     sync::{Arc, Mutex, RwLock},
 };
 
@@ -154,7 +154,7 @@ impl Default for DiskImage {
 impl DiskImage {
     pub fn detect_format<RS: ReadSeek>(
         image: &mut RS,
-        path: Option<PathBuf>,
+        path: Option<&Path>,
     ) -> Result<DiskImageContainer, DiskImageError> {
         detect_container_format(image, path)
     }
@@ -259,11 +259,11 @@ impl DiskImage {
     }
 
     pub fn load_from_file(
-        file_path: PathBuf,
+        file_path: &Path,
         disk_selection: Option<DiskSelection>,
         callback: Option<LoadingCallback>,
     ) -> Result<Self, DiskImageError> {
-        let mut file_vec = std::fs::read(file_path.clone())?;
+        let mut file_vec = std::fs::read(file_path)?;
         let mut cursor = Cursor::new(&mut file_vec);
         let image = DiskImage::load(&mut cursor, Some(file_path), disk_selection, callback)?;
 
@@ -272,7 +272,7 @@ impl DiskImage {
 
     pub fn load<RS: ReadSeek>(
         image_io: &mut RS,
-        image_path: Option<PathBuf>,
+        image_path: Option<&Path>,
         disk_selection: Option<DiskSelection>,
         callback: Option<LoadingCallback>,
     ) -> Result<Self, DiskImageError> {

@@ -36,7 +36,7 @@ use crate::{
     DiskImageError,
     DiskImageFileFormat,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[cfg(feature = "zip")]
 use crate::{containers::KryoFluxSet, file_parsers::kryoflux::KfxFormat};
@@ -70,7 +70,7 @@ use strum::IntoEnumIterator;
 ///
 pub fn detect_container_format<T: ReadSeek>(
     image_io: &mut T,
-    path: Option<PathBuf>,
+    path: Option<&Path>,
 ) -> Result<DiskImageContainer, DiskImageError> {
     #[cfg(any(feature = "zip", feature = "gzip", feature = "tar"))]
     {
@@ -104,7 +104,7 @@ pub fn detect_container_format<T: ReadSeek>(
                             format,
                             file_io.into_inner(),
                             Some(file_path),
-                            path,
+                            path.map(|p| p.to_path_buf()),
                         ));
                     }
                 }
@@ -139,7 +139,7 @@ pub fn detect_container_format<T: ReadSeek>(
                 let mut set_vec = Vec::new();
                 for file in raw_files {
                     log::debug!("Found .raw file in archive: {:?}", file);
-                    let kryo_set = KfxFormat::expand_kryoflux_set(file.clone(), Some(path_vec.clone()))?;
+                    let kryo_set = KfxFormat::expand_kryoflux_set(file, Some(path_vec.clone()))?;
                     log::debug!(
                         "Expanded to Kryoflux set of {} files, geometry: {}",
                         kryo_set.0.len(),
@@ -178,7 +178,7 @@ pub fn detect_container_format<T: ReadSeek>(
                 return Ok(DiskImageContainer::KryofluxSet);
             }
             // Otherwise this must just be a plain File container.
-            return Ok(DiskImageContainer::File(format, path));
+            return Ok(DiskImageContainer::File(format, path.map(|p| p.to_path_buf())));
         }
     }
     Err(DiskImageError::UnknownFormat)
