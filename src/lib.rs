@@ -67,6 +67,7 @@ pub mod types;
 mod disk_schema;
 mod image_loader;
 mod platform;
+mod scripting;
 mod sector_view;
 pub mod source_map;
 mod tree_map;

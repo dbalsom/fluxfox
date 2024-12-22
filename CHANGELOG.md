@@ -1,16 +1,32 @@
 ## 0.2.0 (2024-11-XX)
 
-### Features:
+### New Features:
 
-- Added a `Platform` enumeration that defines the computing platform a disk image is intended for.
+- Extensively refactored. Not all new features may be listed as I may have lost track!
+- Added the "Source Map" - a tree/hash table that captures the structure of a source disk image file format.
+    - This is useful for research or debugging of file formats.
+- Added an `ImageLoader` which is the preferred interface for loading a disk image from a disk image file.
+- Added a `Platform` enumeration that defines the computing platform a disk image is intended for
+    - Added Amiga and Atari ST platforms
 - Added a `TrackSchema` enumeration that defines the specific format of a disk track
 - Added `ParserReadOptions` and `ParserWriteOptions` parameters to `ImageFileParser` to eventually better control
   disk image reading and writing.
 - Added a convenience wrapper, `StandardFormatParam`, for use with parsing user input into `StandardFormat`s
 - Added silly visualization functions to map a Pixmap to a `DiskImage`. See the png2disk crate for usage.
-- Added `DiskCh`, `DiskChs` and `DiskChsn` iterators for walking through sector layouts conforming to a `StandardFormat`
+- Added `SectorLayout` struct to define a standard sector layout.
+    - This can have an adjustable sector id offset to support PC vs Amiga sector layouts (Amiga sectors start at 0).
+    - Added `DiskCh`, `DiskChs` and `DiskChsn` iterators for walking through sector layouts
+        - `SectorLayout::ch_iter()`
+        - `SectorLayout::chs_iter()`
+        - `SectorLayout::chsn_iter()`
 - Added a `StandardSectorView` interface wrapper that provides `Read` + `Write` + `Seek` traits for a `DiskImage`
-- Added basic FAT support and example
+    - This provides a logical sector view over a disk image, as if it were a raw sector image.
+    - This feature allows interfacing with library crates that expect a raw sector image, such as `rust-fatfs`.
+- Added basic FAT support, based on `rust-fatfs`, and example
+
+### Disk Image Format updates:
+
+- Added a parser for the IPF disk image format
 - Added progress reporting for MFI loader.
 - Added support for high density MFI images.
 - Added support for WEAK chunk in PRI images.

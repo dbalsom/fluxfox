@@ -96,6 +96,9 @@ serde = { version = "1.0", optional = true }
 # typetag is used for serialization / deserialization of dyn trait objects ('serde' feature)
 typetag = { version = "0.2", optional = true }
 
+# rhai is used for scripting ('scripting' and 'rhai' features)
+rhai = { version = "1.20", optional = true }
+
 #wasm-bindgen-futures = { version = "0.4", optional = true }
 
 # fluxfox_fat is used for reading FAT12/16/32 filesystems if 'fat' feature is enabled
@@ -133,7 +136,7 @@ sha1 = "0.10"
 hex = "0.4"    # or the latest version
 
 [features]
-default = ["rand", "viz", "archives", "mfi", "fat", "flux", "ibmpc", "amiga"]
+default = ["rand", "viz", "scripting", "rhai", "archives", "mfi", "fat", "flux", "ibmpc", "amiga"]
 # the rand feature enables use of the rand crate for random number generation.
 # note: it is intended to be optional but the fallback is not yet implemented
 rand = ["dep:rand"]
@@ -157,6 +160,13 @@ fat = ["dep:fluxfox_fat"]
 flux = ["dep:histogram"]
 # plotly feature enables export of flux timings to plotly (perhaps this should not be internal to fluxfox?)
 plot = ["dep:plotly"]
+
+# Scripting Features
+# ----------------------------------------------------------------------------------------------------------------------
+# The main scripting feature enables scripting support, regardless of engine
+scripting = []
+# Enable the Rhai scripting engine (currently the only supported scripting engine)
+rhai = ["dep:rhai"]
 
 # Archive File Features
 # ----------------------------------------------------------------------------------------------------------------------
