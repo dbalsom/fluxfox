@@ -24,7 +24,7 @@
 
     --------------------------------------------------------------------------
 */
-use crate::windows::sector_viewer::SectorViewer;
+
 use fluxfox::DiskImage;
 use fluxfox_egui::widgets::source_map::SourceMapWidget;
 
@@ -47,6 +47,7 @@ impl SourceMapViewer {
         self.widget.update(disk);
     }
 
+    #[allow(dead_code)]
     pub fn set_open(&mut self, open: bool) {
         self.open = open;
     }

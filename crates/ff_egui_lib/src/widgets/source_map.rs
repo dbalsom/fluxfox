@@ -27,11 +27,7 @@
     Implements a custom control that displays the image source map
 */
 use egui::{CollapsingHeader, Ui};
-use fluxfox::{
-    source_map::{Scalar, SourceMap, SourceValue},
-    DiskImage,
-    DiskImageFileFormat,
-};
+use fluxfox::{source_map::SourceMap, DiskImage, DiskImageFileFormat};
 
 #[derive(Default)]
 pub struct SourceMapWidget {
