@@ -358,6 +358,8 @@ pub trait OptionalSourceMap: Any + Send + Sync {
     fn add_child(&mut self, parent: usize, name: &str, data: SourceValue) -> FoxTreeCursor<SourceValue>;
     fn debug_tree(&self);
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
+
+    fn last_node(&mut self) -> FoxTreeCursor<SourceValue>;
 }
 
 impl OptionalSourceMap for SourceMap {
@@ -381,6 +383,11 @@ impl OptionalSourceMap for SourceMap {
 
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Debug::fmt(self, f)
+    }
+
+    fn last_node(&mut self) -> FoxTreeCursor<SourceValue> {
+        let (parent, last) = self.map.last_node();
+        FoxTreeCursor::new(&mut self.map, parent, last)
     }
 }
 
@@ -413,6 +420,10 @@ impl OptionalSourceMap for NullSourceMap {
     }
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "NullSourceMap")
+    }
+
+    fn last_node(&mut self) -> FoxTreeCursor<SourceValue> {
+        FoxTreeCursor::new(&mut self.tree, 0, 0)
     }
 }
 

@@ -146,7 +146,7 @@ impl<T> FoxTreeMap<T> {
         self.debug_fmt_node_with(f, self.root(), 0, display, &mut visited)
     }
 
-    fn debug_fmt_node_with<F>(
+    pub fn debug_fmt_node_with<F>(
         &self,
         f: &mut std::fmt::Formatter<'_>,
         index: usize,
@@ -173,6 +173,11 @@ impl<T> FoxTreeMap<T> {
 
         Ok(())
     }
+
+    pub fn last_node(&self) -> (usize, usize) {
+        let last = self.nodes.len().saturating_sub(1);
+        (self.nodes[last].parent, last)
+    }
 }
 
 pub trait FoxTree {
@@ -197,6 +202,15 @@ pub trait FoxTree {
     fn debug_tree(&self, display: impl Fn(&Self::Data) -> String) {
         let mut visited = FoxHashSet::new();
         self.tree().debug_tree(self.root(), 0, &display, &mut visited);
+    }
+
+    fn last_node(&mut self) -> FoxTreeCursor<Self::Data> {
+        let last = self.tree().nodes.len() - 1;
+        FoxTreeCursor {
+            parent_index: self.tree().nodes[last].parent,
+            current_index: last,
+            tree: self.tree_mut(),
+        }
     }
 }
 
