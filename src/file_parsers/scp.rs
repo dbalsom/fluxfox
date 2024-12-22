@@ -515,6 +515,8 @@ impl ScpFormat {
         }
 
         disk_image.descriptor = DiskDescriptor {
+            // SCP does have a platform field, but unfortunately we can't trust it.
+            platforms: None,
             geometry: DiskCh::from((ch.c() + 1, disk_heads)),
             data_rate: disk_data_rate.unwrap(),
             density: TrackDensity::from(disk_data_rate.unwrap()),

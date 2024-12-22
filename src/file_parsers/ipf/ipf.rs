@@ -55,9 +55,8 @@ use crate::{
         ParserWriteOptions,
     },
     io::{ReadSeek, ReadWriteSeek},
-    source_map::{MapDump, OptionalSourceMap},
-    track_schema::TrackSchema,
-    types::{DiskCh, DiskDataResolution, DiskDescriptor, Platform, TrackDataEncoding, TrackDataRate, TrackDensity},
+    source_map::MapDump,
+    types::{DiskCh, DiskDescriptor, Platform, TrackDataEncoding, TrackDataRate, TrackDensity},
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,
@@ -73,12 +72,7 @@ pub(crate) struct DataRecordInfo {
     pub(crate) blocks: Vec<BlockDescriptor>,
 }
 
-pub struct IpfParser {
-    /// Detected and compatible fluxfox Platforms this IPF contains.
-    /// An IPF may contain multiple platforms - consider dual and triple format disks were made
-    /// (Amiga/Atari ST/PC)
-    platforms: Vec<Platform>,
-}
+pub struct IpfParser {}
 
 impl IpfParser {
     #[allow(dead_code)]
@@ -124,7 +118,7 @@ impl IpfParser {
     pub(crate) fn load_image<RWS: ReadSeek>(
         mut reader: RWS,
         disk_image: &mut DiskImage,
-        opts: &ParserReadOptions,
+        _opts: &ParserReadOptions,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFileFormat::IpfImage);
@@ -166,7 +160,6 @@ impl IpfParser {
         let mut image_pool: Vec<ImageRecord> = Vec::with_capacity(200);
         let mut image_map: FoxHashMap<u32, usize> = FoxHashMap::with_capacity(200);
         let mut data_pool: Vec<DataRecordInfo> = Vec::new();
-
         let mut info_record_opt: Option<InfoRecord> = None;
 
         while let Ok(chunk) = Self::read_chunk(&mut reader) {
@@ -267,11 +260,19 @@ impl IpfParser {
             DiskImageError::ImageCorruptError("No InfoRecord found in IPF image.".to_string())
         })?;
 
+        let platforms = info_record.platforms();
+
+        if platforms.is_empty() {
+            log::warn!("IPF image is not for any compatible platform.");
+            //return Err(DiskImageError::IncompatibleImage("IPF image is not for any compatible platform.".to_string()));
+        }
+
         for pi in sorted_pool.iter() {
             Self::process_track(&mut reader, disk_image, &info_record, &image_pool[*pi], &data_pool[*pi])?;
         }
 
         let desc = DiskDescriptor {
+            platforms: (!platforms.is_empty()).then_some(platforms),
             geometry: DiskCh::new((info_record.max_track + 1) as u16, (info_record.max_side + 1) as u8),
             data_encoding: TrackDataEncoding::Mfm,
             density: TrackDensity::Double,

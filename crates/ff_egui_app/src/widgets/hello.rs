@@ -28,6 +28,8 @@
 */
 #[cfg(not(target_arch = "wasm32"))]
 use crate::native::util;
+use fluxfox::prelude::Platform;
+use strum::IntoEnumIterator;
 
 #[cfg(target_arch = "wasm32")]
 use crate::wasm::util;
@@ -60,7 +62,15 @@ impl HelloWidget {
             ui.label(
                 "Drag disk image files to this window to load. Kryoflux sets should be in single-disk ZIP archives.",
             );
+
             ui.label(format!("Image types supported: {}", supported_extensions.join(", ")));
+            ui.label(format!(
+                "Platform features enabled: {}",
+                Platform::iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<String>>()
+                    .join(", ")
+            ));
         });
     }
 }

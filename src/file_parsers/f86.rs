@@ -695,6 +695,9 @@ impl F86Format {
         }
 
         disk_image.descriptor = DiskDescriptor {
+            // 86box is mostly a PC emulator, although it does support other formats...
+            // We'll stick with PC for now.
+            platforms: Some(vec![Platform::IbmPc]),
             geometry: DiskCh::from((cylinder_n, heads as u8)),
             data_rate: Default::default(),
             data_encoding: TrackDataEncoding::Mfm,

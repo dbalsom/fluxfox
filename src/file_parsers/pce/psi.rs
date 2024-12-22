@@ -491,6 +491,9 @@ impl PsiFormat {
         let head_ct = heads_seen.len() as u8;
         let track_ct = track_set.len() as u16;
         disk_image.descriptor = DiskDescriptor {
+            // PSI images are going to be either PC or Mac. Since we aren't handling Macintosh-specific
+            // chunks, we'll just assume it's a PC disk.
+            platforms: Some(vec![Platform::IbmPc]),
             geometry: DiskCh::from((track_ct / head_ct as u16, head_ct)),
             data_rate: Default::default(),
             data_encoding: TrackDataEncoding::Mfm,

@@ -268,6 +268,8 @@ impl MfmFormat {
         }
 
         disk_image.descriptor = DiskDescriptor {
+            // Mfm doesn't specify platform info.
+            platforms: None,
             geometry: DiskCh::from((file_header.track_ct, file_header.head_ct)),
             data_rate: disk_data_rate,
             data_encoding: TrackDataEncoding::Mfm,

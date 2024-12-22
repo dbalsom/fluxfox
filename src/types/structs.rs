@@ -30,6 +30,7 @@
 */
 use crate::{
     file_parsers::FormatCaps,
+    platform::Platform,
     prelude::{DiskCh, DiskChsn},
     track::TrackAnalysis,
     track_schema::TrackSchema,
@@ -121,9 +122,12 @@ impl DiskAnalysis {
 }
 
 /// A `DiskDescriptor` structure describes the basic geometry and parameters of a disk image.
-#[derive(Copy, Clone, Default)]
+#[derive(Clone, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DiskDescriptor {
+    /// The platform(s) that the disk image is intended for, if determined
+    /// Multiple platforms can be specified for dual and triple-format disks.
+    pub platforms: Option<Vec<Platform>>,
     /// The basic geometry of the disk. Not all tracks present need to conform to the specified sector count (s).
     pub geometry: DiskCh,
     /// The overall data encoding of the disk. (one or more tracks may have different encodings).

@@ -434,6 +434,8 @@ impl HfeFormat {
         }
 
         disk_image.descriptor = DiskDescriptor {
+            // Can't trust HFE platform, so return empty list.
+            platforms: None,
             geometry: DiskCh::from((file_header.number_of_tracks as u16, file_header.number_of_sides)),
             data_rate: TrackDataRate::from(file_header.bit_rate as u32 * 1000),
             density: TrackDensity::from(hfe_floppy_interface),

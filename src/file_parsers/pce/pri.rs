@@ -535,6 +535,7 @@ impl PriFormat {
         let head_ct = heads_seen.len() as u8;
         let cylinder_ct = cylinders_seen.len() as u16;
         disk_image.descriptor = DiskDescriptor {
+            platforms: None,
             geometry: DiskCh::from((cylinder_ct, head_ct)),
             data_rate: disk_data_rate.unwrap(),
             data_encoding: TrackDataEncoding::Mfm,

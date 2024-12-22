@@ -1751,6 +1751,7 @@ dependencies = [
  "log 0.4.22",
  "rayon",
  "serde",
+ "strum",
  "tiny-skia",
  "wasm-bindgen",
  "wasm-bindgen-futures",

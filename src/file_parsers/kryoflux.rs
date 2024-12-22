@@ -470,6 +470,8 @@ impl KfxFormat {
         log::debug!("Track added.");
 
         disk_image.descriptor = DiskDescriptor {
+            // Kryoflux doesn't specify platform at all. Figure it out after import.
+            platforms: None,
             geometry: disk_image.geometry(),
             data_rate,
             density: new_density,

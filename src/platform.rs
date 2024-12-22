@@ -40,7 +40,7 @@ use crate::StandardFormat;
 /// It may be the most pragmatic option to have the user specify the platform when loading/saving a
 /// disk image.
 #[repr(usize)]
-#[derive(Copy, Clone, Debug, strum::EnumIter)]
+#[derive(Copy, Clone, Debug, PartialEq, strum::EnumIter)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Platform {
     /// IBM PC and compatibles
@@ -71,7 +71,58 @@ impl From<StandardFormat> for Platform {
             PcFloppy160 | PcFloppy180 | PcFloppy320 | PcFloppy360 | PcFloppy720 | PcFloppy1200 | PcFloppy1440
             | PcFloppy2880 => Platform::IbmPc,
             #[cfg(feature = "amiga")]
-            AmigaFloppy880 => Platform::Amiga,
+            AmigaFloppy880 | AmigaFloppy1760 => Platform::Amiga,
         }
     }
+}
+
+impl Platform {
+    // Try to convert a [TrackSchema] to a [Platform] based on a list of platforms to consider.
+    // The list is required because some track schemas may be ambiguous (e.g. System34 used by
+    // IBM PC, Macintosh and Atari ST).
+    // pub fn try_from_schema(schema: TrackSchema, platforms: &[Platform]) -> Option<Self> {
+    //     for platform in platforms {
+    //         // if platforms.contains(&Platform::from(schema)) {
+    //         //     return Some(Platform::from(schema));
+    //         // }
+    //
+    //         match schema {
+    //             TrackSchema::System34 => {
+    //                 if platforms.contains(platform) {
+    //                     Some(platform)
+    //                 }
+    //                 else {
+    //                     None
+    //                 }
+    //             }
+    //             #[cfg(feature = "amiga")]
+    //             TrackSchema::Amiga => {
+    //                 if platforms.contains(&Platform::Amiga) {
+    //                     Some(Platform::Amiga)
+    //                 }
+    //                 else {
+    //                     None
+    //                 }
+    //             }
+    //             #[cfg(feature = "macintosh")]
+    //             TrackSchema::Macintosh => {
+    //                 if platforms.contains(&Platform::Macintosh) {
+    //                     Some(Platform::Macintosh)
+    //                 }
+    //                 else {
+    //                     None
+    //                 }
+    //             }
+    //             #[cfg(feature = "atari_st")]
+    //             TrackSchema::AtariSt => {
+    //                 if platforms.contains(&Platform::AtariSt) {
+    //                     Some(Platform::AtariSt)
+    //                 }
+    //                 else {
+    //                     None
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 }

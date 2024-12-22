@@ -464,6 +464,8 @@ impl MfiFormat {
         }
 
         disk_image.descriptor = DiskDescriptor {
+            // MFI specifies disk geometry, but not platform.
+            platforms: None,
             geometry: file_ch,
             data_rate: disk_density.unwrap_or(TrackDensity::Double).into(),
             density: disk_density.unwrap_or(TrackDensity::Double),

@@ -407,6 +407,8 @@ impl TCFormat {
         }
 
         disk_image.descriptor = DiskDescriptor {
+            // You could use TransCopy with non-PC floppies, so I suppose we can't assume PC here.
+            platforms: None,
             geometry: DiskCh::from((
                 (raw_track_data_ct / disk_info.num_sides as usize) as u16,
                 disk_info.num_sides,

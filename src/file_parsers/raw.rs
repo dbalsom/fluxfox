@@ -214,6 +214,9 @@ impl RawFormat {
         }
 
         disk_image.descriptor = DiskDescriptor {
+            // RAW sector images have no platform information and can be ambiguous.
+            // Let platform be auto-detected.
+            platforms: None,
             geometry: layout.ch(),
             data_rate,
             data_encoding,
@@ -276,6 +279,7 @@ impl RawFormat {
         }
 
         disk_image.descriptor = DiskDescriptor {
+            platforms: None,
             geometry: layout.ch(),
             data_rate,
             data_encoding,

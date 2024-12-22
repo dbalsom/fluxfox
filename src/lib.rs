@@ -64,6 +64,7 @@ mod range_check;
 pub mod track;
 pub mod types;
 
+mod disk_schema;
 mod image_loader;
 mod platform;
 mod sector_view;

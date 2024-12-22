@@ -132,6 +132,25 @@ impl Debug for IpfPlatform {
     }
 }
 
+impl TryFrom<IpfPlatform> for Platform {
+    type Error = ();
+
+    fn try_from(value: IpfPlatform) -> Result<Self, Self::Error> {
+        match value {
+            IpfPlatform::None => Err(()),
+            IpfPlatform::Amiga => Ok(Platform::Amiga),
+            IpfPlatform::AtariSt => Ok(Platform::AtariSt),
+            IpfPlatform::Pc => Ok(Platform::IbmPc),
+            IpfPlatform::AmstradCpc => Err(()),
+            IpfPlatform::Spectrum => Err(()),
+            IpfPlatform::SamCoupe => Err(()),
+            IpfPlatform::Archimedes => Err(()),
+            IpfPlatform::C64 => Err(()),
+            IpfPlatform::Atari8Bit => Err(()),
+        }
+    }
+}
+
 impl TryFrom<u32> for IpfPlatform {
     type Error = ();
 
@@ -251,5 +270,15 @@ impl Debug for InfoRecord {
             .field("disk_number", &self.disk_number)
             .field("creator_id", &format!("{:08X}", self.creator_id))
             .finish()
+    }
+}
+
+impl InfoRecord {
+    /// Get the list of fluxfox [Platform]s specified by the IPF file.
+    pub fn platforms(&self) -> Vec<Platform> {
+        self.platform_enums
+            .iter()
+            .filter_map(|platform| Platform::try_from(*platform).ok())
+            .collect()
     }
 }

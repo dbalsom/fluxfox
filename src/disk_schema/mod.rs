@@ -25,36 +25,28 @@
     --------------------------------------------------------------------------
 */
 
-pub use super::DiskImageError;
-pub use crate::{
-    diskimage::DiskImage,
-    file_parsers::{
-        format_from_ext,
-        supported_extensions,
-        ImageFormatParser,
-        ParserReadOptions,
-        ParserWriteCompatibility,
-        ParserWriteOptions,
-    },
-    image_builder::ImageBuilder,
-    image_writer::ImageWriter,
-    platform::Platform,
-    sector_view::StandardSectorView,
-    types::{
-        DiskCh,
-        DiskChs,
-        DiskChsn,
-        DiskChsnQuery,
-        DiskDataResolution,
-        DiskImageFileFormat,
-        RwScope,
-        SectorMapEntry,
-        StandardFormat,
-        StandardFormatParam,
-        TrackDataEncoding,
-        TrackDataRate,
-        TrackDensity,
-    },
-    SectorId,
-    SectorIdQuery,
-};
+//! A [DiskSchema] is a high level interpreter of a disk image's platform-specific data.
+//! A [DiskSchema] is responsible for detecting platform type(s), reading information
+//! such as the Bios Parameter Block (BPB).
+//! A disk image may have multiple disk schemas, for example dual and triple-format
+//! disk images. There should generally be one [DiskSchema] per [Platform] associated
+//! with a disk image.
+//! A [DiskSchema] is not strictly required (neither is a [Platform]), but operations
+//! and information about the disk image will be limited.
+
+use crate::DiskImage;
+
+pub enum DiskSchema {
+    Dos,
+    MacintoshGcr,
+    MacintoshMfm,
+    AmigaGcr,
+    AmigaMfm,
+    AtariSt,
+}
+
+impl DiskSchema {
+    pub fn detect(_disk: &DiskImage) -> Option<Vec<Self>> {
+        None
+    }
+}

@@ -335,6 +335,8 @@ impl ImdFormat {
         let head_ct = heads_seen.len() as u8;
 
         disk_image.descriptor = DiskDescriptor {
+            // IMD was PC-specific.
+            platforms: Some(vec![Platform::IbmPc]),
             geometry: DiskCh::from((track_ct as u16 / head_ct as u16, head_ct)),
             data_rate: rate_opt.unwrap(),
             data_encoding: encoding_opt.unwrap(),

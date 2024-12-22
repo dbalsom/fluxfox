@@ -358,6 +358,8 @@ impl PfiFormat {
                     log::debug!("Track added.");
 
                     disk_image.descriptor = DiskDescriptor {
+                        // PFI doesn't specify platform.
+                        platforms: None,
                         geometry: DiskCh::from((cylinders_seen.len() as u16, heads_seen.len() as u8)),
                         data_rate,
                         density: new_density,
@@ -393,6 +395,7 @@ impl PfiFormat {
         let clock_rate = disk_clock_rate.unwrap_or_default();
 
         disk_image.descriptor = DiskDescriptor {
+            platforms: None,
             geometry: DiskCh::from((cylinder_ct, head_ct)),
             data_rate: clock_rate,
             data_encoding: TrackDataEncoding::Mfm,

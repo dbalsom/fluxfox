@@ -488,6 +488,8 @@ impl Td0Format {
         }
 
         disk_image.descriptor = DiskDescriptor {
+            // Assume TeleDisk images are for IBM PC.
+            platforms: Some(vec![Platform::IbmPc]),
             geometry: DiskCh::from((cylinder_set.len() as u16, file_header.heads)),
             data_rate: disk_data_rate,
             data_encoding: TrackDataEncoding::Mfm,

@@ -665,8 +665,8 @@ impl DiskImage {
         self.descriptor = format;
     }
 
-    pub fn image_format(&self) -> DiskDescriptor {
-        self.descriptor
+    pub fn image_format(&self) -> &DiskDescriptor {
+        &self.descriptor
     }
 
     pub fn geometry(&self) -> DiskCh {
@@ -1163,19 +1163,21 @@ impl DiskImage {
         Ok(())
     }
 
-    /// Reset an image to an empty state.
+    /// Reset an image to an empty state, but retain the disk format and descriptor.
     pub fn reset_image(&mut self) {
         self.track_pool.clear();
         self.track_map = [Vec::new(), Vec::new()];
 
-        *self = DiskImage {
-            flags: DiskImageFlags::empty(),
-            standard_format: self.standard_format,
-            descriptor: self.descriptor,
-            source_format: self.source_format,
-            resolution: self.resolution,
-            ..Default::default()
-        }
+        let standard_format = self.standard_format;
+        let descriptor = self.descriptor.clone();
+        let source_format = self.source_format;
+        let resolution = self.resolution;
+
+        *self = DiskImage::default();
+        self.descriptor = descriptor;
+        self.standard_format = standard_format;
+        self.source_format = source_format;
+        self.resolution = resolution;
     }
 
     pub fn format(
