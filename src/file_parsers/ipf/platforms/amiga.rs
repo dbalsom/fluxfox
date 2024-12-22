@@ -24,7 +24,7 @@
 
     --------------------------------------------------------------------------
 */
-
+#![allow(dead_code)]
 //! Parsing IPF files requires certain domain knowledge about the format being
 //! parsed. For example, Amiga disks encoded as CAPS IPF tracks use certain
 //! conventions that may not be obvious.

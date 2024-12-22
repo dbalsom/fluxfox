@@ -49,7 +49,7 @@ impl IpfParser {
     pub(crate) fn decode_v1_track<RWS>(
         reader: &mut RWS,
         image: &mut DiskImage,
-        info_record: &InfoRecord,
+        _info_record: &InfoRecord,
         image_record: &ImageRecord,
         record_node: usize,
         data: &crate::file_parsers::ipf::ipf::DataRecordInfo,
