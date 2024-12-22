@@ -443,7 +443,7 @@ impl DiskImage {
     #[cfg(feature = "async")]
     pub async fn load_async<RS: ReadSeek>(
         image_io: &mut RS,
-        image_path: Option<PathBuf>,
+        image_path: Option<&Path>,
         disk_selection: Option<DiskSelection>,
         callback: Option<LoadingCallback>,
     ) -> Result<Self, DiskImageError> {
