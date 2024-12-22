@@ -577,6 +577,7 @@ impl DiskChs {
 ///
 /// A `DiskCh` is usually used as a physical track specifier. It can hold the geometry of a disk,
 /// or act as a cursor specifying a specific track on a disk.
+#[repr(C)]
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DiskCh {
