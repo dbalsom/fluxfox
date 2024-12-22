@@ -24,12 +24,11 @@
 
     --------------------------------------------------------------------------
 */
-
+#![allow(dead_code)]
 #[cfg(feature = "rhai")]
 pub mod rhai;
 
-use crate::{DiskImage, DiskImageError};
-use std::sync::{Arc, RwLock};
+use crate::DiskImageError;
 
 use thiserror::Error;
 

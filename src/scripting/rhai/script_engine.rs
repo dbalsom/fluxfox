@@ -24,12 +24,12 @@
 
     --------------------------------------------------------------------------
 */
+#![allow(dead_code)]
 use crate::{
     scripting::{rhai::interface::RhaiInterface, ScriptEngineError},
     DiskImage,
 };
 
-use crate::scripting::ScriptEngineHandle;
 use rhai::Dynamic;
 use std::sync::{Arc, RwLock};
 
