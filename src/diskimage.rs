@@ -48,7 +48,7 @@ use crate::{
         ParserReadOptions,
     },
     io::ReadSeek,
-    source_map::{NullSourceMap, OptionalSourceMap, SourceMap},
+    source_map::{NullSourceMap, OptionalSourceMap, SourceMap, SourceValue},
     track::{fluxstream::FluxStreamTrack, metasector::MetaSectorTrack, DiskTrack, Track, TrackAnalysis},
     track_schema::{system34::System34Standard, TrackMetadata, TrackSchema},
     types::{
@@ -336,10 +336,20 @@ impl DiskImage {
                         callback_fn(LoadingStatus::ProgressSupport);
                     }
 
+                    // Enable source map.
+                    image.assign_source_map(true);
+
                     for (fi, file_path) in disk.file_set.iter().enumerate() {
                         let mut file_vec = crate::containers::zip::extract_file(image_io, &file_path.clone())?;
                         let mut cursor = Cursor::new(&mut file_vec);
                         log::debug!("load(): Loading Kryoflux stream file from zip: {:?}", file_path);
+
+                        // Add a child node to the source map for each file in the set.
+                        image.source_map_mut().add_child(
+                            0,
+                            &*file_path.file_name().unwrap_or_default().to_string_lossy(),
+                            SourceValue::default(),
+                        );
 
                         // We won't give the callback to the kryoflux loader - instead we will call it here ourselves
                         // updating percentage complete as a fraction of files loaded.
@@ -397,6 +407,9 @@ impl DiskImage {
                     // Set the geometry of the disk image to the geometry of the Kryoflux set.
                     image.descriptor.geometry = set_ch;
 
+                    // Enable source map.
+                    image.assign_source_map(true);
+
                     for (fi, file_path) in file_set.iter().enumerate() {
                         // Reading the entire file in one go and wrapping in a cursor is much faster
                         // than a BufReader.
@@ -404,6 +417,13 @@ impl DiskImage {
                         let mut cursor = Cursor::new(&mut file_vec);
 
                         log::debug!("load(): Loading Kryoflux stream file: {:?}", file_path);
+
+                        // Add a child node to the source map for each file in the set.
+                        image.source_map_mut().add_child(
+                            0,
+                            &*file_path.file_name().unwrap_or_default().to_string_lossy(),
+                            SourceValue::default(),
+                        );
 
                         // We won't give the callback to the kryoflux loader - instead we will call it here ourselves
                         // updating percentage complete as a fraction of files loaded.

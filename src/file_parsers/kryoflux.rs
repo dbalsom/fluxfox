@@ -39,12 +39,14 @@ use crate::{
     format_us,
     io,
     io::{ReadBytesExt, ReadSeek, ReadWriteSeek},
+    source_map::{OptionalSourceMap, SourceValue},
     track::fluxstream::FluxStreamTrack,
     types::{DiskCh, DiskDataResolution, DiskDescriptor, FluxStreamTrackParams, Platform, TrackDataEncoding},
     util::read_ascii,
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,
+    FoxHashMap,
     FoxHashSet,
     LoadingCallback,
     ParserWriteCompatibility,
@@ -123,7 +125,9 @@ pub struct EofBlock {
     pub size: u16,
 }
 
-pub struct KfxFormat {
+pub struct KfxFormat<'a> {
+    source_map: &'a mut Box<(dyn OptionalSourceMap)>,
+    map_root: usize,
     sck: f64,
     ick: f64,
     last_index_counter: Option<u32>,
@@ -132,9 +136,11 @@ pub struct KfxFormat {
     flux_ovl: u32,
 }
 
-impl Default for KfxFormat {
-    fn default() -> Self {
-        KfxFormat {
+impl<'a> KfxFormat<'a> {
+    pub fn new(map: &'a mut Box<(dyn OptionalSourceMap)>) -> Self {
+        Self {
+            map_root: map.last_node().index(),
+            source_map: map,
             sck: KFX_DEFAULT_SCK,
             ick: KFX_DEFAULT_ICK,
             last_index_counter: None,
@@ -143,9 +149,6 @@ impl Default for KfxFormat {
             flux_ovl: 0,
         }
     }
-}
-
-impl KfxFormat {
     pub fn extensions() -> Vec<&'static str> {
         vec!["raw"]
     }
@@ -183,7 +186,8 @@ impl KfxFormat {
         disk_image.set_resolution(DiskDataResolution::FluxStream);
         disk_image.set_source_format(DiskImageFileFormat::KryofluxStream);
 
-        let mut kfx_context = KfxFormat::default();
+        let binding = disk_image.source_map_mut();
+        let mut kfx_context = KfxFormat::new(binding);
 
         image.seek(io::SeekFrom::Start(0))?;
 
@@ -703,9 +707,25 @@ impl KfxFormat {
                             sib.stream_pos,
                             sib.transfer_time_ms
                         );
+                        self.source_map
+                            .add_child(self.map_root, "OSB: StreamInfo", SourceValue::default())
+                            .add_child("Stream Position", SourceValue::u32(sib.stream_pos))
+                            .add_sibling(
+                                "Transfer Time",
+                                SourceValue::string(&format!("{} ms", sib.transfer_time_ms)),
+                            );
                     }
                     OsbBlock::Index => {
-                        let _ib = IndexBlock::read(image)?;
+                        let ib = IndexBlock::read(image)?;
+                        self.source_map
+                            .add_child(self.map_root, "OSB: Index", SourceValue::default())
+                            .add_child("Stream Position", SourceValue::u32(ib.stream_pos))
+                            .add_sibling("Sample Counter", SourceValue::u32(ib.sample_counter))
+                            .add_sibling("Index Counter", SourceValue::u32(ib.index_counter))
+                            .add_sibling(
+                                "Index Time",
+                                SourceValue::string(&format!("{:.3} s", ib.index_counter as f64 / self.ick)),
+                            );
                     }
                     OsbBlock::StreamEnd => {
                         let seb = StreamEndBlock::read(image)?;
@@ -716,6 +736,11 @@ impl KfxFormat {
                             file_offset,
                             seb.hw_status_code
                         );
+
+                        self.source_map
+                            .add_child(self.map_root, "OSB: StreamEnd", SourceValue::default())
+                            .add_child("Stream Position", SourceValue::u32(seb.stream_pos))
+                            .add_sibling("Hardware Status", SourceValue::u32(seb.hw_status_code));
 
                         if seb.stream_pos as u64 != *stream_position {
                             log::warn!(
@@ -752,11 +777,17 @@ impl KfxFormat {
                         // Ascii string follows
                         let mut string_end = false;
                         let mut string = String::new();
+
+                        let mut first = true;
+                        let mut cursor =
+                            self.source_map
+                                .add_child(self.map_root, "OSB: KfInfo", SourceValue::default());
+
                         while !string_end {
                             let (str_opt, terminator) = read_ascii(image, None, None);
                             if let Some(s) = &str_opt {
                                 log::debug!("KfInfo str: {}", s);
-                                let (sck_opt, ick_opt) = kfx_parse_str(s);
+                                let (sck_opt, ick_opt) = kfx_parse_clk_str(s);
                                 if let Some(sck) = sck_opt {
                                     log::debug!("Set SCK to {}", sck);
                                     self.sck = sck;
@@ -765,6 +796,25 @@ impl KfxFormat {
                                     log::debug!("Set ICK to {}", ick);
                                     self.ick = ick;
                                 }
+
+                                let kv = kfx_parse_str(&s);
+
+                                let mut pairs: Vec<(String, String)> = kv.into_iter().collect();
+                                pairs.sort();
+
+                                for (k, v) in pairs {
+                                    match first {
+                                        true => {
+                                            let cur_index = cursor.index();
+                                            cursor = self.source_map.add_child(cur_index, &k, SourceValue::string(&v));
+                                            first = false;
+                                        }
+                                        false => {
+                                            cursor = cursor.add_sibling(&k, SourceValue::string(&v));
+                                        }
+                                    }
+                                }
+
                                 string.push_str(s);
                             }
                             //log::warn!("terminator: {:02X}", terminator);
@@ -884,7 +934,7 @@ impl KfxFormat {
     }
 }
 
-fn kfx_parse_str(s: &str) -> (Option<f64>, Option<f64>) {
+fn kfx_parse_clk_str(s: &str) -> (Option<f64>, Option<f64>) {
     // use a regex to parse the clock info string
     // ex: 'sck=24027428.5714285, ick=3003428.5714285625'
     let re = regex::Regex::new(r"sck=(\d+\.\d+), ick=(\d+\.\d+)").unwrap();
@@ -898,4 +948,18 @@ fn kfx_parse_str(s: &str) -> (Option<f64>, Option<f64>) {
     else {
         (None, None)
     }
+}
+
+fn kfx_parse_str(s: &str) -> FoxHashMap<String, String> {
+    let comma_split: Vec<String> = s.split(',').map(|s| s.trim().to_string()).collect();
+    let mut map = FoxHashMap::new();
+
+    for pair in comma_split {
+        let kv: Vec<&str> = pair.split('=').collect();
+        if kv.len() == 2 {
+            map.insert(kv[0].to_string(), kv[1].to_string());
+        }
+    }
+
+    map
 }
