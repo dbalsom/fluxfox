@@ -48,6 +48,10 @@ pub struct ImageLoader {
     /// will determine which resolution to use. If a disk image format does
     /// not support multiple resolutions, this field will be ignored.
     pub(crate) resolution: Option<DiskDataResolution>,
+    /// Control whether to parse containers/archives while loading.
+    /// If false, we can only handle raw disk images.
+    /// This will disable archived disk images like IMZ and ADZ.
+    pub(crate) parse_containers: bool,
     /// If an image (or image container) can contain multiple volumes, this
     /// field will determine which volume to load, by index. The list of
     /// volumes can be returned in a `ImageLoaderError::MultiVolume` error.
@@ -93,6 +97,11 @@ impl ImageLoader {
 
     pub fn with_source_map(mut self, state: bool) -> ImageLoader {
         self.create_source_map = state;
+        self
+    }
+
+    pub fn with_container(mut self, state: bool) -> ImageLoader {
+        self.parse_containers = state;
         self
     }
 
