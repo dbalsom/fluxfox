@@ -25,11 +25,7 @@
     --------------------------------------------------------------------------
 */
 
-use crate::{
-    file_parsers::ipf::image_record::ImageRecord,
-    prelude::DiskCh,
-    source_map::{MapDump, OptionalSourceMap, SourceValue},
-};
+use crate::source_map::{MapDump, OptionalSourceMap, SourceValue};
 use binrw::{binrw, BinResult};
 use bit_vec::BitVec;
 use modular_bitfield::prelude::*;
@@ -295,7 +291,7 @@ fn read_gap_samples(sample_size: usize, sample_type: GapType) -> BinResult<Optio
         GapType::GapLength => {
             log::debug!("read_gap_samples(): Read repeat length of {}", sample_size);
             // Nothing to actually read - repeat count is sample_size
-            return Ok(Some(GapSample::RepeatCt(sample_size)));
+            Ok(Some(GapSample::RepeatCt(sample_size)))
         }
         GapType::SampleLength => {
             log::debug!("read_gap_samples(): Read sample length of {}", sample_size);
@@ -309,14 +305,13 @@ fn read_gap_samples(sample_size: usize, sample_type: GapType) -> BinResult<Optio
             // Trim bits to actual size
             bits.truncate(sample_size);
 
-            return Ok(Some(GapSample::Sample(bits)));
+            Ok(Some(GapSample::Sample(bits)))
         }
         _ => {
-            return Ok(None);
+            log::warn!("read_gap_samples(): Unhandled gap type: {:?}", sample_type);
+            Ok(None)
         }
-    };
-
-    Ok(None)
+    }
 }
 
 #[allow(dead_code)]

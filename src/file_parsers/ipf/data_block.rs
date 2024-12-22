@@ -84,7 +84,7 @@ impl MapDump for BlockDescriptor {
     fn write_to_map(&self, map: &mut Box<dyn OptionalSourceMap>, parent: usize) -> usize {
         match self.saved_encoder_type {
             1 => {
-                let mut record = map.add_child(parent, "V1 Block Descriptor", SourceValue::default());
+                let record = map.add_child(parent, "V1 Block Descriptor", SourceValue::default());
                 let node_index = record.index();
                 #[rustfmt::skip]
                 record
@@ -98,7 +98,7 @@ impl MapDump for BlockDescriptor {
                 node_index
             }
             2 => {
-                let mut record = map.add_child(parent, "V2 Block Descriptor", SourceValue::default());
+                let record = map.add_child(parent, "V2 Block Descriptor", SourceValue::default());
                 let node_index = record.index();
                 #[rustfmt::skip]
                 record

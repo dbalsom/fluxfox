@@ -33,7 +33,7 @@ use crate::{
         data_block::{BlockDescriptor, BlockFlags},
         image_record::ImageRecord,
         info_record::InfoRecord,
-        ipf::{DataRecordInfo, IpfParser},
+        ipf::IpfParser,
         stream_element::{DataSample, DataStreamElement, DataType, GapSample, GapStreamElement},
     },
     io::ReadSeek,
