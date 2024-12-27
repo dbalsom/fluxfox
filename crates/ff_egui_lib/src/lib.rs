@@ -24,10 +24,11 @@
 
     --------------------------------------------------------------------------
 */
-
 use fluxfox::{file_system::FileEntry, prelude::*};
 use std::fmt::{Debug, Formatter, Result};
 
+pub mod encoding;
+mod range_check;
 pub mod widgets;
 
 #[derive(Debug, Clone, Default)]
@@ -54,6 +55,7 @@ pub enum UiEvent {
     SelectPath(String),
     SelectFile(FileEntry),
     ExportDir(String),
+    ExportDirAsArchive(String),
 }
 
 impl Debug for UiEvent {
@@ -64,6 +66,7 @@ impl Debug for UiEvent {
             UiEvent::SelectPath(_) => "SelectPath",
             UiEvent::SelectFile(_) => "SelectFile",
             UiEvent::ExportDir(_) => "ExportDir",
+            UiEvent::ExportDirAsArchive(_) => "ExportDirAsArchive",
         };
         write!(f, "{}", variant_name)
     }

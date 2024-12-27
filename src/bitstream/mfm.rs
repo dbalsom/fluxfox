@@ -34,10 +34,10 @@ use std::ops::Index;
 
 use crate::{
     bit_ring::BitRing,
-    bitstream::{EncodingVariant, TrackCodec},
+    bitstream::{EncodingVariant, MarkerEncoding, TrackCodec},
     io::{Error, ErrorKind, Read, Result, Seek, SeekFrom},
     range_check::RangeChecker,
-    types::{DiskDataEncoding, TrackRegion},
+    types::{TrackDataEncoding, TrackRegion},
 };
 use bit_vec::BitVec;
 
@@ -53,6 +53,7 @@ macro_rules! mfm_offset {
     };
 }
 
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MfmCodec {
     bits: BitRing,
@@ -96,8 +97,8 @@ pub fn find_sync(track: &BitVec, start_idx: usize) -> Option<usize> {
 
 #[cfg_attr(feature = "serde", typetag::serde)]
 impl TrackCodec for MfmCodec {
-    fn encoding(&self) -> DiskDataEncoding {
-        DiskDataEncoding::Mfm
+    fn encoding(&self) -> TrackDataEncoding {
+        TrackDataEncoding::Mfm
     }
 
     fn len(&self) -> usize {
@@ -211,7 +212,7 @@ impl TrackCodec for MfmCodec {
         }
     }
 
-    fn read_raw_byte(&self, index: usize) -> Option<u8> {
+    fn read_raw_u8(&self, index: usize) -> Option<u8> {
         let mut byte = 0;
         for bi in index..index + 8 {
             byte = (byte << 1) | self.bits[bi] as u8;
@@ -219,7 +220,16 @@ impl TrackCodec for MfmCodec {
         Some(byte)
     }
 
-    fn write_raw_byte(&mut self, index: usize, byte: u8) {
+    fn read_raw_buf(&self, buf: &mut [u8], offset: usize) -> usize {
+        let mut bytes_read = 0;
+        for byte in buf.iter_mut() {
+            *byte = self.read_raw_u8(offset + (bytes_read * 8)).unwrap();
+            bytes_read += 1;
+        }
+        bytes_read
+    }
+
+    fn write_raw_u8(&mut self, index: usize, byte: u8) {
         for (i, bi) in (index..index + 8).enumerate() {
             self.bits.set(bi, (byte & 0x80 >> i) != 0);
         }
@@ -227,7 +237,7 @@ impl TrackCodec for MfmCodec {
 
     /// This is essentially a reimplementation of Read + Iterator that avoids mutation.
     /// This allows us to read track data through an immutable reference.
-    fn read_decoded_byte(&self, index: usize) -> Option<u8> {
+    fn read_decoded_u8(&self, index: usize) -> Option<u8> {
         let mut byte = 0;
         let mut cursor = index;
 
@@ -251,30 +261,87 @@ impl TrackCodec for MfmCodec {
         Some(byte)
     }
 
+    fn read_decoded_u32_le(&self, index: usize) -> u32 {
+        let mut dword = 0;
+        let mut cursor = index;
+
+        // If we are not pointing to a clock bit, advance to the next clock bit.
+        cursor += !self.clock_map[cursor] as usize;
+        // Now that we are aligned to a clock bit, point to the next data bit
+        cursor += 1;
+
+        for b in 0..4 {
+            let mut byte = 0;
+            for _ in 0..8 {
+                let decoded_bit = if self.weak_enabled && !self.weak_mask.is_empty() && self.weak_mask[cursor] {
+                    // Weak bits return random data
+                    rand::random()
+                }
+                else {
+                    self.bits[cursor]
+                };
+                byte = (byte << 1) | decoded_bit as u32;
+                // Advance to next data bit.
+                cursor += 2;
+            }
+            dword |= byte << (b * 8);
+        }
+        dword
+    }
+
+    fn read_decoded_u32_be(&self, index: usize) -> u32 {
+        let mut dword = 0;
+        let mut cursor = index;
+
+        // If we are not pointing to a clock bit, advance to the next clock bit.
+        cursor += !self.clock_map[cursor] as usize;
+        // Now that we are aligned to a clock bit, point to the next data bit
+        cursor += 1;
+
+        for _ in 0..32 {
+            let decoded_bit = if self.weak_enabled && !self.weak_mask.is_empty() && self.weak_mask[cursor] {
+                // Weak bits return random data
+                rand::random()
+            }
+            else {
+                self.bits[cursor]
+            };
+            dword = (dword << 1) | decoded_bit as u32;
+            // Advance to next data bit.
+            cursor += 2;
+        }
+        dword
+    }
+
     fn read_decoded_buf(&self, buf: &mut [u8], offset: usize) -> usize {
         let mut bytes_read = 0;
         for byte in buf.iter_mut() {
-            *byte = self.read_decoded_byte(offset + (bytes_read * MFM_BYTE_LEN)).unwrap();
+            *byte = self.read_decoded_u8(offset + (bytes_read * MFM_BYTE_LEN)).unwrap();
             bytes_read += 1;
         }
         bytes_read
     }
 
     fn write_encoded_buf(&mut self, buf: &[u8], offset: usize) -> usize {
+        let mut offset = offset;
         let encoded_buf = self.encode(buf, false, EncodingVariant::Data);
 
-        let mut copy_len = encoded_buf.len();
-        if self.bits.len() < offset + encoded_buf.len() {
-            copy_len = self.bits.len() - offset;
-        }
+        // let mut copy_len = encoded_buf.len();
+        // if self.bits.len() < offset + encoded_buf.len() {
+        //     copy_len = self.bits.len() - offset;
+        // }
 
         let mut bits_written = 0;
 
-        let phase = !self.clock_map[offset] as usize;
-        log::trace!("write_buf(): offset: {} phase: {}", offset, phase);
+        // If we landed on a data bit, advance to the next clock bit.
+        // If the next bit is not a clock bit either, we are in an unsynchronized region, so don't
+        // bother.
+        if !self.clock_map[offset] && self.clock_map[offset + 1] {
+            offset += 1;
+        }
 
-        for (i, bit) in encoded_buf.into_iter().enumerate().take(copy_len) {
-            self.bits.set(offset + phase + i, bit);
+        for (i, bit) in encoded_buf.into_iter().enumerate() {
+            self.bits.set(offset + i, bit);
             bits_written += 1;
         }
 
@@ -342,13 +409,11 @@ impl TrackCodec for MfmCodec {
         bitvec
     }
 
-    fn find_marker(&self, marker: u64, mask: Option<u64>, start: usize, limit: Option<usize>) -> Option<(usize, u16)> {
+    fn find_marker(&self, marker: &MarkerEncoding, start: usize, limit: Option<usize>) -> Option<(usize, u16)> {
         //log::debug!("Mfm::find_marker(): Searching for marker: {:016X}", marker);
         if self.bits.is_empty() {
             return None;
         }
-
-        let mask = mask.unwrap_or(!0);
 
         let mut shift_reg: u64 = 0;
         let mut shift_ct: u32 = 0;
@@ -363,8 +428,8 @@ impl TrackCodec for MfmCodec {
         for bi in start..search_limit {
             shift_reg = (shift_reg << 1) | self.bits[bi] as u64;
             shift_ct += 1;
-            if shift_ct >= 64 && ((shift_reg & mask) == marker) {
-                return Some(((bi - 64) + 1, (shift_reg & 0xFFFF) as u16));
+            if shift_ct >= 64 && ((shift_reg & marker.mask) == marker.bits) {
+                return Some(((bi - marker.len) + 1, (shift_reg & 0xFFFF) as u16));
             }
         }
         log::trace!("find_marker(): Failed to find marker!");
@@ -640,42 +705,46 @@ impl Iterator for MfmCodec {
     type Item = bool;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // The bit cursor should always be aligned to a clock bit.
-        // So retrieve the next bit which is the data bit.
-        self.bit_cursor += 1;
-        let decoded_bit = if self.weak_enabled && self.weak_mask[self.bit_cursor] {
-            // Weak bits return random data
+        // The bit cursor should always be aligned to a clock bit. If it is not, we can try to nudge
+        // it to the next clock bit. If the next bit is also not a clock bit, we are in an
+        // unsynchronized region and can't really do anything about it.
+        if !self.clock_map[self.bit_cursor] && self.clock_map[self.bit_cursor + 1] {
+            self.bit_cursor += 1;
+            log::debug!("next(): nudging to next clock bit @ {:05X}", self.bit_cursor);
+        }
+        // Now that we are (hopefully) aligned to a clock bit, retrieve the next bit which should
+        // be a data bit, or return a random bit if weak bits are enabled and the current bit is weak.
+        let decoded_bit = if self.weak_enabled && self.weak_mask[self.bit_cursor + 1] {
             rand::random()
         }
         else {
-            self.bits[self.bit_cursor]
+            self.bits[self.bit_cursor + 1]
         };
 
-        self.bit_cursor += 1;
+        // Advance to the next clock bit.
+        self.bit_cursor += 2;
         Some(decoded_bit)
     }
 }
 
 impl Seek for MfmCodec {
     fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
-        let (base, offset) = match pos {
-            // TODO: avoid casting to isize
-            SeekFrom::Start(offset) => (0, offset as isize),
-            SeekFrom::End(offset) => (self.bits.len() as isize, offset as isize),
-            SeekFrom::Current(offset) => (self.bit_cursor as isize, offset as isize),
+        if self.bits.is_empty() {
+            return Err(Error::new(ErrorKind::InvalidInput, "Cannot seek on an empty bitstream"));
+        }
+
+        let mut new_cursor = match pos {
+            SeekFrom::Start(offset) => offset as usize,
+            SeekFrom::End(offset) => self.bits.len().saturating_add_signed(offset as isize),
+            SeekFrom::Current(offset) => self.bit_cursor.saturating_add_signed(offset as isize),
         };
 
-        let new_pos = base.checked_add(offset).ok_or(Error::new(
-            ErrorKind::InvalidInput,
-            "invalid seek to a negative or overflowed position",
-        ))?;
-
-        let mut new_cursor = new_pos as usize;
-
         // If we have seeked to a data bit, nudge the bit cursor to the next clock bit.
-        if !self.clock_map[new_cursor] {
-            //log::trace!("seek(): nudging to next clock bit");
+        // Don't bother if the next bit isn't a clock bit either, as we're in some unsynchronized
+        // track region.
+        if !self.clock_map[new_cursor] && self.clock_map[new_cursor + 1] {
             new_cursor += 1;
+            log::debug!("seek(): nudging to next clock bit @ {:05X}", new_cursor);
         }
 
         self.bit_cursor = new_cursor;
@@ -685,6 +754,9 @@ impl Seek for MfmCodec {
 
 impl Read for MfmCodec {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        if self.bits.is_empty() {
+            return Err(Error::new(ErrorKind::InvalidInput, "Cannot read an empty bitstream"));
+        }
         let mut bytes_read = 0;
         for byte in buf.iter_mut() {
             let mut byte_val = 0;

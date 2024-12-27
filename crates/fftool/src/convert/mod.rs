@@ -31,10 +31,10 @@ use anyhow::{bail, Error};
 use fluxfox::prelude::*;
 use std::io::Cursor;
 
-pub(crate) fn run(global: &GlobalOptions, params: args::ConvertParams) -> Result<(), Error> {
-    let mut reader = read_file(&params.in_file)?;
+pub(crate) fn run(global: &GlobalOptions, params: &args::ConvertParams) -> Result<(), Error> {
+    let mut reader = read_file(&params.in_file.clone())?;
 
-    let disk_image_type = match DiskImage::detect_format(&mut reader) {
+    let disk_image_type = match DiskImage::detect_format(&mut reader, Some(params.in_file.clone())) {
         Ok(disk_image_type) => disk_image_type,
         Err(e) => {
             bail!("Error detecting input disk image type: {}", e);
@@ -86,7 +86,7 @@ pub(crate) fn run(global: &GlobalOptions, params: args::ConvertParams) -> Result
         println!("PROLOK holes will be created in output image.");
     }
 
-    match output_format.can_write(&in_disk) {
+    match output_format.can_write(Some(&in_disk)) {
         ParserWriteCompatibility::Ok => {
             println!("Output format is compatible with input image.");
         }
@@ -102,7 +102,7 @@ pub(crate) fn run(global: &GlobalOptions, params: args::ConvertParams) -> Result
 
     // Create an output buffer
     let mut out_buffer = Cursor::new(Vec::new());
-    match output_format.save_image(&mut in_disk, &mut out_buffer) {
+    match output_format.save_image(&mut in_disk, &ParserWriteOptions::default(), &mut out_buffer) {
         Ok(_) => {
             let out_inner: Vec<u8> = out_buffer.into_inner();
             match std::fs::write(params.out_file.clone(), out_inner) {

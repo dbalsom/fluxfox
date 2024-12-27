@@ -34,11 +34,12 @@ use fluxfox::prelude::*;
 #[derive(Default)]
 pub struct DiskInfoWidget {
     pub filename: Option<String>,
+    pub platforms: Option<Vec<Platform>>,
     pub resolution: DiskDataResolution,
     pub geometry: DiskCh,
-    pub rate: DiskDataRate,
-    pub encoding: DiskDataEncoding,
-    pub density: DiskDensity,
+    pub rate: TrackDataRate,
+    pub encoding: TrackDataEncoding,
+    pub density: TrackDensity,
 }
 
 impl DiskInfoWidget {
@@ -48,6 +49,7 @@ impl DiskInfoWidget {
 
     pub fn update(&mut self, disk: &DiskImage, filename: Option<String>) {
         self.filename = filename;
+        self.platforms = disk.image_format().platforms.clone();
         self.resolution = disk.resolution();
         self.geometry = disk.geometry();
         self.rate = disk.data_rate();
@@ -64,6 +66,23 @@ impl DiskInfoWidget {
                 // ui.label("Filename:");
                 // ui.label(self.filename.as_ref().unwrap_or(&"None".to_string()));
                 // ui.end_row();
+
+                if let Some(platforms) = &self.platforms {
+                    if platforms.len() > 1 {
+                        ui.label("Multi-platform:");
+                        ui.end_row();
+                        for (i, platform) in platforms.iter().enumerate() {
+                            ui.label(format!("[{}]", i));
+                            ui.label(format!("{}", platform));
+                            ui.end_row();
+                        }
+                    }
+                    else if !platforms.is_empty() {
+                        ui.label("Platform:");
+                        ui.label(format!("{}", platforms[0]));
+                        ui.end_row();
+                    }
+                }
 
                 ui.label("Resolution:");
                 ui.label(format!("{:?}", self.resolution));

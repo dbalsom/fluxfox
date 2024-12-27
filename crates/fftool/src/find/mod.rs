@@ -24,13 +24,12 @@
 
     --------------------------------------------------------------------------
 */
-use crate::args::GlobalOptions;
-use crate::find::args::FindParams;
+use crate::{args::GlobalOptions, find::args::FindParams};
 use anyhow::Error;
 
 pub mod args;
 
-pub(crate) fn run(_global: &GlobalOptions, _params: FindParams) -> Result<(), Error> {
+pub(crate) fn run(_global: &GlobalOptions, _params: &FindParams) -> Result<(), Error> {
     println!("Find command not implemented yet");
     Ok(())
 }

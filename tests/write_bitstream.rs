@@ -13,12 +13,12 @@ fn test_bitstream_write() {
 
     println!("Loaded 86F image of geometry {}...", f86_image.image_format().geometry);
 
-    let mut read_sector_result = match f86_image.read_sector(
+    let rsr = match f86_image.read_sector(
         DiskCh::new(0, 0),
         DiskChsnQuery::new(0, 0, 1, None),
         None,
         None,
-        RwSectorScope::DataOnly,
+        RwScope::DataOnly,
         false,
     ) {
         Ok(result) => result,
@@ -28,7 +28,7 @@ fn test_bitstream_write() {
         Err(e) => panic!("Error reading sector: {:?}", e),
     };
 
-    let sector_data = read_sector_result.read_buf;
+    let sector_data = rsr.data();
 
     println!(
         "Read sector data: {:02X?} of length {}",
@@ -38,7 +38,7 @@ fn test_bitstream_write() {
 
     assert_eq!(sector_data.len(), 512);
 
-    let original_data = sector_data.clone();
+    let original_data = sector_data.to_vec();
 
     // let encoded_bits = encode_mfm(&sector_data, false, mfm::MfmEncodingType::Data);
     //
@@ -52,12 +52,12 @@ fn test_bitstream_write() {
     //     );
     // }
 
-    let _write_sector_result = match f86_image.write_sector(
+    match f86_image.write_sector(
         DiskCh::new(0, 0),
         DiskChsnQuery::new(0, 0, 1, 2),
         None,
-        &sector_data,
-        RwSectorScope::DataOnly,
+        sector_data,
+        RwScope::DataOnly,
         false,
         false,
     ) {
@@ -69,12 +69,12 @@ fn test_bitstream_write() {
     };
 
     // Read the sector back. It should be the same data.
-    read_sector_result = match f86_image.read_sector(
+    let rsr = match f86_image.read_sector(
         DiskCh::new(0, 0),
         DiskChsnQuery::new(0, 0, 1, 2),
         None,
         None,
-        RwSectorScope::DataOnly,
+        RwScope::DataOnly,
         false,
     ) {
         Ok(result) => result,
@@ -84,9 +84,7 @@ fn test_bitstream_write() {
         Err(e) => panic!("Error reading sector: {:?}", e),
     };
 
-    let sector_data = read_sector_result.read_buf;
-
-    if sector_data != original_data {
+    if rsr.data() != original_data {
         println!("Original data: {:02X?}", &original_data[0..8]);
         println!("Post-write data: {:02X?}", &sector_data[0..8]);
         panic!("Data read back from disk does not match written data!");

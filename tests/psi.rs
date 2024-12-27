@@ -1,7 +1,7 @@
 mod common;
 
 use common::*;
-use fluxfox::{DiskImage, DiskImageFileFormat, ImageParser};
+use fluxfox::prelude::*;
 use std::path::PathBuf;
 
 fn init() {
@@ -23,7 +23,8 @@ fn test_psi() {
     let mut out_buffer = Cursor::new(Vec::new());
 
     let fmt = DiskImageFileFormat::RawSectorImage;
-    fmt.save_image(&mut img_image, &mut out_buffer).unwrap();
+    fmt.save_image(&mut img_image, &ParserWriteOptions::default(), &mut out_buffer)
+        .unwrap();
 
     //let in_inner: Vec<u8> = in_buffer.into_inner();
     let out_inner: Vec<u8> = out_buffer.into_inner();

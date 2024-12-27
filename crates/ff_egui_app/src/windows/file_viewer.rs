@@ -58,7 +58,7 @@ impl FileViewer {
             }
         };
 
-        self.table.set_data(data);
+        self.table.set_data(&data);
     }
 
     pub fn set_open(&mut self, open: bool) {

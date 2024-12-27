@@ -29,53 +29,46 @@
     Implements the Bitstream track type and the Track trait for same.
 
 */
-use super::{Track, TrackConsistency, TrackInfo, TrackSectorScanResult};
+use super::{Track, TrackAnalysis, TrackInfo, TrackSectorScanResult};
 use crate::{
-    bitstream::{
-        fm::FmCodec,
-        mfm::{MfmCodec, MFM_BYTE_LEN},
-        EncodingVariant,
-        TrackDataStream,
-    },
+    bitstream::{fm::FmCodec, mfm::MfmCodec, EncodingVariant, TrackCodec, TrackDataStream},
     io::SeekFrom,
-    structure_parsers::{
+    track_schema::{
         system34::{
             System34Element,
             System34Marker,
-            System34Parser,
+            System34Schema,
             System34Standard,
             DAM_MARKER_BYTES,
             DDAM_MARKER_BYTES,
         },
-        DiskStructureElement,
-        DiskStructureMetadata,
-        DiskStructureMetadataItem,
-        DiskStructureParser,
+        TrackElement,
+        TrackElementInstance,
+        TrackMetadata,
+        TrackSchema,
+        TrackSchemaParser,
     },
-    track::{fluxstream::FluxStreamTrack, metasector::MetaSectorTrack},
     types::{
         chs::DiskChsnQuery,
+        AddSectorParams,
         BitStreamTrackParams,
         DiskCh,
         DiskChs,
         DiskChsn,
-        DiskDataEncoding,
-        DiskDataRate,
         DiskDataResolution,
-        DiskDensity,
         DiskRpm,
         ReadSectorResult,
         ReadTrackResult,
-        RwSectorScope,
+        RwScope,
         ScanSectorResult,
-        SectorAttributes,
-        SectorDescriptor,
         SharedDiskContext,
+        TrackDataEncoding,
+        TrackDataRate,
+        TrackDensity,
         WriteSectorResult,
     },
-    util::crc_ibm_3740,
     DiskImageError,
-    FoxHashSet,
+    SectorIdQuery,
     SectorMapEntry,
 };
 use bit_vec::BitVec;
@@ -84,16 +77,18 @@ use std::{
     any::Any,
     sync::{Arc, Mutex},
 };
+use strum::IntoEnumIterator;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone)]
 pub struct BitStreamTrack {
-    pub(crate) encoding: DiskDataEncoding,
-    pub(crate) data_rate: DiskDataRate,
+    pub(crate) encoding: TrackDataEncoding,
+    pub(crate) data_rate: TrackDataRate,
     pub(crate) rpm: Option<DiskRpm>,
     pub(crate) ch: DiskCh,
     pub(crate) data: TrackDataStream,
-    pub(crate) metadata: DiskStructureMetadata,
-    pub(crate) sector_ids: Vec<DiskChsn>,
+    pub(crate) metadata: TrackMetadata,
+    pub(crate) schema: Option<TrackSchema>,
     #[cfg_attr(feature = "serde", serde(skip))]
     pub(crate) shared: Option<Arc<Mutex<SharedDiskContext>>>,
 }
@@ -112,20 +107,12 @@ impl Track for BitStreamTrack {
         self
     }
 
-    fn as_metasector_track(&self) -> Option<&MetaSectorTrack> {
-        None
-    }
-
     fn as_bitstream_track(&self) -> Option<&BitStreamTrack> {
         self.as_any().downcast_ref::<BitStreamTrack>()
     }
 
-    fn as_fluxstream_track(&self) -> Option<&FluxStreamTrack> {
-        None
-    }
-
-    fn as_fluxstream_track_mut(&mut self) -> Option<&mut FluxStreamTrack> {
-        None
+    fn as_bitstream_track_mut(&mut self) -> Option<&mut BitStreamTrack> {
+        self.as_any_mut().downcast_mut::<BitStreamTrack>()
     }
 
     fn ch(&self) -> DiskCh {
@@ -136,29 +123,30 @@ impl Track for BitStreamTrack {
         self.ch = new_ch;
     }
 
-    fn encoding(&self) -> DiskDataEncoding {
+    fn encoding(&self) -> TrackDataEncoding {
         self.encoding
     }
 
     fn info(&self) -> TrackInfo {
         TrackInfo {
             encoding: self.encoding,
+            schema: self.schema,
             data_rate: self.data_rate,
-            density: Some(DiskDensity::from(self.data_rate)),
+            density: Some(TrackDensity::from(self.data_rate)),
             rpm: self.rpm,
             bit_length: self.data.len(),
-            sector_ct: self.sector_ids.len(),
+            sector_ct: self.metadata.sector_ids().len(),
         }
     }
 
-    fn metadata(&self) -> Option<&DiskStructureMetadata> {
+    fn metadata(&self) -> Option<&TrackMetadata> {
         Some(&self.metadata)
     }
 
     fn sector_ct(&self) -> usize {
         let mut sector_ct = 0;
         for item in &self.metadata.items {
-            if item.elem_type.is_sector_header() {
+            if item.element.is_sector_header() {
                 sector_ct += 1;
             }
         }
@@ -167,7 +155,7 @@ impl Track for BitStreamTrack {
 
     fn has_sector_id(&self, id: u8, _id_chsn: Option<DiskChsn>) -> bool {
         for item in &self.metadata.items {
-            if let DiskStructureElement::System34(System34Element::Marker(System34Marker::Idam, _)) = item.elem_type {
+            if let TrackElement::System34(System34Element::Marker(System34Marker::Idam, _)) = item.element {
                 if let Some(chsn) = item.chsn {
                     if chsn.s() == id {
                         return true;
@@ -179,173 +167,168 @@ impl Track for BitStreamTrack {
     }
 
     fn sector_list(&self) -> Vec<SectorMapEntry> {
-        let mut sector_list = Vec::new();
-        for item in &self.metadata.items {
-            if let DiskStructureElement::System34(System34Element::Data {
-                address_crc,
-                data_crc,
-                deleted,
-                ..
-            }) = item.elem_type
-            {
-                if let Some(chsn) = item.chsn {
-                    sector_list.push(SectorMapEntry {
-                        chsn,
-                        attributes: SectorAttributes {
-                            address_crc_valid: address_crc,
-                            data_crc_valid: data_crc,
-                            deleted_mark: deleted,
-                            no_dam: false,
-                        },
-                    });
-                }
-            }
-        }
-        sector_list
+        self.metadata.sector_list()
+
+        // if self.schema.is_none() {
+        //     log::debug!("sector_list(): No schema found for track!");
+        //     return Vec::new();
+        // }
+        //
+        // let mut sector_list = Vec::new();
+        // if let Some(schema) = self.schema {
+        //     for item in &self.metadata.items {
+        //         if let TrackElement::System34(System34Element::Data {
+        //             address_crc,
+        //             data_crc,
+        //             deleted,
+        //             ..
+        //         }) = item.elem_type
+        //         {
+        //             if let Some(chsn) = item.chsn {
+        //                 sector_list.push(SectorMapEntry {
+        //                     chsn,
+        //                     attributes: SectorAttributes {
+        //                         address_crc_valid: address_crc,
+        //                         data_crc_valid: data_crc,
+        //                         deleted_mark: deleted,
+        //                         no_dam: false,
+        //                     },
+        //                 });
+        //             }
+        //         }
+        //     }
+        // }
+        // sector_list
     }
 
-    fn add_sector(&mut self, _sd: &SectorDescriptor, _alternate: bool) -> Result<(), DiskImageError> {
+    fn add_sector(&mut self, _sd: &AddSectorParams) -> Result<(), DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 
     /// Read the sector data from the sector identified by 'chs'. The data is returned within a
-    /// ReadSectorResult struct which also sets some convenience metadata flags where are needed
-    /// when handling ByteStream images.
-    /// When reading a BitStream image, the sector data includes the address mark and crc.
-    /// Offsets are provided within ReadSectorResult so these can be skipped when processing the
+    /// [ReadSectorResult] struct which also sets some convenience metadata flags which are needed
+    /// when handling `MetaSector` resolution images.
+    /// When reading a `BitStream` resolution image, the sector data can optionally include any
+    /// applicable metadata such as the address mark and CRC bytes, depending on the value of
+    /// [RwScope].
+    /// Offsets are provided within [ReadSectorResult] so these can be skipped when processing the
     /// read operation.
     fn read_sector(
         &self,
-        id: DiskChsnQuery,
+        id: SectorIdQuery,
         n: Option<u8>,
         offset: Option<usize>,
-        scope: RwSectorScope,
+        scope: RwScope,
         debug: bool,
     ) -> Result<ReadSectorResult, DiskImageError> {
-        let mut data_idx = 0;
-        let mut data_len = 0;
-
         let mut read_vec = Vec::new();
-
-        let mut data_crc_error = false;
-        let mut address_crc_error = false;
-        let mut deleted_mark = false;
+        let mut result_data_error = false;
+        let mut result_address_error = false;
+        let mut result_deleted_mark = false;
+        let mut result_data_range = 0..0;
         let mut wrong_cylinder = false;
         let mut bad_cylinder = false;
         let mut wrong_head = false;
+        let mut data_crc = None;
+
+        let schema = self.schema.ok_or(DiskImageError::SchemaError)?;
 
         // Read index first to avoid borrowing issues in next match.
-        let bit_index = self.get_sector_bit_index(id, offset);
-
+        let bit_index = self.scan_sector_element(id, offset.unwrap_or(0))?;
         let mut id_chsn = None;
 
         match bit_index {
             TrackSectorScanResult::Found {
-                address_crc_valid,
+                address_error,
                 no_dam,
                 sector_chsn,
                 ..
             } if no_dam => {
-                // No DAM found. Return an empty buffer.
-                address_crc_error = !address_crc_valid;
+                // Sector id was matched, but has no associated data.
+                // Return an empty buffer with the `no_dam` flag set.
                 return Ok(ReadSectorResult {
                     id_chsn: Some(sector_chsn),
-                    data_idx: 0,
-                    data_len: 0,
-                    read_buf: Vec::new(),
-                    deleted_mark: false,
-                    not_found: false,
-                    no_dam: true,
-                    address_crc_error,
-                    data_crc_error: false,
-                    wrong_cylinder: false,
-                    bad_cylinder: false,
-                    wrong_head: false,
+                    no_dam,
+                    address_crc_error: address_error,
+                    ..ReadSectorResult::default()
                 });
             }
             TrackSectorScanResult::Found {
-                element_start,
+                ei,
                 sector_chsn,
-                address_crc_valid,
-                data_crc_valid,
-                deleted,
+                address_error,
+                data_error,
+                deleted_mark,
                 ..
             } => {
-                address_crc_error = !address_crc_valid;
                 id_chsn = Some(sector_chsn);
-                // If there is a bad address mark we do not read the data unless the debug flag is set.
+                // If there is a bad address mark, we do not read the sector data, unless the debug
+                // flag is set.
                 // This allows dumping of sectors with bad address marks for debugging purposes.
                 // So if the debug flag is not set, return our 'failure' now.
-                if address_crc_error && !debug {
+                if address_error && !debug {
                     return Ok(ReadSectorResult {
                         id_chsn,
-                        not_found: false,
-                        no_dam: false,
-                        deleted_mark: false,
                         address_crc_error: true,
-                        data_crc_error: false,
-                        wrong_cylinder: false,
-                        bad_cylinder: false,
-                        wrong_head: false,
-                        data_idx: 0,
-                        data_len: 0,
-                        read_buf: Vec::new(),
+                        ..ReadSectorResult::default()
                     });
                 }
 
-                deleted_mark = deleted;
-                data_crc_error = !data_crc_valid;
+                // TODO: All this should be moved into TrackSchema logic - we shouldn't have to know
+                //       about the formatting details in Track
 
-                // The caller can request the scope of the read to be the entire data block
-                // including address mark and crc bytes, or just the data. Handle offsets accordingly.
-                let (scope_read_off, scope_data_off, scope_data_adj) = match scope {
-                    // Add 4 bytes for address mark and 2 bytes for CRC.
-                    RwSectorScope::DataElement => (0, 4, 6),
-                    RwSectorScope::DataOnly => (64, 0, 0),
-                    _ => return Err(DiskImageError::ParameterError),
-                };
+                // Should be safe to the instance
+                let instance = self.element(ei).unwrap();
+                // Get the size and range of the sector data element.
+                let element_size = instance.element.size();
+                let scope_range = instance.element.range(scope).unwrap_or(0..element_size);
+                let scope_overhead = element_size - scope_range.len();
 
                 // Normally we read the contents of the sector determined by N in the sector header.
-                // The read operation however can override the value of N if 'debug' is true.
-                // If the 'n' parameter is Some, then we use the provided value instead of the sector
-                // header value.
-                // If 'debug' is false, 'n' must be matched or the read operation will fail as
-                // sector id not found.
-                if let Some(n_value) = n {
-                    if debug {
-                        data_len = DiskChsn::n_to_bytes(n_value);
-                    }
-                    else {
-                        if sector_chsn.n() != n_value {
-                            log::error!(
-                                "read_sector(): Sector size mismatch, expected: {} got: {}",
-                                sector_chsn.n(),
-                                n_value
-                            );
-                            return Err(DiskImageError::DataError);
-                        }
-                        data_len = sector_chsn.n_size();
-                    }
+                // The read operation however can override the value of N if the `n` parameter
+                // is Some.
+                let data_len = if let Some(n_value) = n {
+                    DiskChsn::n_to_bytes(n_value) + scope_overhead
                 }
                 else {
-                    data_len = sector_chsn.n_size();
-                }
-                data_idx = scope_data_off;
-
-                read_vec = vec![0u8; data_len + scope_data_adj];
-
-                log::trace!(
-                    "read_sector(): Found DAM for Sector ID: {} at offset: {:?} read length: {}",
-                    id.s(),
-                    element_start,
-                    read_vec.len()
+                    sector_chsn.n_size() + scope_overhead
+                };
+                log::debug!(
+                    "read_sector(): Allocating {} bytes for sector {} data element of size {} at offset: {:05X}",
+                    data_len,
+                    sector_chsn,
+                    element_size,
+                    instance.start
                 );
+                read_vec = vec![0u8; data_len];
 
-                log::trace!("read_sector(): Seeking to offset: {}", element_start + scope_read_off);
+                let (_, crc_opt) = schema.decode_element(&self.data, instance, scope, &mut read_vec);
+                let crc = crc_opt.unwrap();
 
-                // 0.2: Avoid read trait, as it requires a mutable reference.
-                self.data
-                    .read_decoded_buf(&mut read_vec, element_start + scope_read_off);
+                // Sanity check: Read CRC matches metadata?
+                if crc.is_error() != data_error {
+                    log::warn!(
+                        "read_sector(): CRC data/metadata mismatch for sector {}: calculated: {} metadata: {}",
+                        sector_chsn,
+                        crc,
+                        if data_error { "Invalid" } else { "Valid" }
+                    );
+                }
+                result_address_error = address_error;
+                result_data_error = data_error;
+                result_deleted_mark = deleted_mark;
+                result_data_range = scope_range;
+                // Move crc into Option for return
+                data_crc = Some(crc);
+
+                // if read_vec.len() < data_len {
+                //     log::error!(
+                //         "read_sector(): Data buffer underrun, expected: {} got: {}",
+                //         data_len,
+                //         read_vec.len()
+                //     );
+                //     return Err(DiskImageError::DataError);
+                // }
 
                 // self.data
                 //     .seek(SeekFrom::Start((element_start + scope_read_off) as u64))
@@ -378,113 +361,107 @@ impl Track for BitStreamTrack {
 
         Ok(ReadSectorResult {
             id_chsn,
-            data_idx,
-            data_len,
             read_buf: read_vec,
-            deleted_mark,
+            data_range: result_data_range,
+            deleted_mark: result_deleted_mark,
             not_found: false,
             no_dam: false,
-            address_crc_error,
-            data_crc_error,
+            address_crc_error: result_address_error,
+            address_crc: None,
+            data_crc_error: result_data_error,
+            data_crc,
             wrong_cylinder,
             bad_cylinder,
             wrong_head,
         })
     }
 
-    fn scan_sector(
-        &self,
-        id: DiskChsnQuery,
-        _n: Option<u8>,
-        offset: Option<usize>,
-    ) -> Result<ScanSectorResult, DiskImageError> {
-        let data_crc_error = false;
-        let mut address_crc_error = false;
-        let deleted_mark = false;
-        let wrong_cylinder = false;
-        let bad_cylinder = false;
-        let wrong_head = false;
+    fn scan_sector(&self, id: DiskChsnQuery, offset: Option<usize>) -> Result<ScanSectorResult, DiskImageError> {
+        // let data_crc_error = false;
+        // let mut address_crc_error = false;
+        // let deleted_mark = false;
+        // let wrong_cylinder = false;
+        // let bad_cylinder = false;
+        // let wrong_head = false;
 
         // Read index first to avoid borrowing issues in next match.
-        let bit_index = self.get_sector_bit_index(id, offset);
+        let track_scan_result = self.scan_sector_element(id, offset.unwrap_or(0))?;
+        Ok(track_scan_result.into())
 
-        match bit_index {
-            TrackSectorScanResult::Found {
-                address_crc_valid,
-                no_dam,
-                ..
-            } if no_dam => {
-                // No DAM found. Return an empty buffer.
-                address_crc_error = !address_crc_valid;
-                Ok(ScanSectorResult {
-                    deleted_mark: false,
-                    not_found: false,
-                    no_dam: true,
-                    address_crc_error,
-                    data_crc_error: false,
-                    wrong_cylinder: false,
-                    bad_cylinder: false,
-                    wrong_head: false,
-                })
-            }
-            TrackSectorScanResult::Found {
-                address_crc_valid,
-                data_crc_valid,
-                deleted,
-                ..
-            } => {
-                if !address_crc_valid {
-                    // Bad address CRC, return status.
-                    Ok(ScanSectorResult {
-                        deleted_mark: false,
-                        not_found: false,
-                        no_dam: false,
-                        address_crc_error: true,
-                        data_crc_error: false,
-                        wrong_cylinder,
-                        bad_cylinder,
-                        wrong_head,
-                    })
-                }
-                else {
-                    Ok(ScanSectorResult {
-                        deleted_mark: deleted,
-                        not_found: false,
-                        no_dam: false,
-                        address_crc_error,
-                        data_crc_error: !data_crc_valid,
-                        wrong_cylinder,
-                        bad_cylinder,
-                        wrong_head,
-                    })
-                }
-            }
-            TrackSectorScanResult::NotFound {
-                wrong_cylinder: wc,
-                bad_cylinder: bc,
-                wrong_head: wh,
-            } => {
-                log::trace!(
-                    "scan_sector: Sector ID not matched reading track. wc: {} bc: {} wh: {}",
-                    wc,
-                    bc,
-                    wh
-                );
-                Ok(ScanSectorResult {
-                    not_found: true,
-                    no_dam: false,
-                    deleted_mark,
-                    address_crc_error,
-                    data_crc_error,
-                    wrong_cylinder: wc,
-                    bad_cylinder: bc,
-                    wrong_head: wc,
-                })
-            }
-            _ => {
-                unreachable!()
-            }
-        }
+        // match bit_index {
+        //     TrackSectorScanResult::Found {
+        //         address_error, no_dam, ..
+        //     } if no_dam => {
+        //         // No DAM found. Return an empty buffer.
+        //         Ok(ScanSectorResult {
+        //             deleted_mark: false,
+        //             not_found: false,
+        //             no_dam: true,
+        //             address_error,
+        //             data_error: false,
+        //             wrong_cylinder: false,
+        //             bad_cylinder: false,
+        //             wrong_head: false,
+        //         })
+        //     }
+        //     TrackSectorScanResult::Found {
+        //         address_crc_valid,
+        //         data_crc_valid,
+        //         deleted,
+        //         ..
+        //     } => {
+        //         if !address_crc_valid {
+        //             // Bad address CRC, return status.
+        //             Ok(ScanSectorResult {
+        //                 deleted_mark: false,
+        //                 not_found: false,
+        //                 no_dam: false,
+        //                 address_error: true,
+        //                 data_error: false,
+        //                 wrong_cylinder,
+        //                 bad_cylinder,
+        //                 wrong_head,
+        //             })
+        //         }
+        //         else {
+        //             Ok(ScanSectorResult {
+        //                 deleted_mark: deleted,
+        //                 not_found: false,
+        //                 no_dam: false,
+        //                 address_error: address_crc_error,
+        //                 data_error: !data_crc_valid,
+        //                 wrong_cylinder,
+        //                 bad_cylinder,
+        //                 wrong_head,
+        //             })
+        //         }
+        //     }
+        //     TrackSectorScanResult::NotFound {
+        //         wrong_cylinder: wc,
+        //         bad_cylinder: bc,
+        //         wrong_head: wh,
+        //     } => {
+        //         log::trace!(
+        //             "scan_sector: Sector ID not matched reading track. wc: {} bc: {} wh: {}",
+        //             wc,
+        //             bc,
+        //             wh
+        //         );
+        //         Ok(ScanSectorResult {
+        //             not_found: true,
+        //             no_dam: false,
+        //             deleted_mark,
+        //             address_error: address_crc_error,
+        //             data_error: data_crc_error,
+        //             wrong_cylinder: wc,
+        //             bad_cylinder: bc,
+        //             wrong_head: wc,
+        //         })
+        //     }
+        //     _ => {
+        //         unreachable!()
+        //     }
+        // }
     }
 
     fn write_sector(
@@ -492,96 +469,94 @@ impl Track for BitStreamTrack {
         id: DiskChsnQuery,
         offset: Option<usize>,
         write_data: &[u8],
-        scope: RwSectorScope,
+        scope: RwScope,
         write_deleted: bool,
         debug: bool,
     ) -> Result<WriteSectorResult, DiskImageError> {
         let data_len;
-        let address_crc_error;
         let mut wrong_cylinder = false;
         let bad_cylinder = false;
         let mut wrong_head = false;
 
         // Find the bit offset of the requested sector
-        let bit_index = self.get_sector_bit_index(id, offset);
+        let bit_index = self.scan_sector_element(id, offset.unwrap_or(0))?;
 
         match bit_index {
             TrackSectorScanResult::Found {
-                address_crc_valid,
-                no_dam,
-                ..
+                address_error, no_dam, ..
             } if no_dam => {
                 // No DAM found. Return an empty buffer.
                 Ok(WriteSectorResult {
                     not_found: false,
                     no_dam: true,
-                    address_crc_error: !address_crc_valid,
+                    address_crc_error: address_error,
                     wrong_cylinder,
                     bad_cylinder,
                     wrong_head,
                 })
             }
             TrackSectorScanResult::Found {
-                element_start: sector_offset,
+                ei,
                 sector_chsn,
-                address_crc_valid,
-                deleted,
+                address_error,
+                deleted_mark,
                 ..
             } => {
                 wrong_cylinder = id.c().is_some() && sector_chsn.c() != id.c().unwrap();
                 wrong_head = id.h().is_some() && sector_chsn.h() != id.h().unwrap();
-                address_crc_error = !address_crc_valid;
+
                 // If there's a bad address mark, we do not proceed to write the data, unless we're
                 // requesting it anyway for debugging purposes.
-                if address_crc_error && !debug {
+                if address_error && !debug {
                     return Ok(WriteSectorResult {
                         not_found: false,
                         no_dam: false,
-                        address_crc_error,
+                        address_crc_error: address_error,
                         wrong_cylinder,
                         bad_cylinder,
                         wrong_head,
                     });
                 }
 
-                let mark_bytes = match deleted {
+                let mark_bytes = match deleted_mark {
                     true => DDAM_MARKER_BYTES,
                     false => DAM_MARKER_BYTES,
                 };
 
-                if write_deleted != deleted {
+                if write_deleted != deleted_mark {
                     log::warn!(
-                                "write_sector(): Deleted mark mismatch, expected: {} got: {}. Changing sector data type not implemented",
-                                write_deleted,
-                                deleted
-                            );
+                        "write_sector(): Deleted mark mismatch, expected: {} got: {}. Changing sector data type not implemented",
+                        write_deleted,
+                        deleted_mark
+                    );
+                    return Err(DiskImageError::ParameterError);
                 }
 
                 data_len = write_data.len();
                 if sector_chsn.n_size() != data_len {
                     log::error!(
                         "write_sector(): Data buffer size mismatch, expected: {} got: {}",
-                        sector_chsn.n(),
+                        sector_chsn.n_size(),
                         write_data.len()
                     );
                     return Err(DiskImageError::ParameterError);
                 }
 
-                self.data
-                    .seek(SeekFrom::Start(((sector_offset >> 1) + 32) as u64))
+                /*                self.data
+                    .seek(SeekFrom::Start(((ei.start >> 1) + 32) as u64))
                     .map_err(|_| DiskImageError::SeekError)?;
 
                 log::trace!(
                     "write_sector(): Writing {} bytes to sector_id: {} at offset: {}",
                     write_data.len(),
                     id.s(),
-                    sector_offset + 4 * MFM_BYTE_LEN
+                    ei.start + 4 * MFM_BYTE_LEN
                 );
 
                 // Write the sector data, if the write scope is the entire sector.
-                if !matches!(scope, RwSectorScope::CrcOnly) {
+                if !matches!(scope, RwScope::CrcOnly) {
                     self.data
-                        .write_encoded_buf(&write_data[0..data_len], sector_offset + 4 * MFM_BYTE_LEN);
+                        .write_encoded_buf(&write_data[0..data_len], ei.start + 4 * MFM_BYTE_LEN);
                 }
 
                 // Calculate the CRC of the data address mark + data.
@@ -590,9 +565,9 @@ impl Track for BitStreamTrack {
 
                 // Write the CRC after the data.
                 self.data
-                    .write_encoded_buf(&crc.to_be_bytes(), sector_offset + (4 + data_len) * MFM_BYTE_LEN);
+                    .write_encoded_buf(&crc.to_be_bytes(), ei.start + (4 + data_len) * MFM_BYTE_LEN);
 
-                self.add_write(data_len);
+                self.add_write(data_len);*/
 
                 Ok(WriteSectorResult {
                     not_found: false,
@@ -632,60 +607,62 @@ impl Track for BitStreamTrack {
 
     fn recalculate_sector_crc(&mut self, id: DiskChsnQuery, offset: Option<usize>) -> Result<(), DiskImageError> {
         // First, read the sector data.
-        let rr = self.read_sector(id, None, offset, RwSectorScope::DataOnly, false)?;
+        let rr = self.read_sector(id, None, offset, RwScope::DataOnly, false)?;
 
         // Write the data back to the sector, which will recalculate the CRC.
         // TODO: We may wish to optimize this in the future to just write the new CRC, but I don't expect
         //       this function to be called heavily.
-        self.write_sector(id, offset, &rr.read_buf, RwSectorScope::CrcOnly, rr.deleted_mark, false)?;
+        self.write_sector(id, offset, &rr.read_buf, RwScope::CrcOnly, rr.deleted_mark, false)?;
 
         Ok(())
     }
 
     fn hash(&mut self) -> Digest {
         let mut hasher = sha1_smol::Sha1::new();
-
         hasher.update(&self.data.data_copied());
         hasher.digest()
     }
 
-    /// Read all sectors from the track identified by 'ch'. The data is returned within a
-    /// ReadSectorResult struct which also sets some convenience metadata flags which are needed
-    /// when handling ByteStream images.
-    /// Unlike read_sectors, the data returned is only the actual sector data. The address marks and
-    /// CRCs are not included in the data.
+    /// Read all sectors from the track. The data is returned within a [ReadTrackResult] struct
+    /// which also sets some convenience metadata flags which are needed when handling `MetaSector`
+    /// resolution images.
+    /// The data returned is only the actual sector data. The address marks and CRCs are not included
+    /// in the data.
     /// This function is intended for use in implementing the Read Track FDC command.
     fn read_all_sectors(&mut self, _ch: DiskCh, n: u8, eot: u8) -> Result<ReadTrackResult, DiskImageError> {
         let mut track_read_vec = Vec::with_capacity(512 * 9);
         let sector_data_len = DiskChsn::n_to_bytes(n);
         let mut sector_read_vec = vec![0u8; sector_data_len];
 
-        let mut data_crc_error = false;
-        let mut address_crc_error = false;
-        let mut deleted_mark = false;
-        let mut not_found = true;
+        let mut result_data_error = false;
+        let mut result_address_error = false;
+        let mut result_deleted_mark = false;
+        let mut result_not_found = true;
         let mut sectors_read: u16 = 0;
 
         // Read index first to avoid borrowing issues in next match.
-        let mut bit_index = self.get_first_sector_at_bit_index(0);
+        let mut bit_index = self.next_sector(0);
 
         while let TrackSectorScanResult::Found {
-            element_start,
-            element_end,
+            ei,
             sector_chsn,
-            address_crc_valid,
-            data_crc_valid,
-            deleted,
+            address_error,
+            data_error,
+            deleted_mark,
             no_dam: _no_dam,
+            ..
         } = bit_index
         {
             // We've found at least one sector.
-            not_found = false;
+            result_not_found = false;
 
-            // Note the bad address mark CRC and data CRC, however ignore them and keep reading.
-            address_crc_error |= !address_crc_valid;
-            data_crc_error |= !data_crc_valid;
-            deleted_mark |= deleted;
+            // Note any data and address integrity errors, however keep reading.
+            result_address_error |= address_error;
+            result_data_error |= data_error;
+            result_deleted_mark |= deleted_mark;
+
+            // Resolve the element instance offsets
+            let TrackElementInstance { start, end, .. } = *self.element(ei).unwrap();
 
             // In a normal Read Sector operation, we'd check the value of N in the sector header.
             // When reading all sectors in a track, we specify the value of N for all sectors in
@@ -694,11 +671,11 @@ impl Track for BitStreamTrack {
             log::trace!(
                 "read_all_sectors_bitstream(): Found sector_id: {} at offset: {} read length: {}",
                 sector_chsn.s(),
-                element_start,
+                start,
                 sector_read_vec.len()
             );
 
-            self.read_exact_at(element_start + 64, &mut sector_read_vec)
+            self.read_exact_at(start + 64, &mut sector_read_vec)
                 .map_err(|_| DiskImageError::BitstreamError)?;
 
             track_read_vec.extend(sector_read_vec.clone());
@@ -714,29 +691,29 @@ impl Track for BitStreamTrack {
                 break;
             }
 
-            bit_index = self.get_first_sector_at_bit_index(element_end);
+            bit_index = self.next_sector(end);
         }
 
         let read_len = track_read_vec.len();
         Ok(ReadTrackResult {
-            not_found,
+            not_found: result_not_found,
             sectors_read,
             read_buf: track_read_vec,
-            deleted_mark,
-            address_crc_error,
-            data_crc_error,
+            deleted_mark: result_deleted_mark,
+            address_crc_error: result_address_error,
+            data_crc_error: result_data_error,
             read_len_bits: read_len * 16,
             read_len_bytes: read_len,
         })
     }
 
-    fn get_next_id(&self, chs: DiskChs) -> Option<DiskChsn> {
-        if self.sector_ids.is_empty() {
+    fn next_id(&self, chs: DiskChs) -> Option<DiskChsn> {
+        if self.metadata.sector_ids.is_empty() {
             log::warn!("get_next_id(): No sector_id vector for track!");
         }
-        let first_sector = *self.sector_ids.first()?;
+        let first_sector = *self.metadata.sector_ids.first()?;
         let mut sector_matched = false;
-        for sid in &self.sector_ids {
+        for sid in &self.metadata.sector_ids {
             if sector_matched {
                 return Some(*sid);
             }
@@ -756,7 +733,7 @@ impl Track for BitStreamTrack {
         }
     }
 
-    fn read_track(&mut self, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
+    fn read(&mut self, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
         let extra_bytes = overdump.unwrap_or(0);
 
         let data_size = self.data.len() / 16 + if self.data.len() % 16 > 0 { 1 } else { 0 };
@@ -783,7 +760,7 @@ impl Track for BitStreamTrack {
         })
     }
 
-    fn read_track_raw(&mut self, _overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
+    fn read_raw(&mut self, _overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
         //let extra_bytes = overdump.unwrap_or(0);
 
         let data_size = self.data.len() / 8 + if self.data.len() % 8 > 0 { 1 } else { 0 };
@@ -816,7 +793,7 @@ impl Track for BitStreamTrack {
     ) -> Result<(), DiskImageError> {
         let bitcell_ct = self.data.len();
         let format_result =
-            System34Parser::format_track_as_bytes(standard, bitcell_ct, format_buffer, fill_pattern, gap3)?;
+            System34Schema::format_track_as_bytes(standard, bitcell_ct, format_buffer, fill_pattern, gap3)?;
 
         let new_bit_vec = self
             .data
@@ -828,107 +805,59 @@ impl Track for BitStreamTrack {
         );
         self.data.replace(new_bit_vec);
 
-        System34Parser::set_track_markers(&mut self.data, format_result.markers)?;
+        System34Schema::set_track_markers(&mut self.data, format_result.markers)?;
 
         // Scan the new track data for markers and create a clock map.
-        let markers = System34Parser::scan_track_markers(&self.data);
+        let markers = System34Schema::scan_markers(&self.data);
         if markers.is_empty() {
             log::error!("TrackData::format(): No markers found in track data post-format.");
         }
         else {
             log::trace!("TrackData::format(): Found {} markers in track data.", markers.len());
         }
-        System34Parser::create_clock_map(&markers, self.data.clock_map_mut());
+        System34Schema::create_clock_map(&markers, self.data.clock_map_mut());
 
-        let new_metadata = DiskStructureMetadata::new(System34Parser::scan_track_metadata(&mut self.data, markers));
+        let new_metadata = TrackMetadata::new(System34Schema::scan_metadata(&mut self.data, markers));
 
         let data_ranges = new_metadata.data_ranges();
         if !data_ranges.is_empty() {
             self.data.set_data_ranges(data_ranges);
         }
 
-        // log::trace!(
-        //     "TrackData::format(): Found {} metadata items in track data.",
-        //     new_metadata.items.len()
-        // );
-
-        let new_sector_ids = new_metadata.get_sector_ids();
-        if new_sector_ids.is_empty() {
-            log::warn!("TrackData::format(): No sectors ids found in track metadata post-format");
-        }
-
         self.metadata = new_metadata;
-        self.sector_ids = new_sector_ids;
-
         Ok(())
     }
 
-    fn track_consistency(&self) -> Result<TrackConsistency, DiskImageError> {
-        let sector_ct = self.sector_ids.len();
-        let mut consistency = TrackConsistency::default();
-        let mut n_set: FoxHashSet<u8> = FoxHashSet::new();
-        let mut last_n = 0;
-
-        for (si, sector_id) in self.sector_ids.iter().enumerate() {
-            if sector_id.s() != si as u8 + 1 {
-                consistency.nonconsecutive_sectors = true;
-            }
-            last_n = sector_id.n();
-            n_set.insert(sector_id.n());
-        }
-
-        if n_set.len() > 1 {
-            //log::warn!("get_track_consistency(): Variable sector sizes detected: {:?}", n_set);
-            consistency.consistent_sector_size = None;
-        }
-        else {
-            //log::warn!("get_track_consistency(): Consistent sector size: {}", last_n);
-            consistency.consistent_sector_size = Some(last_n);
-        }
-
-        for item in &self.metadata.items {
-            if let DiskStructureElement::System34(System34Element::Data {
-                address_crc,
-                data_crc,
-                deleted,
-                ..
-            }) = item.elem_type
-            {
-                if !address_crc {
-                    consistency.bad_address_crc = true;
-                }
-                if !data_crc {
-                    //log::warn!("reporting bad CRC for sector: {:?}", item.chsn);
-                    consistency.bad_data_crc = true;
-                }
-                if deleted {
-                    consistency.deleted_data = true;
-                }
-            }
-        }
-
-        consistency.sector_ct = sector_ct;
-        Ok(consistency)
+    fn analysis(&self) -> Result<TrackAnalysis, DiskImageError> {
+        let schema = self.schema.ok_or(DiskImageError::SchemaError)?;
+        Ok(schema.analyze_elements(&self.metadata))
     }
 
-    fn track_stream(&self) -> Option<&TrackDataStream> {
+    fn stream(&self) -> Option<&TrackDataStream> {
         Some(&self.data)
     }
 
-    fn track_stream_mut(&mut self) -> Option<&mut TrackDataStream> {
+    fn stream_mut(&mut self) -> Option<&mut TrackDataStream> {
         Some(&mut self.data)
     }
 }
 
 impl BitStreamTrack {
     pub(crate) fn new(
-        params: BitStreamTrackParams,
+        params: &BitStreamTrackParams,
         shared: Arc<Mutex<SharedDiskContext>>,
     ) -> Result<BitStreamTrack, DiskImageError> {
-        if params.data.is_empty() {
-            log::error!("add_track_bitstream(): Data is empty.");
-            return Err(DiskImageError::ParameterError);
-        }
+        Self::new_optional_ctx(params, Some(shared))
+    }
+
+    pub(crate) fn new_optional_ctx(
+        params: &BitStreamTrackParams,
+        shared: Option<Arc<Mutex<SharedDiskContext>>>,
+    ) -> Result<BitStreamTrack, DiskImageError> {
+        // if params.data.is_empty() {
+        //     log::error!("add_track_bitstream(): Data is empty.");
+        //     return Err(DiskImageError::ParameterError);
+        // }
         if params.weak.is_some() && (params.data.len() != params.weak.unwrap().len()) {
             log::error!("add_track_bitstream(): Data and weak bit mask lengths do not match.");
             return Err(DiskImageError::ParameterError);
@@ -941,11 +870,36 @@ impl BitStreamTrack {
             params.bitcell_ct.unwrap_or(params.data.len() * 8)
         );
 
-        let data = BitVec::from_bytes(params.data);
+        // The data vec is optional if we have a bitcell count and MFM/FM encoding.
+        let data = if params.data.is_empty() {
+            if let Some(bitcell_ct) = params.bitcell_ct {
+                match params.encoding {
+                    TrackDataEncoding::Mfm | TrackDataEncoding::Fm => BitVec::from_fn(bitcell_ct, |i| i % 2 == 0),
+                    _ => {
+                        log::error!(
+                            "add_track_bitstream(): Unsupported data encoding: {:?}",
+                            params.encoding
+                        );
+                        return Err(DiskImageError::UnsupportedFormat);
+                    }
+                }
+            }
+            else {
+                log::error!("add_track_bitstream(): Data or Bitcell count not provided.");
+                return Err(DiskImageError::ParameterError);
+            }
+        }
+        else {
+            BitVec::from_bytes(params.data)
+        };
         let weak_bitvec_opt = params.weak.map(BitVec::from_bytes);
+        let default_schema = params.schema.unwrap_or_default();
+        let mut track_schema = None;
+        let mut track_metadata = TrackMetadata::default();
 
-        let (mut data_stream, markers) = match params.encoding {
-            DiskDataEncoding::Mfm => {
+        // TODO: Let the schema handle encoding. We should not need to know the encoding here.
+        let mut data_stream: Box<dyn TrackCodec> = match params.encoding {
+            TrackDataEncoding::Mfm => {
                 let mut codec;
                 // If a weak bit mask was provided by the file format, we will honor it.
                 // Otherwise, if 'detect_weak' is set we will try to detect weak bits from the MFM stream.
@@ -955,7 +909,7 @@ impl BitStreamTrack {
                 else {
                     codec = MfmCodec::new(data, params.bitcell_ct, None);
                     if params.detect_weak {
-                        log::debug!("add_track_bitstream(): detecting weak bits...");
+                        log::debug!("add_track_bitstream(): detecting weak bits in MFM stream...");
                         let weak_bitvec = codec.create_weak_bit_mask(MfmCodec::WEAK_BIT_RUN);
                         if weak_bitvec.any() {
                             log::debug!(
@@ -966,53 +920,31 @@ impl BitStreamTrack {
                         _ = codec.set_weak_mask(weak_bitvec);
                     }
                 }
-
-                //log::debug!("add_track_bitstream(): Scanning for markers...");
-                let mut data_stream: TrackDataStream = Box::new(codec);
-                let markers = System34Parser::scan_track_markers(&data_stream);
-                if !markers.is_empty() {
-                    log::debug!("First marker found at {}", markers[0].start);
-                }
-
-                System34Parser::create_clock_map(&markers, data_stream.clock_map_mut());
-
-                data_stream.set_track_padding();
-
-                (data_stream, markers)
+                Box::new(codec)
             }
-            DiskDataEncoding::Fm => {
+            TrackDataEncoding::Fm => {
                 let mut codec;
-
                 // If a weak bit mask was provided by the file format, we will honor it.
-                // Otherwise, we will try to detect weak bits from the MFM stream.
+                // Otherwise, we will try to detect weak bits from the FM stream.
                 if weak_bitvec_opt.is_some() {
                     codec = FmCodec::new(data, params.bitcell_ct, weak_bitvec_opt);
                 }
                 else {
                     codec = FmCodec::new(data, params.bitcell_ct, None);
-                    // let weak_regions = codec.detect_weak_bits(9);
-                    // log::trace!(
-                    //     "add_track_bitstream(): Detected {} weak bit regions",
-                    //     weak_regions.len()
-                    // );
-                    let weak_bitvec = codec.create_weak_bit_mask(FmCodec::WEAK_BIT_RUN);
-                    if weak_bitvec.any() {
-                        log::trace!(
-                            "add_track_bitstream(): Detected {} weak bits in FM bitstream.",
-                            weak_bitvec.count_ones()
-                        );
+                    if params.detect_weak {
+                        log::debug!("add_track_bitstream(): detecting weak bits in FM stream...");
+                        let weak_bitvec = codec.create_weak_bit_mask(FmCodec::WEAK_BIT_RUN);
+                        if weak_bitvec.any() {
+                            log::trace!(
+                                "add_track_bitstream(): Detected {} weak bits in FM bitstream.",
+                                weak_bitvec.count_ones()
+                            );
+                        }
+                        _ = codec.set_weak_mask(weak_bitvec);
                     }
-                    _ = codec.set_weak_mask(weak_bitvec);
                 }
 
-                let mut data_stream: TrackDataStream = Box::new(codec);
-                let markers = System34Parser::scan_track_markers(&data_stream);
-
-                System34Parser::create_clock_map(&markers, data_stream.clock_map_mut());
-
-                data_stream.set_track_padding();
-
-                (data_stream, markers)
+                Box::new(codec)
             }
             _ => {
                 log::error!(
@@ -1023,44 +955,86 @@ impl BitStreamTrack {
             }
         };
 
-        // let format = TrackFormat {
-        //     data_encoding,
-        //     data_sync: data_stream.get_sync(),
-        //     data_rate,
-        // };
+        // Now that we have a track, we can try different track schemas to see if we can decode
+        // the track markers.
 
-        let metadata = DiskStructureMetadata::new(System34Parser::scan_track_metadata(&mut data_stream, markers));
-        let sector_ids = metadata.get_sector_ids();
+        // Create a list of schemas to try, filtering out the default schema.
+        let mut schema_list: Vec<TrackSchema> = vec![default_schema];
+        schema_list.extend(TrackSchema::iter().filter(|s| *s != default_schema));
+
+        assert_ne!(schema_list.len(), 0);
+
+        let mut track_markers = Vec::new();
+        for schema in schema_list {
+            log::trace!("Trying track schema: {:?}", schema);
+
+            track_markers = schema.scan_for_markers(&data_stream);
+            if !track_markers.is_empty() {
+                log::trace!(
+                    "Schema {:?} found {} markers, first marker at {}",
+                    schema,
+                    track_markers.len(),
+                    track_markers[0].start
+                );
+
+                schema.create_clock_map(&track_markers, data_stream.clock_map_mut());
+                // Set the schema and break out of the loop.
+                track_schema = Some(schema);
+                break;
+            }
+            else {
+                log::trace!("Schema {:?} failed to detect track markers.", schema);
+            }
+        }
+
+        if params.bitcell_ct.is_none() {
+            log::debug!("Bitcell count not provided, attempting to detect track padding.");
+            data_stream.set_track_padding();
+        }
+
+        if track_schema.is_none() {
+            log::warn!("No compatible track schema was detected. Track will be treated as unformatted.");
+        }
+
+        if let Some(schema) = track_schema {
+            track_metadata = TrackMetadata::new(schema.scan_for_elements(&mut data_stream, track_markers));
+        }
+
+        let sector_ids = track_metadata.sector_ids();
         if sector_ids.is_empty() {
             log::warn!(
                 "add_track_bitstream(): No sector ids found in track {} metadata.",
                 params.ch.c()
             );
         }
-        let data_ranges = metadata.data_ranges();
+        let data_ranges = track_metadata.data_ranges();
         if !data_ranges.is_empty() {
+            log::debug!(
+                "add_track_bitstream(): Adding {} data ranges to track stream",
+                data_ranges.len(),
+            );
             data_stream.set_data_ranges(data_ranges);
         }
 
-        let sector_offsets = metadata
-            .items
-            .iter()
-            .filter_map(|i| {
-                if let DiskStructureElement::System34(System34Element::Data { .. }) = i.elem_type {
-                    //log::trace!("Got Data element, returning start address: {}", i.start);
-                    Some(i.start)
-                }
-                else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-
-        log::debug!(
-            "add_track_bitstream(): Retrieved {} sector bitstream offsets from {} metadata entries.",
-            sector_offsets.len(),
-            metadata.items.len()
-        );
+        // let sector_offsets = track_metadata
+        //     .items
+        //     .iter()
+        //     .filter_map(|i| {
+        //         if let TrackElement::System34(System34Element::Data { .. }) = i.elem_type {
+        //             //log::trace!("Got Data element, returning start address: {}", i.start);
+        //             Some(i.start)
+        //         }
+        //         else {
+        //             None
+        //         }
+        //     })
+        //     .collect::<Vec<_>>();
+        //
+        // log::debug!(
+        //     "add_track_bitstream(): Retrieved {} sector bitstream offsets from {} metadata entries.",
+        //     sector_offsets.len(),
+        //     track_metadata.items.len()
+        // );
 
         Ok(BitStreamTrack {
             encoding: params.encoding,
@@ -1068,10 +1042,81 @@ impl BitStreamTrack {
             rpm: None,
             ch: params.ch,
             data: data_stream,
-            metadata,
-            sector_ids,
-            shared: Some(shared),
+            metadata: track_metadata,
+            schema: track_schema,
+            shared,
         })
+    }
+
+    pub fn set_schema(&mut self, schema: TrackSchema) {
+        self.schema = Some(schema);
+    }
+
+    /// Rescan the track for markers and metadata. This can be called if we have manually
+    /// written the track and need to update the metadata.
+    pub fn rescan(&mut self, schema_hint: Option<TrackSchema>) -> Result<(), DiskImageError> {
+        let schemas = self.schema_list(schema_hint);
+
+        for schema in schemas {
+            // Just because we find markers doesn't mean that we have found the right schema.
+            // The Amiga track schema will pick up PC sector markers, for example. So we need to
+            // check how many valid sector headers we have - if all sector headers on a track
+            // have a bad crc then we should try the next schema.
+            let track_markers = schema.scan_for_markers(&self.data);
+            if !track_markers.is_empty() {
+                log::trace!(
+                    "Schema {:?} found {} markers, first marker at {}",
+                    schema,
+                    track_markers.len(),
+                    track_markers[0].start
+                );
+
+                schema.create_clock_map(&track_markers, self.data.clock_map_mut());
+            }
+            else {
+                log::warn!("Schema {:?} failed to detect track markers.", schema);
+            }
+
+            self.metadata = TrackMetadata::new(schema.scan_for_elements(&mut self.data, track_markers));
+            let sector_ids = self.metadata.valid_sector_ids();
+            if sector_ids.is_empty() {
+                log::debug!(
+                    "rescan(): No valid sector ids found in track {} metadata. Trying next schema...",
+                    self.ch.c()
+                );
+                // Clear metadata and try the next schema.
+                self.metadata.clear();
+                continue;
+            }
+            let data_ranges = self.metadata.data_ranges();
+            if !data_ranges.is_empty() {
+                log::debug!("rescan(): Adding {} data ranges to track stream", data_ranges.len(),);
+                self.data.set_data_ranges(data_ranges);
+            }
+            break;
+        }
+
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    fn elements(&self) -> &[TrackElementInstance] {
+        &self.metadata.items
+    }
+
+    #[allow(dead_code)]
+    fn elements_mut(&mut self) -> &mut [TrackElementInstance] {
+        &mut self.metadata.items
+    }
+
+    #[allow(dead_code)]
+    fn element(&self, idx: usize) -> Option<&TrackElementInstance> {
+        self.metadata.items.get(idx)
+    }
+
+    #[allow(dead_code)]
+    fn element_mut(&mut self, idx: usize) -> Option<&mut TrackElementInstance> {
+        self.metadata.items.get_mut(idx)
     }
 
     pub(crate) fn add_write(&mut self, _bytes: usize) {
@@ -1098,39 +1143,39 @@ impl BitStreamTrack {
         self.data.is_empty()
     }
 
-    /// Retrieves the bit index of the first sector in the track data after the specified bit index.
+    /// Scan for the next sector on the track starting from the specified bit index.
     ///
     /// This function searches the metadata for the first IDAM (Index Address Mark) starting from
     /// the specified bit index and returns the bit index of the corresponding sector data.
     ///
-    /// # Returns
-    /// - `TrackSectorScanResult::Found` if a sector is found.
-    /// - `TrackSectorScanResult::NotFound` if no sector is found. The fields returned are meaningless.
+    /// # Arguments
+    /// * `index` - The bit index of the track to start searching from.
     ///
-    /// # Panics
-    /// This function does not panic.
-    pub(crate) fn get_first_sector_at_bit_index(&self, bit_index: usize) -> TrackSectorScanResult {
+    /// # Returns
+    /// * `TrackSectorScanResult::Found` if a sector is found.
+    /// * `TrackSectorScanResult::NotFound` if no sector is found. The fields returned are meaningless.
+    pub(crate) fn next_sector(&self, index: usize) -> TrackSectorScanResult {
         let mut idam_chsn: Option<DiskChsn> = None;
-        for mdi in &self.metadata.items {
+        for (ei, instance) in self.metadata.items.iter().enumerate() {
             // Skip items until ww reach the specified bit index.
-            if mdi.start < bit_index {
+            if instance.start < index {
                 continue;
             }
 
-            match mdi {
-                DiskStructureMetadataItem {
-                    elem_type: DiskStructureElement::System34(System34Element::Marker(System34Marker::Idam, _)),
+            match instance {
+                TrackElementInstance {
+                    element: TrackElement::System34(System34Element::Marker(System34Marker::Idam, _)),
                     chsn,
                     ..
                 } => {
                     // Match the first IDAM seen as we are returning the first sector.
                     idam_chsn = *chsn;
                 }
-                DiskStructureMetadataItem {
-                    elem_type:
-                        DiskStructureElement::System34(System34Element::Data {
-                            address_crc,
-                            data_crc,
+                TrackElementInstance {
+                    element:
+                        TrackElement::System34(System34Element::SectorData {
+                            address_error,
+                            data_error,
                             deleted,
                             ..
                         }),
@@ -1138,12 +1183,11 @@ impl BitStreamTrack {
                 } => {
                     if let Some(sector_chsn) = idam_chsn {
                         return TrackSectorScanResult::Found {
-                            element_start: mdi.start,
-                            element_end: mdi.end,
+                            ei,
                             sector_chsn,
-                            address_crc_valid: *address_crc,
-                            data_crc_valid: *data_crc,
-                            deleted: *deleted,
+                            address_error: *address_error,
+                            data_error: *data_error,
+                            deleted_mark: *deleted,
                             no_dam: false,
                         };
                     }
@@ -1159,118 +1203,31 @@ impl BitStreamTrack {
         }
     }
 
-    /// Retrieves the bit index of the sector requested by the `seek_chs` parameter in the track data.
+    /// Scan for the sector requested by the `id` parameter in the track data stream, starting
+    /// at `index`.
     ///
-    /// This function searches the metadata for the first matching IDAM (Index Address Mark) and returns
+    /// This function searches the metadata for the first matching sector element and returns
     /// the bit index of the corresponding sector data.
     ///
     /// # Arguments
-    /// - `seek_chs` - The CHS address of the sector to find.
-    /// - `n` - The sector size to match. If `None`, the sector size is not checked.
+    /// - `id` - A `SectorIdQuery` indicating the sector parameters to match when searching.
+    /// - `index` - The bit index of the track to start searching from. If `None`, the search
+    ///             will start from the beginning of the track.
     ///
     /// # Returns
-    /// - `Some(TrackDataIndexResult)` if the first sector is found, containing the start index,
-    ///   sector CHSN, address CRC validity, data CRC validity, and deleted mark.
-    /// - `None` if no sector is found.
-    ///
-    /// # Panics
-    /// This function does not panic.
-    pub(crate) fn get_sector_bit_index(&self, id: DiskChsnQuery, offset: Option<usize>) -> TrackSectorScanResult {
-        let mut wrong_cylinder = false;
-        let mut bad_cylinder = false;
-        let mut wrong_head = false;
-
-        let mut last_idam_matched = false;
-        let start_offset = offset.unwrap_or(0);
-        let mut idam_chsn: Option<DiskChsn> = None;
-        for mdi in &self.metadata.items {
-            let DiskStructureMetadataItem { elem_type, start, .. } = mdi;
-
-            if *start < start_offset {
-                continue;
-            }
-
-            match elem_type {
-                DiskStructureElement::System34(System34Element::SectorHeader {
-                    chsn,
-                    address_crc,
-                    data_missing,
-                }) => {
-                    if *data_missing {
-                        // If this sector header has no DAM, we will return right away
-                        // and set no_dam to true.
-                        return TrackSectorScanResult::Found {
-                            element_start: 0,
-                            element_end: 0,
-                            sector_chsn: *chsn,
-                            address_crc_valid: *address_crc,
-                            data_crc_valid: false,
-                            deleted: false,
-                            no_dam: true,
-                        };
-                    }
-
-                    // Sector header should have a corresponding DAM marker which we will
-                    // match in the next iteration, if this sector header matches.
-
-                    // We match in two stages - first we match sector id if provided.
-                    if chsn.s() == id.s() {
-                        // if c is 0xFF, we set the flag for bad cylinder.
-                        if chsn.c() == 0xFF {
-                            bad_cylinder = true;
-                        }
-
-                        // If c differs, we set the flag for wrong cylinder.
-                        if id.c().is_some() && chsn.c() != id.c().unwrap() {
-                            wrong_cylinder = true;
-                        }
-
-                        // If h differs, we set the flag for wrong head.
-                        if id.h().is_some() && chsn.h() != id.h().unwrap() {
-                            wrong_head = true;
-                        }
-
-                        if id.matches(*chsn) {
-                            last_idam_matched = true;
-                        }
-                    }
-                    idam_chsn = Some(*chsn);
-                }
-                DiskStructureElement::System34(System34Element::Data {
-                    address_crc,
-                    data_crc,
-                    deleted,
-                    ..
-                }) => {
-                    // log::trace!(
-                    //     "get_sector_bit_index(): Found DAM at CHS: {:?}, index: {} last idam matched? {}",
-                    //     idam_chsn,
-                    //     mdi.start,
-                    //     last_idam_matched
-                    // );
-
-                    // If we matched the last sector header, then this is the sector data
-                    // we are looking for. Return the info.
-                    if last_idam_matched {
-                        return TrackSectorScanResult::Found {
-                            element_start: mdi.start,
-                            element_end: mdi.end,
-                            sector_chsn: idam_chsn.unwrap(),
-                            address_crc_valid: *address_crc,
-                            data_crc_valid: *data_crc,
-                            deleted: *deleted,
-                            no_dam: false,
-                        };
-                    }
-                }
-                _ => {}
-            }
+    /// A [TrackSectorScanResult] containing the scan status, start index, sector id, address and
+    /// data integrity result, and deleted status.
+    pub(crate) fn scan_sector_element(
+        &self,
+        id: SectorIdQuery,
+        index: usize,
+    ) -> Result<TrackSectorScanResult, DiskImageError> {
+        if let Some(schema) = self.schema {
+            Ok(schema.match_sector_element(id, &self.metadata.items, index, None))
         }
-
-        TrackSectorScanResult::NotFound {
-            wrong_cylinder,
-            bad_cylinder,
-            wrong_head,
+        else {
+            log::error!("scan_sector_element(): No track schema found for track.");
+            Err(DiskImageError::UnsupportedFormat)
         }
     }
 
@@ -1304,15 +1261,25 @@ impl BitStreamTrack {
         for s in self.sector_list() {
             // Weight having a sector heavily, so that missing sectors are heavily penalized.
             score += 5;
-            if !s.attributes.address_crc_valid {
+            if s.attributes.address_error {
                 // Bad address CRC is unusual, most likely track error.
                 score -= 5;
             }
-            if !s.attributes.data_crc_valid {
+            if s.attributes.data_error {
                 // Bad data CRC is more common. Weight it less relative to other issues.
                 score -= 1;
             }
         }
         score
+    }
+
+    /// Return a list of schemas to try decoding, starting at the provided hint, the currently
+    /// set track schema, or the default if neither are set.
+    /// The list should encompass all schemas enabled by the current feature flags.
+    fn schema_list(&self, hint: Option<TrackSchema>) -> Vec<TrackSchema> {
+        let default_schema = hint.unwrap_or(self.schema.unwrap_or_default());
+        let mut schema_list: Vec<TrackSchema> = vec![default_schema];
+        schema_list.extend(TrackSchema::iter().filter(|s| *s != default_schema));
+        schema_list
     }
 }

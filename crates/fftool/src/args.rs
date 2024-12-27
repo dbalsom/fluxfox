@@ -24,14 +24,23 @@
 
     --------------------------------------------------------------------------
 */
+
+use std::{
+    fmt::{Display, Formatter},
+    io::Write,
+    path::PathBuf,
+    str::FromStr,
+};
+
 use crate::{
     convert::args::{convert_parser, ConvertParams},
+    create::args::{create_parser, CreateParams},
     dump::args::{dump_parser, DumpParams},
     find::args::{find_parser, FindParams},
     info::args::{info_parser, InfoParams},
 };
 use bpaf::*;
-use std::{path::PathBuf, str::FromStr};
+use fluxfox::prelude::*;
 
 #[derive(Debug, Clone, Copy)]
 pub enum DumpFormat {
@@ -57,9 +66,23 @@ impl FromStr for DumpFormat {
 pub(crate) enum Command {
     Version,
     Convert(ConvertParams),
+    Create(CreateParams),
     Dump(DumpParams),
     Find(FindParams),
     Info(InfoParams),
+}
+
+impl Display for Command {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Command::Version => write!(f, "version"),
+            Command::Convert(_) => write!(f, "convert"),
+            Command::Create(_) => write!(f, "create"),
+            Command::Dump(_) => write!(f, "dump"),
+            Command::Find(_) => write!(f, "find"),
+            Command::Info(_) => write!(f, "info"),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -71,6 +94,15 @@ pub(crate) struct AppParams {
 #[derive(Debug)]
 pub struct GlobalOptions {
     pub silent: bool,
+}
+
+impl GlobalOptions {
+    pub fn loud<F: FnMut()>(&self, mut f: F) {
+        if !self.silent {
+            f();
+            std::io::stdout().flush().unwrap();
+        }
+    }
 }
 
 pub fn global_options_parser() -> impl Parser<GlobalOptions> {
@@ -108,6 +140,11 @@ pub(crate) fn command_parser() -> impl Parser<AppParams> {
         .command("convert")
         .help("Convert a disk image to a different format");
 
+    let create = construct!(Command::Create(create_parser()))
+        .to_options()
+        .command("create")
+        .help("Create a new disk image");
+
     let dump = construct!(Command::Dump(dump_parser()))
         .to_options()
         .command("dump")
@@ -123,7 +160,7 @@ pub(crate) fn command_parser() -> impl Parser<AppParams> {
         .command("info")
         .help("Display information about a disk image");
 
-    let command = construct!([version, convert, dump, find, info]);
+    let command = construct!([version, convert, create, dump, find, info]);
 
     construct!(AppParams { global, command })
 }
@@ -185,8 +222,28 @@ pub(crate) fn dump_format_parser() -> impl Parser<DumpFormat> {
 }
 
 pub(crate) fn row_size_parser() -> impl Parser<u8> {
-    long("row-size")
-        .argument::<u8>("HEAD")
-        .help("Specify the number of elements per row to be dumped")
+    long("row_size")
+        .argument::<u8>("DUMP_ROW_SIZE")
+        .help("Specify the number of elements per row in dump output")
         .guard(|&size| (8..=128).contains(&size), "Size must be between 8 and 128")
+}
+
+// Implement a parser for `StandardFormat`
+pub(crate) fn standard_format_parser() -> impl Parser<StandardFormatParam> {
+    let valid_formats = StandardFormatParam::list()
+        .iter()
+        .map(|(param_name, desc)| format!(" {}\t({})", param_name, desc))
+        .collect::<Vec<String>>()
+        .join("\n");
+
+    long("disk_format")
+        .help(
+            format!(
+                "Specify a standard disk format.\n Valid values include:\n{}",
+                valid_formats
+            )
+            .as_str(),
+        )
+        .argument::<String>("STANDARD_DISK_FORMAT")
+        .parse(|input| input.parse())
 }

@@ -32,18 +32,27 @@
 
 use std::path::PathBuf;
 
-use crate::{io::Cursor, DiskImage, DiskImageError, DiskImageFileFormat};
-use crate::file_parsers::ImageParser;
+use crate::{
+    file_parsers::{ImageFormatParser, ParserWriteOptions},
+    io::Cursor,
+    DiskImage,
+    DiskImageError,
+    DiskImageFileFormat,
+};
 
-#[derive(Debug, Default)]
-pub struct ImageWriter {
-    pub path: Option<PathBuf>,
+pub struct ImageWriter<'img> {
+    pub image:  &'img mut DiskImage,
+    pub path:   Option<PathBuf>,
     pub format: Option<DiskImageFileFormat>,
 }
 
-impl ImageWriter {
-    pub fn new() -> Self {
-        Default::default()
+impl<'img> ImageWriter<'img> {
+    pub fn new(img: &'img mut DiskImage) -> Self {
+        Self {
+            image:  img,
+            path:   None,
+            format: None,
+        }
     }
 
     pub fn with_format(self, format: DiskImageFileFormat) -> Self {
@@ -60,7 +69,7 @@ impl ImageWriter {
         }
     }
 
-    pub fn write(self, image: &mut DiskImage) -> Result<(), DiskImageError> {
+    pub fn write(self) -> Result<(), DiskImageError> {
         if self.path.is_none() {
             return Err(DiskImageError::ParameterError);
         }
@@ -73,7 +82,7 @@ impl ImageWriter {
 
         let mut buf = Cursor::new(Vec::with_capacity(1_000_000));
 
-        format.save_image(image, &mut buf)?;
+        format.save_image(self.image, &ParserWriteOptions::default(), &mut buf)?;
 
         let data = buf.into_inner();
         std::fs::write(path, data)?;

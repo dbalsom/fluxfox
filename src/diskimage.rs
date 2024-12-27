@@ -25,39 +25,50 @@
     --------------------------------------------------------------------------
 */
 
-//! The `diskimage` module defines the `DiskImage` struct which serves as the main
-//! interface to fluxfox. A `DiskImage` represents the single disk image as read
-//! from a disk image file, or created new as a specified format.
+//! The `diskimage` module defines the [DiskImage] struct which serves as the main interface to
+//! fluxfox. A [DiskImage] represents a single floppy disk, consisting of a collection of [Track]s
+//!
+//! ## Creating a [DiskImage]  
+//! A [DiskImage] should not be created directly. Instead, use an [ImageBuilder] to create a new
+//! disk image with specified parameters.
 
 use crate::{bitstream::mfm::MfmCodec, track::bitstream::BitStreamTrack, DiskImageFileFormat, SectorMapEntry};
 
-use bit_vec::BitVec;
-use sha1_smol::Digest;
-use std::{
-    io::Cursor,
-    path::PathBuf,
-    sync::{Arc, Mutex, RwLock},
-};
-
 use crate::{
-    bitstream::{fm::FmCodec, TrackDataStream},
+    bitstream::{fm::FmCodec, TrackCodec},
     boot_sector::BootSector,
     containers::DiskImageContainer,
-    detect::detect_image_format,
-    file_parsers::{filter_writable, formats_from_caps, kryoflux::KfxFormat, FormatCaps, ImageParser},
+    detect::detect_container_format,
+    file_parsers::{
+        filter_writable,
+        formats_from_caps,
+        kryoflux::KfxFormat,
+        FormatCaps,
+        ImageFormatParser,
+        ParserReadOptions,
+    },
     io::ReadSeek,
-    structure_parsers::{system34::System34Standard, DiskStructureMetadata},
-    track::{fluxstream::FluxStreamTrack, metasector::MetaSectorTrack, DiskTrack, Track, TrackConsistency},
+    source_map::{NullSourceMap, OptionalSourceMap, SourceMap, SourceValue},
+    track::{fluxstream::FluxStreamTrack, metasector::MetaSectorTrack, DiskTrack, Track, TrackAnalysis},
+    track_schema::{system34::System34Standard, TrackMetadata, TrackSchema},
     types::{
         chs::*,
-        DiskConsistency,
-        DiskDataEncoding,
-        DiskDataRate,
+        standard_format::StandardFormat,
+        BitStreamTrackParams,
+        DiskAnalysis,
         DiskDataResolution,
         DiskDescriptor,
         DiskImageFlags,
-        DiskRpm,
+        DiskSelection,
+        FluxStreamTrackParams,
+        MetaSectorTrackParams,
+        ReadSectorResult,
+        ReadTrackResult,
+        RwScope,
         SharedDiskContext,
+        TrackDataEncoding,
+        TrackDataRate,
+        WriteSectorResult,
     },
     util,
     DiskImageError,
@@ -66,29 +77,27 @@ use crate::{
     LoadingCallback,
     LoadingStatus,
 };
-
-#[cfg(feature = "zip")]
-use crate::containers::zip::{extract_file, extract_first_file};
-use crate::types::{
-    standard_format::StandardFormat,
-    BitStreamTrackParams,
-    DiskSelection,
-    ReadSectorResult,
-    ReadTrackResult,
-    RwSectorScope,
-    WriteSectorResult,
+use bit_vec::BitVec;
+use sha1_smol::Digest;
+use std::{
+    io::Cursor,
+    path::Path,
+    sync::{Arc, Mutex, RwLock},
 };
 
 pub(crate) const DEFAULT_BOOT_SECTOR: &[u8] = include_bytes!("../resources/bootsector.bin");
 
 /// A [`DiskImage`] represents the structure of a floppy disk. It contains a pool of track data
-/// structures, which are indexed by a head vector which contains cylinder vectors.
+/// structures, which are indexed by head and cylinder.
 ///
-/// A [`DiskImage`] can be created from a specified disk format using an ImageBuilder.
+/// A [`DiskImage`] can be created from a specified disk format using an [ImageBuilder].
 ///
-/// A [`DiskImage`] may be of two [`DiskDataResolution`] levels: ByteStream or BitStream. ByteStream images
-/// are sourced from sector-based disk image formats, while BitStream images are sourced from
-/// bitstream-based disk image formats.
+/// A [`DiskImage`] may be any of the defined [`DiskDataResolution`] levels:
+/// * `MetaSector`: These images are sourced from sector-based disk image formats such as
+///                 `IMG`, `IMD`, `TD0`, `ADF`, or `PSI`.
+/// * `BitStream` : These images are sourced from file formats such as `HFE`, `MFM`, `86F`, or `PRI`.
+/// * `FluxStream`: These images are sourced from flux-based formats such as `Kryoflux`, `SCP`, or
+///                 `MFI`.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DiskImage {
     // Flags that can be applied to a disk image.
@@ -102,7 +111,7 @@ pub struct DiskImage {
     // A DiskDescriptor describing this image with more thorough parameters.
     pub(crate) descriptor: DiskDescriptor,
     // A structure containing information about the disks internal consistency. Used to construct image_caps.
-    pub(crate) consistency: DiskConsistency,
+    pub(crate) analysis: DiskAnalysis,
     // The boot sector of the disk image, if successfully parsed.
     pub(crate) boot_sector: Option<BootSector>,
     // The volume name of the disk image, if any.
@@ -117,6 +126,9 @@ pub struct DiskImage {
     /// A shared context for the disk image, accessible by Tracks.
     #[cfg_attr(feature = "serde", serde(skip))]
     pub(crate) shared: Option<Arc<Mutex<SharedDiskContext>>>,
+    /// A sourcemap for the disk image. This is not serialized as it is not necessary
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub(crate) source_map: Option<Box<dyn OptionalSourceMap>>,
 }
 
 impl Default for DiskImage {
@@ -127,20 +139,24 @@ impl Default for DiskImage {
             source_format: None,
             resolution: Default::default(),
             descriptor: DiskDescriptor::default(),
-            consistency: Default::default(),
+            analysis: Default::default(),
             boot_sector: None,
             volume_name: None,
             comment: None,
             track_pool: Vec::new(),
             track_map: [Vec::new(), Vec::new()],
             shared: Some(Arc::new(Mutex::new(SharedDiskContext::default()))),
+            source_map: Some(Box::new(NullSourceMap::new())),
         }
     }
 }
 
 impl DiskImage {
-    pub fn detect_format<RS: ReadSeek>(mut image: &mut RS) -> Result<DiskImageContainer, DiskImageError> {
-        detect_image_format(&mut image)
+    pub fn detect_format<RS: ReadSeek>(
+        image: &mut RS,
+        path: Option<&Path>,
+    ) -> Result<DiskImageContainer, DiskImageError> {
+        detect_container_format(image, path)
     }
 
     /// Create a new [`DiskImage`] with the specified disk format. This function should not be called
@@ -152,13 +168,13 @@ impl DiskImage {
             descriptor: disk_format.descriptor(),
             source_format: None,
             resolution: None,
-            consistency: DiskConsistency {
+            analysis: DiskAnalysis {
                 image_caps: Default::default(),
                 weak: false,
                 deleted_data: false,
                 no_dam: false,
-                bad_address_crc: false,
-                bad_data_crc: false,
+                address_error: false,
+                data_error: false,
                 overlapped: false,
                 consistent_sector_size: Some(2),
                 consistent_track_length: Some(disk_format.chs().s() as u32),
@@ -169,6 +185,7 @@ impl DiskImage {
             track_pool: Vec::new(),
             track_map: [Vec::new(), Vec::new()],
             shared: Some(Arc::new(Mutex::new(SharedDiskContext::default()))),
+            source_map: Some(Box::new(NullSourceMap::new())),
         }
     }
 
@@ -238,15 +255,15 @@ impl DiskImage {
     }
 
     pub fn required_caps(&self) -> FormatCaps {
-        self.consistency.image_caps
+        self.analysis.image_caps
     }
 
     pub fn load_from_file(
-        file_path: PathBuf,
+        file_path: &Path,
         disk_selection: Option<DiskSelection>,
         callback: Option<LoadingCallback>,
     ) -> Result<Self, DiskImageError> {
-        let mut file_vec = std::fs::read(file_path.clone())?;
+        let mut file_vec = std::fs::read(file_path)?;
         let mut cursor = Cursor::new(&mut file_vec);
         let image = DiskImage::load(&mut cursor, Some(file_path), disk_selection, callback)?;
 
@@ -255,109 +272,124 @@ impl DiskImage {
 
     pub fn load<RS: ReadSeek>(
         image_io: &mut RS,
-        image_path: Option<PathBuf>,
+        image_path: Option<&Path>,
         disk_selection: Option<DiskSelection>,
         callback: Option<LoadingCallback>,
     ) -> Result<Self, DiskImageError> {
-        let container = DiskImage::detect_format(image_io)?;
+        let container = DiskImage::detect_format(image_io, image_path.clone())?;
 
+        // TODO: DiskImage should probably not concern itself with archives or disk sets...
+        //       We should probably move most of this into an ImageLoader interface similar to
+        //       ImageBuilder
         match container {
-            DiskImageContainer::Raw(format) => {
+            DiskImageContainer::File(format, _path) => {
                 let mut image = DiskImage::default();
-                format.load_image(image_io, &mut image, callback)?;
+                format.load_image(image_io, &mut image, &ParserReadOptions::default(), callback)?;
                 image.post_load_process();
                 Ok(image)
             }
-            DiskImageContainer::Zip(format) => {
-                #[cfg(feature = "zip")]
-                {
-                    let file_vec = extract_first_file(image_io)?;
-                    let file_cursor = Cursor::new(file_vec);
+            DiskImageContainer::ResolvedFile(format, file_vec, _path, _archive_path) => {
+                let mut cursor = Cursor::new(file_vec);
+                let mut image = DiskImage::default();
+                format.load_image(&mut cursor, &mut image, &ParserReadOptions::default(), callback)?;
+                image.post_load_process();
+                Ok(image)
+            }
+            DiskImageContainer::Archive(_archive_format, _containers, _path) => {
+                // We should have received any single-file archives as ResolvedFiles, so this
+                // archive contains multiple files (but wasn't detected as a FileSet).
+                //
+                // This isn't currently supported.
+                // let file_vec = extract_first_file(image_io)?;
+                // let file_cursor = Cursor::new(file_vec);
+                // let mut image = DiskImage::default();
+                // format.load_image(file_cursor, &mut image, &ParserReadOptions::default(), callback)?;
+                // image.post_load_process();
+                // Ok(image)
+                Err(DiskImageError::UnknownFormat)
+            }
+            DiskImageContainer::ZippedKryofluxSet(disks) => {
+                let disk_opt = match disk_selection {
+                    Some(DiskSelection::Index(idx)) => disks.get(idx),
+                    Some(DiskSelection::Path(ref path)) => disks.iter().find(|disk| disk.base_path == *path),
+                    _ => {
+                        if disks.len() == 1 {
+                            disks.first()
+                        }
+                        else {
+                            log::error!("Multiple disks found in Kryoflux set without a selection.");
+                            return Err(DiskImageError::MultiDiskError(
+                                "No disk selection provided.".to_string(),
+                            ));
+                        }
+                    }
+                };
+
+                if let Some(disk) = disk_opt {
+                    // Create an empty image. We will loop through all the files in the set and
+                    // append tracks to them as we go.
                     let mut image = DiskImage::default();
-                    format.load_image(file_cursor, &mut image, callback)?;
+                    image.descriptor.geometry = disk.geometry;
+
+                    if let Some(ref callback_fn) = callback {
+                        // Let caller know to show a progress bar
+                        callback_fn(LoadingStatus::ProgressSupport);
+                    }
+
+                    // Enable source map.
+                    image.assign_source_map(true);
+
+                    for (fi, file_path) in disk.file_set.iter().enumerate() {
+                        let mut file_vec = crate::containers::zip::extract_file(image_io, &file_path.clone())?;
+                        let mut cursor = Cursor::new(&mut file_vec);
+                        log::debug!("load(): Loading Kryoflux stream file from zip: {:?}", file_path);
+
+                        // Add a child node to the source map for each file in the set.
+                        image.source_map_mut().add_child(
+                            0,
+                            &*file_path.file_name().unwrap_or_default().to_string_lossy(),
+                            SourceValue::default(),
+                        );
+
+                        // We won't give the callback to the kryoflux loader - instead we will call it here ourselves
+                        // updating percentage complete as a fraction of files loaded.
+                        match KfxFormat::load_image(&mut cursor, &mut image, &ParserReadOptions::default(), None) {
+                            Ok(_) => {}
+                            Err(e) => {
+                                // It's okay to fail if we have already added the standard number of tracks to an image.
+                                log::error!("load(): Error loading Kryoflux stream file: {:?}", e);
+                                //return Err(e);
+                                break;
+                            }
+                        }
+
+                        if let Some(ref callback_fn) = callback {
+                            let completion = (fi + 1) as f64 / disk.file_set.len() as f64;
+                            callback_fn(LoadingStatus::Progress(completion));
+                        }
+                    }
+
+                    if let Some(callback_fn) = callback {
+                        callback_fn(LoadingStatus::Complete);
+                    }
+
                     image.post_load_process();
                     Ok(image)
                 }
-                #[cfg(not(feature = "zip"))]
-                {
-                    Err(DiskImageError::UnknownFormat)
+                else {
+                    log::error!(
+                        "Disk selection {} not found in Kryoflux set.",
+                        disk_selection.clone().unwrap()
+                    );
+                    Err(DiskImageError::MultiDiskError(format!(
+                        "Disk selection {} not found in set.",
+                        disk_selection.unwrap()
+                    )))
                 }
             }
-            DiskImageContainer::ZippedKryofluxSet(disks) => {
-                #[cfg(feature = "zip")]
-                {
-                    let disk_opt = match disk_selection {
-                        Some(DiskSelection::Index(idx)) => disks.get(idx),
-                        Some(DiskSelection::Path(ref path)) => disks.iter().find(|disk| disk.base_path == *path),
-                        _ => {
-                            if disks.len() == 1 {
-                                disks.first()
-                            }
-                            else {
-                                log::error!("Multiple disks found in Kryoflux set without a selection.");
-                                return Err(DiskImageError::MultiDiskError(
-                                    "No disk selection provided.".to_string(),
-                                ));
-                            }
-                        }
-                    };
-
-                    if let Some(disk) = disk_opt {
-                        // Create an empty image. We will loop through all the files in the set and
-                        // append tracks to them as we go.
-                        let mut image = DiskImage::default();
-                        image.descriptor.geometry = disk.geometry;
-
-                        if let Some(ref callback_fn) = callback {
-                            // Let caller know to show a progress bar
-                            callback_fn(LoadingStatus::ProgressSupport);
-                        }
-
-                        for (fi, file_path) in disk.file_set.iter().enumerate() {
-                            let mut file_vec = extract_file(image_io, &file_path.clone())?;
-                            let mut cursor = Cursor::new(&mut file_vec);
-                            log::debug!("load(): Loading Kryoflux stream file from zip: {:?}", file_path);
-
-                            // We won't give the callback to the kryoflux loader - instead we will call it here ourselves
-                            // updating percentage complete as a fraction of files loaded.
-                            match KfxFormat::load_image(&mut cursor, &mut image, None) {
-                                Ok(_) => {}
-                                Err(e) => {
-                                    // It's okay to fail if we have already added the standard number of tracks to an image.
-                                    log::error!("load(): Error loading Kryoflux stream file: {:?}", e);
-                                    //return Err(e);
-                                    break;
-                                }
-                            }
-
-                            if let Some(ref callback_fn) = callback {
-                                let completion = (fi + 1) as f64 / disk.file_set.len() as f64;
-                                callback_fn(LoadingStatus::Progress(completion));
-                            }
-                        }
-
-                        if let Some(callback_fn) = callback {
-                            callback_fn(LoadingStatus::Complete);
-                        }
-
-                        image.post_load_process();
-                        Ok(image)
-                    }
-                    else {
-                        log::error!(
-                            "Disk selection {} not found in Kryoflux set.",
-                            disk_selection.clone().unwrap()
-                        );
-                        Err(DiskImageError::MultiDiskError(format!(
-                            "Disk selection {} not found in set.",
-                            disk_selection.unwrap()
-                        )))
-                    }
-                }
-                #[cfg(not(feature = "zip"))]
-                {
-                    Err(DiskImageError::UnknownFormat)
-                }
+            DiskImageContainer::FileSet(_format, _files, _src_file) => {
+                // Eventually this should replace KryofluxSet, but just stub it for now.
+                Err(DiskImageError::UnsupportedFormat)
             }
             DiskImageContainer::KryofluxSet => {
                 if let Some(image_path) = image_path {
@@ -375,6 +407,9 @@ impl DiskImage {
                     // Set the geometry of the disk image to the geometry of the Kryoflux set.
                     image.descriptor.geometry = set_ch;
 
+                    // Enable source map.
+                    image.assign_source_map(true);
+
                     for (fi, file_path) in file_set.iter().enumerate() {
                         // Reading the entire file in one go and wrapping in a cursor is much faster
                         // than a BufReader.
@@ -383,9 +418,16 @@ impl DiskImage {
 
                         log::debug!("load(): Loading Kryoflux stream file: {:?}", file_path);
 
+                        // Add a child node to the source map for each file in the set.
+                        image.source_map_mut().add_child(
+                            0,
+                            &*file_path.file_name().unwrap_or_default().to_string_lossy(),
+                            SourceValue::default(),
+                        );
+
                         // We won't give the callback to the kryoflux loader - instead we will call it here ourselves
                         // updating percentage complete as a fraction of files loaded.
-                        match KfxFormat::load_image(&mut cursor, &mut image, None) {
+                        match KfxFormat::load_image(&mut cursor, &mut image, &ParserReadOptions::default(), None) {
                             Ok(_) => {}
                             Err(e) => {
                                 // It's okay to fail if we have already added the standard number of tracks to an image.
@@ -421,33 +463,41 @@ impl DiskImage {
     #[cfg(feature = "async")]
     pub async fn load_async<RS: ReadSeek>(
         image_io: &mut RS,
-        image_path: Option<PathBuf>,
+        image_path: Option<&Path>,
         disk_selection: Option<DiskSelection>,
         callback: Option<LoadingCallback>,
     ) -> Result<Self, DiskImageError> {
-        let container = DiskImage::detect_format(image_io)?;
+        let container = DiskImage::detect_format(image_io, image_path)?;
 
         match container {
-            DiskImageContainer::Raw(format) => {
+            DiskImageContainer::File(format, _) => {
                 let mut image = DiskImage::default();
-                format.load_image(image_io, &mut image, callback)?;
+                format.load_image(image_io, &mut image, &ParserReadOptions::default(), callback)?;
                 image.post_load_process();
                 Ok(image)
             }
-            DiskImageContainer::Zip(format) => {
-                #[cfg(feature = "zip")]
-                {
-                    let file_vec = extract_first_file(image_io)?;
-                    let file_cursor = Cursor::new(file_vec);
-                    let mut image = DiskImage::default();
-                    format.load_image(file_cursor, &mut image, callback)?;
-                    image.post_load_process();
-                    Ok(image)
-                }
-                #[cfg(not(feature = "zip"))]
-                {
-                    Err(DiskImageError::UnknownFormat)
-                }
+            DiskImageContainer::ResolvedFile(format, file_vec, _path, _archive_path) => {
+                let mut cursor = Cursor::new(file_vec);
+                let mut image = DiskImage::default();
+                format.load_image(&mut cursor, &mut image, &ParserReadOptions::default(), callback)?;
+                image.post_load_process();
+                Ok(image)
+            }
+            DiskImageContainer::Archive(archive, items, _) => {
+                // We should have received any single-file archives as ResolvedFiles, so this
+                // archive contains multiple files (but wasn't detected as a FileSet).
+                //
+                // This isn't currently supported.
+
+                // let (file_vec, inner_path) = archive.extract_first_file(image_io)?;
+                // let file_cursor = Cursor::new(file_vec);
+                //
+                // // Create a default disk image and attempt to load the image from the archive.
+                // let mut image = DiskImage::default();
+                // format.load_image(file_cursor, &mut image, &ParserReadOptions::default(), callback)?;
+                // image.post_load_process();
+                // Ok(image)
+                Err(DiskImageError::UnknownFormat)
             }
             DiskImageContainer::ZippedKryofluxSet(disks) => {
                 #[cfg(feature = "zip")]
@@ -482,7 +532,7 @@ impl DiskImage {
                         let image_arc = Arc::new(Mutex::new(image));
 
                         for (fi, file_path) in disk.file_set.iter().enumerate() {
-                            let file_vec = extract_file(image_io, &file_path.clone())?;
+                            let file_vec = crate::containers::zip::extract_file(image_io, &file_path.clone())?;
                             let cursor = Cursor::new(file_vec);
                             log::debug!("load(): Loading Kryoflux stream file from zip: {:?}", file_path);
 
@@ -490,7 +540,9 @@ impl DiskImage {
                             // updating percentage complete as a fraction of files loaded.
 
                             let kfx_format = DiskImageFileFormat::KryofluxStream;
-                            kfx_format.load_image_async(cursor, image_arc.clone(), None).await?;
+                            kfx_format
+                                .load_image_async(cursor, image_arc.clone(), &ParserReadOptions::default(), None)
+                                .await?;
                             //KfxFormat::load_image_async(&mut cursor, &mut image, None).await?;
 
                             if let Some(ref callback_fn) = callback {
@@ -529,10 +581,12 @@ impl DiskImage {
                 }
             }
             #[cfg(feature = "wasm")]
+            DiskImageContainer::FileSet(_format, _path, _) => Err(DiskImageError::UnsupportedFormat),
+            #[cfg(feature = "wasm")]
             DiskImageContainer::KryofluxSet => Err(DiskImageError::UnsupportedFormat),
             #[cfg(feature = "tokio-async")]
             DiskImageContainer::KryofluxSet => {
-                if let Some(image_path) = image_path {
+                if let Some(image_path) = _image_path {
                     let (file_set, set_ch) = KfxFormat::expand_kryoflux_set(image_path, None)?;
 
                     log::debug!(
@@ -557,7 +611,7 @@ impl DiskImage {
 
                         // We won't give the callback to the kryoflux loader - instead we will call it here ourselves
                         // updating percentage complete as a fraction of files loaded.
-                        match KfxFormat::load_image(&mut cursor, &mut image, None) {
+                        match KfxFormat::load_image(&mut cursor, &mut image, &ParserReadOptions::default(), None) {
                             Ok(_) => {}
                             Err(e) => {
                                 // It's okay to fail if we have already added the standard number of tracks to an image.
@@ -598,27 +652,32 @@ impl DiskImage {
         self.volume_name.as_deref()
     }
 
-    pub fn get_comment(&self) -> Option<&str> {
+    /// Retrieve any comment that was saved in the source disk image, or subsequently added
+    /// with `set_comment`.
+    pub fn comment(&self) -> Option<&str> {
         self.comment.as_deref()
     }
 
+    /// Set a comment for the disk image. This comment will be saved with the disk image, if the
+    /// output image format supports comments. Note that saving a comment may be a lossy operation
+    /// due to character encoding and length limitations.
     pub fn set_comment(&mut self, comment: String) {
         self.comment = Some(comment);
     }
 
-    pub fn set_data_rate(&mut self, rate: DiskDataRate) {
+    pub fn set_data_rate(&mut self, rate: TrackDataRate) {
         self.descriptor.data_rate = rate;
     }
 
-    pub fn data_rate(&self) -> DiskDataRate {
+    pub fn data_rate(&self) -> TrackDataRate {
         self.descriptor.data_rate
     }
 
-    pub fn set_data_encoding(&mut self, encoding: DiskDataEncoding) {
+    pub fn set_data_encoding(&mut self, encoding: TrackDataEncoding) {
         self.descriptor.data_encoding = encoding;
     }
 
-    pub fn data_encoding(&self) -> DiskDataEncoding {
+    pub fn data_encoding(&self) -> TrackDataEncoding {
         self.descriptor.data_encoding
     }
 
@@ -626,8 +685,8 @@ impl DiskImage {
         self.descriptor = format;
     }
 
-    pub fn image_format(&self) -> DiskDescriptor {
-        self.descriptor
+    pub fn image_format(&self) -> &DiskDescriptor {
+        &self.descriptor
     }
 
     pub fn geometry(&self) -> DiskCh {
@@ -659,34 +718,34 @@ impl DiskImage {
         self.source_format = Some(format);
     }
 
-    /// Return the resolution of the disk image, either ByteStream or BitStream.
+    /// Return the resolution of the disk image, either MetaSector or BitStream.
     pub fn resolution(&self) -> DiskDataResolution {
         self.resolution.unwrap_or(DiskDataResolution::MetaSector)
     }
 
-    /// Adds a new track to the disk image, of FluxStream resolution.
-    /// Data of this resolution is sourced from FluxStream images such as Kryoflux, SCP or MFI.
+    /// Adds a new `FluxStream` resolution track to the disk image.
+    /// Data of this resolution is typically sourced from flux image formats such as Kryoflux, SCP
+    /// or MFI.
     ///
-    /// This function locks the disk image to `FluxStream` resolution and adds a new track with the specified
-    /// data encoding, data rate, geometry, and data clock.
+    /// This function locks the disk image to `FluxStream` resolution.
     ///
     /// # Parameters
-    /// - `track`: A `FluxStreamTrack` the track to add. Unlike adding a bitstream or metasector track,
-    ///            we must construct a FluxStreamTrack first before adding it.
+    /// - `ch`   : a `DiskCh` specifying the physical cylinder and head of the new track.
+    ///            This value must be the next available track in the image.
+    /// - `track`: The `FluxStreamTrack` to add. Unlike adding a BitStream or Metasector
+    ///            resolution track, we must construct a `FluxStreamTrack` first before adding it.
     ///
     /// # Returns
-    /// - `Ok(())` if the track was successfully added.
-    /// - `Err(DiskImageError::SeekError)` if the head value in `ch` is greater than or equal to 2.
+    /// - `Ok(&mut DiskTrack)` if the track was successfully added, providing a reference to the newly added track.
+    /// - `Err(DiskImageError::SeekError)` if the `ch` parameter is out of range or invalid.
     /// - `Err(DiskImageError::ParameterError)` if the length of `data` and `weak` do not match.
-    /// - `Err(DiskImageError::IncompatibleImage)` if the disk image is not compatible with `BitStream` resolution.
+    /// - `Err(DiskImageError::IncompatibleImage)` if the current `DiskImage` is not compatible with `FluxStream` resolution.
     pub fn add_track_fluxstream(
         &mut self,
-        ch: DiskCh,
         mut track: FluxStreamTrack,
-        clock_hint: Option<f64>,
-        rpm_hint: Option<DiskRpm>,
+        params: &FluxStreamTrackParams,
     ) -> Result<&mut DiskTrack, DiskImageError> {
-        let head = ch.h() as usize;
+        let head = params.ch.h() as usize;
         if head >= 2 {
             return Err(DiskImageError::SeekError);
         }
@@ -704,15 +763,17 @@ impl DiskImage {
                         "add_track_fluxstream(): Disk resolution is incompatible with FluxStream: {:?}",
                         self.resolution
                     );
-                    Err(DiskImageError::IncompatibleImage)
+                    Err(DiskImageError::IncompatibleImage(
+                        "Disk resolution is incompatible with FluxStream.".to_string(),
+                    ))
                 }
             }
         }
 
-        track.set_ch(ch);
+        track.set_ch(params.ch);
         track.set_shared(self.shared.clone().expect("Shared context not found."));
         track.synthesize_revolutions(); // Create synthetic revolutions to increase chances of successful decoding.
-        track.decode_revolutions(clock_hint, rpm_hint)?;
+        track.decode_revolutions(params.clock, params.rpm)?;
         track.analyze_revolutions();
 
         log::debug!(
@@ -744,7 +805,7 @@ impl DiskImage {
     /// - `Err(DiskImageError::SeekError)` if the head value in `ch` is greater than or equal to 2.
     /// - `Err(DiskImageError::ParameterError)` if the length of `data` and `weak` do not match.
     /// - `Err(DiskImageError::IncompatibleImage)` if the disk image is not compatible with `BitStream` resolution.
-    pub fn add_track_bitstream(&mut self, params: BitStreamTrackParams) -> Result<&mut DiskTrack, DiskImageError> {
+    pub fn add_track_bitstream(&mut self, params: &BitStreamTrackParams) -> Result<&mut DiskTrack, DiskImageError> {
         if params.ch.h() >= 2 {
             return Err(DiskImageError::SeekError);
         }
@@ -756,7 +817,11 @@ impl DiskImage {
                 log::debug!("add_track_bitstream(): Disk resolution is now: {:?}", self.resolution);
             }
             Some(DiskDataResolution::BitStream) => {}
-            _ => return Err(DiskImageError::IncompatibleImage),
+            _ => {
+                return Err(DiskImageError::IncompatibleImage(
+                    "Disk resolution is incompatible with BitStream.".to_string(),
+                ))
+            }
         }
 
         log::debug!(
@@ -779,7 +844,8 @@ impl DiskImage {
     }
 
     /// Adds a new track to the disk image, of `MetaSector` resolution.
-    /// Data of this resolution is typically sourced from sector-based image formats.
+    /// Data of this resolution is typically sourced from sector-based image formats such as IMG
+    /// or ADF.
     ///
     /// This function locks the disk image to `MetaSector` resolution and adds a new track with the
     /// specified data encoding, data rate, and geometry.
@@ -792,32 +858,32 @@ impl DiskImage {
     /// # Returns
     /// - `Ok(())` if the track was successfully added.
     /// - `Err(DiskImageError::SeekError)` if the head value in `ch` is greater than or equal to 2.
-    /// - `Err(DiskImageError::IncompatibleImage)` if the disk image is not compatible with `ByteStream` resolution.
-    pub fn add_track_metasector(
-        &mut self,
-        encoding: DiskDataEncoding,
-        data_rate: DiskDataRate,
-        ch: DiskCh,
-    ) -> Result<&mut DiskTrack, DiskImageError> {
-        if ch.h() >= 2 {
+    /// - `Err(DiskImageError::IncompatibleImage)` if the disk image is not compatible with `MetaSector` resolution.
+    pub fn add_track_metasector(&mut self, params: &MetaSectorTrackParams) -> Result<&mut DiskTrack, DiskImageError> {
+        if params.ch.h() >= 2 {
             return Err(DiskImageError::SeekError);
         }
 
-        // Lock the disk image to ByteStream resolution.
+        // Lock the disk image to MetaSector resolution.
         match self.resolution {
             None => self.resolution = Some(DiskDataResolution::MetaSector),
             Some(DiskDataResolution::MetaSector) => {}
-            _ => return Err(DiskImageError::IncompatibleImage),
+            _ => {
+                return Err(DiskImageError::IncompatibleImage(
+                    "Disk resolution is incompatible with MetaSector.".to_string(),
+                ))
+            }
         }
 
         self.track_pool.push(Box::new(MetaSectorTrack {
-            ch,
-            encoding,
-            data_rate,
+            ch: params.ch,
+            encoding: params.encoding,
+            schema: Some(TrackSchema::System34),
+            data_rate: params.data_rate,
             sectors: Vec::new(),
             shared: self.shared.clone().expect("Shared context not found"),
         }));
-        self.track_map[ch.h() as usize].push(self.track_pool.len() - 1);
+        self.track_map[params.ch.h() as usize].push(self.track_pool.len() - 1);
 
         // Consider adding a track to an image to be a single 'write' operation.
         self.incr_writes();
@@ -848,7 +914,7 @@ impl DiskImage {
     /// Read the sector data from the sector at the physical location 'phys_ch' with the sector ID
     /// values specified by 'id_chs'.
     /// The data is returned within a ReadSectorResult struct which also sets some convenience
-    /// metadata flags which are needed when handling ByteStream images.
+    /// metadata flags which are needed when handling MetaSector images.
     /// When reading a BitStream image, the sector data includes the address mark and crc.
     /// Offsets are provided within ReadSectorResult so these can be skipped when processing the
     /// read operation.
@@ -858,7 +924,7 @@ impl DiskImage {
         id: DiskChsnQuery,
         n: Option<u8>,
         offset: Option<usize>,
-        scope: RwSectorScope,
+        scope: RwScope,
         debug: bool,
     ) -> Result<ReadSectorResult, DiskImageError> {
         // Check that the head and cylinder are within the bounds of the track map.
@@ -886,12 +952,12 @@ impl DiskImage {
         }
         let ti = self.track_map[phys_ch.h() as usize][phys_ch.c() as usize];
         let track = &self.track_pool[ti];
-        let rsr = track.read_sector(id, id.n(), offset, RwSectorScope::DataOnly, false)?;
+        let rsr = track.read_sector(id, id.n(), offset, RwScope::DataOnly, false)?;
 
         if rsr.not_found || rsr.address_crc_error || rsr.no_dam {
             return Err(DiskImageError::IdError);
         }
-        Ok(rsr.read_buf)
+        Ok(rsr.read_buf[rsr.data_range].to_vec())
     }
 
     pub fn write_sector(
@@ -900,7 +966,7 @@ impl DiskImage {
         id: DiskChsnQuery,
         offset: Option<usize>,
         data: &[u8],
-        scope: RwSectorScope,
+        scope: RwScope,
         deleted: bool,
         debug: bool,
     ) -> Result<WriteSectorResult, DiskImageError> {
@@ -921,12 +987,17 @@ impl DiskImage {
         data: &[u8],
     ) -> Result<(), DiskImageError> {
         if phys_ch.h() > 1 || phys_ch.c() as usize >= self.track_map[phys_ch.h() as usize].len() {
+            log::debug!(
+                "write_sector_basic(): Seek error: track map for head {} has {} tracks",
+                phys_ch.h(),
+                self.track_map[phys_ch.h() as usize].len()
+            );
             return Err(DiskImageError::SeekError);
         }
 
         let ti = self.track_map[phys_ch.h() as usize][phys_ch.c() as usize];
         let track = &mut self.track_pool[ti];
-        let wsr = track.write_sector(id, offset, data, RwSectorScope::DataOnly, false, false)?;
+        let wsr = track.write_sector(id, offset, data, RwScope::DataOnly, false, false)?;
 
         if wsr.not_found || wsr.address_crc_error || wsr.no_dam {
             return Err(DiskImageError::IdError);
@@ -936,7 +1007,7 @@ impl DiskImage {
 
     /// Read all sectors from the track identified by 'ch'. The data is returned within a
     /// ReadSectorResult struct which also sets some convenience metadata flags which are needed
-    /// when handling ByteStream images.
+    /// when handling MetaSector images.
     /// Unlike read_sector(), the data returned is only the actual sector data. The address marks and
     /// CRCs are not included in the data.
     /// This function is intended for use in implementing the Read Track FDC command.
@@ -974,7 +1045,7 @@ impl DiskImage {
         let ti = self.track_map[ch.h() as usize][ch.c() as usize];
         let track = &mut self.track_pool[ti];
 
-        track.read_track(overdump)
+        track.read(overdump)
     }
 
     /// Read the track specified by `ch`, without decoding. The data is returned within a
@@ -993,15 +1064,16 @@ impl DiskImage {
         let ti = self.track_map[ch.h() as usize][ch.c() as usize];
         let track = &mut self.track_pool[ti];
 
-        track.read_track_raw(overdump)
+        track.read_raw(overdump)
     }
 
     pub fn add_empty_track(
         &mut self,
         ch: DiskCh,
-        encoding: DiskDataEncoding,
-        data_rate: DiskDataRate,
+        encoding: TrackDataEncoding,
+        data_rate: TrackDataRate,
         bitcells: usize,
+        start_clock: Option<bool>,
     ) -> Result<usize, DiskImageError> {
         if ch.h() >= 2 {
             return Err(DiskImageError::SeekError);
@@ -1016,24 +1088,40 @@ impl DiskImage {
                     return Err(DiskImageError::ParameterError);
                 }
 
-                let stream: TrackDataStream = match encoding {
-                    DiskDataEncoding::Mfm => {
-                        Box::new(MfmCodec::new(BitVec::from_fn(bitcells, |i| i % 2 == 0), None, None))
+                let stream: Box<dyn TrackCodec> = if let Some(start_clock) = start_clock {
+                    match encoding {
+                        TrackDataEncoding::Mfm => Box::new(MfmCodec::new(
+                            BitVec::from_fn(bitcells, |i| i % 2 == start_clock as usize),
+                            None,
+                            None,
+                        )),
+                        TrackDataEncoding::Fm => Box::new(FmCodec::new(
+                            BitVec::from_fn(bitcells, |i| i % 2 == start_clock as usize),
+                            None,
+                            None,
+                        )),
+                        _ => return Err(DiskImageError::UnsupportedFormat),
                     }
-                    DiskDataEncoding::Fm => {
-                        Box::new(FmCodec::new(BitVec::from_fn(bitcells, |i| i % 2 == 0), None, None))
+                }
+                else {
+                    match encoding {
+                        TrackDataEncoding::Mfm => {
+                            Box::new(MfmCodec::new(BitVec::from_elem(bitcells, false), None, None))
+                        }
+                        TrackDataEncoding::Fm => Box::new(FmCodec::new(BitVec::from_elem(bitcells, false), None, None)),
+                        _ => return Err(DiskImageError::UnsupportedFormat),
                     }
-                    _ => return Err(DiskImageError::UnsupportedFormat),
                 };
 
+                // TODO: Add an empty track with a schema of None and set it on format
                 self.track_pool.push(Box::new(BitStreamTrack {
                     encoding,
                     data_rate,
                     rpm: self.descriptor.rpm,
                     ch,
                     data: stream,
-                    metadata: DiskStructureMetadata::default(),
-                    sector_ids: Vec::new(),
+                    metadata: TrackMetadata::default(),
+                    schema: Some(TrackSchema::System34),
                     shared: Some(self.shared.clone().expect("Shared context not found")),
                 }));
 
@@ -1048,6 +1136,7 @@ impl DiskImage {
 
                 self.track_pool.push(Box::new(MetaSectorTrack {
                     encoding,
+                    schema: Some(TrackSchema::System34),
                     data_rate,
                     ch,
                     sectors: Vec::new(),
@@ -1062,7 +1151,9 @@ impl DiskImage {
                     "add_empty_track(): Disk image resolution not set: {:?}",
                     self.resolution
                 );
-                return Err(DiskImageError::IncompatibleImage);
+                return Err(DiskImageError::IncompatibleImage(
+                    "Disk image resolution not set".to_string(),
+                ));
             }
         }
 
@@ -1088,23 +1179,25 @@ impl DiskImage {
 
         // Formatting can change disk layout. Update image consistency to ensure export support
         // is accurate.
-        self.update_consistency();
+        self.analyze();
         Ok(())
     }
 
-    /// Reset an image to an empty state.
+    /// Reset an image to an empty state, but retain the disk format and descriptor.
     pub fn reset_image(&mut self) {
         self.track_pool.clear();
         self.track_map = [Vec::new(), Vec::new()];
 
-        *self = DiskImage {
-            flags: DiskImageFlags::empty(),
-            standard_format: self.standard_format,
-            descriptor: self.descriptor,
-            source_format: self.source_format,
-            resolution: self.resolution,
-            ..Default::default()
-        }
+        let standard_format = self.standard_format;
+        let descriptor = self.descriptor.clone();
+        let source_format = self.source_format;
+        let resolution = self.resolution;
+
+        *self = DiskImage::default();
+        self.descriptor = descriptor;
+        self.standard_format = standard_format;
+        self.source_format = source_format;
+        self.resolution = resolution;
     }
 
     pub fn format(
@@ -1113,7 +1206,7 @@ impl DiskImage {
         boot_sector: Option<&[u8]>,
         creator: Option<&[u8; 8]>,
     ) -> Result<(), DiskImageError> {
-        let chsn = format.chsn();
+        let layout = format.layout();
         let encoding = format.encoding();
         let data_rate = format.data_rate();
         let bitcell_size = format.bitcell_ct();
@@ -1135,23 +1228,23 @@ impl DiskImage {
         }
 
         // Repopulate the image with empty tracks.
-        for head in 0..chsn.h() {
-            for cylinder in 0..chsn.c() {
+        for head in 0..layout.h() {
+            for cylinder in 0..layout.c() {
                 let ch = DiskCh::new(cylinder, head);
-                self.add_empty_track(ch, encoding, data_rate, bitcell_size)?;
+                self.add_empty_track(ch, encoding, data_rate, bitcell_size, Some(false))?;
             }
         }
 
         // Format each track with the specified format
-        for head in 0..chsn.h() {
-            for cylinder in 0..chsn.c() {
+        for head in 0..layout.h() {
+            for cylinder in 0..layout.c() {
                 let ch = DiskCh::new(cylinder, head);
 
                 // Build the format buffer we provide to format_track() that specifies the sector
                 // layout parameters.
                 let mut format_buffer = Vec::new();
-                for s in 0..chsn.s() {
-                    format_buffer.push(DiskChsn::new(ch.c(), ch.h(), s + 1, chsn.n()));
+                for s in 0..layout.s() {
+                    format_buffer.push(DiskChsn::new(ch.c(), ch.h(), s + 1, layout.n()));
                 }
 
                 let gap3 = format.gap3();
@@ -1171,24 +1264,18 @@ impl DiskImage {
         let ti = self.track_map[chs.h() as usize][chs.c() as usize];
         let track = &self.track_pool[ti];
 
-        track.get_next_id(chs)
+        track.next_id(chs)
     }
 
     pub(crate) fn read_boot_sector(&mut self) -> Result<Vec<u8>, DiskImageError> {
         if self.track_map.is_empty() || self.track_map[0].is_empty() {
-            return Err(DiskImageError::IncompatibleImage);
+            return Err(DiskImageError::IncompatibleImage("No tracks found.".to_string()));
         }
         let ti = self.track_map[0][0];
         let track = &mut self.track_pool[ti];
 
-        match track.read_sector(
-            DiskChsnQuery::new(0, 0, 1, 2),
-            None,
-            None,
-            RwSectorScope::DataOnly,
-            true,
-        ) {
-            Ok(result) => Ok(result.read_buf),
+        match track.read_sector(DiskChsnQuery::new(0, 0, 1, 2), None, None, RwScope::DataOnly, true) {
+            Ok(result) => Ok(result.read_buf[result.data_range].to_vec()),
             Err(e) => Err(e),
         }
     }
@@ -1199,7 +1286,7 @@ impl DiskImage {
             DiskChsnQuery::new(0, 0, 1, 2),
             None,
             buf,
-            RwSectorScope::DataOnly,
+            RwScope::DataOnly,
             false,
             false,
         )?;
@@ -1241,8 +1328,8 @@ impl DiskImage {
         // Normalize the disk image
         self.normalize();
 
-        // Determine disk consistency
-        self.update_consistency();
+        // Set the DiskAnalysis
+        self.analyze();
 
         // Examine the boot sector if present. Use this to determine if this image is a standard
         // format disk image (but do not rely on this as the sole method of determining the disk
@@ -1291,10 +1378,10 @@ impl DiskImage {
         let mut removed_odd = false;
 
         fn normalize_cylinders(c: usize) -> usize {
-            if c > 80 {
+            if c > 79 {
                 80
             }
-            else if c > 40 {
+            else if c > 39 {
                 40
             }
             else {
@@ -1341,23 +1428,22 @@ impl DiskImage {
         }
     }
 
-    /// Update a DiskImage's DiskConsistency struct to reflect the current state of the image.
+    /// Update a [DiskImage]'s [DiskAnalysis] struct to reflect the current state of the image.
     /// This function should be called after any changes to a track.
-    /// update_consistency takes a list of track indices that have been modified.
-    pub(crate) fn update_consistency(&mut self) {
+    pub(crate) fn analyze(&mut self) {
         let mut spt: FoxHashSet<usize> = FoxHashSet::new();
 
-        let mut all_consistency: TrackConsistency = Default::default();
+        let mut all_consistency: TrackAnalysis = Default::default();
         let mut variable_sector_size = false;
 
         let mut consistent_size_map: FoxHashSet<u8> = FoxHashSet::new();
 
         let mut last_track_sector_size = 0;
 
-        log::debug!("update_consistency(): Running consistency check...");
+        log::debug!("analyze(): Running consistency check...");
         for track_idx in self.track_idx_iter() {
             let td = &self.track_pool[track_idx];
-            match td.track_consistency() {
+            match td.analysis() {
                 Ok(track_consistency) => {
                     match track_consistency.consistent_sector_size {
                         None => {
@@ -1379,15 +1465,15 @@ impl DiskImage {
                     }
                 }
                 Err(_) => {
-                    log::warn!("update_consistency(): Track {} has no consistency data.", track_idx);
+                    log::warn!("analyze(): Track {} has no analysis data.", track_idx);
                     continue;
                 }
             };
         }
 
-        self.consistency.set_track_consistency(&all_consistency);
+        self.analysis.set_track_analysis(&all_consistency);
         if consistent_size_map.len() > 1 {
-            self.consistency.consistent_sector_size = None;
+            self.analysis.consistent_sector_size = None;
         }
 
         if spt.len() > 1 {
@@ -1395,37 +1481,37 @@ impl DiskImage {
                 "update_consistency(): Inconsistent sector counts detected in tracks: {:?}",
                 spt
             );
-            self.consistency.consistent_track_length = None;
+            self.analysis.consistent_track_length = None;
         }
         else {
-            self.consistency.consistent_track_length = Some(all_consistency.sector_ct as u32);
+            self.analysis.consistent_track_length = Some(all_consistency.sector_ct as u32);
         }
 
         if variable_sector_size {
             log::debug!("update_consistency(): Variable sector sizes detected in tracks.");
-            self.consistency.consistent_sector_size = None;
+            self.analysis.consistent_sector_size = None;
         }
         else {
-            self.consistency.consistent_sector_size = Some(last_track_sector_size);
+            self.analysis.consistent_sector_size = Some(last_track_sector_size);
         }
 
-        let mut new_caps = self.consistency.image_caps;
+        let mut new_caps = self.analysis.image_caps;
 
         new_caps.set(
             FormatCaps::CAP_VARIABLE_SPT,
-            self.consistency.consistent_track_length.is_none(),
+            self.analysis.consistent_track_length.is_none(),
         );
         new_caps.set(
             FormatCaps::CAP_VARIABLE_SSPT,
-            self.consistency.consistent_sector_size.is_none(),
+            self.analysis.consistent_sector_size.is_none(),
         );
-        new_caps.set(FormatCaps::CAP_DATA_CRC, self.consistency.bad_data_crc);
-        new_caps.set(FormatCaps::CAP_ADDRESS_CRC, self.consistency.bad_address_crc);
-        new_caps.set(FormatCaps::CAP_DATA_DELETED, self.consistency.deleted_data);
-        new_caps.set(FormatCaps::CAP_NO_DAM, self.consistency.no_dam);
+        new_caps.set(FormatCaps::CAP_DATA_CRC, self.analysis.data_error);
+        new_caps.set(FormatCaps::CAP_ADDRESS_CRC, self.analysis.address_error);
+        new_caps.set(FormatCaps::CAP_DATA_DELETED, self.analysis.deleted_data);
+        new_caps.set(FormatCaps::CAP_NO_DAM, self.analysis.no_dam);
 
         log::debug!("update_consistency(): Image capabilities: {:?}", new_caps);
-        self.consistency.image_caps = new_caps;
+        self.analysis.image_caps = new_caps;
     }
 
     /// Some formats may encode a 40-track image as an 80-track image with each track duplicated.
@@ -1622,43 +1708,43 @@ impl DiskImage {
         Ok(())
     }
 
-    pub fn dump_consistency<W: crate::io::Write>(&mut self, mut out: W) -> Result<(), crate::io::Error> {
-        if self.consistency.bad_data_crc {
+    pub fn dump_analysis<W: crate::io::Write>(&mut self, mut out: W) -> Result<(), crate::io::Error> {
+        if self.analysis.data_error {
             out.write_fmt(format_args!("Disk contains sectors with bad data CRCs\n"))?;
         }
         else {
             out.write_fmt(format_args!("No sectors on disk have bad data CRCs\n"))?;
         }
 
-        if self.consistency.bad_address_crc {
+        if self.analysis.address_error {
             out.write_fmt(format_args!("Disk contains sectors with bad address CRCs\n"))?;
         }
         else {
             out.write_fmt(format_args!("No sectors on disk have bad address CRCs\n"))?;
         }
 
-        if self.consistency.deleted_data {
+        if self.analysis.deleted_data {
             out.write_fmt(format_args!("Disk contains sectors marked as deleted\n"))?;
         }
         else {
             out.write_fmt(format_args!("No sectors on disk are marked as deleted\n"))?;
         }
 
-        if self.consistency.overlapped {
+        if self.analysis.overlapped {
             out.write_fmt(format_args!("Disk contains sectors with overlapping data\n"))?;
         }
         else {
             out.write_fmt(format_args!("No sectors on disk have overlapping data\n"))?;
         }
 
-        if self.consistency.weak {
+        if self.analysis.weak {
             out.write_fmt(format_args!("Disk contains tracks with weak bits\n"))?;
         }
         else {
             out.write_fmt(format_args!("No tracks on disk have weak bits\n"))?;
         }
 
-        match self.consistency.consistent_track_length {
+        match self.analysis.consistent_track_length {
             Some(sector_ct) => {
                 out.write_fmt(format_args!("All tracks on disk have {} sectors\n", sector_ct))?;
             }
@@ -1667,7 +1753,7 @@ impl DiskImage {
             }
         }
 
-        match self.consistency.consistent_sector_size {
+        match self.analysis.consistent_sector_size {
             Some(sector_size) => {
                 out.write_fmt(format_args!(
                     "All sectors on disk have a consistent size of {}\n",
@@ -1682,7 +1768,7 @@ impl DiskImage {
         Ok(())
     }
 
-    pub fn get_sector_map(&self) -> Vec<Vec<Vec<SectorMapEntry>>> {
+    pub fn sector_map(&self) -> Vec<Vec<Vec<SectorMapEntry>>> {
         let mut head_map = Vec::new();
 
         let geom = self.geometry();
@@ -1704,7 +1790,7 @@ impl DiskImage {
 
     pub fn find_duplication_mark(&self) -> Option<(DiskCh, DiskChsn)> {
         for track in self.track_iter() {
-            if let DiskDataEncoding::Fm = track.encoding() {
+            if let TrackDataEncoding::Fm = track.encoding() {
                 //log::debug!("find_duplication_mark(): Found FM track at {}", track.ch());
                 if let Some(sector) = track.sector_list().iter().take(1).next() {
                     log::debug!(
@@ -1721,7 +1807,7 @@ impl DiskImage {
     }
 
     pub fn dump_sector_map<W: crate::io::Write>(&self, mut out: W) -> Result<(), crate::io::Error> {
-        let head_map = self.get_sector_map();
+        let head_map = self.sector_map();
 
         for (head_idx, head) in head_map.iter().enumerate() {
             out.write_fmt(format_args!("Head {}\n", head_idx))?;
@@ -1731,8 +1817,8 @@ impl DiskImage {
                     out.write_fmt(format_args!(
                         "\t\t{} address_crc_valid: {} data_crc_valid: {} deleted: {}\n",
                         sector.chsn,
-                        sector.attributes.address_crc_valid,
-                        sector.attributes.data_crc_valid,
+                        !sector.attributes.address_error,
+                        !sector.attributes.data_error,
                         sector.attributes.no_dam
                     ))?;
                 }
@@ -1748,19 +1834,19 @@ impl DiskImage {
         id: DiskChsnQuery,
         n: Option<u8>,
         offset: Option<usize>,
-        scope: RwSectorScope,
+        scope: RwScope,
         bytes_per_row: usize,
         mut out: W,
     ) -> Result<(), DiskImageError> {
         let rsr = self.read_sector(phys_ch, id, n, offset, scope, true)?;
 
         let data_slice = match scope {
-            RwSectorScope::DataOnly => &rsr.read_buf[rsr.data_idx..rsr.data_idx + rsr.data_len],
-            RwSectorScope::DataElement => &rsr.read_buf,
+            RwScope::DataOnly => &rsr.read_buf[rsr.data_range],
+            RwScope::EntireElement => &rsr.read_buf,
             _ => return Err(DiskImageError::ParameterError),
         };
 
-        util::dump_slice(data_slice, 0, bytes_per_row, &mut out)
+        util::dump_slice(data_slice, 0, bytes_per_row, 1, &mut out)
     }
 
     pub fn dump_sector_string(
@@ -1770,7 +1856,7 @@ impl DiskImage {
         n: Option<u8>,
         offset: Option<usize>,
     ) -> Result<String, DiskImageError> {
-        let rsr = self.read_sector(phys_ch, id, n, offset, RwSectorScope::DataOnly, true)?;
+        let rsr = self.read_sector(phys_ch, id, n, offset, RwScope::DataOnly, true)?;
 
         Ok(util::dump_string(&rsr.read_buf))
     }
@@ -1794,7 +1880,7 @@ impl DiskImage {
     /// Arguments:
     /// - `writable`: If true, only return formats that are writable.
     pub fn compatible_formats(&self, writable: bool) -> Vec<(DiskImageFileFormat, Vec<String>)> {
-        let mut formats = formats_from_caps(self.consistency.image_caps);
+        let mut formats = formats_from_caps(self.analysis.image_caps);
 
         // Filter only writable formats if filtering is requested.
         if writable {
@@ -1812,8 +1898,8 @@ impl DiskImage {
         formats
     }
 
-    /// Attempt to determine the StandardFormat that most closely conforms to the disk image.
-    /// This function is used for exporting to IMG and for constructing a StandardSectorView.
+    /// Attempt to determine the [StandardFormat] that most closely conforms to the disk image.
+    /// This function is used for exporting to IMG and for constructing a [StandardSectorView].
     ///
     /// The guess is based off the following criteria:
     /// - The number of heads in the disk image
@@ -1850,7 +1936,7 @@ impl DiskImage {
         let mut consistency_format = None;
 
         // Check if the disk image is consistent enough to determine a format.
-        if let Some(spt) = self.consistency.consistent_track_length {
+        if let Some(spt) = self.analysis.consistent_track_length {
             if let Some(cylinders) = StandardFormat::normalized_track_ct(self.track_ct(0)) {
                 // Construct a DiskChs from the consistent parameters.
                 let chs = DiskChs::new(cylinders as u16, self.heads(), spt as u8);
@@ -1906,5 +1992,42 @@ impl DiskImage {
     /// Consume the `DiskImage` and return an `Arc<Mutex<DiskImage>>`.
     pub fn into_arc(self) -> Arc<RwLock<Self>> {
         Arc::new(RwLock::new(self))
+    }
+
+    /// A file parser can use this function to receive a source map reference to use when building
+    /// a disk image. If `null` is set to true, a dummy source map will be returned. This stub
+    /// implementation will ignore data written, to reduce conditional logic.
+    ///
+    /// If an existing source map is present, it will be dropped!
+    pub(crate) fn assign_source_map(&mut self, state: bool) -> &mut Option<Box<dyn OptionalSourceMap>> {
+        if state {
+            // Create a real source map
+            let map_box: Box<dyn OptionalSourceMap> = Box::new(SourceMap::new());
+            //self.source_map = Some(Arc::new(Mutex::new(map_box)));
+            self.source_map = Some(map_box);
+        }
+        else {
+            // Create a null source map
+            let map_box: Box<dyn OptionalSourceMap> = Box::new(NullSourceMap::new());
+            //self.source_map = Some(Arc::new(Mutex::new(map_box)));
+            self.source_map = Some(map_box);
+        }
+        &mut self.source_map
+    }
+
+    pub fn source_map(&self) -> &Box<dyn OptionalSourceMap> {
+        self.source_map.as_ref().unwrap()
+    }
+
+    pub fn source_map_mut(&mut self) -> &mut Box<dyn OptionalSourceMap> {
+        self.source_map.as_mut().unwrap()
+    }
+
+    pub(crate) fn take_source_map(&mut self) -> Option<Box<dyn OptionalSourceMap>> {
+        self.source_map.take()
+    }
+
+    pub(crate) fn put_source_map(&mut self, source_map: Box<dyn OptionalSourceMap>) {
+        self.source_map = Some(source_map);
     }
 }

@@ -28,6 +28,7 @@
 pub mod chs;
 pub mod enums;
 pub mod flags;
+pub mod sector_layout;
 pub mod standard_format;
 pub mod structs;
 

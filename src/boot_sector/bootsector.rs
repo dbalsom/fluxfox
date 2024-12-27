@@ -23,11 +23,6 @@
     DEALINGS IN THE SOFTWARE.
 
     --------------------------------------------------------------------------
-
-    src/boot_sector/bootsector.rs
-
-    Routines for reading and modifying boot sector data
-
 */
 
 use crate::{
@@ -75,6 +70,10 @@ impl BootSignature {
     }
 }
 
+/// A struct representing a DOS boot sector.
+/// [BootSector] is designed to be created from byte data instead of directly from a [DiskImage].
+/// This allows flexibility in creating and interpreting a boot sector from other sources, such
+/// as in external .bin file.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct BootSector {
     pub(crate) bpb2: BiosParameterBlock2,
@@ -145,7 +144,9 @@ impl BootSector {
 
         if creator_string.bytes != "fluxfox ".as_bytes() {
             // We can only set the creator if we're using the included boot sector, otherwise we'd overwrite some random data.
-            return Err(DiskImageError::IncompatibleImage);
+            return Err(DiskImageError::IncompatibleImage(
+                "Creator string requires using default bootsector".to_string(),
+            ));
         }
 
         cursor.seek(SeekFrom::Start(creator_offset))?;
@@ -168,8 +169,8 @@ impl BootSector {
     }
 
     pub(crate) fn update_bpb_from_format(&mut self, format: StandardFormat) -> Result<(), DiskImageError> {
-        self.bpb2 = BiosParameterBlock2::from(format);
-        self.bpb3 = BiosParameterBlock3::from(format);
+        self.bpb2 = BiosParameterBlock2::try_from(format)?;
+        self.bpb3 = BiosParameterBlock3::try_from(format)?;
 
         // Update the internal buffer.
         let mut cursor = Cursor::new(&mut self.sector_buf);

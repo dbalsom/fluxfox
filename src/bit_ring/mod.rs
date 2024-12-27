@@ -23,23 +23,24 @@
     DEALINGS IN THE SOFTWARE.
 
     --------------------------------------------------------------------------
-
-    src/bit_ring/mod.rs
-
-    Implements a ring buffer for bits based off a BitVec.
-
-    A BitRing allows an overrideable length at which to wrap around, to support
-    adjustable track wrapping strategies.
 */
+
+//! A [BitRing] is a binary ring buffer, which can be indexed and iterated over
+//! infinitely. It is intended to represent the bitstream of a disk track, which
+//! is a continuous topological ring. Disk read operations can often wrap around
+//! from the end of the track to the beginning, so [BitRing] is designed to
+//! emulate this behavior.
 
 use crate::io::{self, Read};
 use bit_vec::BitVec;
 use std::ops::Index;
 
+/// A [BitRingIter] may be used to iterate over the bits of a [BitRing], producing
+/// a sequence of `bool` values.
 pub struct BitRingIter<'a> {
-    ring: &'a BitRing,
+    ring:   &'a BitRing,
     cursor: usize,
-    limit: Option<usize>, // Optional limit for one revolution
+    limit:  Option<usize>, // Optional limit for one revolution
 }
 
 impl Iterator for BitRingIter<'_> {
@@ -57,7 +58,20 @@ impl Iterator for BitRingIter<'_> {
         Some(bit)
     }
 }
-
+/// A [BitRing] is a binary ring buffer, which can be indexed and iterated over
+/// infinitely. It is intended to represent the bitstream of a disk track, which
+/// is a continuous topological ring. Disk read operations can often wrap around
+/// from the end of the track to the beginning, and a [BitRing] can represent this
+/// behavior.
+///
+/// [BitRing] is implemented as a wrapper around a [BitVec] from the bit_vec crate
+/// (not to be confused with the bitvec crate).
+///
+/// A [BitRing] allows an overrideable length at which to wrap around, to support
+/// adjustable track wrapping strategies. It may also be configured to return a
+/// specific value when indexed beyond the wrap point - this is useful to ignore
+/// any clock bits that may only be valid within the first revolution.
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct BitRing {
     bits: BitVec,
@@ -66,6 +80,7 @@ pub struct BitRing {
     wrap_value: Option<bool>,
 }
 
+/// Produce a [BitRing] from a [BitVec].
 impl From<BitVec> for BitRing {
     fn from(bits: BitVec) -> BitRing {
         let wrap = bits.len();
@@ -78,6 +93,7 @@ impl From<BitVec> for BitRing {
     }
 }
 
+/// Produce a [BitRing] from a byte slice.
 impl From<&[u8]> for BitRing {
     fn from(bytes: &[u8]) -> BitRing {
         let bits = BitVec::from_bytes(bytes);
@@ -93,26 +109,32 @@ impl From<&[u8]> for BitRing {
 
 #[allow(dead_code)]
 impl BitRing {
+    /// Return an infinite iterator ([BitRingIter]) over the bits of the [BitRing], starting at
+    /// the beginning of the track.
     pub fn iter(&self) -> BitRingIter {
         BitRingIter {
-            ring: self,
+            ring:   self,
             cursor: 0,
-            limit: None,
+            limit:  None,
         }
     }
 
+    /// Return a single-revolution iterator ([BitRingIter]) over the bits of the [BitRing], starting
+    /// at the beginning of the track and ending at the wrap point.
     pub fn iter_revolution(&self) -> BitRingIter {
         BitRingIter {
-            ring: self,
+            ring:   self,
             cursor: 0,
-            limit: Some(self.wrap),
+            limit:  Some(self.wrap),
         }
     }
 
+    /// Create a new [BitRing] from a byte slice.
     pub fn from_bytes(bytes: &[u8]) -> BitRing {
         BitRing::from(bytes)
     }
 
+    /// Create a new [BitRing] with the specified length, containing the specified element.
     pub fn from_elem(len: usize, elem: bool) -> BitRing {
         BitRing {
             bits: BitVec::from_elem(len, elem),
@@ -122,21 +144,25 @@ impl BitRing {
         }
     }
 
+    /// Return the length of the [BitRing] in bits.
     #[inline]
     pub fn len(&self) -> usize {
         self.bits.len()
     }
 
+    /// Return a bool indicating if the [BitRing] is empty.
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.bits.is_empty()
     }
 
+    /// Return the wrapping point of the [BitRing].
     #[inline]
     pub fn wrap_len(&self) -> usize {
         self.wrap
     }
 
+    /// Return a reference to the underlying [BitVec] representation.
     #[inline]
     pub fn bits(&self) -> &BitVec {
         &self.bits
@@ -147,28 +173,32 @@ impl BitRing {
         &mut self.bits
     }
 
+    /// Return a copy of the [BitRing] data as a byte vector.
+    /// Data beyond the bit length of the [BitRing] is undefined.
     #[inline]
     pub fn to_bytes(&self) -> Vec<u8> {
         self.bits.to_bytes()
     }
 
+    /// Set the bit at `index` to the value of `bit`
     #[inline]
     pub fn set(&mut self, index: usize, bit: bool) {
         if index < self.wrap {
             self.bits.set(index, bit);
-        } else {
+        }
+        else {
             self.bits.set(index % self.wrap, bit);
         }
     }
 
     /// Set the wrapping point of the BitRing.
-    /// `set_wrap` will not allow the length to be set longer than the underlying BitVec.
+    /// `set_wrap` will not allow the length to be set longer than the underlying [BitVec].
     pub fn set_wrap(&mut self, wrap_len: usize) {
         self.wrap = std::cmp::min(wrap_len, self.bits.len());
     }
 
-    /// Set the value to return when the index wraps around. None will return the actual value,
-    /// while Some(bool) will return the specified value.
+    /// Set an override value to return when the index wraps around. `None` will return the actual
+    /// value, while `Some(bool)` will return the specified override value.
     pub fn set_wrap_value(&mut self, wrap_value: impl Into<Option<bool>>) {
         self.wrap_value = wrap_value.into();
     }
@@ -218,7 +248,8 @@ impl Index<usize> for BitRing {
     fn index(&self, index: usize) -> &Self::Output {
         if index < self.wrap {
             &self.bits[index]
-        } else {
+        }
+        else {
             if index == self.wrap {
                 //log::debug!("Index wrapped around at {}", index);
             }

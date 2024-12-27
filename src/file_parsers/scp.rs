@@ -23,37 +23,37 @@
     DEALINGS IN THE SOFTWARE.
 
     --------------------------------------------------------------------------
-
-    src/parsers/scp.rs
-
-    A parser for the SuperCardPro format.
-
-    SCP is a flux stream format originally invented for use by the SuperCardPro
-    hardware.
-
-    SCP images can be produced by a variety of different tools, and usually
-    contain bad metadata fields because these tools do not require them to be
-    set properly on export.
-
-    Fields like disk type and RPM are almost universally unreliable. We attempt
-    to calculate the disk parameters ourselves as a result.
-
 */
+
+//! A parser for the SuperCardPro format (SCP)
+//!
+//! SCP is a flux stream format originally invented for use by the SuperCardPro hardware.
+//!
+//! SCP images can be produced by a variety of different tools, and usually contain bad metadata
+//! fields because these tools do not require the user to specify them before exporting the image.
+//!
+//! Fields like disk type and RPM are almost universally unreliable. We attempt to calculate the
+//! disk parameters ourselves as a result.
+//!
+//! In contrast to Kryoflux streams, SCP images store only complete revolutions, normalized to start
+//! at the track index.
+
 use crate::{
-    file_parsers::{bitstream_flags, FormatCaps},
-    flux::pll::{Pll, PllPreset},
+    file_parsers::{bitstream_flags, FormatCaps, ParserReadOptions, ParserWriteOptions},
     io::{ReadSeek, ReadWriteSeek},
     track::fluxstream::FluxStreamTrack,
-    types::{BitStreamTrackParams, DiskCh, DiskDataEncoding, DiskDataRate, DiskDensity, DiskDescriptor, DiskRpm},
+    types::{DiskCh, DiskDescriptor, DiskRpm, Platform, TrackDataEncoding, TrackDensity},
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,
     LoadingCallback,
     ParserWriteCompatibility,
     StandardFormat,
-    DEFAULT_SECTOR_SIZE,
 };
+
+use crate::types::FluxStreamTrackParams;
 use binrw::{binrw, BinRead, BinReaderExt};
+use strum::IntoEnumIterator;
 
 pub const BASE_CAPTURE_RES: u32 = 25;
 pub const SCP_FLUX_TIME_BASE: u32 = 25;
@@ -106,7 +106,7 @@ pub struct ScpFileHeader {
 #[binrw]
 #[brw(little)]
 pub struct ScpTrackOffsetTable {
-    pub track_offsets: [u32; 168],
+    pub track_offsets: [u32; SCP_TRACK_COUNT],
 }
 
 #[derive(Debug)]
@@ -181,6 +181,11 @@ impl ScpFormat {
         bitstream_flags()
     }
 
+    pub fn platforms() -> Vec<Platform> {
+        // SCP supports just about everything
+        Platform::iter().collect()
+    }
+
     pub fn detect<RWS: ReadSeek>(mut image: RWS) -> bool {
         if image.seek(std::io::SeekFrom::Start(0)).is_err() {
             return false;
@@ -195,13 +200,14 @@ impl ScpFormat {
         header.id == "SCP".as_bytes()
     }
 
-    pub fn can_write(_image: &DiskImage) -> ParserWriteCompatibility {
+    pub fn can_write(_image: Option<&DiskImage>) -> ParserWriteCompatibility {
         ParserWriteCompatibility::UnsupportedFormat
     }
 
     pub(crate) fn load_image<RWS: ReadSeek>(
         mut read_buf: RWS,
         disk_image: &mut DiskImage,
+        _opts: &ParserReadOptions,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFileFormat::SuperCardPro);
@@ -214,7 +220,7 @@ impl ScpFormat {
         if header.id != "SCP".as_bytes() {
             return Err(DiskImageError::UnsupportedFormat);
         }
-        log::debug!("Detected SCP file.");
+        log::trace!("Detected SCP file.");
 
         let (disk_manufacturer, disk_type) = match scp_disk_type(header.disk_type) {
             Some(dt) => {
@@ -223,26 +229,27 @@ impl ScpFormat {
             }
             None => {
                 log::error!("Unknown SCP disk type: {:02X} (*unreliable)", header.disk_type);
-                return Err(DiskImageError::UnsupportedFormat);
+                return Err(DiskImageError::IncompatibleImage(format!(
+                    "Unknown SCP disk type: {:02X} (*unreliable)",
+                    header.disk_type
+                )));
             }
         };
 
-        match disk_type.is_some() {
-            true => {
-                log::debug!(
-                    "Have supported disk type. Manufacturer: {:?} Type: {:?}",
-                    disk_manufacturer,
-                    disk_type
-                );
-            }
-            _ => {
-                log::warn!(
-                    "Unsupported SCP disk type. Manufacturer: {:?} Type: {:1X}",
-                    disk_manufacturer,
-                    header.disk_type & 0x0F
-                );
-                //return Err(DiskImageError::UnsupportedFormat);
-            }
+        if let Some(disk_type) = disk_type {
+            log::debug!(
+                "Have supported disk type. Manufacturer: {:?} Type: {:?}",
+                disk_manufacturer,
+                disk_type
+            );
+        }
+        else {
+            log::warn!(
+                "Unsupported SCP disk type. Manufacturer: {:?} Type: {:1X}",
+                disk_manufacturer,
+                header.disk_type & 0x0F
+            );
+            //return Err(DiskImageError::UnsupportedFormat);
         }
 
         let disk_major_ver;
@@ -250,10 +257,10 @@ impl ScpFormat {
 
         // Handle various flags now.
         if header.flags & SCP_FB_FOOTER != 0 {
-            log::debug!("Extension footer is present.");
+            log::trace!("Extension footer is present.");
         }
         else {
-            log::debug!("Extension footer is NOT present.");
+            log::trace!("Extension footer is NOT present.");
             (disk_major_ver, disk_minor_ver) = scp_parse_version(header.version);
             log::debug!(
                 "SCP version {}.{} ({:02X})",
@@ -275,34 +282,36 @@ impl ScpFormat {
         log::debug!("Disk read-only flag: {}", disk_readonly);
 
         if header.flags & SCP_FB_INDEX != 0 {
-            log::debug!("Tracks aligned at index mark.");
+            log::trace!("Tracks aligned at index mark.");
         }
         else {
-            log::debug!("Tracks not aligned at index mark.");
+            log::trace!("Tracks not aligned at index mark.");
         }
 
         if header.flags & SCP_FB_EXTENDED_MODE != 0 {
             log::error!("Extended mode SCP images not supported.");
-            return Err(DiskImageError::UnsupportedFormat);
+            return Err(DiskImageError::IncompatibleImage(
+                "Extended mode SCP images not supported.".to_string(),
+            ));
         }
 
         let flux_normalized = header.flags & SCP_FB_TYPE != 0;
-        log::debug!("Flux data normalization flag: {}", flux_normalized);
+        log::trace!("Flux data normalization flag: {}", flux_normalized);
 
         if header.flags & SCP_NON_SCP_CAPTURE == 0 {
-            log::debug!("SCP image was created by SuperCardPro device.");
+            log::trace!("SCP image was created by SuperCardPro device.");
         }
         else {
-            log::debug!("SCP image was not created by SuperCardPro device.");
+            log::trace!("SCP image was not created by SuperCardPro device.");
         }
 
-        log::debug!("Disk contains {} revolutions per track.", header.revolutions);
-        log::debug!(
+        log::trace!("Disk contains {} revolutions per track.", header.revolutions);
+        log::trace!(
             "Starting track: {} Ending track: {}",
             header.start_track,
             header.end_track
         );
-        log::debug!(
+        log::trace!(
             "Bit cell width: {}",
             if header.bit_cell_width == 0 {
                 16
@@ -312,8 +321,11 @@ impl ScpFormat {
             }
         );
         if header.bit_cell_width != 0 {
-            log::error!("Non-standard bit cell width not supported.");
-            return Err(DiskImageError::UnsupportedFormat);
+            log::error!("Non-standard bit cell width ({}) not supported.", header.bit_cell_width);
+            return Err(DiskImageError::IncompatibleImage(format!(
+                "Non-standard bit cell width ({}) not supported.",
+                header.bit_cell_width
+            )));
         }
 
         let disk_heads = match header.heads {
@@ -321,11 +333,16 @@ impl ScpFormat {
             1 => 1,
             2 => {
                 log::error!("SCP images with just side 1 are not supported.");
-                return Err(DiskImageError::UnsupportedFormat);
+                return Err(DiskImageError::IncompatibleImage(
+                    "SCP images with just side 1 are not supported.".to_string(),
+                ));
             }
             _ => {
                 log::error!("Unsupported number of disk heads: {}", header.heads);
-                return Err(DiskImageError::UnsupportedFormat);
+                return Err(DiskImageError::IncompatibleImage(format!(
+                    "Unsupported number of disk heads: {}",
+                    header.heads
+                )));
             }
         };
         log::debug!("Image has {} heads.", disk_heads);
@@ -349,14 +366,16 @@ impl ScpFormat {
         let mut track_table_len = SCP_TRACK_COUNT;
         let mut track_offsets: Vec<u32> = Vec::new();
 
-        // Read int the first track offset. Its value establishes a lower bound for the size of the
+        // Read in the first track offset. Its value establishes a lower bound for the size of the
         // track offset table. SCP files SHOULD contain 'SCP_TRACK_COUNT' track offsets, but some
         // are observed to contain fewer.
         let track_offset: u32 = read_buf.read_le()?;
         log::trace!("Track offset table entry {} : {:08X}", 0, track_offset);
         if track_offset < 0x10 {
             log::error!("Invalid track offset table.");
-            return Err(DiskImageError::FormatParseError);
+            return Err(DiskImageError::ImageCorruptError(
+                "Invalid track offset table entry".to_string(),
+            ));
         }
         let max_table_size = (track_offset as usize - 0x10) / 4;
         if max_table_size < track_table_len {
@@ -388,31 +407,37 @@ impl ScpFormat {
             }
             last_offset = track_offset;
         }
-        log::debug!("Got {} track offsets.", track_offsets.len());
+        log::trace!("Got {} track offsets.", track_offsets.len());
 
-        let mut c = 0;
-        let mut h = 0;
+        //let mut c = 0;
+        //let mut h = 0;
+        let mut ch = DiskCh::default();
+        let mut disk_data_rate = None;
 
-        let mut disk_datarate = None;
+        let mut ch_iter = DiskCh::new((SCP_TRACK_COUNT / 2) as u16, disk_heads).iter();
 
-        for (_ti, offset) in track_offsets.iter().enumerate() {
+        for (ti, offset) in track_offsets.iter().enumerate() {
+            ch = ch_iter.next().unwrap();
+
             // Seek to the track header.
             read_buf.seek(std::io::SeekFrom::Start(*offset as u64))?;
 
             // Read the track header.
             let track_header = ScpTrackHeader::read(&mut read_buf)?;
-            log::debug!(
-                "Track number: {} c:{} h:{} offset: {:08X}",
+            log::trace!(
+                "Track index: {} number: {} ch: {} offset: {:08X}",
+                ti,
                 track_header.track_number,
-                c,
-                h,
+                ch,
                 offset,
             );
 
             // Verify header.
             if track_header.id != "TRK".as_bytes() {
                 log::error!("Expected track header signature, got: {:?}", track_header.id);
-                return Err(DiskImageError::UnsupportedFormat);
+                return Err(DiskImageError::ImageCorruptError(
+                    "Invalid track header signature".to_string(),
+                ));
             }
 
             // Read in revolutions.
@@ -422,9 +447,6 @@ impl ScpFormat {
                 revolutions.push(revolution);
             }
 
-            let mut pll = Pll::from_preset(PllPreset::Aggressive);
-            //pll.set_clock(2e-6, None);
-            //let mut flux_track = RawFluxTrack::new(1.0 / capture_resolution_seconds);
             let mut flux_track = FluxStreamTrack::new();
 
             #[allow(clippy::never_loop)]
@@ -432,25 +454,8 @@ impl ScpFormat {
                 // Calculate RPM of revolution.
                 let rev_nanos = (rev.index_time * SCP_FLUX_TIME_BASE) as f64;
                 let rev_seconds = rev_nanos * 1e-9;
+                let rev_millis = rev_nanos * 1e-6;
                 let rev_rpm = 60.0 / rev_seconds;
-
-                let clock_adjust;
-                if (280.0..=380.0).contains(&rev_rpm) {
-                    clock_adjust = rev_rpm / 300.0;
-
-                    log::warn!(
-                        "Revolution {} RPM is {:.2}, adjusting clock to {:.2}%",
-                        ri,
-                        rev_rpm,
-                        clock_adjust * 100.0
-                    );
-                }
-                else {
-                    log::error!("Revolution {} RPM is {:.2}, out of range.", ri, rev_rpm);
-                    return Err(DiskImageError::IncompatibleImage);
-                }
-
-                pll.adjust_clock(clock_adjust);
 
                 log::debug!(
                     "Revolution {}: rpm: {} index time: {:08} length: {:08} flux offset: {:08}",
@@ -461,7 +466,7 @@ impl ScpFormat {
                     rev.data_offset
                 );
 
-                // Read flux data for this revolution.
+                // Read the raw flux data for this revolution [big-endian u16].
                 let mut data = vec![0u16; rev.length as usize];
                 read_buf.seek(std::io::SeekFrom::Start(*offset as u64 + rev.data_offset as u64))?;
 
@@ -469,78 +474,53 @@ impl ScpFormat {
                     *d = read_buf.read_be()?;
                 }
 
+                // Convert the flux data to f64 seconds.
+                let fluxes = Self::convert_flux_data(&data, capture_resolution);
+
                 log::trace!(
-                    "Adding revolution {} containing {} bitcells to RawFluxTrack",
+                    "Adding revolution {} with index time: {}ms, rpm: {:.2} fts: {}",
                     ri,
+                    rev_millis,
+                    rev_rpm,
                     data.len()
                 );
-                flux_track.add_revolution_from_u16(DiskCh::new(c, h), &data, rev_seconds, capture_resolution_seconds);
-                pll.reset_clock();
+                flux_track.add_revolution(ch, &fluxes, rev_seconds);
             }
 
-            let rev = 0;
-            let flux_stream = flux_track.revolution_mut(rev).unwrap();
-            flux_stream.decode_direct(&mut pll);
-
-            let rev = 1;
-            let flux_stream = flux_track.revolution_mut(rev).unwrap();
-            let rev_stats = flux_stream.decode_direct(&mut pll);
-
-            //let flux_ct = flux_stream.transition_ct();
-            //let rev_encoding = flux_stream.encoding();
-            let rev_density = match rev_stats.detect_density(false) {
-                Some(d) => d,
-                None => {
-                    log::error!("Unable to detect track density, skipping track");
-                    continue;
-                }
-            };
-
-            // let rev_bitrate = if let Some(bitrate) = scp_transition_ct_to_bitrate(flux_ct) {
-            //     bitrate
-            // } else {
-            //     log::error!("Unable to detect track bitrate, skipping track");
-            //     continue;
-            // };
-
-            if disk_datarate.is_none() {
-                disk_datarate = Some(DiskDataRate::from(rev_density));
-            }
-            // }
-            // log::trace!("Track density: {:?} bitrate: {:?}", rev_density, rev_bitrate);
-
-            let (track_data, track_bits) = flux_track.revolution_mut(rev).unwrap().bitstream_data();
-
-            let params = BitStreamTrackParams {
-                encoding: DiskDataEncoding::Mfm,
-                data_rate: DiskDataRate::from(rev_density),
+            let params = FluxStreamTrackParams {
+                ch,
+                schema: None,
+                encoding: None,
+                clock: None,
                 rpm: None,
-                ch: DiskCh::new(c, h),
-                bitcell_ct: Some(track_bits),
-                data: &track_data,
-                weak: None,
-                hole: None,
-                detect_weak: false,
             };
 
-            disk_image.add_track_bitstream(params)?;
+            let new_track = disk_image.add_track_fluxstream(flux_track, &params)?;
 
-            // Increment cylinder/head for next track
-            h += 1;
-            if h == disk_heads {
-                h = 0;
-                c += 1;
+            let ti = new_track.info();
+
+            if disk_data_rate.is_none() {
+                log::trace!("Setting disk data rate to {}", ti.data_rate);
+                disk_data_rate = Some(ti.data_rate);
             }
         }
 
-        log::trace!("Read {} valid track offsets.", track_offsets.len());
+        log::trace!("Read {} valid track offsets. Final track {}", track_offsets.len(), ch);
+
+        if disk_data_rate.is_none() {
+            log::error!("Unable to determine data rate from any track.");
+            return Err(DiskImageError::IncompatibleImage(
+                "Unable to determine data rate from any track.".to_string(),
+            ));
+        }
 
         disk_image.descriptor = DiskDescriptor {
-            geometry: DiskCh::from((c, disk_heads)),
-            data_rate: disk_datarate.unwrap(),
-            density: DiskDensity::from(disk_datarate.unwrap()),
-            data_encoding: DiskDataEncoding::Mfm,
-            default_sector_size: DEFAULT_SECTOR_SIZE,
+            // SCP does have a platform field, but unfortunately we can't trust it.
+            platforms: None,
+            geometry: DiskCh::from((ch.c() + 1, disk_heads)),
+            data_rate: disk_data_rate.unwrap(),
+            density: TrackDensity::from(disk_data_rate.unwrap()),
+            data_encoding: TrackDataEncoding::Mfm,
             rpm: None,
             write_protect: Some(disk_readonly),
         };
@@ -548,7 +528,32 @@ impl ScpFormat {
         Ok(())
     }
 
-    pub fn save_image<RWS: ReadWriteSeek>(_image: &DiskImage, _output: &mut RWS) -> Result<(), DiskImageError> {
+    fn convert_flux_data(data: &[u16], capture_resolution: u32) -> Vec<f64> {
+        let mut flux_f64 = Vec::with_capacity(data.len());
+        let resolution_secs = capture_resolution as f64 * 1e-9;
+        let mut accumulator: u64 = 0;
+
+        for d in data {
+            if *d == 0 {
+                // A flux time of 0 indicates rollover. Add U16::MAX to the accumulator,
+                // and continue to the next value.
+                accumulator += u64::from(u16::MAX);
+            }
+            else {
+                // Add the accumulator to the flux value, and convert to f64 seconds.
+                flux_f64.push((((*d as u64) + accumulator) as f64) * resolution_secs);
+                // Reset the accumulator
+                accumulator = 0;
+            }
+        }
+        flux_f64
+    }
+
+    pub fn save_image<RWS: ReadWriteSeek>(
+        _image: &DiskImage,
+        _opts: &ParserWriteOptions,
+        _output: &mut RWS,
+    ) -> Result<(), DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 }

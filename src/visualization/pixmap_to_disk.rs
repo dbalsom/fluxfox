@@ -154,7 +154,7 @@ pub fn render_pixmap_to_disk(
                     }
                     normalized_angle = (normalized_angle + PI) % TAU;
 
-                    if let Some(track) = disk_image.track_pool[track_indices[track_index]].track_stream_mut() {
+                    if let Some(track) = disk_image.track_pool[track_indices[track_index]].stream_mut() {
                         let bit_index = ((normalized_angle / TAU) * track.len() as f32) as usize;
 
                         let mut render_enable = true;
@@ -190,7 +190,7 @@ pub fn render_pixmap_to_disk(
 
                                 // Alpha channel controls whether we write the pixel or not
                                 if alpha_value >= 128 {
-                                    track.write_raw_byte(bit_index, mfm_data);
+                                    track.write_raw_u8(bit_index, mfm_data);
                                 }
                             }
                         }
@@ -332,7 +332,7 @@ pub fn render_pixmap_to_disk_grayscale(
                     }
                     normalized_angle = (normalized_angle + PI) % TAU;
 
-                    if let Some(track) = disk_image.track_pool[track_indices[track_index]].track_stream_mut() {
+                    if let Some(track) = disk_image.track_pool[track_indices[track_index]].stream_mut() {
                         let bit_index = ((normalized_angle / TAU) * track.len() as f32) as usize;
                         // Mask the bit index to the resolution specified
                         let bit_index = bit_index & index_mask;

@@ -30,10 +30,10 @@ use fluxfox::{flux::FluxRevolutionType, prelude::*};
 
 pub mod args;
 
-pub(crate) fn run(_global: &GlobalOptions, params: args::InfoParams) -> Result<(), Error> {
+pub(crate) fn run(_global: &GlobalOptions, params: &args::InfoParams) -> Result<(), Error> {
     let mut reader = read_file(&params.in_file)?;
 
-    let disk_image_type = match DiskImage::detect_format(&mut reader) {
+    let disk_image_type = match DiskImage::detect_format(&mut reader, Some(params.in_file.clone())) {
         Ok(disk_image_type) => disk_image_type,
         Err(e) => {
             bail!("Error detecting disk image type: {}", e);
@@ -42,7 +42,7 @@ pub(crate) fn run(_global: &GlobalOptions, params: args::InfoParams) -> Result<(
 
     println!("Detected disk image type: {}", disk_image_type);
 
-    let mut disk = match DiskImage::load(&mut reader, Some(params.in_file), None, None) {
+    let mut disk = match DiskImage::load(&mut reader, Some(params.in_file.clone()), None, None) {
         Ok(disk) => disk,
         Err(e) => {
             bail!("Error loading disk image: {}", e);
@@ -54,9 +54,9 @@ pub(crate) fn run(_global: &GlobalOptions, params: args::InfoParams) -> Result<(
     let _ = disk.dump_info(&mut std::io::stdout());
     println!();
 
-    println!("Disk consistency report:");
+    println!("Disk analysis:");
     println!("{}", "-".repeat(79));
-    let _ = disk.dump_consistency(&mut std::io::stdout());
+    let _ = disk.dump_analysis(&mut std::io::stdout());
 
     println!("Image can be represented by the following formats with write support:");
     let formats = disk.compatible_formats(true);
@@ -90,7 +90,7 @@ pub fn dump_track_map<W: std::io::Write>(
     sectors: bool,
     revolutions: bool,
 ) -> Result<(), Error> {
-    let head_map = disk.get_sector_map();
+    let head_map = disk.sector_map();
 
     for (head_idx, head) in head_map.iter().enumerate() {
         out.write_fmt(format_args!("Head {} [{} tracks]\n", head_idx, head.len()))?;
@@ -103,7 +103,7 @@ pub fn dump_track_map<W: std::io::Write>(
                         out.write_fmt(format_args!("\tTrack {}\n", track_idx))?;
                     }
                     DiskDataResolution::FluxStream | DiskDataResolution::BitStream => {
-                        let stream = track_ref.track_stream().expect("Couldn't retrieve track stream!");
+                        let stream = track_ref.stream().expect("Couldn't retrieve track stream!");
                         out.write_fmt(format_args!(
                             "\tTrack {}: [{} encoding, {} bits]\n",
                             track_idx,
@@ -165,8 +165,8 @@ pub fn dump_track_map<W: std::io::Write>(
                         out.write_fmt(format_args!(
                             "\t\t\t{} address_crc_valid: {} data_crc_valid: {} deleted: {}\n",
                             sector.chsn,
-                            sector.attributes.address_crc_valid,
-                            sector.attributes.data_crc_valid,
+                            !sector.attributes.address_error,
+                            !sector.attributes.data_error,
                             sector.attributes.deleted_mark
                         ))?;
                     }

@@ -11,7 +11,7 @@ fn init() {
 fn test_scp_sector_test() {
     init();
     run_sector_test(
-        "tests/images/sector_test/sector_test_360k.tc".into(),
+        "tests/images/sector_test/sector_test_360k.tc",
         DiskImageFileFormat::TransCopyImage,
     );
 }

@@ -40,13 +40,14 @@ use crate::{
 };
 
 use crate::{
+    file_parsers::{ParserReadOptions, ParserWriteOptions},
     track::bitstream::BitStreamTrack,
-    types::{DiskCh, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity, DiskRpm},
+    track_schema::TrackSchema,
+    types::{DiskCh, DiskDataResolution, DiskRpm, Platform, TrackDataEncoding, TrackDataRate, TrackDensity},
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,
     LoadingCallback,
-    DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, BinRead, BinWrite};
 use std::mem::size_of;
@@ -200,21 +201,21 @@ fn f86_disk_density(flags: u16) -> F86Density {
     }
 }
 
-fn f86_track_data_rate(flags: u16) -> Option<DiskDataRate> {
+fn f86_track_data_rate(flags: u16) -> Option<TrackDataRate> {
     match flags & 0x07 {
-        0b000 => Some(DiskDataRate::Rate500Kbps(1.0)),
-        0b001 => Some(DiskDataRate::Rate300Kbps(1.0)),
-        0b010 => Some(DiskDataRate::Rate250Kbps(1.0)),
-        0b011 => Some(DiskDataRate::Rate1000Kbps(1.0)),
+        0b000 => Some(TrackDataRate::Rate500Kbps(1.0)),
+        0b001 => Some(TrackDataRate::Rate300Kbps(1.0)),
+        0b010 => Some(TrackDataRate::Rate250Kbps(1.0)),
+        0b011 => Some(TrackDataRate::Rate1000Kbps(1.0)),
         _ => None,
     }
 }
 
-fn f86_track_encoding(flags: u16) -> Option<DiskDataEncoding> {
+fn f86_track_encoding(flags: u16) -> Option<TrackDataEncoding> {
     match (flags >> 3) & 0x03 {
-        0b00 => Some(DiskDataEncoding::Fm),
-        0b01 => Some(DiskDataEncoding::Mfm),
-        0b11 => Some(DiskDataEncoding::Gcr),
+        0b00 => Some(TrackDataEncoding::Fm),
+        0b01 => Some(TrackDataEncoding::Mfm),
+        0b11 => Some(TrackDataEncoding::Gcr),
         _ => None,
     }
 }
@@ -241,15 +242,15 @@ fn f86_weak_to_holes(bit_data: &mut [u8], weak_data: &[u8]) {
 
 /// Equivalent of 86Box's `common_get_raw_size()` function.
 fn f86_track_bit_length(
-    encoding: DiskDataEncoding,
-    data_rate: DiskDataRate,
+    encoding: TrackDataEncoding,
+    data_rate: TrackDataRate,
     rpm: DiskRpm,
     time_shift: F86TimeShift,
     extra_bitcells: i32,
 ) -> usize {
     let mut size = 100000.0;
     let mut rate = u32::from(data_rate) as f64 / 1000.0;
-    if matches!(encoding, DiskDataEncoding::Fm) {
+    if matches!(encoding, TrackDataEncoding::Fm) {
         rate /= 2.0;
     }
 
@@ -271,6 +272,12 @@ impl F86Format {
         bitstream_flags()
     }
 
+    pub fn platforms() -> Vec<Platform> {
+        // 86f can in theory support other platforms, but since 86Box is a PC-only emulator, we'll
+        // stick with that.
+        vec![Platform::IbmPc]
+    }
+
     pub fn detect<RWS: ReadSeek>(mut image: RWS) -> bool {
         if image.seek(std::io::SeekFrom::Start(0)).is_err() {
             return false;
@@ -285,23 +292,28 @@ impl F86Format {
         header.id == "86BF".as_bytes() && header.minor_version == 0x0C && header.major_version == 0x02
     }
 
-    pub fn can_write(image: &DiskImage) -> ParserWriteCompatibility {
-        if let Some(resolution) = image.resolution {
-            if !matches!(resolution, DiskDataResolution::BitStream) {
-                return ParserWriteCompatibility::Incompatible;
-            }
-        }
-        else {
-            return ParserWriteCompatibility::Incompatible;
-        }
+    pub fn can_write(image: Option<&DiskImage>) -> ParserWriteCompatibility {
+        image
+            .map(|image| {
+                if let Some(resolution) = image.resolution {
+                    if !matches!(resolution, DiskDataResolution::BitStream) {
+                        return ParserWriteCompatibility::Incompatible;
+                    }
+                }
+                else {
+                    return ParserWriteCompatibility::Incompatible;
+                }
 
-        // 86f images can encode about everything we can store for a bitstream format
-        ParserWriteCompatibility::Ok
+                // 86f images can encode about everything we can store for a bitstream format
+                ParserWriteCompatibility::Ok
+            })
+            .unwrap_or(ParserWriteCompatibility::Ok)
     }
 
     pub(crate) fn load_image<RWS: ReadSeek>(
         mut read_buf: RWS,
         disk_image: &mut DiskImage,
+        _opts: &ParserReadOptions,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFileFormat::F86Image);
@@ -326,8 +338,8 @@ impl F86Format {
         let hole = f86_disk_density(header.flags);
         let heads = if header.flags & F86_DISK_SIDES != 0 { 2 } else { 1 };
         let (image_data_rate, image_density) = match hole {
-            F86Density::Double => (DiskDataRate::Rate250Kbps(1.0), DiskDensity::Double),
-            F86Density::High => (DiskDataRate::Rate500Kbps(1.0), DiskDensity::High),
+            F86Density::Double => (TrackDataRate::Rate250Kbps(1.0), TrackDensity::Double),
+            F86Density::High => (TrackDataRate::Rate500Kbps(1.0), TrackDensity::High),
             F86Density::Extended | F86Density::ExtendedPlus => {
                 log::error!("Extended density images not supported.");
                 return Err(DiskImageError::UnsupportedFormat);
@@ -561,6 +573,7 @@ impl F86Format {
                 }
             }
             else {
+                #[allow(clippy::comparison_chain)]
                 if raw_track_data_size < read_length_expected_words * 2 {
                     log::error!(
                         "Track data length is less than expected: {} < {}",
@@ -660,6 +673,7 @@ impl F86Format {
             );
 
             let params = BitStreamTrackParams {
+                schema: Some(TrackSchema::System34),
                 encoding: track_encoding,
                 data_rate: track_data_rate,
                 rpm: disk_rpm,
@@ -671,7 +685,7 @@ impl F86Format {
                 detect_weak: false,
             };
 
-            disk_image.add_track_bitstream(params)?;
+            disk_image.add_track_bitstream(&params)?;
 
             head_n += 1;
             if head_n == disk_sides {
@@ -681,11 +695,13 @@ impl F86Format {
         }
 
         disk_image.descriptor = DiskDescriptor {
+            // 86box is mostly a PC emulator, although it does support other formats...
+            // We'll stick with PC for now.
+            platforms: Some(vec![Platform::IbmPc]),
             geometry: DiskCh::from((cylinder_n, heads as u8)),
             data_rate: Default::default(),
-            data_encoding: DiskDataEncoding::Mfm,
+            data_encoding: TrackDataEncoding::Mfm,
             density: image_density,
-            default_sector_size: DEFAULT_SECTOR_SIZE,
             rpm: disk_rpm,
             write_protect: Some(header.flags & F86_DISK_WRITE_PROTECT != 0),
         };
@@ -700,7 +716,11 @@ impl F86Format {
     /// guarantee a specific bitcell length.
     ///
     /// When writing track data, the size must be rounded to the nearest word (2 bytes).
-    pub fn save_image<RWS: ReadWriteSeek>(image: &DiskImage, output: &mut RWS) -> Result<(), DiskImageError> {
+    pub fn save_image<RWS: ReadWriteSeek>(
+        image: &DiskImage,
+        _opts: &ParserWriteOptions,
+        output: &mut RWS,
+    ) -> Result<(), DiskImageError> {
         if matches!(image.resolution(), DiskDataResolution::BitStream) {
             log::trace!("Saving 86f image...");
         }
@@ -724,9 +744,9 @@ impl F86Format {
         }
 
         disk_flags |= match image.descriptor.density {
-            DiskDensity::Double => 0,
-            DiskDensity::High => 0b01 << 1,
-            DiskDensity::Extended => 0b10 << 1,
+            TrackDensity::Double => 0,
+            TrackDensity::High => 0b01 << 1,
+            TrackDensity::Extended => 0b10 << 1,
             _ => {
                 log::error!("Unsupported disk density: {:?}", image.descriptor.density);
                 return Err(DiskImageError::UnsupportedFormat);
@@ -807,10 +827,10 @@ impl F86Format {
         let mut track_flags = 0;
         log::trace!("Setting data rate: {:?}", image.descriptor.data_rate);
         track_flags |= match image.descriptor.data_rate {
-            DiskDataRate::Rate500Kbps(_) => 0b000,
-            DiskDataRate::Rate300Kbps(_) => 0b001,
-            DiskDataRate::Rate250Kbps(_) => 0b010,
-            DiskDataRate::Rate1000Kbps(_) => 0b011,
+            TrackDataRate::Rate500Kbps(_) => 0b000,
+            TrackDataRate::Rate300Kbps(_) => 0b001,
+            TrackDataRate::Rate250Kbps(_) => 0b010,
+            TrackDataRate::Rate1000Kbps(_) => 0b011,
             _ => {
                 log::error!("Unsupported data rate: {:?}", image.descriptor.data_rate);
                 return Err(DiskImageError::UnsupportedFormat);
@@ -819,9 +839,9 @@ impl F86Format {
 
         log::trace!("Setting data encoding: {:?}", image.descriptor.data_encoding);
         track_flags |= match image.descriptor.data_encoding {
-            DiskDataEncoding::Fm => 0b00 << 3,
-            DiskDataEncoding::Mfm => 0b01 << 3,
-            DiskDataEncoding::Gcr => 0b11 << 3,
+            TrackDataEncoding::Fm => 0b00 << 3,
+            TrackDataEncoding::Mfm => 0b01 << 3,
+            TrackDataEncoding::Gcr => 0b11 << 3,
         };
 
         log::trace!("Setting RPM: {:?}", image.descriptor.rpm);

@@ -38,16 +38,19 @@
 use crate::{
     file_parsers::{FormatCaps, ParserWriteCompatibility},
     io::{Cursor, ReadSeek, ReadWriteSeek},
-    types::{DiskDescriptor, SectorDescriptor},
+    types::{AddSectorParams, DiskDescriptor},
 };
 
 use crate::{
+    file_parsers::{ParserReadOptions, ParserWriteOptions},
     types::{
         chs::{DiskCh, DiskChs, DiskChsn},
-        DiskDataEncoding,
-        DiskDataRate,
-        DiskDensity,
+        MetaSectorTrackParams,
+        Platform,
         SectorAttributes,
+        TrackDataEncoding,
+        TrackDataRate,
+        TrackDensity,
     },
     DiskImage,
     DiskImageError,
@@ -55,8 +58,9 @@ use crate::{
     FoxHashMap,
     FoxHashSet,
     LoadingCallback,
-    DEFAULT_SECTOR_SIZE,
 };
+
+use crate::file_parsers::pce::crc::pce_crc;
 use binrw::{binrw, BinRead};
 
 pub struct PsiFormat;
@@ -173,32 +177,15 @@ pub struct PsiChunk {
     pub data: Vec<u8>,
 }
 
-pub(crate) fn psi_crc(buf: &[u8]) -> u32 {
-    let mut crc = 0;
-    for i in 0..buf.len() {
-        crc ^= ((buf[i] & 0xff) as u32) << 24;
-
-        for _j in 0..8 {
-            if crc & 0x80000000 != 0 {
-                crc = (crc << 1) ^ 0x1edc6f41;
-            }
-            else {
-                crc <<= 1;
-            }
-        }
-    }
-    crc & 0xffffffff
-}
-
-pub(crate) fn decode_psi_sector_format(sector_format: [u8; 2]) -> Option<(DiskDataEncoding, DiskDensity)> {
+pub(crate) fn decode_psi_sector_format(sector_format: [u8; 2]) -> Option<(TrackDataEncoding, TrackDensity)> {
     match sector_format {
-        [0x00, 0x00] => Some((DiskDataEncoding::Fm, DiskDensity::Standard)),
-        [0x01, 0x00] => Some((DiskDataEncoding::Fm, DiskDensity::Double)),
-        [0x02, 0x00] => Some((DiskDataEncoding::Fm, DiskDensity::High)),
-        [0x02, 0x01] => Some((DiskDataEncoding::Fm, DiskDensity::High)),
-        [0x02, 0x02] => Some((DiskDataEncoding::Mfm, DiskDensity::Extended)),
+        [0x00, 0x00] => Some((TrackDataEncoding::Fm, TrackDensity::Standard)),
+        [0x01, 0x00] => Some((TrackDataEncoding::Fm, TrackDensity::Double)),
+        [0x02, 0x00] => Some((TrackDataEncoding::Fm, TrackDensity::High)),
+        [0x02, 0x01] => Some((TrackDataEncoding::Fm, TrackDensity::High)),
+        [0x02, 0x02] => Some((TrackDataEncoding::Mfm, TrackDensity::Extended)),
         // TODO: What density are GCR disks? Are they all the same? PSI doesn't specify any variants.
-        [0x03, 0x00] => Some((DiskDataEncoding::Gcr, DiskDensity::Double)),
+        [0x03, 0x00] => Some((TrackDataEncoding::Gcr, TrackDensity::Double)),
         _ => None,
     }
 }
@@ -211,6 +198,11 @@ impl PsiFormat {
 
     pub(crate) fn capabilities() -> FormatCaps {
         FormatCaps::empty()
+    }
+
+    pub fn platforms() -> Vec<Platform> {
+        // PSI images support both PC and Macintosh platforms.
+        vec![Platform::IbmPc, Platform::Macintosh]
     }
 
     pub(crate) fn extensions() -> Vec<&'static str> {
@@ -230,7 +222,7 @@ impl PsiFormat {
         detected
     }
 
-    pub(crate) fn can_write(_image: &DiskImage) -> ParserWriteCompatibility {
+    pub(crate) fn can_write(_image: Option<&DiskImage>) -> ParserWriteCompatibility {
         ParserWriteCompatibility::UnsupportedFormat
     }
 
@@ -275,7 +267,7 @@ impl PsiFormat {
         image.seek(std::io::SeekFrom::Start(chunk_pos))?;
         image.read_exact(&mut buffer)?;
 
-        let crc_calc = psi_crc(&buffer);
+        let crc_calc = pce_crc(&buffer);
         let chunk_crc = PsiChunkCrc::read(&mut image)?;
 
         if chunk_crc.crc != crc_calc {
@@ -294,6 +286,7 @@ impl PsiFormat {
     pub(crate) fn load_image<RWS: ReadSeek>(
         mut read_buf: RWS,
         disk_image: &mut DiskImage,
+        _opts: &ParserReadOptions,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFileFormat::PceSectorImage);
@@ -337,8 +330,14 @@ impl PsiFormat {
 
                     if !track_set.contains(&ch) {
                         log::trace!("Adding track...");
-                        let new_track =
-                            disk_image.add_track_metasector(default_encoding, DiskDataRate::from(disk_density), ch)?;
+
+                        let params = MetaSectorTrackParams {
+                            ch,
+                            data_rate: TrackDataRate::from(disk_density),
+                            encoding: default_encoding,
+                        };
+
+                        let new_track = disk_image.add_track_metasector(&params)?;
 
                         current_track = Some(new_track);
                         track_set.insert(ch);
@@ -369,20 +368,22 @@ impl PsiFormat {
 
                         if let Some(ref mut track) = current_track {
                             // Add this sector to track.
-                            let sd = SectorDescriptor {
+                            let params = AddSectorParams {
                                 id_chsn: DiskChsn::from((chs, DiskChsn::bytes_to_n(sector_header.size as usize))),
-                                data: chunk_expand,
+                                data: &chunk_expand,
                                 weak_mask: None,
                                 hole_mask: None,
                                 attributes: SectorAttributes {
-                                    address_crc_valid: true, // Compressed data cannot encode address CRC state.
-                                    data_crc_valid: !ctx.data_crc_error,
+                                    address_error: false, // Compressed data cannot encode address CRC state.
+                                    data_error: ctx.data_crc_error,
                                     deleted_mark: false,
                                     no_dam: false,
                                 },
+                                alternate: ctx.alternate,
+                                bit_index: ctx.bit_offset.map(|x| x as usize),
                             };
 
-                            track.add_sector(&sd, ctx.alternate)?;
+                            track.add_sector(&params)?;
                             ctx.reset();
                         }
                         else {
@@ -420,20 +421,22 @@ impl PsiFormat {
 
                     if let Some(ref mut track) = current_track {
                         // Add this sector to track.
-                        let sd = SectorDescriptor {
+                        let params = AddSectorParams {
                             id_chsn: ctx.sid(),
-                            data: chunk.data,
+                            data: &chunk.data,
                             weak_mask: None,
                             hole_mask: None,
                             attributes: SectorAttributes {
-                                address_crc_valid: !ctx.address_crc_error,
-                                data_crc_valid: !ctx.data_crc_error,
+                                address_error: ctx.address_crc_error,
+                                data_error: ctx.data_crc_error,
                                 deleted_mark: ctx.deleted,
                                 no_dam: ctx.no_dam,
                             },
+                            alternate: ctx.alternate,
+                            bit_index: ctx.bit_offset.map(|x| x as usize),
                         };
 
-                        track.add_sector(&sd, ctx.alternate)?;
+                        track.add_sector(&params)?;
                     }
                     else {
                         log::error!("Tried to add sector without a current track.");
@@ -488,11 +491,13 @@ impl PsiFormat {
         let head_ct = heads_seen.len() as u8;
         let track_ct = track_set.len() as u16;
         disk_image.descriptor = DiskDescriptor {
+            // PSI images are going to be either PC or Mac. Since we aren't handling Macintosh-specific
+            // chunks, we'll just assume it's a PC disk.
+            platforms: Some(vec![Platform::IbmPc]),
             geometry: DiskCh::from((track_ct / head_ct as u16, head_ct)),
             data_rate: Default::default(),
-            data_encoding: DiskDataEncoding::Mfm,
+            data_encoding: TrackDataEncoding::Mfm,
             density: disk_density,
-            default_sector_size: DEFAULT_SECTOR_SIZE,
             rpm: None,
             write_protect: None,
         };
@@ -500,7 +505,11 @@ impl PsiFormat {
         Ok(())
     }
 
-    pub fn save_image<RWS: ReadWriteSeek>(_image: &DiskImage, _output: &mut RWS) -> Result<(), DiskImageError> {
+    pub fn save_image<RWS: ReadWriteSeek>(
+        _image: &DiskImage,
+        _opts: &ParserWriteOptions,
+        _output: &mut RWS,
+    ) -> Result<(), DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 }

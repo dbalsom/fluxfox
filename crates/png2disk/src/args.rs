@@ -32,7 +32,7 @@
 use std::path::PathBuf;
 
 use bpaf::{construct, long, short, OptionParser, Parser};
-use fluxfox::{tiny_skia::Color, StandardFormat};
+use fluxfox::{tiny_skia::Color, types::StandardFormatParam, StandardFormat};
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -46,7 +46,7 @@ pub(crate) struct Out {
     pub(crate) angle: f32,
     pub(crate) cc: bool,
     pub(crate) skip: u16,
-    pub(crate) disk_format: StandardFormat,
+    pub(crate) disk_format: StandardFormatParam,
     pub(crate) formatted: bool,
     pub(crate) sectors_only: bool,
     pub(crate) applesauce: bool,
@@ -129,12 +129,12 @@ pub(crate) fn opts() -> OptionParser<Out> {
 }
 
 // Implement a parser for `StandardFormat`
-fn standard_format_parser() -> impl Parser<StandardFormat> {
+fn standard_format_parser() -> impl Parser<StandardFormatParam> {
     long("disk_format")
         .help("Specify a standard disk format (e.g., 160k, 1440k)")
         .argument::<String>("STANDARD_DISK_FORMAT")
         .parse(|input| input.parse())
-        .fallback(StandardFormat::PcFloppy1200)
+        .fallback(StandardFormatParam(StandardFormat::PcFloppy1200))
 }
 
 /// Parse a color from either a hex string (`#RRGGBBAA` or `#RRGGBB`) or an RGBA string (`R,G,B,A`).

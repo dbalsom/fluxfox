@@ -42,14 +42,14 @@ use crate::{
 };
 
 use crate::{
+    file_parsers::{pce::crc::pce_crc, ParserReadOptions, ParserWriteOptions},
     track::bitstream::BitStreamTrack,
-    types::{chs::DiskCh, DiskDataEncoding, DiskDataRate, DiskDataResolution, DiskDensity},
+    types::{chs::DiskCh, DiskDataResolution, Platform, TrackDataEncoding, TrackDataRate, TrackDensity},
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,
     FoxHashSet,
     LoadingCallback,
-    DEFAULT_SECTOR_SIZE,
 };
 use binrw::{binrw, meta::WriteEndian, BinRead, BinWrite};
 
@@ -147,23 +147,6 @@ pub struct TrackContext {
     bit_clock: u32,
 }
 
-pub(crate) fn pri_crc(buf: &[u8]) -> u32 {
-    let mut crc = 0;
-    for i in 0..buf.len() {
-        crc ^= ((buf[i] & 0xff) as u32) << 24;
-
-        for _j in 0..8 {
-            if crc & 0x80000000 != 0 {
-                crc = (crc << 1) ^ 0x1edc6f41;
-            }
-            else {
-                crc <<= 1;
-            }
-        }
-    }
-    crc & 0xffffffff
-}
-
 impl PriFormat {
     #[allow(dead_code)]
     fn format() -> DiskImageFileFormat {
@@ -172,6 +155,13 @@ impl PriFormat {
 
     pub(crate) fn capabilities() -> FormatCaps {
         bitstream_flags() | FormatCaps::CAP_COMMENT | FormatCaps::CAP_WEAK_BITS
+    }
+
+    pub fn platforms() -> Vec<Platform> {
+        // PRI images should in theory support any platform that can be represented as bitstream
+        // tracks. PCE itself only supports PC and Macintosh platforms, however, so for now we'll
+        // limit it to those.
+        vec![Platform::IbmPc, Platform::Macintosh]
     }
 
     pub(crate) fn extensions() -> Vec<&'static str> {
@@ -192,22 +182,26 @@ impl PriFormat {
     }
 
     /// Return the compatibility of the image with the parser.
-    pub(crate) fn can_write(image: &DiskImage) -> ParserWriteCompatibility {
-        if let Some(resolution) = image.resolution {
-            if !matches!(resolution, DiskDataResolution::BitStream) {
-                return ParserWriteCompatibility::Incompatible;
-            }
-        }
-        else {
-            return ParserWriteCompatibility::Incompatible;
-        }
+    pub(crate) fn can_write(image: Option<&DiskImage>) -> ParserWriteCompatibility {
+        image
+            .map(|image| {
+                if let Some(resolution) = image.resolution {
+                    if !matches!(resolution, DiskDataResolution::BitStream) {
+                        return ParserWriteCompatibility::Incompatible;
+                    }
+                }
+                else {
+                    return ParserWriteCompatibility::Incompatible;
+                }
 
-        if PriFormat::capabilities().contains(image.required_caps()) {
-            ParserWriteCompatibility::Ok
-        }
-        else {
-            ParserWriteCompatibility::DataLoss
-        }
+                if PriFormat::capabilities().contains(image.required_caps()) {
+                    ParserWriteCompatibility::Ok
+                }
+                else {
+                    ParserWriteCompatibility::DataLoss
+                }
+            })
+            .unwrap_or(ParserWriteCompatibility::Ok)
     }
 
     pub(crate) fn read_chunk<RWS: ReadSeek>(mut image: RWS) -> Result<PriChunk, DiskImageError> {
@@ -247,7 +241,7 @@ impl PriFormat {
         image.seek(std::io::SeekFrom::Start(chunk_pos))?;
         image.read_exact(&mut buffer)?;
 
-        let crc_calc = pri_crc(&buffer);
+        let crc_calc = pce_crc(&buffer);
         let chunk_crc = PriChunkCrc::read(&mut image)?;
 
         if chunk_crc.crc != crc_calc {
@@ -301,7 +295,7 @@ impl PriFormat {
         chunk_buf.write_all(data_buf.get_ref())?;
 
         // Calculate CRC for chunk, over header and data bytes.
-        let crc_calc = pri_crc(chunk_buf.get_ref());
+        let crc_calc = pce_crc(chunk_buf.get_ref());
 
         // Write the CRC to the chunk.
         let chunk_crc = PriChunkCrc { crc: crc_calc };
@@ -333,7 +327,7 @@ impl PriFormat {
         chunk_buf.write_all(text.as_bytes())?;
 
         // Calculate CRC for chunk, over header and data bytes.
-        let crc_calc = pri_crc(chunk_buf.get_ref());
+        let crc_calc = pce_crc(chunk_buf.get_ref());
 
         // Write the CRC to the chunk.
         let chunk_crc = PriChunkCrc { crc: crc_calc };
@@ -375,7 +369,7 @@ impl PriFormat {
         chunk_buf.write_all(data)?;
 
         // Calculate CRC for chunk, over header and data bytes.
-        let crc_calc = pri_crc(chunk_buf.get_ref());
+        let crc_calc = pce_crc(chunk_buf.get_ref());
 
         // Write the CRC to the chunk.
         let chunk_crc = PriChunkCrc { crc: crc_calc };
@@ -390,6 +384,7 @@ impl PriFormat {
     pub(crate) fn load_image<RWS: ReadSeek>(
         mut read_buf: RWS,
         disk_image: &mut DiskImage,
+        _opts: &ParserReadOptions,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFileFormat::PceBitstreamImage);
@@ -468,12 +463,13 @@ impl PriFormat {
 
                     // Set the global disk data rate once.
                     if disk_data_rate.is_none() {
-                        disk_data_rate = Some(DiskDataRate::from(ctx.bit_clock));
+                        disk_data_rate = Some(TrackDataRate::from(ctx.bit_clock));
                     }
 
                     let params = BitStreamTrackParams {
-                        encoding: DiskDataEncoding::Mfm,
-                        data_rate: DiskDataRate::from(ctx.bit_clock),
+                        schema: None,
+                        encoding: TrackDataEncoding::Mfm,
+                        data_rate: TrackDataRate::from(ctx.bit_clock),
                         rpm: None,
                         ch: ctx.phys_ch,
                         bitcell_ct: Some(track_header.bit_length as usize),
@@ -483,7 +479,7 @@ impl PriFormat {
                         detect_weak: false,
                     };
 
-                    disk_image.add_track_bitstream(params)?;
+                    disk_image.add_track_bitstream(&params)?;
                 }
                 PriChunkType::WeakMask => {
                     let weak_table_len = chunk.size / 8;
@@ -539,11 +535,11 @@ impl PriFormat {
         let head_ct = heads_seen.len() as u8;
         let cylinder_ct = cylinders_seen.len() as u16;
         disk_image.descriptor = DiskDescriptor {
+            platforms: None,
             geometry: DiskCh::from((cylinder_ct, head_ct)),
             data_rate: disk_data_rate.unwrap(),
-            data_encoding: DiskDataEncoding::Mfm,
-            density: DiskDensity::from(disk_data_rate.unwrap()),
-            default_sector_size: DEFAULT_SECTOR_SIZE,
+            data_encoding: TrackDataEncoding::Mfm,
+            density: TrackDensity::from(disk_data_rate.unwrap()),
             rpm: None,
             write_protect: None,
         };
@@ -551,7 +547,11 @@ impl PriFormat {
         Ok(())
     }
 
-    pub fn save_image<RWS: ReadWriteSeek>(image: &DiskImage, output: &mut RWS) -> Result<(), DiskImageError> {
+    pub fn save_image<RWS: ReadWriteSeek>(
+        image: &DiskImage,
+        _opts: &ParserWriteOptions,
+        output: &mut RWS,
+    ) -> Result<(), DiskImageError> {
         if matches!(image.resolution(), DiskDataResolution::BitStream) {
             log::trace!("Saving PRI image...");
         }
@@ -568,17 +568,14 @@ impl PriFormat {
         PriFormat::write_chunk(output, PriChunkType::FileHeader, &file_header)?;
 
         // Write any comments present in the image to a TEXT chunk.
-        image
-            .get_comment()
-            .map(|comment| PriFormat::write_text(output, comment));
+        image.comment().map(|comment| PriFormat::write_text(output, comment));
 
         // Iterate through tracks and write track headers and data.
         for track in image.track_iter() {
             if let Some(track) = track.as_any().downcast_ref::<BitStreamTrack>() {
                 log::trace!(
-                    "Track ch: {} sectors: {} encoding: {:?} data_rate: {:?} bit length: {}",
+                    "Track {}: encoding: {:?} data_rate: {:?} bit length: {}",
                     track.ch,
-                    track.sector_ids.len(),
                     track.encoding,
                     track.data_rate,
                     track.data.len(),

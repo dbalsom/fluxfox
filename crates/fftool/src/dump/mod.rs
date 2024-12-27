@@ -26,17 +26,16 @@
 */
 pub(crate) mod args;
 
-use anyhow::{bail, Error};
+use crate::{args::GlobalOptions, dump::args::DumpParams, read_file};
+use anyhow::{bail, Error, Result};
+use fluxfox::prelude::*;
 use std::io::{BufWriter, Write};
 
-use crate::{args::GlobalOptions, read_file};
-use fluxfox::prelude::*;
-
-pub(crate) fn run(global: &GlobalOptions, params: args::DumpParams) -> Result<(), Error> {
+pub(crate) fn run(global: &GlobalOptions, params: &args::DumpParams) -> Result<(), Error> {
     let row_size = params.row_size.unwrap_or(16) as usize;
     let mut cursor = read_file(&params.in_file)?;
 
-    let disk_image_type = match DiskImage::detect_format(&mut cursor) {
+    let disk_image_type = match DiskImage::detect_format(&mut cursor, Some(params.in_file.clone())) {
         Ok(disk_image_type) => disk_image_type,
         Err(e) => {
             eprintln!("Error detecting disk image type: {}", e);
@@ -65,7 +64,7 @@ pub(crate) fn run(global: &GlobalOptions, params: args::DumpParams) -> Result<()
                 DiskChsnQuery::from(dupe_chsn),
                 None,
                 None,
-                RwSectorScope::DataOnly,
+                RwScope::DataOnly,
                 true,
             ) {
                 Ok(rsr) => rsr,
@@ -124,7 +123,7 @@ pub(crate) fn run(global: &GlobalOptions, params: args::DumpParams) -> Result<()
 
         let id_chs = DiskChs::new(params.cylinder, params.head, sector);
 
-        let scope = RwSectorScope::DataOnly;
+        let scope = RwScope::DataOnly;
         let calc_crc = false;
         // let (scope, calc_crc) = match params.structure {
         //     true => (RwSectorScope::DataBlock, true),
@@ -141,24 +140,29 @@ pub(crate) fn run(global: &GlobalOptions, params: args::DumpParams) -> Result<()
             }
         };
 
-        _ = writeln!(&mut buf, "Data idx: {} length: {}", rsr.data_idx, rsr.data_len);
+        _ = writeln!(
+            &mut buf,
+            "Data idx: {} length: {}",
+            rsr.data_range.start,
+            rsr.data_range.len()
+        );
 
-        let data_slice = match scope {
-            RwSectorScope::DataOnly => &rsr.read_buf[rsr.data_idx..rsr.data_idx + rsr.data_len],
-            RwSectorScope::DataElement => &rsr.read_buf,
-            _ => unreachable!(),
-        };
+        let data_slice = rsr.data();
 
         if !global.silent {
             println!(
-                "Dumping sector from {} with id {} in hex format, with scope {:?}:",
+                "Dumping sector from track {} with id {} in hex format, with scope {:?}:",
                 phys_ch,
                 DiskChsn::from((id_chs, params.n.unwrap_or(2))),
                 scope
             );
         }
 
-        _ = fluxfox::util::dump_slice(data_slice, 0, row_size, &mut buf);
+        if data_slice.len() >= 16 {
+            log::debug!("read buf: {:02X?}", &rsr.read_buf[0..16]);
+            log::debug!("data slice: {:02X?}", &data_slice[0..16]);
+        }
+        _ = fluxfox::util::dump_slice(data_slice, 0, row_size, 1, &mut buf);
 
         // If we requested DataBlock scope, we can independently calculate the CRC, so do that now.
         if calc_crc {
@@ -172,63 +176,128 @@ pub(crate) fn run(global: &GlobalOptions, params: args::DumpParams) -> Result<()
         // No sector was provided, dump the whole track.
         let ch = DiskCh::new(params.cylinder, params.head);
 
-        let rtr = if params.raw {
-            let track = match disk.track_mut(ch) {
-                Some(track) => track,
-                None => {
-                    bail!("Specified track: {} not found.", ch);
-                }
-            };
-
-            if !global.silent {
-                println!(
-                    "Dumping track {} ({}, {} bits), raw, in hex format:",
-                    ch,
-                    track.info().encoding,
-                    track.info().bit_length
-                );
-            }
-
-            match track.read_track_raw(None) {
-                Ok(rtr) => {
-                    //println!("* read track raw *");
-                    rtr
-                }
-                Err(e) => {
-                    bail!("Error reading track: {}", e);
-                }
-            }
+        if params.clock_map {
+            dump_clock_map(&mut disk, row_size, ch, &mut buf, global, params)?;
         }
         else {
-            let track = match disk.track_mut(ch) {
-                Some(track) => track,
-                None => {
-                    bail!("Specified track: {} not found.", ch);
-                }
-            };
-
-            if !global.silent {
-                println!(
-                    "Dumping track {} ({}, {} bits), decoded, in hex format:",
-                    ch,
-                    track.info().encoding,
-                    track.info().bit_length
-                );
-            }
-
-            match disk.read_track(ch, None) {
-                Ok(rtr) => {
-                    //println!("* read track *");
-                    rtr
-                }
-                Err(e) => {
-                    bail!("Error reading track: {}", e);
-                }
-            }
-        };
-
-        _ = fluxfox::util::dump_slice(&rtr.read_buf, 0, row_size, &mut buf);
+            dump_track(&mut disk, row_size, ch, &mut buf, global, params)?;
+        }
 
         Ok(())
     }
+}
+
+fn dump_track<W: Write>(
+    disk: &mut DiskImage,
+    row_size: usize,
+    ch: DiskCh,
+    buf: &mut W,
+    global: &GlobalOptions,
+    params: &DumpParams,
+) -> Result<()> {
+    if params.raw {
+        let track = match disk.track_mut(ch) {
+            Some(track) => track,
+            None => {
+                bail!("Specified track: {} not found.", ch);
+            }
+        };
+
+        if !global.silent {
+            println!(
+                "Dumping track {} ({}, {} bits), raw, in hex format:",
+                ch,
+                track.info().encoding,
+                track.info().bit_length
+            );
+        }
+
+        let rtr = match track.read_raw(None) {
+            Ok(rtr) => {
+                //println!("* read track raw *");
+                rtr
+            }
+            Err(e) => {
+                bail!("Error reading track: {}", e);
+            }
+        };
+
+        // In raw format, one byte = 8 bits, and it takes 2 bytes to represent 1 decoded byte.
+        let element_size = match params.bit_address {
+            true => 8,
+            false => 2,
+        };
+        _ = fluxfox::util::dump_slice(&rtr.read_buf, 0, row_size, element_size, buf);
+    }
+    else {
+        let track = match disk.track_mut(ch) {
+            Some(track) => track,
+            None => {
+                bail!("Specified track: {} not found.", ch);
+            }
+        };
+
+        if !global.silent {
+            println!(
+                "Dumping track {} ({}, {} bits), decoded, in hex format:",
+                ch,
+                track.info().encoding,
+                track.info().bit_length
+            );
+        }
+
+        let rtr = match disk.read_track(ch, None) {
+            Ok(rtr) => {
+                //println!("* read track *");
+                rtr
+            }
+            Err(e) => {
+                bail!("Error reading track: {}", e);
+            }
+        };
+
+        // Each byte of the track is 16 MFM bits.
+        let element_size = match params.bit_address {
+            true => 16,
+            false => 1,
+        };
+        _ = fluxfox::util::dump_slice(&rtr.read_buf, 0, row_size, element_size, buf);
+    };
+
+    Ok(())
+}
+
+fn dump_clock_map<W: Write>(
+    disk: &mut DiskImage,
+    row_size: usize,
+    ch: DiskCh,
+    buf: &mut W,
+    global: &GlobalOptions,
+    _params: &DumpParams,
+) -> Result<()> {
+    let track = match disk.track_mut(ch) {
+        Some(track) => track,
+        None => {
+            bail!("Specified track: {} not found.", ch);
+        }
+    };
+
+    if !global.silent {
+        println!(
+            "Dumping clock map for track {} ({}, {} bits), raw, in hex format:",
+            ch,
+            track.info().encoding,
+            track.info().bit_length
+        );
+    }
+
+    if let Some(codec) = track.stream_mut() {
+        let map_vec = codec.clock_map().to_bytes();
+        _ = fluxfox::util::dump_slice(&map_vec, 0, row_size, 8, buf);
+    }
+    else {
+        bail!("Failed to resolve track codec");
+    }
+
+    Ok(())
 }

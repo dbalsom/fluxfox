@@ -36,28 +36,30 @@ pub mod metasector;
 
 use crate::{
     bitstream::TrackDataStream,
-    structure_parsers::{system34::System34Standard, DiskStructureMetadata},
     track::{bitstream::BitStreamTrack, fluxstream::FluxStreamTrack, metasector::MetaSectorTrack},
+    track_schema::{system34::System34Standard, TrackMetadata, TrackSchema},
     types::{
         chs::DiskChsnQuery,
+        AddSectorParams,
         DiskCh,
         DiskChs,
         DiskChsn,
-        DiskDataEncoding,
-        DiskDataRate,
         DiskDataResolution,
-        DiskDensity,
         DiskRpm,
         ReadSectorResult,
         ReadTrackResult,
-        RwSectorScope,
+        RwScope,
         ScanSectorResult,
-        SectorDescriptor,
+        TrackDataEncoding,
+        TrackDataRate,
+        TrackDensity,
         WriteSectorResult,
     },
     DiskImageError,
+    SectorIdQuery,
     SectorMapEntry,
 };
+use dyn_clone::{clone_trait_object, DynClone};
 use sha1_smol::Digest;
 use std::any::Any;
 
@@ -66,11 +68,13 @@ use std::any::Any;
 #[derive(Debug)]
 pub struct TrackInfo {
     /// The type of encoding used on the track as a `DiskDataEncoding` enum.
-    pub encoding: DiskDataEncoding,
+    pub encoding: TrackDataEncoding,
+    /// The track data schema
+    pub schema: Option<TrackSchema>,
     /// The data rate of the track as a `DiskDataRate` enum.
-    pub data_rate: DiskDataRate,
+    pub data_rate: TrackDataRate,
     /// The density of the track as a `DiskDensity` enum, or `None` if density has not been determined.
-    pub density: Option<DiskDensity>,
+    pub density: Option<TrackDensity>,
     /// The RPM of the track as an `DiskRpm`, or `None` if RPM has not been determined.
     pub rpm: Option<DiskRpm>,
     /// The bit length of the track.
@@ -80,21 +84,19 @@ pub struct TrackInfo {
 }
 
 /// A struct representing the result of a sector scan operation on a track.
-pub enum TrackSectorScanResult {
+pub(crate) enum TrackSectorScanResult {
     /// A variant indicating the specified sector ID was found on the track.
     Found {
-        /// The starting bit offset of the sector element on the track.
-        element_start: usize,
-        /// The ending bit offset of the sector element on the track.
-        element_end: usize,
+        /// The index of the [TrackElementInstance] that was found.
+        ei: usize,
         /// The matching sector ID found on the track.
         sector_chsn: DiskChsn,
-        /// A boolean flag indicating whether the sector's address CRC is valid.
-        address_crc_valid: bool,
-        /// A boolean flag indicating whether the sector's data CRC is valid.
-        data_crc_valid: bool,
-        /// A boolean flag indicating whether the sector had a deleted data marker.
-        deleted: bool,
+        /// Whether the specified sector failed a header data integrity check.
+        address_error: bool,
+        /// Whether the specified sector failed a data integrity check.
+        data_error: bool,
+        /// Whether the specific sector has a "deleted data" address mark.
+        deleted_mark: bool,
         /// A boolean flag indicating whether the sector ID was matched, but no sector data was found.
         no_dam: bool,
     },
@@ -114,13 +116,45 @@ pub enum TrackSectorScanResult {
     Incompatible,
 }
 
+impl From<TrackSectorScanResult> for ScanSectorResult {
+    fn from(other: TrackSectorScanResult) -> Self {
+        match other {
+            TrackSectorScanResult::Found {
+                address_error,
+                data_error,
+                deleted_mark,
+                no_dam,
+                ..
+            } => ScanSectorResult {
+                not_found: false,
+                no_dam,
+                deleted_mark,
+                address_error,
+                data_error,
+                ..Default::default()
+            },
+            TrackSectorScanResult::NotFound {
+                wrong_cylinder,
+                bad_cylinder,
+                wrong_head,
+            } => ScanSectorResult {
+                wrong_cylinder,
+                bad_cylinder,
+                wrong_head,
+                ..Default::default()
+            },
+            TrackSectorScanResult::Incompatible => Default::default(),
+        }
+    }
+}
+
 /// A structure containing information about a track's consistency vs a standard track.
 #[derive(Debug, Default)]
-pub struct TrackConsistency {
+pub struct TrackAnalysis {
     /// A boolean flag indicating whether the track contains sectors with bad data CRCs.
-    pub bad_data_crc: bool,
+    pub data_error: bool,
     /// A boolean flag indicating whether the track contains sectors with bad address CRCs.
-    pub bad_address_crc: bool,
+    pub address_error: bool,
     /// A boolean flag indicating whether the track contains sectors with deleted data.
     pub deleted_data: bool,
     /// A boolean flag indicating whether the track contains sectors with no DAM.
@@ -138,11 +172,11 @@ pub struct TrackConsistency {
     pub sector_ct: usize,
 }
 
-impl TrackConsistency {
-    /// Merge a `TrackConsistency` struct with another, by OR'ing together their boolean values.
-    pub fn join(&mut self, other: &TrackConsistency) {
-        self.bad_data_crc |= other.bad_data_crc;
-        self.bad_address_crc |= other.bad_address_crc;
+impl TrackAnalysis {
+    /// Merge a [TrackAnalysis] struct with another, by OR'ing together their boolean values.
+    pub fn join(&mut self, other: &TrackAnalysis) {
+        self.data_error |= other.data_error;
+        self.address_error |= other.address_error;
         self.deleted_data |= other.deleted_data;
         self.no_dam |= other.no_dam;
         self.nonconsecutive_sectors |= other.nonconsecutive_sectors;
@@ -156,52 +190,88 @@ impl TrackConsistency {
 }
 
 #[cfg_attr(feature = "serde", typetag::serde)]
-pub trait Track: Any + Send + Sync {
+pub trait Track: DynClone + Any + Send + Sync {
     /// Return the resolution of the track as a `DiskDataResolution`.
     /// This can be used to determine the track's underlying representation, especially if you wish
     /// to downcast the track to a specific type.
     fn resolution(&self) -> DiskDataResolution;
+
     /// Return a reference to the track as a `&dyn Any`, for downcasting.
     fn as_any(&self) -> &dyn Any;
+
     /// Return a mutable reference to the track as a `&mut dyn Any`, for downcasting.
     fn as_any_mut(&mut self) -> &mut dyn Any;
+
     /// Downcast the track to a `MetaSectorTrack` reference, if possible.
-    fn as_metasector_track(&self) -> Option<&MetaSectorTrack>;
+    fn as_metasector_track(&self) -> Option<&MetaSectorTrack> {
+        None
+    }
+
+    /// Downcast the track to a mutable `MetaSectorTrack` reference, if possible.
+    fn as_metasector_track_mut(&mut self) -> Option<&mut MetaSectorTrack> {
+        None
+    }
+
     /// Downcast the track to a `BitStreamTrack` reference, if possible.
-    fn as_bitstream_track(&self) -> Option<&BitStreamTrack>;
+    fn as_bitstream_track(&self) -> Option<&BitStreamTrack> {
+        None
+    }
+
+    /// Downcast the track to a `BitStreamTrack` reference, if possible.
+    fn as_bitstream_track_mut(&mut self) -> Option<&mut BitStreamTrack> {
+        None
+    }
+
     /// Downcast the track to a `FluxStreamTrack` reference, if possible.
-    fn as_fluxstream_track(&self) -> Option<&FluxStreamTrack>;
+    fn as_fluxstream_track(&self) -> Option<&FluxStreamTrack> {
+        None
+    }
+
     /// Downcast the track to a mutable `FluxStreamTrack` reference, if possible.
-    fn as_fluxstream_track_mut(&mut self) -> Option<&mut FluxStreamTrack>;
+    fn as_fluxstream_track_mut(&mut self) -> Option<&mut FluxStreamTrack> {
+        None
+    }
+
     /// Return the track's physical cylinder and head as a `DiskCh`.
     fn ch(&self) -> DiskCh;
+
     /// Set the track's physical cylinder and head.
     fn set_ch(&mut self, ch: DiskCh);
+
     /// Return the encoding of the track as `DiskDataEncoding`.
-    fn encoding(&self) -> DiskDataEncoding;
+    fn encoding(&self) -> TrackDataEncoding;
+
     /// Return information about the track as a `TrackInfo` struct.
     fn info(&self) -> TrackInfo;
-    /// Return a list of the track's metadata, or None if the track has not been scanned for metadata.
-    fn metadata(&self) -> Option<&DiskStructureMetadata>;
+
+    /// Return the track's metadata as a reference to [TrackMetadata], or None if the track has not
+    /// been scanned for metadata or no metadata was found.
+    fn metadata(&self) -> Option<&TrackMetadata>;
+
     /// Return a count of the sectors on the track.
     fn sector_ct(&self) -> usize;
+
     /// Returns `true` if the track contains a sector with the specified ID.
     ///
-    /// # Parameters
+    /// # Arguments
     /// - `id`: The sector ID to search for.
     /// - `id_chsn`: An optional `DiskChsn` value. If provided, the `id` parameter is ignored and
     ///              the entire `DiskChsn` value is used to search for the sector.
+
     fn has_sector_id(&self, id: u8, id_chsn: Option<DiskChsn>) -> bool;
+
     // Return a SectorIterator for the current track.
     // Warning: Reformatting the track will invalidate the iterator.
     //fn sector_iter(&self) -> SectorIterator<'a, T>;
 
+    /// TODO: Rename SectorMapEntry - it's not a map, it's a list.
     /// Returns a vector of `SectorMapEntry` structs representing the sectors on the track.
     fn sector_list(&self) -> Vec<SectorMapEntry>;
+
     /// Adds a new sector to a track in the disk image, essentially 'formatting' a new sector,
     /// This function is only valid for tracks with `MetaSector` resolution.
     ///
-    /// # Parameters
+    /// # Arguments
     /// - `sd`: A reference to a `SectorDescriptor` containing the sector data and metadata.
     /// - `alternate`: A boolean flag indicating whether the sector is an alternate sector.
     ///                Alternate sectors will calculate weak bit masks for the existing sector.
@@ -211,35 +281,45 @@ pub trait Track: Any + Send + Sync {
     /// - `Ok(())` if the sector was successfully mastered.
     /// - `Err(DiskImageError::SeekError)` if the head value in `chs` is greater than 1 or the track map does not contain the specified cylinder.
     /// - `Err(DiskImageError::UnsupportedFormat)` if the track data is not of `MetaSector` resolution.
-    fn add_sector(&mut self, sd: &SectorDescriptor, alternate: bool) -> Result<(), DiskImageError>;
-    /// Read the sector data from the sector identified by 'chs'. The data is returned within a
-    /// ReadSectorResult struct which also sets some convenience metadata flags where are needed
-    /// when handling ByteStream images.
-    /// When reading a BitStream image, the sector data includes the address mark and crc.
-    /// Offsets are provided within ReadSectorResult so these can be skipped when processing the
-    /// read operation.
+    fn add_sector(&mut self, sd: &AddSectorParams) -> Result<(), DiskImageError>;
+
+    /// Attempts to read the sector data from the sector identified by `id`.
+    ///
+    /// # Arguments
+    /// - `id`: The sector ID to read as a `SectorIdQuery`.
+    /// - `n`: An optional override value for the sector's size parameter. If provided, the sector
+    ///        will be read as a sector of this size.
+    /// - `offset`: An optional bit offset to start reading the sector data from. If a track
+    ///             contains multiple sectors with the same ID, the offset can be used to specify
+    ///             which sector to read.
+    /// - `scope`: The scope of the read operation as a `RwSectorScope` enum. This can be used to
+    ///            specify whether to include the sector's address mark and CRC in the read data.
+    /// - `debug`: A boolean flag controlling debug mode. When set to `true`, the read operation
+    ///            return data even if the sector has an invalid address CRC or would otherwise
+    ///            normally not be read.
+    ///
+    /// # Returns
+    /// A Result containing either
+    /// - [ReadSectorResult] struct which provides various result flags and the resulting data if
+    ///   the sector was successfully read.
+    /// - [DiskImageError] if an error occurred while reading the sector.
     fn read_sector(
         &self,
-        id: DiskChsnQuery,
+        id: SectorIdQuery,
         n: Option<u8>,
         offset: Option<usize>,
-        scope: RwSectorScope,
+        scope: RwScope,
         debug: bool,
     ) -> Result<ReadSectorResult, DiskImageError>;
 
-    fn scan_sector(
-        &self,
-        id: DiskChsnQuery,
-        n: Option<u8>,
-        offset: Option<usize>,
-    ) -> Result<ScanSectorResult, DiskImageError>;
+    fn scan_sector(&self, id: SectorIdQuery, offset: Option<usize>) -> Result<ScanSectorResult, DiskImageError>;
 
     fn write_sector(
         &mut self,
         id: DiskChsnQuery,
         offset: Option<usize>,
         write_data: &[u8],
-        scope: RwSectorScope,
+        scope: RwScope,
         write_deleted: bool,
         debug: bool,
     ) -> Result<WriteSectorResult, DiskImageError>;
@@ -251,15 +331,16 @@ pub trait Track: Any + Send + Sync {
     /// Return a hash that uniquely identifies the track data. Intended for use in identifying
     /// duplicate tracks.
     fn hash(&mut self) -> Digest;
+
     /// Read all sectors from the track. The data is returned within a `ReadSectorResult` struct
-    /// which also sets some convenience metadata flags which are needed when handling ByteStream
-    /// images.
-    /// Unlike `read_sectors`, the data returned is only the actual sector data. The address marks and
-    /// CRCs are not included in the data.
+    /// which also sets some convenience metadata flags which are needed when handling `MetaSector`
+    /// resolution images.
+    /// Unlike `read_sector`, the data returned is only the actual sector data. The address marks
+    /// and CRCs are not included in the data.
     /// This function is intended for use in implementing the µPD765 FDC's "Read Track" command.
     fn read_all_sectors(&mut self, ch: DiskCh, n: u8, track_len: u8) -> Result<ReadTrackResult, DiskImageError>;
 
-    fn get_next_id(&self, chs: DiskChs) -> Option<DiskChsn>;
+    fn next_id(&self, chs: DiskChs) -> Option<DiskChsn>;
 
     /// Read the entire track, decoding the data within.
     /// Not valid for MetaSector resolution tracks, which will return `DiskImageError::UnsupportedFormat`.
@@ -271,7 +352,7 @@ pub trait Track: Any + Send + Sync {
     /// # Returns
     /// - `Ok(ReadTrackResult)` if the track was successfully read.
     /// - `Err(DiskImageError)` if an error occurred while reading the track.
-    fn read_track(&mut self, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError>;
+    fn read(&mut self, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError>;
 
     /// Read the entire track without decoding.
     /// Not valid for MetaSector resolution tracks, which will return `DiskImageError::UnsupportedFormat`.
@@ -283,9 +364,11 @@ pub trait Track: Any + Send + Sync {
     /// # Returns
     /// - `Ok(ReadTrackResult)` if the track was successfully read.
     /// - `Err(DiskImageError)` if an error occurred while reading the track.
-    fn read_track_raw(&mut self, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError>;
+    fn read_raw(&mut self, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError>;
+
     /// Return a boolean value indicating whether the track has bits set in its weak bit mask.
     fn has_weak_bits(&self) -> bool;
+
     /// Format the track with the specified parameters.
     /// # Arguments
     /// - `standard`: The disk structure standard to use when formatting the track.
@@ -301,16 +384,20 @@ pub trait Track: Any + Send + Sync {
     ) -> Result<(), DiskImageError>;
 
     /// Retrieve information about a track's consistency vs a standard track.
-    /// Returns a `TrackConsistency` struct containing information about the track's consistency,
+    /// Returns a `TrackAnalysis` struct containing information about the track's formatting,
     /// such as bad CRCs, deleted data, and overlapping sectors.
     /// # Returns
-    /// - `Ok(TrackConsistency)` if the track was successfully checked for consistency.
-    /// - `Err(DiskImageError)` if an error occurred while checking the track for consistency.
-    fn track_consistency(&self) -> Result<TrackConsistency, DiskImageError>;
+    /// - `Ok(TrackAnalysis)` if the track was successfully analyzed
+    /// - `Err(DiskImageError)` if an error occurred while checking the analyzing the track
+    fn analysis(&self) -> Result<TrackAnalysis, DiskImageError>;
+
     /// Return a reference to the underlying `TrackDataStream`.
-    fn track_stream(&self) -> Option<&TrackDataStream>;
+    fn stream(&self) -> Option<&TrackDataStream>;
+
     /// Return a mutable reference to the underlying `TrackDataStream`.
-    fn track_stream_mut(&mut self) -> Option<&mut TrackDataStream>;
+    fn stream_mut(&mut self) -> Option<&mut TrackDataStream>;
 }
+
+clone_trait_object!(Track);
 
 pub type DiskTrack = Box<dyn Track>;

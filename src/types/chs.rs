@@ -28,8 +28,8 @@
 //! The `chs` module defines several structures for working with Cylinder-Head-Sector (CHS)
 //! addressing and sector IDs.
 
-use crate::MAXIMUM_SECTOR_SIZE;
-use std::fmt::Display;
+use crate::{types::sector_layout::SectorLayout, MAXIMUM_SECTOR_SIZE};
+use std::{cmp::Ordering, fmt::Display};
 
 /// A structure representing a query against the four components of sector header:
 ///  - Cylinder ID (c)
@@ -91,7 +91,7 @@ impl DiskChsnQuery {
             .map(|n| std::cmp::min(MAXIMUM_SECTOR_SIZE, 128usize.overflowing_shl(n as u32).0))
     }
     /// Return a boolean indicating whether the specified `DiskChsn` matches the query.
-    pub fn matches(&self, id_chsn: DiskChsn) -> bool {
+    pub fn matches(&self, id_chsn: &DiskChsn) -> bool {
         if self.s != id_chsn.s() {
             return false;
         }
@@ -287,8 +287,8 @@ impl DiskChsn {
     /// Convert a `DiskChsn` struct to an LBA sector address. A reference drive geometry is required to
     /// calculate the address.
     #[inline]
-    pub fn to_lba(&self, geom: impl Into<DiskChs>) -> usize {
-        self.chs.to_lba(geom.into())
+    pub fn to_lba(&self, geom: &SectorLayout) -> usize {
+        self.chs.to_lba(geom)
     }
 
     /// Return a new `DiskChsn` that is the next sector on the disk, according to the specified
@@ -296,7 +296,7 @@ impl DiskChsn {
     /// Returns None if the current `DiskChsn` represents the last sector of the specified geometry.
     /// This function should only be used for iterating through sectors in a standard disk format.
     /// It will not work correctly for non-standard disk formats.
-    pub fn next_sector(&self, geom: impl Into<DiskChs>) -> Option<DiskChsn> {
+    pub fn next_sector(&self, geom: &SectorLayout) -> Option<DiskChsn> {
         self.chs.next_sector(geom).map(|chs| DiskChsn::from((chs, self.n)))
     }
 
@@ -306,17 +306,14 @@ impl DiskChsn {
     /// # Arguments:
     /// * `geom` - Any type implementing `Into<DiskChs>`, representing the number of heads,
     ///            cylinders, and sectors per track on the disk.
-    pub(crate) fn offset_sectors(&mut self, sectors: u32, geom: impl Into<DiskChs>) -> Option<DiskChsn> {
+    pub(crate) fn offset_sectors(&mut self, sectors: u32, geom: &SectorLayout) -> Option<DiskChsn> {
         self.chs
             .offset_sectors(sectors, geom)
             .map(|chs| DiskChsn::from((chs, self.n)))
     }
 
-    pub fn iter(&self) -> DiskChsnIterator {
-        DiskChsnIterator {
-            geom: *self,
-            chs:  DiskChs { c: 0, h: 0, s: 0 }, // Iterator calls next() right away, so we start at 0
-        }
+    pub fn iter(&self, geom: SectorLayout) -> DiskChsnIterator {
+        DiskChsnIterator { geom, chs: None }
     }
 }
 
@@ -329,9 +326,9 @@ impl DiskChsn {
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DiskChs {
-    c: u16,
-    h: u8,
-    s: u8,
+    pub(crate) c: u16,
+    pub(crate) h: u8,
+    pub(crate) s: u8,
 }
 
 impl Default for DiskChs {
@@ -462,32 +459,30 @@ impl DiskChs {
         self.c > other.c && self.h > other.h && self.s >= other.s
     }
 
-    /// Convert a `DiskChs` struct to an LBA sector address.
-    /// A reference drive geometry is required to calculate the address.
+    /// Convert a [DiskChs] struct to an LBA sector address.
+    /// A reference [SectorLayout] is required to calculate the address.
     /// Only valid for standard disk formats.
-    pub fn to_lba(&self, geom: impl Into<DiskChs>) -> usize {
-        let geom = geom.into();
+    pub fn to_lba(&self, geom: &SectorLayout) -> usize {
         let hpc = geom.h() as usize;
         let spt = geom.s() as usize;
-        (self.c as usize * hpc + (self.h as usize)) * spt + (self.s.saturating_sub(1) as usize)
+        (self.c as usize * hpc + (self.h as usize)) * spt + (self.s.saturating_sub(geom.s_off) as usize)
     }
 
-    /// Convert an LBA sector address into a `DiskChs` struct and byte offset into the resulting sector.
+    /// Convert an LBA sector address into a [DiskChs] struct and byte offset into the resulting sector.
     /// A reference drive geometry is required to calculate the address.
     /// Only valid for standard disk formats.
     /// # Arguments:
     /// * `lba` - The LBA sector address to convert.
-    /// * `geom` - Any type implementing `Into<DiskChs>`, representing the number of heads and cylinders on the disk.
+    /// * `geom` - A [SectorLayout], representing the number of heads and cylinders on the disk.
     /// # Returns:
     /// * `Some(DiskChs)` representing the resulting CHS address.
     /// * `None` if the LBA address is invalid for the specified geometry.
-    pub fn from_lba(lba: usize, geom: impl Into<DiskChs>) -> Option<DiskChs> {
-        let geom = geom.into();
+    pub fn from_lba(lba: usize, geom: &SectorLayout) -> Option<DiskChs> {
         let hpc = geom.h() as usize;
         let spt = geom.s() as usize;
         let c = lba / (hpc * spt);
         let h = (lba / spt) % hpc;
-        let s = (lba % spt) + 1;
+        let s = (lba % spt) + geom.s_off as usize;
 
         if c >= geom.c() as usize || h >= hpc || s > spt {
             return None;
@@ -500,14 +495,13 @@ impl DiskChs {
     /// Only valid for standard disk formats. This function is intended to assist seeking within a raw sector view.
     /// # Arguments:
     /// * `lba` - The LBA sector address to convert.
-    /// * `geom` - Any type implementing `Into<DiskChs>`, representing the number of heads and cylinders on the disk.
+    /// * `lba` - The LBA sector address to convert.
+    /// * `geom` - A [SectorLayout], representing the number of heads and cylinders on the disk.
     /// # Returns:
     /// A tuple containing the resulting `DiskChs` and the byte offset into the sector.
-    pub fn from_raw_offset(offset: usize, geom: impl Into<DiskChsn>) -> Option<(DiskChs, usize)> {
-        let geom = geom.into();
-        let sector_size = geom.n_size();
-        let lba = offset / sector_size;
-        DiskChs::from_lba(lba, geom).map(|chs| (chs, offset % sector_size))
+    pub fn from_raw_offset(offset: usize, geom: &SectorLayout) -> Option<(DiskChs, usize)> {
+        let lba = offset / geom.size();
+        DiskChs::from_lba(lba, geom).map(|chs| (chs, offset % geom.size()))
     }
 
     /// Convert a `DiskChs` into a raw byte offset
@@ -515,14 +509,11 @@ impl DiskChs {
     /// Only valid for standard disk formats. This function is intended to assist seeking within a raw sector view.
     /// # Arguments:
     /// * `lba` - The LBA sector address to convert.
-    /// * `geom` - Any type implementing `Into<DiskChs>`, representing the number of heads and cylinders on the disk.
+    /// * `geom` - A [SectorLayout], representing the number of heads and cylinders on the disk.
     /// # Returns:
     /// A tuple containing the resulting `DiskChs` and the byte offset into the sector.
-    pub fn to_raw_offset(&self, geom: impl Into<DiskChsn>) -> Option<usize> {
-        let geom = geom.into();
-        let sector_size = geom.n_size();
-
-        geom.contains(*self).then_some(self.to_lba(geom) * sector_size)
+    pub fn to_raw_offset(&self, geom: &SectorLayout) -> Option<usize> {
+        geom.contains(*self).then_some(self.to_lba(geom) * geom.size())
     }
 
     /// Return a new `DiskChs` that is the next sector on the disk, according to the specified
@@ -530,19 +521,29 @@ impl DiskChs {
     /// Returns None if the current `DiskChs` represents the last sector of the specified geometry.
     /// This function should only be used for iterating through sectors in a standard disk format.
     /// It will not work correctly for non-standard disk formats.
-    pub fn next_sector(&self, geom: impl Into<DiskChs>) -> Option<DiskChs> {
-        let geom = geom.into();
-        if self.s < geom.s() {
+    /// # Arguments:
+    /// * `geom` - A [SectorLayout], representing the number of heads and cylinders on the disk.
+    pub fn next_sector(&self, geom: &SectorLayout) -> Option<DiskChs> {
+        if self.s < (geom.s() - 1 + geom.s_off) {
+            // println!(
+            //     "Geometry: {} current sector: {}, spt: {}, last valid sector:{} Next sector: {}",
+            //     geom,
+            //     self.s,
+            //     geom.s(),
+            //     geom.s() - 1 + geom.s_off,
+            //     self.s + 1
+            // );
+
             // Not at last sector, just return next sector
             Some(DiskChs::from((self.c, self.h, self.s + 1)))
         }
-        else if self.h < geom.h() - 1 {
+        else if self.h < geom.h().saturating_sub(1) {
             // At last sector, but not at last head, go to next head, same cylinder, sector 1
-            Some(DiskChs::from((self.c, self.h + 1, 1)))
+            Some(DiskChs::from((self.c, self.h + 1, geom.s_off)))
         }
-        else if self.c < geom.c() - 1 {
-            // At last sector and last head, go to next cylinder, head 0, sector 1
-            Some(DiskChs::from((self.c + 1, 0, 1)))
+        else if self.c < geom.c().saturating_sub(1) {
+            // At last sector and last head, go to next cylinder, head 0, sector (s_off)
+            Some(DiskChs::from((self.c + 1, 0, geom.s_off)))
         }
         else {
             // At end of disk.
@@ -554,23 +555,19 @@ impl DiskChs {
     /// `DiskChs`, according to a provided geometry.
     /// Returns None if advanced past the end of the disk.
     /// # Arguments:
-    /// * `geom` - Any type implementing `Into<DiskChs>`, representing the number of heads and cylinders, and sectors per track on the disk.
-    pub fn offset_sectors(&mut self, sectors: u32, geom: impl Into<DiskChs>) -> Option<DiskChs> {
+    /// * `geom` - A [SectorLayout], representing the number of heads and cylinders on the disk.
+    pub fn offset_sectors(&mut self, sectors: u32, geom: &SectorLayout) -> Option<DiskChs> {
         let mut start_chs = *self;
-        let geom_chs = geom.into();
         for _ in 0..sectors {
-            start_chs = start_chs.next_sector(geom_chs)?;
+            start_chs = start_chs.next_sector(geom)?;
         }
         Some(start_chs)
     }
 
     /// Return a `DiskChsIterator` that will iterate through all sectors in order, interpreting the `DiskChs` as a standard disk geometry.
     /// This should only be used for standard disk formats. It will skip non-standard sectors, and may access sectors out of physical order.
-    pub fn iter(&self) -> DiskChsIterator {
-        DiskChsIterator {
-            geom: *self,
-            chs:  DiskChs { c: 0, h: 0, s: 0 },
-        }
+    pub fn iter(&self, geom: SectorLayout) -> DiskChsIterator {
+        DiskChsIterator { geom, chs: None }
     }
 }
 
@@ -580,11 +577,26 @@ impl DiskChs {
 ///
 /// A `DiskCh` is usually used as a physical track specifier. It can hold the geometry of a disk,
 /// or act as a cursor specifying a specific track on a disk.
+#[repr(C)]
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DiskCh {
     pub(crate) c: u16,
     pub(crate) h: u8,
+}
+
+impl PartialOrd for DiskCh {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for DiskCh {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.c
+            .cmp(&other.c) // Compare by cylinder first
+            .then_with(|| self.h.cmp(&other.h)) // Then by head
+    }
 }
 
 impl From<(u16, u8)> for DiskCh {
@@ -700,33 +712,71 @@ impl DiskCh {
     pub fn seek_next_track_unchecked(&mut self, heads: u8) {
         *self = self.next_track_unchecked(heads);
     }
+
+    /// Return a `DiskChsIterator` that will iterate through all sectors in order, interpreting the `DiskChs` as a standard disk geometry.
+    /// This should only be used for standard disk formats. It will skip non-standard sectors, and may access sectors out of physical order.
+    pub fn iter(&self) -> DiskChIterator {
+        DiskChIterator {
+            geom: *self,
+            ch:   None,
+        }
+    }
+}
+
+pub struct DiskChIterator {
+    geom: DiskCh,
+    ch:   Option<DiskCh>,
+}
+
+impl Iterator for DiskChIterator {
+    type Item = DiskCh;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(ch) = &mut self.ch {
+            *ch = ch.next_track(self.geom)?;
+        }
+        else {
+            self.ch = Some(DiskCh::new(0, 0));
+        }
+        self.ch
+    }
 }
 
 pub struct DiskChsIterator {
-    geom: DiskChs,
-    chs:  DiskChs,
+    geom: SectorLayout,
+    chs:  Option<DiskChs>,
 }
 
 impl Iterator for DiskChsIterator {
     type Item = DiskChs;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.chs = self.chs.next_sector(self.geom)?;
-        Some(self.chs)
+        if let Some(chs) = &mut self.chs {
+            *chs = chs.next_sector(&self.geom)?;
+        }
+        else {
+            self.chs = Some(DiskChs::new(0, 0, self.geom.s_off));
+        }
+        self.chs
     }
 }
 
 pub struct DiskChsnIterator {
-    geom: DiskChsn,
-    chs:  DiskChs,
+    geom: SectorLayout,
+    chs:  Option<DiskChs>,
 }
 
 impl Iterator for DiskChsnIterator {
     type Item = DiskChsn;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.chs = self.chs.next_sector(self.geom)?;
-        Some(DiskChsn::from((self.chs, self.geom.n())))
+        if let Some(chs) = &mut self.chs {
+            *chs = chs.next_sector(&self.geom)?;
+        }
+        else {
+            self.chs = Some(DiskChs::new(0, 0, self.geom.s_off));
+        }
+        Some(DiskChsn::from((self.chs.unwrap(), self.geom.n())))
     }
 }
 
@@ -763,27 +813,27 @@ mod tests {
 
     #[test]
     fn diskchs_to_lba_calculates_correct_lba() {
-        let geom = DiskChs::new(40, 2, 9);
+        let geom = SectorLayout::new(40, 2, 9, 1, 512);
         let chs = DiskChs::new(2, 1, 5);
 
         // 2(cyl) * 2(heads) * 9(sectors) + (1(head) * 9(sectors)) + 5(sector) = 49
-        assert_eq!(chs.to_lba(geom), 49);
+        assert_eq!(chs.to_lba(&geom), 49);
     }
 
     #[test]
     fn diskchs_from_lba_calculates_correct_chs() {
-        let geom = DiskChs::new(40, 2, 9);
+        let geom = SectorLayout::new(40, 2, 9, 1, 512);
         let lba = 49;
-        let chs = DiskChs::from_lba(lba, geom).unwrap();
+        let chs = DiskChs::from_lba(lba, &geom).unwrap();
         assert_eq!(chs, DiskChs::new(2, 1, 5));
     }
 
     #[test]
     fn diskchs_from_raw_offset_calculates_correct_chs() {
-        let geom = StandardFormat::PcFloppy360.chsn();
+        let geom = StandardFormat::PcFloppy360.layout();
 
         let offset = 2560; // 5 sectors offset
-        let (chs, byte_offset) = DiskChs::from_raw_offset(offset, geom).unwrap();
+        let (chs, byte_offset) = DiskChs::from_raw_offset(offset, &geom).unwrap();
 
         assert_eq!(byte_offset, 0);
         assert_eq!(DiskChs::new(0, 0, 6), chs);
@@ -791,22 +841,22 @@ mod tests {
 
     #[test]
     fn diskchs_from_lba_returns_none_for_out_of_range() {
-        let geom = DiskChs::new(40, 2, 9);
+        let geom = SectorLayout::new(40, 2, 9, 1, 512);
         let lba = 720; // Out of range LBA for the given geometry
-        let chs = DiskChs::from_lba(lba, geom);
+        let chs = DiskChs::from_lba(lba, &geom);
         assert!(chs.is_none());
     }
 
     #[test]
     fn diskchs_from_raw_offset_calculates_correct_chs_and_offset() {
-        let geom = DiskChsn::new(40, 2, 9, 3); // 1024 bytes per sector
+        let geom = SectorLayout::new(40, 2, 9, 1, 1024);
         let offset = 5120; // 10 sectors offset
-        let (chs, byte_offset) = DiskChs::from_raw_offset(offset, geom).unwrap();
+        let (chs, byte_offset) = DiskChs::from_raw_offset(offset, &geom).unwrap();
         assert_eq!(chs, DiskChs::new(0, 0, 6));
         assert_eq!(byte_offset, 0);
 
         let offset = 5123; // 10 sectors and 3 bytes offset
-        let (chs, byte_offset) = DiskChs::from_raw_offset(offset, geom).unwrap();
+        let (chs, byte_offset) = DiskChs::from_raw_offset(offset, &geom).unwrap();
 
         assert_eq!(chs, DiskChs::new(0, 0, 6));
         assert_eq!(byte_offset, 3);
@@ -820,13 +870,47 @@ mod tests {
     }
 
     #[test]
-    fn diskchs_iter_works() {
-        let geom = StandardFormat::PcFloppy360.chs();
-        let total_sectors = geom.total_sectors();
+    fn diskch_iter_works() {
+        let geom = StandardFormat::PcFloppy360.ch();
+
+        let ch = geom.iter().next().unwrap();
+        assert_eq!(ch, DiskCh::new(0, 0));
+
         let last_chs = geom.iter().last().unwrap();
-        assert_eq!(last_chs, DiskChs::new(geom.c() - 1, geom.h() - 1, geom.s()));
+        assert_eq!(last_chs, DiskCh::new(geom.c() - 1, geom.h() - 1));
 
         let iter_ct = geom.iter().count();
+        assert_eq!(iter_ct, geom.c() as usize * geom.h() as usize);
+    }
+
+    #[test]
+    fn diskchs_iter_works() {
+        let geom = StandardFormat::PcFloppy360.layout();
+        let total_sectors = geom.total_sectors();
+
+        let first_chs = geom.chs_iter().next().unwrap();
+        assert_eq!(first_chs, DiskChs::new(0, 0, 1));
+
+        let last_chs = geom.chs_iter().last().unwrap();
+        assert_eq!(last_chs, DiskChs::new(geom.c() - 1, geom.h() - 1, geom.s()));
+
+        let iter_ct = geom.chs_iter().count();
+        assert_eq!(iter_ct, total_sectors);
+    }
+
+    #[test]
+    #[cfg(feature = "amiga")]
+    fn diskchs_iter_works_with_0_offset() {
+        let geom = StandardFormat::AmigaFloppy880.layout();
+        let total_sectors = geom.total_sectors();
+
+        let first_chs = geom.chs_iter().next().unwrap();
+        assert_eq!(first_chs, DiskChs::new(0, 0, 0));
+
+        let last_chs = geom.chs_iter().last().unwrap();
+        assert_eq!(last_chs, DiskChs::new(geom.c() - 1, geom.h() - 1, geom.s() - 1));
+
+        let iter_ct = geom.chs_iter().count();
         assert_eq!(iter_ct, total_sectors);
     }
 }

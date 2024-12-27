@@ -24,7 +24,7 @@
 
     --------------------------------------------------------------------------
 */
-use crate::types::{DiskDataEncoding, DiskDensity};
+use crate::types::{TrackDataEncoding, TrackDensity};
 use std::{
     fmt,
     fmt::{Display, Formatter},
@@ -33,6 +33,7 @@ use std::{
 pub mod flux_revolution;
 #[macro_use]
 pub mod pll;
+pub mod histogram;
 
 pub use flux_revolution::FluxRevolutionType;
 
@@ -54,22 +55,33 @@ macro_rules! format_ms {
     };
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum FluxTransition {
+    TooShort,
     Short,
     Medium,
     Long,
-    Other,
+    TooLong,
+}
+
+impl FluxTransition {
+    pub fn abnormal(&self) -> bool {
+        match self {
+            FluxTransition::TooShort | FluxTransition::TooLong => true,
+            _ => false,
+        }
+    }
 }
 
 impl Display for FluxTransition {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
+            FluxTransition::TooShort => write!(f, "s"),
             FluxTransition::Short => write!(f, "S"),
             FluxTransition::Medium => write!(f, "M"),
             FluxTransition::Long => write!(f, "L"),
-            FluxTransition::Other => write!(f, "X"),
+            FluxTransition::TooLong => write!(f, "X"),
         }
     }
 }
@@ -81,13 +93,13 @@ impl FluxTransition {
             FluxTransition::Short => &[true, false],
             FluxTransition::Medium => &[true, false, false],
             FluxTransition::Long => &[true, false, false, false],
-            FluxTransition::Other => &[],
+            _ => &[],
         }
     }
 }
 
 #[derive(Default)]
-pub struct FluxStats {
+pub struct BasicFluxStats {
     pub total: u32,
     pub short: u32,
     pub short_time: f64,
@@ -101,7 +113,7 @@ pub struct FluxStats {
     pub longest_flux:  f64,
 }
 
-impl Display for FluxStats {
+impl Display for BasicFluxStats {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(
             f,
@@ -118,8 +130,8 @@ impl Display for FluxStats {
     }
 }
 
-impl FluxStats {
-    pub fn detect_density(&self, mfi: bool) -> Option<DiskDensity> {
+impl BasicFluxStats {
+    pub fn detect_density(&self, mfi: bool) -> Option<TrackDensity> {
         let mut avg = self.short_avg();
         log::debug!(
             "FluxStats::detect_density(): Transition average: {:.4}",
@@ -131,8 +143,8 @@ impl FluxStats {
         }
 
         match avg {
-            1.0e-6..=3e-6 => Some(DiskDensity::High),
-            3e-6..=5e-6 => Some(DiskDensity::Double),
+            1.0e-6..=3e-6 => Some(TrackDensity::High),
+            3e-6..=5e-6 => Some(TrackDensity::Double),
             _ => None,
         }
     }
@@ -147,16 +159,16 @@ impl FluxStats {
     }
 }
 
-impl FluxStats {
-    pub fn detect_encoding(&self) -> Option<DiskDataEncoding> {
+impl BasicFluxStats {
+    pub fn detect_encoding(&self) -> Option<TrackDataEncoding> {
         let medium_freq = self.medium as f64 / self.total as f64;
 
         // If we have fewer than 5% medium transitions, it is likely an FM track
         if medium_freq > 0.05 {
-            Some(DiskDataEncoding::Mfm)
+            Some(TrackDataEncoding::Mfm)
         }
         else {
-            Some(DiskDataEncoding::Fm)
+            Some(TrackDataEncoding::Fm)
         }
     }
 }

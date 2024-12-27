@@ -41,12 +41,7 @@ pub use pixmap_to_disk::PixmapToDiskParams;
 
 use crate::{
     bitstream::TrackDataStream,
-    structure_parsers::{
-        system34::System34Element,
-        DiskStructureElement,
-        DiskStructureGenericElement,
-        DiskStructureMetadata,
-    },
+    track_schema::{system34::System34Element, GenericTrackElement, TrackElement, TrackMetadata},
     DiskCh,
 };
 
@@ -154,7 +149,7 @@ pub struct RenderTrackMetadataParams {
     /// Rotational direction for rendering (Clockwise or CounterClockwise)
     pub direction: RotationDirection,
     /// Palette to use for rendering metadata elements
-    pub palette: FoxHashMap<DiskStructureGenericElement, Color>,
+    pub palette: FoxHashMap<GenericTrackElement, Color>,
     /// Whether to draw empty tracks as black rings
     pub draw_empty_tracks: bool,
     /// Set the inner radius to the last standard track instead of last track
@@ -283,11 +278,11 @@ const POPCOUNT_TABLE: [u8; 256] = {
 fn stream(ch: DiskCh, disk_image: &DiskImage) -> &TrackDataStream {
     disk_image.track_map[ch.h() as usize]
         .get(ch.c() as usize)
-        .map(|track_i| disk_image.track_pool[*track_i].track_stream().unwrap())
+        .map(|track_i| disk_image.track_pool[*track_i].stream().unwrap())
         .unwrap()
 }
 
-fn metadata(ch: DiskCh, disk_image: &DiskImage) -> &DiskStructureMetadata {
+fn metadata(ch: DiskCh, disk_image: &DiskImage) -> &TrackMetadata {
     disk_image.track_map[ch.h() as usize]
         .get(ch.c() as usize)
         .map(|track_i| disk_image.track_pool[*track_i].metadata().unwrap())
@@ -297,33 +292,25 @@ fn metadata(ch: DiskCh, disk_image: &DiskImage) -> &DiskStructureMetadata {
 fn collect_streams(head: u8, disk_image: &DiskImage) -> Vec<&TrackDataStream> {
     disk_image.track_map[head as usize]
         .iter()
-        .filter_map(|track_i| disk_image.track_pool[*track_i].track_stream())
+        .filter_map(|track_i| disk_image.track_pool[*track_i].stream())
         .collect()
 }
 
 fn collect_weak_masks(head: u8, disk_image: &DiskImage) -> Vec<&BitVec> {
     disk_image.track_map[head as usize]
         .iter()
-        .filter_map(|track_i| {
-            disk_image.track_pool[*track_i]
-                .track_stream()
-                .map(|track| track.weak_mask())
-        })
+        .filter_map(|track_i| disk_image.track_pool[*track_i].stream().map(|track| track.weak_mask()))
         .collect()
 }
 
 fn collect_error_maps(head: u8, disk_image: &DiskImage) -> Vec<&BitVec> {
     disk_image.track_map[head as usize]
         .iter()
-        .filter_map(|track_i| {
-            disk_image.track_pool[*track_i]
-                .track_stream()
-                .map(|track| track.error_map())
-        })
+        .filter_map(|track_i| disk_image.track_pool[*track_i].stream().map(|track| track.error_map()))
         .collect()
 }
 
-fn collect_metadata(head: u8, disk_image: &DiskImage) -> Vec<&DiskStructureMetadata> {
+fn collect_metadata(head: u8, disk_image: &DiskImage) -> Vec<&TrackMetadata> {
     disk_image.track_map[head as usize]
         .iter()
         .filter_map(|track_i| disk_image.track_pool[*track_i].metadata())
@@ -350,6 +337,10 @@ pub fn render_track_data(
     let rtracks = collect_streams(p.head, disk_image);
     let rmetadata = collect_metadata(p.head, disk_image);
     let num_tracks = min(rtracks.len(), p.track_limit);
+
+    if num_tracks == 0 {
+        return Err(DiskImageError::IncompatibleImage("No tracks to visualize!".to_string()));
+    }
 
     log::trace!("collected {} track references.", num_tracks);
     for (ti, track) in rtracks.iter().enumerate() {
@@ -401,6 +392,7 @@ pub fn render_track_data(
             let distance = (dx * dx + dy * dy).sqrt();
             let _distance_sq = dx * dx + dy * dy;
             let angle = (dy.atan2(dx) + PI) % TAU;
+            //let angle = dy.atan2(dx) % TAU;
 
             if distance >= min_radius && distance <= total_radius {
                 let track_offset = (distance - min_radius) / track_width;
@@ -411,17 +403,22 @@ pub fn render_track_data(
                 let track_index = (num_tracks - 1).saturating_sub(track_offset.floor() as usize);
 
                 if track_index < num_tracks {
+                    if rtracks[track_index].is_empty() {
+                        continue;
+                    }
                     // Adjust angle for clockwise or counter-clockwise
-                    let normalized_angle = match p.direction {
+                    let mut normalized_angle = match p.direction {
                         RotationDirection::Clockwise => angle - p.index_angle,
                         RotationDirection::CounterClockwise => TAU - (angle - p.index_angle),
                     };
-
-                    let normalized_angle = (normalized_angle + PI) % TAU;
+                    // Normalize the angle to the range 0..2π
+                    //normalized_angle = normalized_angle % TAU;
+                    normalized_angle = (normalized_angle + PI) % TAU;
                     let bit_index = ((normalized_angle / TAU) * rtracks[track_index].len() as f32) as usize;
 
                     // Ensure bit_index is within bounds
-                    let bit_index = min(bit_index, rtracks[track_index].len() - 9);
+                    //let bit_index = min(bit_index, rtracks[track_index].len() - 9);
+                    let bit_index = bit_index % rtracks[track_index].len();
 
                     let color = match p.resolution {
                         ResolutionType::Bit => {
@@ -442,11 +439,11 @@ pub fn render_track_data(
                                 && rtracks[track_index].is_data(decoded_bit_idx, false);
 
                             let byte_value = match decode_override {
-                                false => rtracks[track_index].read_raw_byte(bit_index).unwrap_or_default(),
+                                false => rtracks[track_index].read_raw_u8(bit_index).unwrap_or_default(),
                                 true => {
                                     // Only render bits in 16-bit steps.
                                     rtracks[track_index]
-                                        .read_decoded_byte(decoded_bit_idx)
+                                        .read_decoded_u8(decoded_bit_idx)
                                         .unwrap_or_default()
                                 }
                             };
@@ -493,7 +490,9 @@ pub fn render_track_map(
         RenderMapType::Errors => collect_error_maps(p.head, disk_image),
     };
     let num_tracks = min(track_refs.len(), p.track_limit);
-
+    if num_tracks == 0 {
+        return Err(DiskImageError::IncompatibleImage("No tracks to visualize!".to_string()));
+    }
     // log::trace!("collected {} maps of type {:?}", num_tracks, map);
     // for (ti, track) in track_refs.iter().enumerate() {
     //     log::debug!("map {} has {} bits", ti, track.count_ones());
@@ -666,7 +665,7 @@ pub fn render_track_metadata_quadrant(
                                sector_lookup: bool,
                                phys_c: u16,
                                phys_s: u8,
-                               element_type: Option<DiskStructureElement>|
+                               element_type: Option<TrackElement>|
      -> Color {
         // Draw the outer curve
         add_arc(path_builder, center, inner_radius, start_angle, end_angle);
@@ -698,7 +697,7 @@ pub fn render_track_metadata_quadrant(
                     color = Color::from_rgba8(p.head, phys_c as u8, phys_s, 255);
                 }
                 false => {
-                    let generic_elem = DiskStructureGenericElement::from(element_type);
+                    let generic_elem = GenericTrackElement::from(element_type);
                     color = *p.palette.get(&generic_elem).unwrap_or(&null_color);
                 }
             }
@@ -799,7 +798,7 @@ pub fn render_track_metadata_quadrant(
                             false,
                             0,
                             0,
-                            Some(meta_item.elem_type),
+                            Some(meta_item.element),
                         );
 
                         //let overlap_long = false;
@@ -846,7 +845,7 @@ pub fn render_track_metadata_quadrant(
 
             // Draw non-overlapping metadata.
             for (_mi, meta_item) in track_meta.items.iter().enumerate() {
-                if let DiskStructureElement::System34(System34Element::Marker(..)) = meta_item.elem_type {
+                if let TrackElement::System34(System34Element::Marker(..)) = meta_item.element {
                     if !*draw_markers {
                         continue;
                     }
@@ -856,7 +855,7 @@ pub fn render_track_metadata_quadrant(
                 }
 
                 // Advance physical sector number for each sector header encountered.
-                if meta_item.elem_type.is_sector_header() {
+                if meta_item.element.is_sector_header() {
                     phys_s = phys_s.wrapping_add(1);
                 }
 
@@ -869,11 +868,17 @@ pub fn render_track_metadata_quadrant(
                     std::mem::swap(&mut start_angle, &mut end_angle);
                 }
 
+                // Invert the angles for clockwise rotation
                 (start_angle, end_angle) = match p.direction {
                     RotationDirection::CounterClockwise => (start_angle, end_angle),
                     RotationDirection::Clockwise => (TAU - start_angle, TAU - end_angle),
                 };
 
+                // Normalize the angle to the range 0..2π
+                // start_angle = (start_angle % TAU).abs();
+                // end_angle = (end_angle % TAU).abs();
+
+                // Exchange start and end if reversed
                 if start_angle > end_angle {
                     std::mem::swap(&mut start_angle, &mut end_angle);
                 }
@@ -902,7 +907,7 @@ pub fn render_track_metadata_quadrant(
                     p.draw_sector_lookup,
                     ti as u16,
                     phys_s,
-                    Some(meta_item.elem_type),
+                    Some(meta_item.element),
                 );
 
                 if let Some(path) = path_builder.finish() {
@@ -1026,7 +1031,7 @@ pub fn render_disk_selection(
 
         // Draw non-overlapping metadata.
         for (_mi, meta_item) in track_meta.items.iter().enumerate() {
-            if let DiskStructureElement::System34(System34Element::Marker(..)) = meta_item.elem_type {
+            if let TrackElement::System34(System34Element::Marker(..)) = meta_item.element {
                 if !*draw_markers {
                     continue;
                 }
@@ -1036,11 +1041,11 @@ pub fn render_disk_selection(
             }
 
             // Advance physical sector number for each sector header encountered.
-            if meta_item.elem_type.is_sector_header() {
+            if meta_item.element.is_sector_header() {
                 phys_s = phys_s.wrapping_add(1);
             }
 
-            if !meta_item.elem_type.is_sector_data() || ((phys_s as usize) < p.sector_idx) {
+            if !meta_item.element.is_sector_data() || ((phys_s as usize) < p.sector_idx) {
                 continue;
             }
 

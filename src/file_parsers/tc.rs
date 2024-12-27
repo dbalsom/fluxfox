@@ -24,28 +24,27 @@
 
     --------------------------------------------------------------------------
 
-    src/parsers/tc.rs
-
-    A parser for the TransCopy (.TC) disk image format.
-
-    TransCopy images are bitstream-level images produced by the TransCopy
-    utility bundled with Central Point Software's Copy II PC Option Board.
-
-    Documentation of this format helpfully provided by NewRisingSun.
-    https://www.robcraig.com/wiki/transcopy-version-5-x-format/
-
-    TransCopy images do not have a separate weak bit mask. Instead, weak bits
-    can be detected by an invalid sequence of 0's in the MFM bitstream.
-
-    fluxfox will attempt to detect weak bits when adding tracks to the image,
-    if a weak bit mask is not provided.
-
-    The padding between tracks is not just on 256 byte boundaries. It is a bit
-    unusual, but we don't write to TC yet so don't have to handle whatever
-    scheme it is using. Track data is padded so that it does not pass a 64k
-    boundary. This was apparently done so to make it easier for TransCopy to
-    handle DMA transfer of track data.
 */
+
+//! A parser for the TransCopy (.TC) disk image format.
+//!
+//! TransCopy images are bitstream-level images produced by the TransCopy
+//! utility bundled with Central Point Software's Copy II PC Option Board.
+//!
+//! Documentation of this format helpfully provided by NewRisingSun.
+//! https://www.robcraig.com/wiki/transcopy-version-5-x-format/
+//!
+//! TransCopy images do not have a separate weak bit mask. Instead, weak bits
+//! can be detected by an invalid sequence of 0's in the MFM bitstream.
+//!
+//! fluxfox will attempt to detect weak bits when adding tracks to the image,
+//! if a weak bit mask is not provided.
+//!
+//! The padding between tracks is not just on 256 byte boundaries. It is a bit
+//! unusual, but we don't write to TC yet so don't have to handle whatever
+//! scheme it is using. Track data is padded so that it does not pass a 64k
+//! boundary. This was apparently done so to make it easier for TransCopy to
+//! handle DMA transfer of track data.
 
 use crate::{
     file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility},
@@ -53,16 +52,16 @@ use crate::{
 };
 
 use crate::{
-    types::{BitStreamTrackParams, DiskDataEncoding, DiskDataRate, DiskDensity, DiskDescriptor, DiskRpm},
+    file_parsers::{ParserReadOptions, ParserWriteOptions},
+    types::{BitStreamTrackParams, DiskDescriptor, DiskRpm, Platform, TrackDataEncoding, TrackDataRate, TrackDensity},
     DiskCh,
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,
     LoadingCallback,
-    DEFAULT_SECTOR_SIZE,
 };
-use binrw::{binrw, BinRead};
 
+use binrw::{binrw, BinRead};
 // Disk Type Constants
 // All types are listed here, but fluxfox will initially only support PC-specific formats
 
@@ -135,13 +134,13 @@ fn tc_read_comment(raw_comment: &[u8]) -> String {
     String::from(std::str::from_utf8(&raw_comment[..comment_end_pos]).unwrap_or_default())
 }
 
-fn tc_parse_disk_type(disk_type: u8) -> Result<(DiskDataEncoding, DiskDataRate, DiskRpm), DiskImageError> {
+fn tc_parse_disk_type(disk_type: u8) -> Result<(TrackDataEncoding, TrackDataRate, DiskRpm), DiskImageError> {
     let (encoding, data_rate, disk_rpm) = match disk_type {
         // Return a default for UNKNOWN, as PCE tools generate TC's with this disk type.
-        TC_DISK_TYPE_UNKNOWN => (DiskDataEncoding::Mfm, DiskDataRate::Rate250Kbps(1.0), DiskRpm::Rpm300),
-        TC_DISK_TYPE_MFM_HD => (DiskDataEncoding::Mfm, DiskDataRate::Rate500Kbps(1.0), DiskRpm::Rpm300),
-        TC_DISK_TYPE_MFM_DD_360 => (DiskDataEncoding::Mfm, DiskDataRate::Rate500Kbps(1.0), DiskRpm::Rpm360),
-        TC_DISK_TYPE_MFM_DD => (DiskDataEncoding::Mfm, DiskDataRate::Rate250Kbps(1.0), DiskRpm::Rpm300),
+        TC_DISK_TYPE_UNKNOWN => (TrackDataEncoding::Mfm, TrackDataRate::Rate250Kbps(1.0), DiskRpm::Rpm300),
+        TC_DISK_TYPE_MFM_HD => (TrackDataEncoding::Mfm, TrackDataRate::Rate500Kbps(1.0), DiskRpm::Rpm300),
+        TC_DISK_TYPE_MFM_DD_360 => (TrackDataEncoding::Mfm, TrackDataRate::Rate500Kbps(1.0), DiskRpm::Rpm360),
+        TC_DISK_TYPE_MFM_DD => (TrackDataEncoding::Mfm, TrackDataRate::Rate250Kbps(1.0), DiskRpm::Rpm300),
         _ => return Err(DiskImageError::UnsupportedFormat),
     };
 
@@ -159,6 +158,13 @@ impl TCFormat {
         bitstream_flags() | FormatCaps::CAP_TRACK_ENCODING | FormatCaps::CAP_ENCODING_FM | FormatCaps::CAP_ENCODING_MFM
     }
 
+    pub fn platforms() -> Vec<Platform> {
+        // Although the Copy II PC Option Board was a PC-specific device, it was capable of imaging
+        // disks for multiple platforms. For the moment, we'll only support PC until we have some
+        // cross-platform TC images to test with.
+        vec![Platform::IbmPc]
+    }
+
     pub fn detect<RWS: ReadSeek>(mut image: RWS) -> bool {
         if image.seek(std::io::SeekFrom::Start(0)).is_err() {
             return false;
@@ -173,13 +179,14 @@ impl TCFormat {
         header.id[0] == 0x5A && header.id[1] == 0xA5
     }
 
-    pub fn can_write(_image: &DiskImage) -> ParserWriteCompatibility {
+    pub fn can_write(_image: Option<&DiskImage>) -> ParserWriteCompatibility {
         ParserWriteCompatibility::UnsupportedFormat
     }
 
     pub(crate) fn load_image<RWS: ReadSeek>(
         mut read_buf: RWS,
         disk_image: &mut DiskImage,
+        _opts: &ParserReadOptions,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFileFormat::TransCopyImage);
@@ -226,7 +233,10 @@ impl TCFormat {
         .contains(&disk_info.disk_type)
         {
             log::error!("Unsupported disk type: {:02X}", disk_info.disk_type);
-            return Err(DiskImageError::IncompatibleImage);
+            return Err(DiskImageError::IncompatibleImage(format!(
+                "Unsupported disk type: {:02X}",
+                disk_info.disk_type
+            )));
         }
 
         let (disk_encoding, disk_data_rate, disk_rpm) = tc_parse_disk_type(disk_info.disk_type)?;
@@ -240,13 +250,19 @@ impl TCFormat {
         if disk_info.starting_c != 0 {
             // I don't know if we'll ever encounter images like this, but for now let's require starting at 0.
             log::error!("Unsupported starting cylinder: {}", disk_info.starting_c);
-            return Err(DiskImageError::IncompatibleImage);
+            return Err(DiskImageError::IncompatibleImage(format!(
+                "Unsupported starting cylinder: {}",
+                disk_info.starting_c
+            )));
         }
 
         if disk_info.cylinder_increment != 1 {
             // Similarly, I am not sure why the track increment would ever be anything other than 1.
             log::error!("Unsupported cylinder increment: {}", disk_info.cylinder_increment);
-            return Err(DiskImageError::IncompatibleImage);
+            return Err(DiskImageError::IncompatibleImage(format!(
+                "Unsupported cylinder increment: {}",
+                disk_info.cylinder_increment
+            )));
         }
 
         let raw_track_skew_ct = disk_info
@@ -279,7 +295,7 @@ impl TCFormat {
             || raw_track_flag_ct != raw_track_data_ct
         {
             log::error!("Mismatched track data counts");
-            return Err(DiskImageError::IncompatibleImage);
+            return Err(DiskImageError::IncompatibleImage("Mismatched track data counts".into()));
         }
 
         // Limit tracks to pairs of sides
@@ -298,12 +314,17 @@ impl TCFormat {
 
             if track_offset == 0 || track_size == 0 {
                 log::error!("Invalid track offset or size: {} {}", track_offset, track_size);
-                return Err(DiskImageError::IncompatibleImage);
+                return Err(DiskImageError::IncompatibleImage(format!(
+                    "Invalid track offset or size: {} {}",
+                    track_offset, track_size
+                )));
             }
 
             if track_offset + track_size > disk_image_size {
                 log::error!("Track data extends beyond end of read_buf");
-                return Err(DiskImageError::IncompatibleImage);
+                return Err(DiskImageError::IncompatibleImage(
+                    "Track data extends beyond end of read_buf".into(),
+                ));
             }
 
             last_track_data_offset = track_offset + adj_track_size;
@@ -344,7 +365,10 @@ impl TCFormat {
             2 => 1,
             _ => {
                 log::error!("Unsupported number of sides: {}", disk_info.num_sides);
-                return Err(DiskImageError::IncompatibleImage);
+                return Err(DiskImageError::IncompatibleImage(format!(
+                    "Unsupported number of sides: {}",
+                    disk_info.num_sides
+                )));
             }
         };
         for i in 0..raw_track_data_ct {
@@ -363,6 +387,7 @@ impl TCFormat {
             );
 
             let params = BitStreamTrackParams {
+                schema: None,
                 encoding: disk_encoding,
                 data_rate: disk_data_rate,
                 rpm: Some(disk_rpm),
@@ -373,7 +398,7 @@ impl TCFormat {
                 hole: None,
                 detect_weak: true, // flux2tc encodes weak bits as runs of MFM 0 bits
             };
-            disk_image.add_track_bitstream(params)?;
+            disk_image.add_track_bitstream(&params)?;
 
             head_n += 1;
             if head_n == disk_info.num_sides {
@@ -382,14 +407,15 @@ impl TCFormat {
         }
 
         disk_image.descriptor = DiskDescriptor {
+            // You could use TransCopy with non-PC floppies, so I suppose we can't assume PC here.
+            platforms: None,
             geometry: DiskCh::from((
                 (raw_track_data_ct / disk_info.num_sides as usize) as u16,
                 disk_info.num_sides,
             )),
             data_rate: disk_data_rate,
             data_encoding: disk_encoding,
-            density: DiskDensity::from(disk_data_rate),
-            default_sector_size: DEFAULT_SECTOR_SIZE,
+            density: TrackDensity::from(disk_data_rate),
             rpm: Some(disk_rpm),
             write_protect: None,
         };
@@ -397,7 +423,11 @@ impl TCFormat {
         Ok(())
     }
 
-    pub fn save_image<RWS: ReadWriteSeek>(_image: &DiskImage, _output: &mut RWS) -> Result<(), DiskImageError> {
+    pub fn save_image<RWS: ReadWriteSeek>(
+        _image: &DiskImage,
+        _opts: &ParserWriteOptions,
+        _output: &mut RWS,
+    ) -> Result<(), DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 }

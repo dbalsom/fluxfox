@@ -74,8 +74,8 @@ pub fn sector_status(ui: &mut Ui, entry: &SectorMapEntry, open: bool) -> Respons
         // pub deleted_mark: bool,
         // pub no_dam: bool,
         let color = match (
-            entry.attributes.address_crc_valid,
-            entry.attributes.data_crc_valid,
+            !entry.attributes.address_error,
+            !entry.attributes.data_error,
             entry.attributes.deleted_mark,
             entry.attributes.no_dam,
         ) {
@@ -104,22 +104,22 @@ pub fn sector_status(ui: &mut Ui, entry: &SectorMapEntry, open: bool) -> Respons
             let good_color = ui.visuals().text_color();
             let bad_color = ui.visuals().warn_fg_color;
 
-            match entry.attributes.address_crc_valid {
-                true => ui.colored_label(good_color, "Address CRC is valid"),
-                false => ui.colored_label(bad_color, "Address CRC is invalid"),
+            match entry.attributes.address_error {
+                true => ui.colored_label(bad_color, "Address integrity: Bad"),
+                false => ui.colored_label(good_color, "Address integrity: Good"),
             };
             ui.end_row();
 
-            match entry.attributes.data_crc_valid {
-                true => ui.colored_label(good_color, "Data CRC is valid"),
-                false => ui.colored_label(bad_color, "Data CRC is invalid"),
+            match entry.attributes.data_error {
+                true => ui.colored_label(bad_color, "Data integrity: Bad"),
+                false => ui.colored_label(good_color, "Data integrity: Good"),
             };
             ui.end_row();
 
             match (entry.attributes.no_dam, entry.attributes.deleted_mark) {
-                (true, _) => ui.colored_label(bad_color, "Sector has no data"),
-                (false, true) => ui.colored_label(bad_color, "Deleted data marker"),
-                (false, false) => ui.colored_label(good_color, "Normal data marker"),
+                (true, _) => ui.colored_label(bad_color, "Sector has no data!"),
+                (false, true) => ui.colored_label(bad_color, "'Deleted' data sector"),
+                (false, false) => ui.colored_label(good_color, "Normal data sector"),
             };
             ui.end_row();
         });

@@ -27,13 +27,12 @@
 use crate::{
     flux::{
         pll::{Pll, PllDecodeFlags, PllDecodeStatEntry},
-        FluxStats,
+        BasicFluxStats,
         FluxTransition,
     },
-    types::{DiskCh, DiskDataEncoding},
+    types::{DiskCh, TrackDataEncoding},
 };
 use bit_vec::BitVec;
-use histogram::{Bucket, Histogram};
 use std::cmp::Ordering;
 
 /// Type of revolution.
@@ -52,7 +51,7 @@ pub struct FluxRevolutionStats {
     /// The type of revolution.
     pub rev_type: FluxRevolutionType,
     /// The data encoding detected for the revolution.
-    pub encoding: DiskDataEncoding,
+    pub encoding: TrackDataEncoding,
     /// The data rate of the revolution in bits per second.
     pub data_rate: f64,
     /// The time taken to read the revolution in seconds.
@@ -68,6 +67,7 @@ pub struct FluxRevolutionStats {
 }
 
 /// A struct representing one revolution of a fluxstream track.
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FluxRevolution {
     /// The type of revolution.
@@ -87,14 +87,14 @@ pub struct FluxRevolution {
     /// The bit errors found in the bitstream.
     pub biterrors: BitVec,
     /// The data encoding detected for the revolution.
-    pub encoding: DiskDataEncoding,
+    pub encoding: TrackDataEncoding,
     /// Statistics from the PLL decoding process.
     pub pll_stats: Vec<PllDecodeStatEntry>,
 }
 
 impl FluxRevolution {
     /// Retrieve the data encoding detected for the revolution.
-    pub fn encoding(&self) -> DiskDataEncoding {
+    pub fn encoding(&self) -> TrackDataEncoding {
         self.encoding
     }
 
@@ -124,41 +124,9 @@ impl FluxRevolution {
             transitions: Vec::with_capacity(deltas.len()),
             bitstream: BitVec::with_capacity(deltas.len() * 3),
             biterrors: BitVec::with_capacity(deltas.len() * 3),
-            encoding: DiskDataEncoding::Mfm,
+            encoding: TrackDataEncoding::Mfm,
             pll_stats: Vec::new(),
         }
-    }
-
-    /// Create a new `FluxRevolution` from a list of durations between flux transitions, given
-    /// in integer ticks of the provided clock period `timebase`.
-    pub fn from_u16(ch: DiskCh, data: &[u16], index_time: f64, timebase: f64) -> Self {
-        log::debug!("FluxRevolution::from_u16(): Using timebase of {:.3}ns", timebase * 1e9);
-        let mut new = FluxRevolution {
-            rev_type: FluxRevolutionType::Source,
-            ch,
-            data_rate: None,
-            index_time,
-            flux_deltas: Vec::with_capacity(data.len()),
-            transitions: Vec::with_capacity(data.len()),
-            bitstream: BitVec::with_capacity(data.len() * 3),
-            biterrors: BitVec::with_capacity(data.len() * 3),
-            encoding: DiskDataEncoding::Mfm,
-            pll_stats: Vec::new(),
-        };
-        let mut nfa_count = 0;
-        for cell in data {
-            if *cell == 0 {
-                nfa_count += 1;
-                continue;
-            }
-
-            // Convert to float seconds
-            let seconds = *cell as f64 * timebase;
-            new.flux_deltas.push(seconds);
-        }
-
-        log::warn!("FluxRevolution::from_u16(): {} NFA cells found", nfa_count);
-        new
     }
 
     /// Create new synthetic `FluxRevolution`s from a pair of adjacent revolutions.
@@ -189,7 +157,7 @@ impl FluxRevolution {
                     flux_deltas: first_deltas,
                     bitstream: BitVec::with_capacity(first.bitstream.capacity()),
                     biterrors: BitVec::with_capacity(first.bitstream.capacity()),
-                    encoding: DiskDataEncoding::Mfm,
+                    encoding: TrackDataEncoding::Mfm,
                     pll_stats: Vec::new(),
                 };
 
@@ -202,7 +170,7 @@ impl FluxRevolution {
                     flux_deltas: second_deltas,
                     bitstream: BitVec::with_capacity(second.bitstream.capacity()),
                     biterrors: BitVec::with_capacity(second.bitstream.capacity()),
-                    encoding: DiskDataEncoding::Mfm,
+                    encoding: TrackDataEncoding::Mfm,
                     pll_stats: Vec::new(),
                 };
 
@@ -229,7 +197,7 @@ impl FluxRevolution {
                     flux_deltas: first_deltas,
                     bitstream: BitVec::with_capacity(first.bitstream.capacity()),
                     biterrors: BitVec::with_capacity(first.bitstream.capacity()),
-                    encoding: DiskDataEncoding::Mfm,
+                    encoding: TrackDataEncoding::Mfm,
                     pll_stats: Vec::new(),
                 };
 
@@ -242,7 +210,7 @@ impl FluxRevolution {
                     flux_deltas: second_deltas,
                     bitstream: BitVec::with_capacity(second.bitstream.capacity()),
                     biterrors: BitVec::with_capacity(second.bitstream.capacity()),
-                    encoding: DiskDataEncoding::Mfm,
+                    encoding: TrackDataEncoding::Mfm,
                     pll_stats: Vec::new(),
                 };
 
@@ -264,131 +232,6 @@ impl FluxRevolution {
     #[allow(dead_code)]
     pub(crate) fn pll_stats(&self) -> &Vec<PllDecodeStatEntry> {
         &self.pll_stats
-    }
-
-    /// Locate local maxima in a histogram by bucket.
-    fn find_local_maxima(hist: &Histogram) -> Vec<(u64, std::ops::RangeInclusive<u64>)> {
-        let mut peaks = vec![];
-        let mut previous_bucket: Option<Bucket> = None;
-        let mut current_bucket: Option<Bucket> = None;
-
-        // Calculate total count for threshold
-        let total_count: u64 = hist.into_iter().map(|bucket| bucket.count()).sum();
-        let threshold = (total_count as f64 * 0.005).round() as u64;
-
-        for bucket in hist.into_iter() {
-            if let (Some(prev), Some(curr)) = (previous_bucket.as_ref(), current_bucket.as_ref()) {
-                // Identify local maximum and apply threshold check
-                if curr.count() >= prev.count() && curr.count() > bucket.count() && curr.count() >= threshold {
-                    peaks.push((curr.count(), curr.start()..=curr.end()));
-                }
-            }
-            // Update previous and current buckets
-            previous_bucket = current_bucket.take();
-            current_bucket = Some(bucket.clone());
-        }
-
-        peaks
-    }
-
-    /// Attempt to calculate the base (short) transition time from a histogram.
-    pub fn base_transition_time(&self, hist: &Histogram) -> Option<f64> {
-        let peaks = Self::find_local_maxima(hist);
-
-        if peaks.len() < 2 {
-            log::warn!("FluxRevolution::base_transition_time(): Not enough peaks found");
-            return None;
-        }
-
-        let first_peak = &peaks[0].1;
-
-        let range_median = (first_peak.start() + first_peak.end()) / 2;
-        // Convert back to seconds
-        Some(range_median as f64 / 1_000_000_000.0)
-    }
-
-    /// Produce a Histogram over a percentage of the flux deltas in the revolution.
-    pub fn histogram(&self, percent: f32) -> Histogram {
-        // from docs:
-        // grouping_power should be set such that 2^(-1 * grouping_power) is an acceptable relative error.
-        // Rephrased, we can plug in the acceptable relative error into grouping_power = ceil(log2(1/e)).
-        // For example, if we want to limit the error to 0.1% (0.001) we should set grouping_power = 7.
-
-        // Max value power of 2^14 = 16384 (16us)
-        // Grouping power of 3 produces sharp spikes without false maxima
-        let mut hist = Histogram::new(3, 14).unwrap();
-
-        let take_count = (self.flux_deltas.len() as f32 * percent).round() as usize;
-        log::debug!("FluxRevolution::histogram(): Taking {} flux deltas", take_count);
-        for delta_ns in self
-            .flux_deltas
-            .iter()
-            .take(take_count)
-            .map(|d| (*d * 1_000_000_000.0) as u64)
-        {
-            _ = hist.increment(delta_ns);
-        }
-
-        let peaks = Self::find_local_maxima(&hist);
-
-        for peak in peaks {
-            log::debug!(
-                "FluxRevolution::histogram(): Peak at range: {:?} ct: {}",
-                peak.1,
-                peak.0
-            );
-        }
-
-        //Self::print_horizontal_histogram_with_labels(&hist, 16);
-        hist
-    }
-
-    /// Debugging function to print a histogram in ASCII.
-    #[allow(dead_code)]
-    fn print_horizontal_histogram_with_labels(hist: &Histogram, height: usize) {
-        let mut max_count = 0;
-        let mut buckets = vec![];
-
-        // Step 1: Collect buckets and find max count for scaling
-        for bucket in hist.into_iter() {
-            max_count = max_count.max(bucket.count());
-            buckets.push(bucket);
-        }
-
-        // Step 2: Initialize 2D array for histogram, filled with spaces
-        let width = buckets.len();
-        let mut graph = vec![vec![' '; width]; height];
-
-        // Step 3: Plot each bucket count as a column of asterisks
-        for (i, bucket) in buckets.iter().enumerate() {
-            let bar_height = if max_count > 0 {
-                (bucket.count() as f64 / max_count as f64 * height as f64).round() as usize
-            }
-            else {
-                0
-            };
-            for row in (height - bar_height)..height {
-                graph[row][i] = '*';
-            }
-        }
-
-        // Step 4: Print the graph row by row
-        for row in &graph {
-            println!("{}", row.iter().collect::<String>());
-        }
-
-        // Step 5: Print bucket start values vertically
-        let max_label_len = buckets.iter().map(|b| b.start().to_string().len()).max().unwrap_or(0);
-        for i in 0..max_label_len {
-            let row: String = buckets
-                .iter()
-                .map(|b| {
-                    let label = b.start().to_string();
-                    label.chars().nth(i).unwrap_or(' ')
-                })
-                .collect();
-            println!("{}", row);
-        }
     }
 
     pub fn transition_ct(&self) -> usize {
@@ -424,26 +267,26 @@ impl FluxRevolution {
         );
     }
 
-    pub fn decode_direct(&mut self, pll: &mut Pll) -> FluxStats {
+    pub fn decode_direct(&mut self, pll: &mut Pll) -> BasicFluxStats {
         let pll_flags = PllDecodeFlags::empty();
-        let mut decode_result = pll.decode(self, DiskDataEncoding::Mfm, pll_flags);
+        let mut decode_result = pll.decode(self, TrackDataEncoding::Mfm, pll_flags);
         let encoding = decode_result
             .flux_stats
             .detect_encoding()
-            .unwrap_or(DiskDataEncoding::Mfm);
+            .unwrap_or(TrackDataEncoding::Mfm);
 
-        if decode_result.markers.is_empty() && matches!(encoding, DiskDataEncoding::Fm) {
+        if decode_result.markers.is_empty() && matches!(encoding, TrackDataEncoding::Fm) {
             // If we detected FM encoding, decode again as FM
             log::warn!("FluxRevolution::decode(): No markers found. Track might be FM encoded? Re-decoding...");
 
-            let fm_result = pll.decode(self, DiskDataEncoding::Fm, pll_flags);
+            let fm_result = pll.decode(self, TrackDataEncoding::Fm, pll_flags);
             if fm_result.markers.is_empty() {
                 log::warn!("FluxRevolution::decode(): No markers found in FM decode. Keeping MFM.");
-                self.encoding = DiskDataEncoding::Mfm;
+                self.encoding = TrackDataEncoding::Mfm;
             }
             else {
                 log::debug!("FluxRevolution::decode(): Found FM marker! Setting track to FM encoding.");
-                self.encoding = DiskDataEncoding::Fm;
+                self.encoding = TrackDataEncoding::Fm;
                 decode_result = fm_result;
             }
         }

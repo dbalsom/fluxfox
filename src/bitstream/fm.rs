@@ -30,10 +30,10 @@
 
 */
 use crate::{
-    bitstream::{EncodingVariant, TrackCodec},
+    bitstream::{EncodingVariant, MarkerEncoding, TrackCodec},
     io::{Error, ErrorKind, Read, Result, Seek, SeekFrom},
     range_check::RangeChecker,
-    types::{DiskDataEncoding, TrackRegion},
+    types::{TrackDataEncoding, TrackRegion},
 };
 use bit_vec::BitVec;
 use std::ops::Index;
@@ -55,6 +55,19 @@ macro_rules! fm_offset {
     };
 }
 
+// FmCodec is very similar to MfmCodec, and subsequently contains a lot of repeated code.
+// It would be nice to refactor this to reduce the amount of duplicated code - perhaps we could
+// implement Mfm as a Fm variant.
+
+/// Implements a bitstream codec for FM encoded data.
+///
+/// FM encoding is a simple encoding scheme where each data bit is encoded as two bits, with a
+/// clock bit between each data bit. FM encoding is used on 'standard density' diskettes, typically
+/// seen in 8" formats, and occasionally on certain 5.25" diskettes.
+///
+/// FM encoded tracks are often present at the end of the standard track count on a diskette,
+/// used by commercial disk duplicators to store additional data about the disk being mastered.
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FmCodec {
     bit_vec: BitVec,
@@ -103,8 +116,8 @@ pub fn find_sync(track: &BitVec, start_idx: usize) -> Option<usize> {
 
 #[cfg_attr(feature = "serde", typetag::serde)]
 impl TrackCodec for FmCodec {
-    fn encoding(&self) -> DiskDataEncoding {
-        DiskDataEncoding::Fm
+    fn encoding(&self) -> TrackDataEncoding {
+        TrackDataEncoding::Fm
     }
 
     fn len(&self) -> usize {
@@ -215,7 +228,7 @@ impl TrackCodec for FmCodec {
         }
     }
 
-    fn read_raw_byte(&self, index: usize) -> Option<u8> {
+    fn read_raw_u8(&self, index: usize) -> Option<u8> {
         if index >= self.len() {
             return None;
         }
@@ -227,7 +240,16 @@ impl TrackCodec for FmCodec {
         Some(byte)
     }
 
-    fn write_raw_byte(&mut self, index: usize, byte: u8) {
+    fn read_raw_buf(&self, buf: &mut [u8], offset: usize) -> usize {
+        let mut bytes_read = 0;
+        for byte in buf.iter_mut() {
+            *byte = self.read_raw_u8(offset + (bytes_read * 8)).unwrap();
+            bytes_read += 1;
+        }
+        bytes_read
+    }
+
+    fn write_raw_u8(&mut self, index: usize, byte: u8) {
         if index >= self.len() {
             return;
         }
@@ -236,7 +258,23 @@ impl TrackCodec for FmCodec {
         }
     }
 
-    fn read_decoded_byte(&self, index: usize) -> Option<u8> {
+    fn write_raw_buf(&mut self, buf: &[u8], offset: usize) -> usize {
+        let mut bytes_written = 0;
+        let mut offset = offset;
+
+        for byte in buf {
+            for bit_pos in (0..8).rev() {
+                let bit = byte & (0x01 << bit_pos) != 0;
+                self.bit_vec.set(offset, bit);
+                offset += 1;
+            }
+            bytes_written += 1;
+        }
+
+        bytes_written
+    }
+
+    fn read_decoded_u8(&self, index: usize) -> Option<u8> {
         if index >= self.bit_vec.len() || index >= self.clock_map.len() {
             log::error!(
                 "read_decoded_byte(): index out of bounds: {} vec: {} clock_map:{}",
@@ -257,10 +295,18 @@ impl TrackCodec for FmCodec {
         Some(byte)
     }
 
+    fn read_decoded_u32_le(&self, _index: usize) -> u32 {
+        todo!()
+    }
+
+    fn read_decoded_u32_be(&self, _index: usize) -> u32 {
+        todo!()
+    }
+
     fn read_decoded_buf(&self, buf: &mut [u8], offset: usize) -> usize {
         let mut bytes_read = 0;
         for byte in buf.iter_mut() {
-            *byte = self.read_decoded_byte(offset + bytes_read).unwrap();
+            *byte = self.read_decoded_u8(offset + bytes_read).unwrap();
             bytes_read += 1;
         }
         bytes_read
@@ -285,22 +331,6 @@ impl TrackCodec for FmCodec {
         }
 
         (bits_written + 7) / 8
-    }
-
-    fn write_raw_buf(&mut self, buf: &[u8], offset: usize) -> usize {
-        let mut bytes_written = 0;
-        let mut offset = offset;
-
-        for byte in buf {
-            for bit_pos in (0..8).rev() {
-                let bit = byte & (0x01 << bit_pos) != 0;
-                self.bit_vec.set(offset, bit);
-                offset += 1;
-            }
-            bytes_written += 1;
-        }
-
-        bytes_written
     }
 
     fn encode(&self, data: &[u8], prev_bit: bool, encoding_type: EncodingVariant) -> BitVec {
@@ -351,13 +381,11 @@ impl TrackCodec for FmCodec {
         bitvec
     }
 
-    fn find_marker(&self, marker: u64, mask: Option<u64>, start: usize, limit: Option<usize>) -> Option<(usize, u16)> {
+    fn find_marker(&self, marker: &MarkerEncoding, start: usize, limit: Option<usize>) -> Option<(usize, u16)> {
         //log::debug!("Fm::find_marker(): Searching for marker {:016X} at {}", marker, start);
         if self.bit_vec.is_empty() {
             return None;
         }
-
-        let mask = mask.unwrap_or(!0);
 
         let mut shift_reg: u64 = 0;
         let mut shift_ct: u32 = 0;
@@ -374,7 +402,8 @@ impl TrackCodec for FmCodec {
             shift_ct += 1;
 
             let have_marker = (shift_reg & FM_MARKER_CLOCK_MASK) == FM_MARKER_CLOCK_PATTERN;
-            let have_data = (shift_reg & FM_MARKER_DATA_MASK & mask) == marker & FM_MARKER_DATA_MASK & mask;
+            let have_data =
+                (shift_reg & FM_MARKER_DATA_MASK & marker.mask) == marker.bits & FM_MARKER_DATA_MASK & marker.mask;
 
             if shift_ct >= 64 && have_marker {
                 log::debug!(
@@ -382,8 +411,8 @@ impl TrackCodec for FmCodec {
                     bi - 64,
                     shift_reg & FM_MARKER_CLOCK_MASK,
                     shift_reg & FM_MARKER_DATA_MASK,
-                    mask,
-                    marker & FM_MARKER_DATA_MASK
+                    marker.mask,
+                    marker.bits & FM_MARKER_DATA_MASK
                 );
             }
 

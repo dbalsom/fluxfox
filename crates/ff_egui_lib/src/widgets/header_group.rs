@@ -51,7 +51,12 @@ impl HeaderGroup {
         self
     }
 
-    pub fn show(&self, ui: &mut egui::Ui, content: impl FnOnce(&mut egui::Ui)) {
+    pub fn show(
+        &self,
+        ui: &mut egui::Ui,
+        body_content: impl FnOnce(&mut egui::Ui),
+        header_content: impl FnOnce(&mut egui::Ui),
+    ) {
         // Add some margin space for the group
         let margin = ui.style().spacing.window_margin;
 
@@ -67,15 +72,24 @@ impl HeaderGroup {
                     // Paint the heading
                     ui.add_space(margin.top); // Top margin
 
-                    let mut text = RichText::new(&self.heading);
-                    if self.strong {
-                        text = text.strong();
-                    }
-                    ui.heading(text);
+                    ui.horizontal(|ui| {
+                        let mut text = RichText::new(&self.heading);
+                        if self.strong {
+                            text = text.strong();
+                        }
+
+                        ui.heading(text);
+                        header_content(ui);
+                    });
+
                     ui.add_space(margin.top); // Top margin
 
                     // Draw the custom content
-                    content(ui);
+                    ui.horizontal(|ui| {
+                        body_content(ui);
+                        //ui.add_space(ui.available_width());
+                    });
+
                     ui.add_space(margin.bottom); // Bottom margin
                 });
             });

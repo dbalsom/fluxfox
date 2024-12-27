@@ -42,8 +42,6 @@
 //!
 //! It is recommended to use the [`ImageBuilder`] interface to load or create a disk image.
 
-extern crate core;
-
 mod bit_ring;
 pub mod bitstream;
 pub mod boot_sector;
@@ -54,7 +52,7 @@ mod file_parsers;
 pub mod image_builder;
 pub mod io;
 mod random;
-pub mod structure_parsers;
+pub mod track_schema;
 pub mod util;
 
 mod copy_protection;
@@ -66,7 +64,13 @@ mod range_check;
 pub mod track;
 pub mod types;
 
+mod disk_schema;
+mod image_loader;
+mod platform;
+mod scripting;
 mod sector_view;
+pub mod source_map;
+mod tree_map;
 #[cfg(feature = "viz")]
 pub mod visualization;
 
@@ -105,12 +109,14 @@ pub enum DiskImageError {
     IoError(String),
     #[error("A filesystem error occurred or path not found")]
     FsError,
+    #[error("An error occurred reading or writing a file archive: {0}")]
+    ArchiveError(FileArchiveError),
     #[error("Unknown disk image format")]
     UnknownFormat,
     #[error("Unsupported disk image format for requested operation")]
     UnsupportedFormat,
-    #[error("The disk image is valid but contains incompatible disk information")]
-    IncompatibleImage,
+    #[error("The disk image is valid but contains incompatible disk information: {0}")]
+    IncompatibleImage(String),
     #[error("The disk image format parser encountered an error")]
     FormatParseError,
     #[error("The disk image format parser reported the image was corrupt: {0}")]
@@ -125,6 +131,8 @@ pub enum DiskImageError {
     UniqueIdError,
     #[error("No sectors were found on the current track")]
     DataError,
+    #[error("No schema is defined for the current track")]
+    SchemaError,
     #[error("A CRC error was detected in the disk image")]
     CrcError,
     #[error("An invalid function parameter was supplied")]
@@ -137,12 +145,22 @@ pub enum DiskImageError {
     MultiDiskError(String),
     #[error("An error occurred attempting to lock a resource: {0}")]
     SyncError(String),
+    #[error("The disk image was not compatible with the requested platform")]
+    PlatformMismatch,
+    #[error("The disk image was not compatible with the requested format")]
+    FormatMismatch,
 }
 
 // Manually implement `From<io::Error>` for `DiskImageError`
 impl From<io::Error> for DiskImageError {
     fn from(err: io::Error) -> Self {
         DiskImageError::IoError(err.to_string()) // You could convert in a different way
+    }
+}
+
+impl From<FileArchiveError> for DiskImageError {
+    fn from(err: FileArchiveError) -> Self {
+        DiskImageError::ArchiveError(err)
     }
 }
 
@@ -164,7 +182,7 @@ pub enum DiskVisualizationError {
 // Re-export tiny_skia for convenience
 pub use crate::{
     diskimage::DiskImage,
-    file_parsers::{format_from_ext, supported_extensions, ImageParser, ParserWriteCompatibility},
+    file_parsers::{format_from_ext, supported_extensions, ImageFormatParser, ParserWriteCompatibility},
     image_builder::ImageBuilder,
     image_writer::ImageWriter,
     types::{DiskImageFileFormat, SectorMapEntry},
@@ -174,6 +192,7 @@ pub use tiny_skia;
 
 use types::{DiskCh, DiskChs, DiskChsn, DiskChsnQuery};
 // Re-export tiny_skia for convenience
+use crate::containers::archive::FileArchiveError;
 pub use types::standard_format::StandardFormat;
 
 pub type SectorId = DiskChsn;

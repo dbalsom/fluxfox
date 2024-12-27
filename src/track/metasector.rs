@@ -29,25 +29,24 @@
     Implements the MetaSector track type and the Track trait for same.
 
 */
-use super::{Track, TrackConsistency, TrackInfo};
+use super::{Track, TrackAnalysis, TrackInfo};
 
 use crate::types::{
+    AddSectorParams,
     ReadSectorResult,
     ReadTrackResult,
-    RwSectorScope,
+    RwScope,
     ScanSectorResult,
     SectorAttributes,
-    SectorDescriptor,
     SharedDiskContext,
     WriteSectorResult,
 };
 
-use crate::structure_parsers::{system34::System34Standard, DiskStructureMetadata};
+use crate::track_schema::{system34::System34Standard, TrackMetadata, TrackSchema};
 
 use crate::{
     bitstream::TrackDataStream,
-    track::{bitstream::BitStreamTrack, fluxstream::FluxStreamTrack},
-    types::{chs::DiskChsnQuery, DiskCh, DiskChs, DiskChsn, DiskDataEncoding, DiskDataRate, DiskDataResolution},
+    types::{chs::DiskChsnQuery, DiskCh, DiskChs, DiskChsn, DiskDataResolution, TrackDataEncoding, TrackDataRate},
     DiskImageError,
     FoxHashSet,
     SectorMapEntry,
@@ -96,7 +95,7 @@ impl<'a> SectorMatchMut<'a> {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct MetaMask {
     has_bits: bool,
@@ -153,11 +152,12 @@ impl MetaMask {
     }
 }
 
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub(crate) struct MetaSector {
     id_chsn: DiskChsn,
-    address_crc_error: bool,
-    data_crc_error: bool,
+    address_error: bool,
+    data_error: bool,
     deleted_mark: bool,
     no_dam: bool,
     data: Vec<u8>,
@@ -183,11 +183,13 @@ impl MetaSector {
     }
 }
 
+#[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MetaSectorTrack {
     pub(crate) ch: DiskCh,
-    pub(crate) encoding: DiskDataEncoding,
-    pub(crate) data_rate: DiskDataRate,
+    pub(crate) encoding: TrackDataEncoding,
+    pub(crate) schema: Option<TrackSchema>,
+    pub(crate) data_rate: TrackDataRate,
     pub(crate) sectors: Vec<MetaSector>,
 
     #[cfg_attr(feature = "serde", serde(skip))]
@@ -211,16 +213,8 @@ impl Track for MetaSectorTrack {
         self.as_any().downcast_ref::<MetaSectorTrack>()
     }
 
-    fn as_bitstream_track(&self) -> Option<&BitStreamTrack> {
-        None
-    }
-
-    fn as_fluxstream_track(&self) -> Option<&FluxStreamTrack> {
-        None
-    }
-
-    fn as_fluxstream_track_mut(&mut self) -> Option<&mut FluxStreamTrack> {
-        None
+    fn as_metasector_track_mut(&mut self) -> Option<&mut MetaSectorTrack> {
+        self.as_any_mut().downcast_mut::<MetaSectorTrack>()
     }
 
     fn ch(&self) -> DiskCh {
@@ -231,13 +225,14 @@ impl Track for MetaSectorTrack {
         self.ch = new_ch;
     }
 
-    fn encoding(&self) -> DiskDataEncoding {
+    fn encoding(&self) -> TrackDataEncoding {
         self.encoding
     }
 
     fn info(&self) -> TrackInfo {
         TrackInfo {
             encoding: self.encoding,
+            schema: self.schema,
             data_rate: self.data_rate,
             density: None,
             rpm: None,
@@ -246,7 +241,7 @@ impl Track for MetaSectorTrack {
         }
     }
 
-    fn metadata(&self) -> Option<&DiskStructureMetadata> {
+    fn metadata(&self) -> Option<&TrackMetadata> {
         None
     }
 
@@ -274,8 +269,8 @@ impl Track for MetaSectorTrack {
             .map(|s| SectorMapEntry {
                 chsn: s.id_chsn,
                 attributes: SectorAttributes {
-                    address_crc_valid: !s.address_crc_error,
-                    data_crc_valid: !s.data_crc_error,
+                    address_error: s.address_error,
+                    data_error: s.data_error,
                     deleted_mark: s.deleted_mark,
                     no_dam: false,
                 },
@@ -283,32 +278,32 @@ impl Track for MetaSectorTrack {
             .collect()
     }
 
-    fn add_sector(&mut self, sd: &SectorDescriptor, alternate: bool) -> Result<(), DiskImageError> {
+    fn add_sector(&mut self, params: &AddSectorParams) -> Result<(), DiskImageError> {
         // Create an empty weak bit mask if none is provided.
-        let weak_mask = match &sd.weak_mask {
+        let weak_mask = match &params.weak_mask {
             Some(weak_buf) => MetaMask::from(weak_buf),
-            None => MetaMask::empty(sd.data.len()),
+            None => MetaMask::empty(params.data.len()),
         };
 
-        let hole_mask = match &sd.hole_mask {
+        let hole_mask = match &params.hole_mask {
             Some(hole_buf) => MetaMask::from(hole_buf),
-            None => MetaMask::empty(sd.data.len()),
+            None => MetaMask::empty(params.data.len()),
         };
 
         let new_sector = MetaSector {
-            id_chsn: sd.id_chsn,
-            address_crc_error: !sd.attributes.address_crc_valid,
-            data_crc_error: !sd.attributes.data_crc_valid,
-            deleted_mark: sd.attributes.deleted_mark,
-            no_dam: sd.attributes.no_dam,
-            data: sd.data.clone(),
+            id_chsn: params.id_chsn,
+            address_error: params.attributes.address_error,
+            data_error: params.attributes.data_error,
+            deleted_mark: params.attributes.deleted_mark,
+            no_dam: params.attributes.no_dam,
+            data: params.data.to_vec(),
             weak_mask,
             hole_mask,
         };
 
-        if alternate {
+        if params.alternate {
             // Look for existing sector.
-            let existing_sector = self.sectors.iter_mut().find(|s| s.id_chsn == sd.id_chsn);
+            let existing_sector = self.sectors.iter_mut().find(|s| s.id_chsn == params.id_chsn);
 
             if let Some(es) = existing_sector {
                 // Update the existing sector.
@@ -333,7 +328,7 @@ impl Track for MetaSectorTrack {
 
     /// Read the sector data from the sector identified by 'chs'. The data is returned within a
     /// ReadSectorResult struct which also sets some convenience metadata flags where are needed
-    /// when handling ByteStream images.
+    /// when handling MetaSector images.
     /// When reading a BitStream image, the sector data includes the address mark and crc.
     /// Offsets are provided within ReadSectorResult so these can be skipped when processing the
     /// read operation.
@@ -342,13 +337,13 @@ impl Track for MetaSectorTrack {
         id: DiskChsnQuery,
         _n: Option<u8>,
         _offset: Option<usize>,
-        scope: RwSectorScope,
+        scope: RwScope,
         debug: bool,
     ) -> Result<ReadSectorResult, DiskImageError> {
         match scope {
             // Add 4 bytes for address mark and 2 bytes for CRC.
-            RwSectorScope::DataElement => unimplemented!("DataElement scope not supported for ByteStream"),
-            RwSectorScope::DataOnly => {}
+            RwScope::EntireElement => unimplemented!("DataElement scope not supported for MetaSector"),
+            RwScope::DataOnly => {}
             _ => return Err(DiskImageError::ParameterError),
         };
 
@@ -357,18 +352,11 @@ impl Track for MetaSectorTrack {
         if sm.len() == 0 {
             log::debug!("read_sector(): No sector found for id: {}", id);
             Ok(ReadSectorResult {
-                id_chsn: None,
-                data_idx: 0,
-                data_len: 0,
-                read_buf: Vec::new(),
-                deleted_mark: false,
                 not_found: true,
-                no_dam: false,
-                address_crc_error: false,
-                data_crc_error: false,
                 wrong_cylinder: sm.wrong_cylinder,
                 bad_cylinder: sm.bad_cylinder,
                 wrong_head: sm.wrong_head,
+                ..ReadSectorResult::default()
             })
         }
         else {
@@ -382,29 +370,25 @@ impl Track for MetaSectorTrack {
             }
             let s = sm.sectors[0];
 
+            // TODO: MetaSector doesn't have stored CRC, but we can calculate the read CRC
             Ok(ReadSectorResult {
                 id_chsn: Some(s.id_chsn),
-                data_idx: 0,
-                data_len: s.data.len(),
+                data_range: 0..s.data.len(),
                 read_buf: s.read_data(), // Calling read_data applies the weak bit and hole masks.
                 deleted_mark: s.deleted_mark,
                 not_found: false,
                 no_dam: false,
-                address_crc_error: s.address_crc_error,
-                data_crc_error: s.data_crc_error,
+                address_crc_error: s.address_error,
+                data_crc_error: s.data_error,
                 wrong_cylinder: sm.wrong_cylinder,
                 bad_cylinder: sm.bad_cylinder,
                 wrong_head: sm.wrong_head,
+                ..ReadSectorResult::default()
             })
         }
     }
 
-    fn scan_sector(
-        &self,
-        id: DiskChsnQuery,
-        _n: Option<u8>,
-        _offset: Option<usize>,
-    ) -> Result<ScanSectorResult, DiskImageError> {
+    fn scan_sector(&self, id: DiskChsnQuery, _offset: Option<usize>) -> Result<ScanSectorResult, DiskImageError> {
         let sm = self.match_sectors(id, false);
 
         if sm.len() == 0 {
@@ -413,8 +397,8 @@ impl Track for MetaSectorTrack {
                 not_found: true,
                 no_dam: false,
                 deleted_mark: false,
-                address_crc_error: false,
-                data_crc_error: false,
+                address_error: false,
+                data_error: false,
                 wrong_cylinder: sm.wrong_cylinder,
                 bad_cylinder: sm.bad_cylinder,
                 wrong_head: sm.wrong_head,
@@ -433,8 +417,8 @@ impl Track for MetaSectorTrack {
                 deleted_mark: s.deleted_mark,
                 not_found: false,
                 no_dam: false,
-                address_crc_error: s.address_crc_error,
-                data_crc_error: s.data_crc_error,
+                address_error: s.address_error,
+                data_error: s.data_error,
                 wrong_cylinder: sm.wrong_cylinder,
                 bad_cylinder: sm.bad_cylinder,
                 wrong_head: sm.wrong_head,
@@ -447,7 +431,7 @@ impl Track for MetaSectorTrack {
         id: DiskChsnQuery,
         _offset: Option<usize>,
         write_data: &[u8],
-        _scope: RwSectorScope,
+        _scope: RwScope,
         write_deleted: bool,
         debug: bool,
     ) -> Result<WriteSectorResult, DiskImageError> {
@@ -484,7 +468,7 @@ impl Track for MetaSectorTrack {
             return Err(DiskImageError::ParameterError);
         }
 
-        if sm.sectors[0].no_dam || sm.sectors[0].address_crc_error {
+        if sm.sectors[0].no_dam || sm.sectors[0].address_error {
             log::debug!(
                 "write_sector(): Sector {} is unwritable due to no DAM or bad address CRC.",
                 sm.sectors[0].id_chsn
@@ -500,7 +484,7 @@ impl Track for MetaSectorTrack {
         Ok(WriteSectorResult {
             not_found: false,
             no_dam: sm.sectors[0].no_dam,
-            address_crc_error: sm.sectors[0].address_crc_error,
+            address_crc_error: sm.sectors[0].address_error,
             wrong_cylinder: sm.wrong_cylinder,
             bad_cylinder: sm.bad_cylinder,
             wrong_head: sm.wrong_head,
@@ -509,17 +493,10 @@ impl Track for MetaSectorTrack {
 
     fn recalculate_sector_crc(&mut self, id: DiskChsnQuery, offset: Option<usize>) -> Result<(), DiskImageError> {
         // First, read the sector data.
-        let rr = self.read_sector(id, None, offset, RwSectorScope::DataOnly, false)?;
+        let rr = self.read_sector(id, None, offset, RwScope::DataOnly, false)?;
 
         // Write the data back to the sector, which will recalculate the CRC.
-        self.write_sector(
-            id,
-            offset,
-            &rr.read_buf,
-            RwSectorScope::DataOnly,
-            rr.deleted_mark,
-            false,
-        )?;
+        self.write_sector(id, offset, &rr.read_buf, RwScope::DataOnly, rr.deleted_mark, false)?;
 
         Ok(())
     }
@@ -533,7 +510,7 @@ impl Track for MetaSectorTrack {
 
     /// Read all sectors from the track identified by 'ch'. The data is returned within a
     /// ReadSectorResult struct which also sets some convenience metadata flags which are needed
-    /// when handling ByteStream images.
+    /// when handling MetaSector images.
     /// Unlike read_sectors, the data returned is only the actual sector data. The address marks and
     /// CRCs are not included in the data.
     /// This function is intended for use in implementing the Read Track FDC command.
@@ -568,11 +545,11 @@ impl Track for MetaSectorTrack {
             track_read_vec.extend(&s.read_data());
             sectors_read = sectors_read.saturating_add(1);
 
-            if s.address_crc_error {
+            if s.address_error {
                 address_crc_error |= true;
             }
 
-            if s.data_crc_error {
+            if s.data_error {
                 data_crc_error |= true;
             }
 
@@ -593,7 +570,7 @@ impl Track for MetaSectorTrack {
         })
     }
 
-    fn get_next_id(&self, chs: DiskChs) -> Option<DiskChsn> {
+    fn next_id(&self, chs: DiskChs) -> Option<DiskChsn> {
         let first_sector = self.sectors.first()?;
         let mut sector_matched = false;
         for si in self.sectors.iter() {
@@ -620,11 +597,11 @@ impl Track for MetaSectorTrack {
         }
     }
 
-    fn read_track(&mut self, _overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
+    fn read(&mut self, _overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 
-    fn read_track_raw(&mut self, _overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
+    fn read_raw(&mut self, _overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 
@@ -643,45 +620,45 @@ impl Track for MetaSectorTrack {
         Err(DiskImageError::UnsupportedFormat)
     }
 
-    fn track_consistency(&self) -> Result<TrackConsistency, DiskImageError> {
+    fn analysis(&self) -> Result<TrackAnalysis, DiskImageError> {
         let sector_ct = self.sectors.len();
-        let mut consistency = TrackConsistency::default();
+        let mut analysis = TrackAnalysis::default();
 
         let mut n_set: FoxHashSet<u8> = FoxHashSet::new();
         let mut last_n = 0;
         for (si, sector) in self.sectors.iter().enumerate() {
             if sector.id_chsn.s() != si as u8 + 1 {
-                consistency.nonconsecutive_sectors = true;
+                analysis.nonconsecutive_sectors = true;
             }
-            if sector.data_crc_error {
-                consistency.bad_data_crc = true;
+            if sector.data_error {
+                analysis.data_error = true;
             }
-            if sector.address_crc_error {
-                consistency.bad_address_crc = true;
+            if sector.address_error {
+                analysis.address_error = true;
             }
             if sector.deleted_mark {
-                consistency.deleted_data = true;
+                analysis.deleted_data = true;
             }
             last_n = sector.id_chsn.n();
             n_set.insert(sector.id_chsn.n());
         }
 
         if n_set.len() > 1 {
-            consistency.consistent_sector_size = None;
+            analysis.consistent_sector_size = None;
         }
         else {
-            consistency.consistent_sector_size = Some(last_n);
+            analysis.consistent_sector_size = Some(last_n);
         }
 
-        consistency.sector_ct = sector_ct;
-        Ok(consistency)
+        analysis.sector_ct = sector_ct;
+        Ok(analysis)
     }
 
-    fn track_stream(&self) -> Option<&TrackDataStream> {
+    fn stream(&self) -> Option<&TrackDataStream> {
         None
     }
 
-    fn track_stream_mut(&mut self) -> Option<&mut TrackDataStream> {
+    fn stream_mut(&mut self) -> Option<&mut TrackDataStream> {
         None
     }
 }
@@ -712,7 +689,7 @@ impl MetaSectorTrack {
                     wrong_head = true;
                 }
                 sizes.insert(s.id_chsn.n());
-                id.matches(s.id_chsn)
+                id.matches(&s.id_chsn)
             })
             .collect();
 
@@ -745,7 +722,7 @@ impl MetaSectorTrack {
                     wrong_head = true;
                 }
                 sizes.insert(s.id_chsn.n());
-                id.matches(s.id_chsn)
+                id.matches(&s.id_chsn)
             })
             .collect();
 
