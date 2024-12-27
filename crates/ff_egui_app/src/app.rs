@@ -48,6 +48,7 @@ use fluxfox_egui::{
     SectorSelection,
     TrackListSelection,
     TrackSelection,
+    TrackSelectionScope,
     UiEvent,
 };
 
@@ -63,6 +64,7 @@ pub const APP_NAME: &str = "fluxfox-web";
 use crate::{
     widgets::{filename::FilenameWidget, hello::HelloWidget},
     windows::{
+        element_map::ElementMapViewer,
         file_viewer::FileViewer,
         sector_viewer::SectorViewer,
         source_map::SourceMapViewer,
@@ -178,6 +180,7 @@ pub struct AppWindows {
     track_viewer:  TrackViewer,
     file_viewer:   FileViewer,
     source_map:    SourceMapViewer,
+    element_map:   ElementMapViewer,
 }
 
 impl AppWindows {
@@ -187,6 +190,7 @@ impl AppWindows {
         self.track_viewer = TrackViewer::default();
         self.file_viewer = FileViewer::default();
         self.source_map = SourceMapViewer::default();
+        self.element_map = ElementMapViewer::default();
     }
 
     pub fn update(&mut self, disk_lock: Arc<RwLock<DiskImage>>, _name: Option<String>) {
@@ -213,6 +217,7 @@ pub enum AppEvent {
     ImageLoaded,
     SectorSelected(SectorSelection),
     TrackSelected(TrackSelection),
+    TrackElementsSelected(TrackSelection),
 }
 
 pub struct App {
@@ -332,6 +337,7 @@ impl eframe::App for App {
         self.windows.sector_viewer.show(ctx);
         self.windows.track_viewer.show(ctx);
         self.windows.file_viewer.show(ctx);
+        self.windows.element_map.show(ctx);
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             // The top panel is often a good place for a menu bar:
@@ -570,6 +576,12 @@ impl App {
                     self.track_selection = Some(selection);
                     self.windows.track_viewer.set_open(true);
                 }
+                AppEvent::TrackElementsSelected(selection) => {
+                    self.windows
+                        .element_map
+                        .update(self.disk_image.as_ref().unwrap().clone(), selection.clone());
+                    self.windows.element_map.set_open(true);
+                }
             }
         }
     }
@@ -604,10 +616,15 @@ impl App {
                 if let Some(selection) = self.widgets.track_list.show(ui) {
                     log::debug!("TrackList selection: {:?}", selection);
                     match selection {
-                        TrackListSelection::Track(track) => {
-                            self.events.push(AppEvent::TrackSelected(track));
-                            //self.events.push(AppEvent::SectorSelected(SectorSelection::Track(track)));
-                        }
+                        TrackListSelection::Track(track) => match track.sel_scope {
+                            TrackSelectionScope::DecodedDataStream => {
+                                self.events.push(AppEvent::TrackSelected(track));
+                            }
+                            TrackSelectionScope::Elements => {
+                                self.events.push(AppEvent::TrackElementsSelected(track));
+                            }
+                            _ => log::warn!("Unsupported TrackSelectionScope: {:?}", track.sel_scope),
+                        },
                         TrackListSelection::Sector(sector) => {
                             self.events.push(AppEvent::SectorSelected(sector));
                         }

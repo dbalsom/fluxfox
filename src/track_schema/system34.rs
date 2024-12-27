@@ -42,6 +42,7 @@ use crate::{
     io::{Read, Seek, SeekFrom},
     mfm_offset,
     prelude::{RwScope, TrackDataEncoding},
+    source_map::{OptionalSourceMap, SourceMap, SourceValue},
     track::{TrackAnalysis, TrackSectorScanResult},
     track_schema::{
         GenericTrackElement,
@@ -643,10 +644,10 @@ impl System34Schema {
                     data_missing,
                 }) => {
                     if *data_missing {
-                        // Can an Amiga sector not have any data? I don't think so, but I'm not sure.
+                        log::warn!("find_sector_element(): Found sector id {} with missing DAM!", chsn);
                         return TrackSectorScanResult::Found {
                             ei,
-                            no_dam: true,
+                            no_dam: *data_missing,
                             sector_chsn: *chsn,
                             address_error: *address_error,
                             data_error: false,
@@ -856,7 +857,6 @@ impl System34Schema {
         let mut elements = Vec::new();
         let mut last_marker_opt: Option<System34Marker> = None;
         let mut last_sector_id = SectorId::default();
-
         let mut last_element_offset = 0;
 
         for marker in &markers {
@@ -887,6 +887,7 @@ impl System34Schema {
                         elements.push(data_metadata)
                     }
                     (_, System34Marker::Idam) => {
+                        // Encountered a sector ID address mark (sector header), after any element.
                         let mut sector_header = [0; 8];
 
                         // TODO: Don't unwrap in a library unless provably safe.
@@ -925,6 +926,7 @@ impl System34Schema {
                         last_sector_id = sector_id;
                     }
                     (Some(System34Marker::Idam), System34Marker::Dam | System34Marker::Ddam) => {
+                        // Encountered a DAM or DDAM after a sector header (IDAM). This is the sector data.
                         let data_len = last_sector_id.sector_size_in_bytes() * MFM_BYTE_LEN;
                         let data_end = element_offset + MFM_MARKER_LEN + data_len;
 
@@ -1133,5 +1135,60 @@ impl System34Schema {
         let calculated = crc_ibm_3740(&data[..data.len().saturating_sub(2)], None);
 
         (recorded, calculated)
+    }
+
+    pub(crate) fn build_element_map(elements: &[TrackElementInstance]) -> SourceMap {
+        let mut element_map = SourceMap::new();
+
+        for (i, ei) in elements.iter().enumerate() {
+            match ei.element {
+                TrackElement::System34(System34Element::SectorHeader {
+                    chsn,
+                    address_error,
+                    data_missing,
+                }) => {
+                    element_map
+                        .add_child(0, &format!("IDAM: {}", chsn), SourceValue::default())
+                        .add_child(
+                            if address_error { "Address Error" } else { "Address OK" },
+                            SourceValue::default(),
+                        )
+                        .add_sibling(
+                            if data_missing {
+                                "No associated DAM"
+                            }
+                            else {
+                                "Matching DAM"
+                            },
+                            SourceValue::default(),
+                        );
+                }
+                TrackElement::System34(System34Element::SectorData {
+                    chsn,
+                    address_error,
+                    data_error,
+                    deleted,
+                }) => {
+                    let cursor = if deleted {
+                        element_map.add_child(0, &format!("DDAM: {}", chsn), SourceValue::default())
+                    }
+                    else {
+                        element_map.add_child(0, &format!("DAM: {}", chsn), SourceValue::default())
+                    };
+
+                    cursor
+                        .add_child(
+                            if address_error { "Address Error" } else { "Address OK" },
+                            SourceValue::default(),
+                        )
+                        .add_sibling(
+                            if data_error { "Data Error" } else { "Data OK" },
+                            SourceValue::default(),
+                        );
+                }
+                _ => {}
+            }
+        }
+        element_map
     }
 }

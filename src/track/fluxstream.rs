@@ -69,6 +69,7 @@ use crate::{
     SectorMapEntry,
 };
 
+use crate::source_map::SourceMap;
 use sha1_smol::Digest;
 
 #[derive(Clone)]
@@ -311,6 +312,13 @@ impl Track for FluxStreamTrack {
     fn stream_mut(&mut self) -> Option<&mut TrackDataStream> {
         if let Some(resolved) = self.get_bitstream_mut() {
             return resolved.stream_mut();
+        }
+        None
+    }
+
+    fn element_map(&self) -> Option<&SourceMap> {
+        if let Some(resolved) = self.get_bitstream() {
+            return resolved.element_map();
         }
         None
     }

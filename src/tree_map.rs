@@ -30,6 +30,7 @@
 use crate::{FoxHashMap, FoxHashSet};
 
 // A generic node in a FoxTreeMap
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct FoxTreeNode<T> {
     pub name: String,
@@ -39,7 +40,8 @@ pub struct FoxTreeNode<T> {
     pub data: T,
 }
 
-#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone, Default)]
 pub struct FoxTreeMap<T> {
     nodes: Vec<FoxTreeNode<T>>,
     name_to_index: FoxHashMap<String, usize>, // Name-to-index map for optional lookups

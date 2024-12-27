@@ -53,6 +53,7 @@ use std::{
 /// The internal value represents the number of digits to display. A value of 0 means
 /// no width specifier will be used when formatting.
 /// The default representation is decimal.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Repr {
     Dec(u8),
@@ -86,6 +87,7 @@ impl Repr {
 /// A scalar value, primarily defining simple integers and a String type.
 /// In theory all integers could be stored as the same type, but I suppose this might save some
 /// memory in some cases.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub enum Scalar {
     U8(u8),
@@ -107,6 +109,7 @@ impl Scalar {
 /// A state for a value, indicating whether it is good, bad, or questionable.
 /// Currently only Good and Bad are used - this field was a bool, but I figured it may be useful
 /// to have a third state if we aren't sure if a value is bad or not.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Default)]
 pub enum ValueState {
     #[default]
@@ -125,6 +128,7 @@ pub enum ValueState {
 ///    representation of the fluxfox enum mapped from the source scalar value.
 ///  - The `comment` field can be set to provide a string that will be displayed as a comment in
 ///    the UI to the right of the value.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Default)]
 pub struct SourceValue {
     pub(crate) scalar: Option<Scalar>,
@@ -288,7 +292,8 @@ impl SourceValue {
     }
 }
 
-#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone, Default)]
 pub struct SourceMap {
     map: FoxTreeMap<SourceValue>,
 }

@@ -68,6 +68,7 @@ use crate::{
 #[cfg(feature = "amiga")]
 use crate::track_schema::amiga::{AmigaElement, AmigaMarker, AmigaVariant};
 
+use crate::source_map::SourceMap;
 use bit_vec::BitVec;
 
 pub enum TrackSchemaVariant {
@@ -117,14 +118,16 @@ pub struct TrackMetadata {
     pub(crate) items: Vec<TrackElementInstance>,
     pub(crate) sector_ids: Vec<SectorId>,
     pub(crate) valid_sector_ids: Vec<SectorId>,
+    pub(crate) element_map: SourceMap,
 }
 
 impl TrackMetadata {
     /// Create a new `DiskStructureMetadata` instance from the specified items.
-    pub(crate) fn new(items: Vec<TrackElementInstance>) -> Self {
+    pub(crate) fn new(items: Vec<TrackElementInstance>, schema: TrackSchema) -> Self {
         TrackMetadata {
             sector_ids: Self::find_sector_ids(&items),
             valid_sector_ids: Self::find_valid_sector_ids(&items),
+            element_map: schema.build_element_map(&items),
             items,
         }
     }
@@ -223,7 +226,7 @@ impl TrackMetadata {
                             address_error,
                             data_error,
                             deleted_mark: false, // Amiga sectors can't be deleted
-                            no_dam: false,
+                            no_dam: false, // Can Amiga sectors be missing data? There is no DAM marker to check for.
                         },
                     });
                 }
@@ -653,4 +656,6 @@ pub(crate) trait TrackSchemaParser: Send + Sync {
     /// # Returns
     /// A tuple containing the CRC value contained in the byte slice, and the calculated CRC value.
     fn crc_u16_buf(&self, buf: &[u8]) -> (u16, u16);
+
+    fn build_element_map(&self, elements: &[TrackElementInstance]) -> SourceMap;
 }

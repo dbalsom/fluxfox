@@ -48,6 +48,11 @@ impl SourceMapWidget {
         self.source_format = disk.source_format();
     }
 
+    pub fn update_direct(&mut self, source_map: &SourceMap, source_format: Option<DiskImageFileFormat>) {
+        self.source_map = Some(source_map.clone());
+        self.source_format = source_format;
+    }
+
     pub fn show(&mut self, ui: &mut Ui) {
         if self.source_map.is_none() {
             ui.label("No source map available");

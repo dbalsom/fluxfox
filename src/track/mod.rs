@@ -36,6 +36,7 @@ pub mod metasector;
 
 use crate::{
     bitstream::TrackDataStream,
+    source_map::SourceMap,
     track::{bitstream::BitStreamTrack, fluxstream::FluxStreamTrack, metasector::MetaSectorTrack},
     track_schema::{system34::System34Standard, TrackMetadata, TrackSchema},
     types::{
@@ -84,6 +85,7 @@ pub struct TrackInfo {
 }
 
 /// A struct representing the result of a sector scan operation on a track.
+#[derive(Debug)]
 pub(crate) enum TrackSectorScanResult {
     /// A variant indicating the specified sector ID was found on the track.
     Found {
@@ -396,6 +398,12 @@ pub trait Track: DynClone + Any + Send + Sync {
 
     /// Return a mutable reference to the underlying `TrackDataStream`.
     fn stream_mut(&mut self) -> Option<&mut TrackDataStream>;
+
+    /// Return a SourceMap containing info about the track's elements for display in a UI or
+    /// debug output.
+    fn element_map(&self) -> Option<&SourceMap> {
+        None
+    }
 }
 
 clone_trait_object!(Track);
