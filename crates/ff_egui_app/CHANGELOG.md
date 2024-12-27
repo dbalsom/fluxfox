@@ -1,6 +1,8 @@
-## 0.2.0 (2024-12-XX)
+## 0.3.0 (2024-12-26)
 
--
+- Source Map support for info on source image file format
+- Initial Track viewer
+- Bump egui to 0.30
 
 ## 0.1.1 (2024-11-24)
 

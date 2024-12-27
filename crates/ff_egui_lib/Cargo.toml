@@ -12,10 +12,8 @@ license.workspace = true
 [dependencies]
 log = "0.4"
 fluxfox = { path = "../..", default-features = false, features = ["fat", "viz"] }
-egui = {  version = "0.29", optional = true }
-egui_v28 = { package = "egui", version = "0.28", optional = true } # Lower version for MartyPC support
-egui_extras = { version = "0.29", optional = true }
-egui_extras_v28 = { package = "egui_extras", version = "0.28", optional = true } # Lower version for MartyPC support
+egui = {  version = "0.30.0", optional = true }
+egui_extras = { version = "0.30.0", optional = true }
 serde = { version = "1.0", optional = true }
 strum = { version = "0.26" }
 strum_macros = { version = "0.26" }
@@ -27,4 +25,3 @@ default = ["egui", "egui_extras", "serde"]
 serde = ["dep:serde", "egui/serde"]
 egui = ["dep:egui"]
 egui_extras = ["dep:egui_extras"]
-egui28 = ["dep:egui_v28", "dep:egui_extras_v28", "serde"]
