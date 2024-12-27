@@ -643,22 +643,6 @@ impl System34Schema {
                     address_error,
                     data_missing,
                 }) => {
-                    if *data_missing {
-                        log::warn!("find_sector_element(): Found sector id {} with missing DAM!", chsn);
-                        return TrackSectorScanResult::Found {
-                            ei,
-                            no_dam: *data_missing,
-                            sector_chsn: *chsn,
-                            address_error: *address_error,
-                            data_error: false,
-                            deleted_mark: false,
-                        };
-                    }
-
-                    // Sector header should have a corresponding DAM marker which we will
-                    // match in the next iteration, if this sector header matches.
-
-                    // We match in two stages - first we match sector id if provided.
                     if chsn.s() == id.s() {
                         // if c is 0xFF, we set the flag for bad cylinder.
                         if chsn.c() == 0xFF {
@@ -675,8 +659,18 @@ impl System34Schema {
                             wrong_head = true;
                         }
 
-                        if id.matches(chsn) {
-                            last_idam_matched = true;
+                        last_idam_matched = id.matches(chsn);
+
+                        // A bad header CRC will short-circuit the search.
+                        if *address_error {
+                            return TrackSectorScanResult::Found {
+                                ei,
+                                sector_chsn: *chsn,
+                                address_error: *address_error,
+                                data_error: false,
+                                deleted_mark: false,
+                                no_dam: *data_missing,
+                            };
                         }
                     }
                     //idam_chsn = Some(*chsn);
