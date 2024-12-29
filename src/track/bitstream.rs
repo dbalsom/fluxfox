@@ -35,14 +35,7 @@ use crate::{
     io::SeekFrom,
     source_map::SourceMap,
     track_schema::{
-        system34::{
-            System34Element,
-            System34Marker,
-            System34Schema,
-            System34Standard,
-            DAM_MARKER_BYTES,
-            DDAM_MARKER_BYTES,
-        },
+        system34::{System34Element, System34Marker, System34Schema, System34Standard},
         TrackElement,
         TrackElementInstance,
         TrackMetadata,
@@ -472,7 +465,7 @@ impl Track for BitStreamTrack {
         id: DiskChsnQuery,
         offset: Option<usize>,
         write_data: &[u8],
-        scope: RwScope,
+        _scope: RwScope,
         write_deleted: bool,
         debug: bool,
     ) -> Result<WriteSectorResult, DiskImageError> {
@@ -499,7 +492,6 @@ impl Track for BitStreamTrack {
                 })
             }
             TrackSectorScanResult::Found {
-                ei,
                 sector_chsn,
                 address_error,
                 deleted_mark,
@@ -520,11 +512,6 @@ impl Track for BitStreamTrack {
                         wrong_head,
                     });
                 }
-
-                let mark_bytes = match deleted_mark {
-                    true => DDAM_MARKER_BYTES,
-                    false => DAM_MARKER_BYTES,
-                };
 
                 if write_deleted != deleted_mark {
                     log::warn!(

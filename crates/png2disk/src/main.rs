@@ -67,7 +67,7 @@ fn main() {
         };
         let mut reader = Cursor::new(&mut file_vec);
 
-        let disk_image_type = match DiskImage::detect_format(&mut reader) {
+        let disk_image_type = match DiskImage::detect_format(&mut reader, Some(&in_disk)) {
             Ok(disk_image_type) => disk_image_type,
             Err(e) => {
                 eprintln!("Error detecting disk image type: {}", e);
@@ -78,7 +78,7 @@ fn main() {
         println!("Reading disk image: {}", in_disk.display());
         println!("Detected disk image type: {}", disk_image_type);
 
-        match DiskImage::load(&mut reader, Some(in_disk), None, None) {
+        match DiskImage::load(&mut reader, Some(&in_disk), None, None) {
             Ok(disk) => disk,
             Err(e) => {
                 eprintln!("Error loading disk image: {}", e);

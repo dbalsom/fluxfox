@@ -582,11 +582,13 @@ impl DiskImage {
             }
             #[cfg(feature = "wasm")]
             DiskImageContainer::FileSet(_format, _path, _) => Err(DiskImageError::UnsupportedFormat),
+            #[cfg(not(feature = "wasm"))]
+            DiskImageContainer::FileSet(_format, _path, _) => Err(DiskImageError::UnsupportedFormat),
             #[cfg(feature = "wasm")]
             DiskImageContainer::KryofluxSet => Err(DiskImageError::UnsupportedFormat),
             #[cfg(feature = "tokio-async")]
             DiskImageContainer::KryofluxSet => {
-                if let Some(image_path) = _image_path {
+                if let Some(image_path) = image_path {
                     let (file_set, set_ch) = KfxFormat::expand_kryoflux_set(image_path, None)?;
 
                     log::debug!(

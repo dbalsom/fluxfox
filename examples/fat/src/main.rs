@@ -79,7 +79,7 @@ fn main() {
     };
     let mut cursor = Cursor::new(&mut file_vec);
 
-    let disk_image_type = match DiskImage::detect_format(&mut cursor) {
+    let disk_image_type = match DiskImage::detect_format(&mut cursor, Some(&opts.filename)) {
         Ok(disk_image_type) => disk_image_type,
         Err(e) => {
             eprintln!("Error detecting disk image type: {}", e);
@@ -91,7 +91,7 @@ fn main() {
         println!("Detected disk image type: {}", disk_image_type);
     }
 
-    let disk = match DiskImage::load(&mut cursor, Some(opts.filename.clone()), None, None) {
+    let disk = match DiskImage::load(&mut cursor, Some(&opts.filename), None, None) {
         Ok(disk) => disk,
         Err(e) => {
             eprintln!("Error loading disk image: {}", e);

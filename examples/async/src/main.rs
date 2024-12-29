@@ -83,7 +83,7 @@ async fn main() {
 
     let mut reader = Cursor::new(file_vec);
 
-    let disk_image_type = match DiskImage::detect_format(&mut reader) {
+    let disk_image_type = match DiskImage::detect_format(&mut reader, Some(&opts.filename)) {
         Ok(disk_image_type) => disk_image_type,
         Err(e) => {
             eprintln!("Error detecting disk image type: {}", e);
@@ -126,7 +126,9 @@ async fn load_disk_image<RS: ReadSeek + Send + 'static>(mut reader: RS, opts: Op
 
     // Spawn a task for loading the disk image
     let mut load_handle =
-        task::spawn(async move { DiskImage::load_async(&mut reader, Some(opts.filename), None, Some(callback)).await });
+        task::spawn(
+            async move { DiskImage::load_async(&mut reader, Some(&opts.filename), None, Some(callback)).await },
+        );
 
     // Display spinner with percentage progress
     let spinner_chars = ['|', '/', '-', '\\'];
