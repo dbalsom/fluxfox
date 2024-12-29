@@ -33,6 +33,7 @@ use super::{Track, TrackAnalysis, TrackInfo, TrackSectorScanResult};
 use crate::{
     bitstream::{fm::FmCodec, mfm::MfmCodec, EncodingVariant, TrackCodec, TrackDataStream},
     io::SeekFrom,
+    source_map::SourceMap,
     track_schema::{
         system34::{
             System34Element,
@@ -226,6 +227,8 @@ impl Track for BitStreamTrack {
         let mut result_address_error = false;
         let mut result_deleted_mark = false;
         let mut result_data_range = 0..0;
+        let mut result_chsn = None;
+
         let mut wrong_cylinder = false;
         let mut bad_cylinder = false;
         let mut wrong_head = false;
@@ -235,7 +238,7 @@ impl Track for BitStreamTrack {
 
         // Read index first to avoid borrowing issues in next match.
         let bit_index = self.scan_sector_element(id, offset.unwrap_or(0))?;
-        let mut id_chsn = None;
+        log::debug!("read_sector(): Bit index: {:?}", bit_index);
 
         match bit_index {
             TrackSectorScanResult::Found {
@@ -261,14 +264,14 @@ impl Track for BitStreamTrack {
                 deleted_mark,
                 ..
             } => {
-                id_chsn = Some(sector_chsn);
+                result_chsn = Some(sector_chsn);
                 // If there is a bad address mark, we do not read the sector data, unless the debug
                 // flag is set.
                 // This allows dumping of sectors with bad address marks for debugging purposes.
                 // So if the debug flag is not set, return our 'failure' now.
                 if address_error && !debug {
                     return Ok(ReadSectorResult {
-                        id_chsn,
+                        id_chsn: result_chsn,
                         address_crc_error: true,
                         ..ReadSectorResult::default()
                     });
@@ -360,7 +363,7 @@ impl Track for BitStreamTrack {
         }
 
         Ok(ReadSectorResult {
-            id_chsn,
+            id_chsn: result_chsn,
             read_buf: read_vec,
             data_range: result_data_range,
             deleted_mark: result_deleted_mark,
@@ -817,7 +820,10 @@ impl Track for BitStreamTrack {
         }
         System34Schema::create_clock_map(&markers, self.data.clock_map_mut());
 
-        let new_metadata = TrackMetadata::new(System34Schema::scan_metadata(&mut self.data, markers));
+        let new_metadata = TrackMetadata::new(
+            System34Schema::scan_metadata(&mut self.data, markers),
+            TrackSchema::System34,
+        );
 
         let data_ranges = new_metadata.data_ranges();
         if !data_ranges.is_empty() {
@@ -839,6 +845,10 @@ impl Track for BitStreamTrack {
 
     fn stream_mut(&mut self) -> Option<&mut TrackDataStream> {
         Some(&mut self.data)
+    }
+
+    fn element_map(&self) -> Option<&SourceMap> {
+        Some(&self.metadata.element_map)
     }
 }
 
@@ -997,7 +1007,7 @@ impl BitStreamTrack {
         }
 
         if let Some(schema) = track_schema {
-            track_metadata = TrackMetadata::new(schema.scan_for_elements(&mut data_stream, track_markers));
+            track_metadata = TrackMetadata::new(schema.scan_for_elements(&mut data_stream, track_markers), schema);
         }
 
         let sector_ids = track_metadata.sector_ids();
@@ -1077,7 +1087,7 @@ impl BitStreamTrack {
                 log::warn!("Schema {:?} failed to detect track markers.", schema);
             }
 
-            self.metadata = TrackMetadata::new(schema.scan_for_elements(&mut self.data, track_markers));
+            self.metadata = TrackMetadata::new(schema.scan_for_elements(&mut self.data, track_markers), schema);
             let sector_ids = self.metadata.valid_sector_ids();
             if sector_ids.is_empty() {
                 log::debug!(

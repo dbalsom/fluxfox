@@ -79,7 +79,8 @@ impl SectorViewer {
         };
 
         if rsr.not_found {
-            self.error_string = Some("Sector not found".to_string());
+            self.error_string = Some(format!("Sector {} not found", selection.sector_id));
+            self.table.set_data(&[0; 512]);
             self.valid = false;
             return;
         }
@@ -88,10 +89,11 @@ impl SectorViewer {
         if let Some(chsn) = rsr.id_chsn {
             self.sector_id = chsn;
             self.table.set_data(&rsr.read_buf[rsr.data_range]);
+            self.error_string = None;
             self.valid = true;
         }
         else {
-            self.error_string = Some("Sector ID not found".to_string());
+            self.error_string = Some("Sector ID not returned".to_string());
             self.table.set_data(&[0; 512]);
             self.valid = false;
         }

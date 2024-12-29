@@ -50,8 +50,10 @@ use crate::{
     },
     io::{Read, Seek, SeekFrom},
     mfm_offset,
+    source_map::{OptionalSourceMap, SourceMap, SourceValue},
     track::{TrackAnalysis, TrackSectorScanResult},
     track_schema::{
+        system34::System34Element,
         GenericTrackElement,
         TrackElement,
         TrackElementInstance,
@@ -996,5 +998,60 @@ impl AmigaSchema {
             checksum ^= u16::from_be_bytes([chunk[0], chunk[1]]);
         }
         checksum
+    }
+
+    pub(crate) fn build_element_map(elements: &[TrackElementInstance]) -> SourceMap {
+        let mut element_map = SourceMap::new();
+
+        for (i, ei) in elements.iter().enumerate() {
+            match ei.element {
+                TrackElement::System34(System34Element::SectorHeader {
+                    chsn,
+                    address_error,
+                    data_missing,
+                }) => {
+                    element_map
+                        .add_child(0, &format!("IDAM: {}", chsn), SourceValue::default())
+                        .add_child(
+                            if address_error { "Address Error" } else { "Address OK" },
+                            SourceValue::default(),
+                        )
+                        .add_sibling(
+                            if data_missing {
+                                "No associated DAM"
+                            }
+                            else {
+                                "Matching DAM"
+                            },
+                            SourceValue::default(),
+                        );
+                }
+                TrackElement::System34(System34Element::SectorData {
+                    chsn,
+                    address_error,
+                    data_error,
+                    deleted,
+                }) => {
+                    let cursor = if deleted {
+                        element_map.add_child(0, &format!("DDAM: {}", chsn), SourceValue::default())
+                    }
+                    else {
+                        element_map.add_child(0, &format!("DAM: {}", chsn), SourceValue::default())
+                    };
+
+                    cursor
+                        .add_child(
+                            if address_error { "Address Error" } else { "Address OK" },
+                            SourceValue::default(),
+                        )
+                        .add_sibling(
+                            if data_error { "Data Error" } else { "Data OK" },
+                            SourceValue::default(),
+                        );
+                }
+                _ => {}
+            }
+        }
+        element_map
     }
 }

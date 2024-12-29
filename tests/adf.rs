@@ -13,7 +13,7 @@ fn test_adf() {
     init();
     test_invertibility(
         ".\\tests\\images\\adf\\flightyfox.adf",
-        DiskImageFileFormat::AmigaDiskFile,
+        DiskImageFileFormat::RawSectorImage,
     );
 }
 
@@ -24,7 +24,7 @@ fn test_adz() {
     test_convert_exact(
         ".\\tests\\images\\adf\\flightyfox.adz",
         ".\\tests\\images\\adf\\flightyfox.adf",
-        DiskImageFileFormat::AmigaDiskFile,
+        DiskImageFileFormat::RawSectorImage,
     );
 }
 

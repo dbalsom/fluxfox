@@ -270,6 +270,10 @@ impl DiskChsn {
     pub fn set_s(&mut self, s: u8) {
         self.chs.set_s(s)
     }
+    /// Set the CHS components of a sector ID.
+    pub fn set_chs(&mut self, chs: DiskChs) {
+        self.chs = chs;
+    }
 
     /// Return the number of sectors represented by a `DiskChsn` structure, interpreted as drive geometry.
     pub fn sector_count(&self) -> u32 {

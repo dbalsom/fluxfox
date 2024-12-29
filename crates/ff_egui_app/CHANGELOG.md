@@ -1,3 +1,7 @@
+## 0.3.1 (2024-12-27)
+
+- Added Track Element map
+
 ## 0.3.0 (2024-12-26)
 
 - Source Map support for info on source image file format

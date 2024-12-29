@@ -24,12 +24,16 @@
 
     --------------------------------------------------------------------------
 */
+
+#[cfg(feature = "amiga")]
+use crate::track_schema::amiga::AmigaSchema;
+
 use crate::{
     bitstream::TrackDataStream,
     prelude::RwScope,
+    source_map::SourceMap,
     track::{TrackAnalysis, TrackSectorScanResult},
     track_schema::{
-        amiga::AmigaSchema,
         system34::System34Schema,
         TrackElementInstance,
         TrackMarker,
@@ -233,6 +237,19 @@ impl TrackSchemaParser for TrackSchema {
             TrackSchema::System34 => System34Schema::crc16_bytes(data),
             #[cfg(feature = "amiga")]
             TrackSchema::Amiga => todo!(),
+            _ => {
+                panic!("{}", SCHEMA_ERR)
+            }
+        }
+    }
+
+    fn build_element_map(&self, elements: &[TrackElementInstance]) -> SourceMap {
+        #[allow(clippy::match_single_binding)]
+        #[allow(unreachable_patterns)]
+        match self {
+            TrackSchema::System34 => System34Schema::build_element_map(elements),
+            #[cfg(feature = "amiga")]
+            TrackSchema::Amiga => AmigaSchema::build_element_map(elements),
             _ => {
                 panic!("{}", SCHEMA_ERR)
             }

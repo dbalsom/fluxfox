@@ -39,8 +39,17 @@ pub struct SectorSelection {
 }
 
 #[derive(Debug, Clone, Default)]
+pub enum TrackSelectionScope {
+    RawDataStream,
+    #[default]
+    DecodedDataStream,
+    Elements,
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct TrackSelection {
-    pub phys_ch: DiskCh,
+    pub sel_scope: TrackSelectionScope,
+    pub phys_ch:   DiskCh,
 }
 
 #[derive(Debug, Clone)]

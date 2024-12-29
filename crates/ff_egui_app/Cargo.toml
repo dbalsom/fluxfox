@@ -1,6 +1,6 @@
 [package]
 name = "ff_egui_app"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Daniel Balsom"]
 edition = "2021"
 include = ["LICENSE-APACHE", "LICENSE-MIT", "**/*.rs", "Cargo.toml"]
@@ -20,7 +20,7 @@ eframe = { version = "0.30", default-features = false, features = [
 egui_extras = { version = "0.30", default-features = false, features = ["http", "image"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 log = "0.4"
-fluxfox = { path = "../..", default-features = false, features = ["rand", "serde", "archives", "mfi", "viz", "fat", "ibmpc", "amiga"] }
+fluxfox = { path = "../..", default-features = false, features = ["rand", "serde", "archives", "mfi", "viz", "fat", "ibmpc"] }
 fluxfox_egui = { path = "../ff_egui_lib" }
 
 # We don't need tiny_skia's png support since egui is pulling in image anyway.
@@ -75,3 +75,6 @@ features = [
     "HtmlAnchorElement"
 ]
 
+[features]
+default = ["amiga"]
+amiga = ["fluxfox/amiga"]

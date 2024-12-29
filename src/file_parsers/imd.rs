@@ -49,7 +49,7 @@ use crate::{
 use binrw::{binrw, BinRead, BinReaderExt};
 use regex::Regex;
 
-pub const IMD_HEADER_REX: &str = r"(?s)IMD (?<v_major>\d)\.(?<v_minor>\d{2}): (?<day>\d{2})/(?<month>\d{2})/(?<year>\d{4}) (?<hh>\d{2}):(?<mm>\d{2}):(?<ss>\d{2})(?<comment>.*)?";
+pub const IMD_HEADER_REX: &str = r"(?s)IMD (?<v_major>\d)\.(?<v_minor>\d{2}):\s+(?<day>\d{1,2})/(?<month>\d{2})/(?<year>\d{4})\s+(?<hh>\d{1,2}):(?<mm>\d{2}):(?<ss>\d{2})(?<comment>.*)?";
 
 pub struct ImdFormat;
 

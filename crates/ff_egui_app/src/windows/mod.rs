@@ -25,6 +25,7 @@
     --------------------------------------------------------------------------
 */
 
+pub mod element_map;
 pub mod file_viewer;
 pub mod sector_viewer;
 pub mod source_map;

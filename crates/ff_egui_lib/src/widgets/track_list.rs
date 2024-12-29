@@ -29,6 +29,7 @@ use crate::{
     SectorSelection,
     TrackListSelection,
     TrackSelection,
+    TrackSelectionScope,
 };
 use egui::{ScrollArea, TextStyle};
 use fluxfox::{prelude::*, track::TrackInfo};
@@ -229,9 +230,18 @@ impl TrackListWidget {
                                 },
                                 |ui: &mut egui::Ui| {
                                     ui.menu_button("⏷", |ui| {
-                                        if ui.button("View Track").clicked() {
-                                            new_selection2 =
-                                                Some(TrackListSelection::Track(TrackSelection { phys_ch: track.ch }));
+                                        if ui.button("View Track Elements").clicked() {
+                                            new_selection2 = Some(TrackListSelection::Track(TrackSelection {
+                                                sel_scope: TrackSelectionScope::Elements,
+                                                phys_ch:   track.ch,
+                                            }));
+                                        }
+
+                                        if ui.button("View Track Data Stream").clicked() {
+                                            new_selection2 = Some(TrackListSelection::Track(TrackSelection {
+                                                sel_scope: TrackSelectionScope::DecodedDataStream,
+                                                phys_ch:   track.ch,
+                                            }));
                                         }
                                     });
                                 },
