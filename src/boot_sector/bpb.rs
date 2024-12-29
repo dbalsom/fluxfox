@@ -129,6 +129,7 @@ impl TryFrom<&BiosParameterBlock2> for StandardFormat {
 impl TryFrom<StandardFormat> for BiosParameterBlock2 {
     type Error = DiskImageError;
     fn try_from(format: StandardFormat) -> Result<BiosParameterBlock2, DiskImageError> {
+        #[allow(unreachable_patterns)]
         let pc_fmt = match format {
             StandardFormat::PcFloppy160 => BiosParameterBlock2 {
                 bytes_per_sector: 512,
@@ -232,6 +233,7 @@ pub struct BiosParameterBlock3 {
 impl TryFrom<StandardFormat> for BiosParameterBlock3 {
     type Error = DiskImageError;
     fn try_from(format: StandardFormat) -> Result<BiosParameterBlock3, DiskImageError> {
+        #[allow(unreachable_patterns)]
         let pc_fmt = match format {
             StandardFormat::PcFloppy160 => BiosParameterBlock3 {
                 sectors_per_track: 8,

@@ -96,16 +96,19 @@ impl Display for TrackSchema {
     }
 }
 
-impl From<Platform> for TrackSchema {
+impl TryFrom<Platform> for TrackSchema {
+    type Error = ();
     /// Convert a `Platform` to a `TrackSchema`. This provides a sensible default, but is not
     /// exhaustive as a platform may use multiple track schemas.
-    fn from(platform: Platform) -> Self {
+    fn try_from(platform: Platform) -> Result<TrackSchema, Self::Error> {
         match platform {
-            Platform::IbmPc => TrackSchema::System34,
+            Platform::IbmPc => Ok(TrackSchema::System34),
             #[cfg(feature = "amiga")]
-            Platform::Amiga => TrackSchema::Amiga,
-            Platform::Macintosh => TrackSchema::System34,
-            Platform::AtariSt => TrackSchema::System34,
+            Platform::Amiga => Ok(TrackSchema::Amiga),
+            #[cfg(not(feature = "amiga"))]
+            Platform::Amiga => Err(()),
+            Platform::Macintosh => Ok(TrackSchema::System34),
+            Platform::AtariSt => Ok(TrackSchema::System34),
         }
     }
 }
@@ -320,6 +323,7 @@ impl TrackMetadata {
                     // For now we will exclude it.
                     data_ranges.push((instance.start + (4 * MFM_BYTE_LEN), instance.end));
                 }
+                #[cfg(feature = "amiga")]
                 TrackElement::Amiga(AmigaElement::SectorData { .. }) => {
                     data_ranges.push((instance.start, instance.end));
                 }

@@ -24,13 +24,16 @@
 
     --------------------------------------------------------------------------
 */
+
+#[cfg(feature = "amiga")]
+use crate::track_schema::amiga::AmigaSchema;
+
 use crate::{
     bitstream::TrackDataStream,
     prelude::RwScope,
     source_map::SourceMap,
     track::{TrackAnalysis, TrackSectorScanResult},
     track_schema::{
-        amiga::AmigaSchema,
         system34::System34Schema,
         TrackElementInstance,
         TrackMarker,

@@ -1134,7 +1134,7 @@ impl System34Schema {
     pub(crate) fn build_element_map(elements: &[TrackElementInstance]) -> SourceMap {
         let mut element_map = SourceMap::new();
 
-        for (i, ei) in elements.iter().enumerate() {
+        for (_i, ei) in elements.iter().enumerate() {
             match ei.element {
                 TrackElement::System34(System34Element::SectorHeader {
                     chsn,

@@ -62,6 +62,7 @@ impl RawFormat {
     pub(crate) fn extensions() -> Vec<&'static str> {
         const BASE_EXTENSIONS: &[&str] = &["img", "ima", "dsk", "bin"];
 
+        #[allow(unused_mut)]
         let mut extra_extensions = Vec::new();
 
         #[cfg(feature = "adf")]
