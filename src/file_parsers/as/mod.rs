@@ -25,18 +25,17 @@
     --------------------------------------------------------------------------
 */
 
-pub mod chs;
-pub mod enums;
-pub mod flags;
-pub mod rpm;
-pub mod sector_layout;
-pub mod standard_format;
-pub mod structs;
+//! Module for Applesauce disk image formats developed by John K. Morris.  
+//! These include A2R, WOZ and MOOF.
+//! A2R is a low level flux image format for Apple II disks, designed for use
+//! with the Applesauce FDC hardware.
+//!
+//! WOZ is a disk image format intended for Apple II software preservation.
+//! MOOF is similar to WOZ, but designed to contain Macintosh disk images.
+//! These formats share a similar chunk structure and CRC algorithm, quite
+//! similar to Hampa Hug's various PCE disk formats.
 
-// Expose all types under types module namespace
-pub use chs::*;
-pub use enums::*;
-pub use flags::*;
-pub use rpm::*;
-pub use standard_format::*;
-pub use structs::*;
+mod crc;
+mod flux;
+#[cfg(feature = "moof")]
+pub mod moof;

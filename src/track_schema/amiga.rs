@@ -43,7 +43,7 @@
 //!
 
 use crate::{
-    bitstream::{
+    bitstream_codec::{
         mfm::{MfmCodec, MFM_BYTE_LEN},
         MarkerEncoding,
         TrackDataStream,

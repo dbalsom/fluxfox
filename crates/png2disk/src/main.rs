@@ -88,7 +88,7 @@ fn main() {
     }
     else {
         match ImageBuilder::new()
-            .with_resolution(DiskDataResolution::BitStream)
+            .with_resolution(TrackDataResolution::BitStream)
             .with_standard_format(opts.disk_format)
             .with_formatted(opts.formatted)
             .build()

@@ -32,10 +32,10 @@
 //! A [DiskImage] should not be created directly. Instead, use an [ImageBuilder] to create a new
 //! disk image with specified parameters.
 
-use crate::{bitstream::mfm::MfmCodec, track::bitstream::BitStreamTrack, DiskImageFileFormat, SectorMapEntry};
+use crate::{bitstream_codec::mfm::MfmCodec, track::bitstream::BitStreamTrack, DiskImageFileFormat, SectorMapEntry};
 
 use crate::{
-    bitstream::{fm::FmCodec, TrackCodec},
+    bitstream_codec::{fm::FmCodec, TrackCodec},
     boot_sector::BootSector,
     containers::DiskImageContainer,
     detect::detect_container_format,
@@ -56,7 +56,6 @@ use crate::{
         standard_format::StandardFormat,
         BitStreamTrackParams,
         DiskAnalysis,
-        DiskDataResolution,
         DiskDescriptor,
         DiskImageFlags,
         DiskSelection,
@@ -68,6 +67,7 @@ use crate::{
         SharedDiskContext,
         TrackDataEncoding,
         TrackDataRate,
+        TrackDataResolution,
         WriteSectorResult,
     },
     util,
@@ -92,7 +92,7 @@ pub(crate) const DEFAULT_BOOT_SECTOR: &[u8] = include_bytes!("../resources/boots
 ///
 /// A [`DiskImage`] can be created from a specified disk format using an [ImageBuilder].
 ///
-/// A [`DiskImage`] may be any of the defined [`DiskDataResolution`] levels:
+/// A [`DiskImage`] may be any of the defined [`TrackDataResolution`] levels:
 /// * `MetaSector`: These images are sourced from sector-based disk image formats such as
 ///                 `IMG`, `IMD`, `TD0`, `ADF`, or `PSI`.
 /// * `BitStream` : These images are sourced from file formats such as `HFE`, `MFM`, `86F`, or `PRI`.
@@ -100,23 +100,27 @@ pub(crate) const DEFAULT_BOOT_SECTOR: &[u8] = include_bytes!("../resources/boots
 ///                 `MFI`.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DiskImage {
-    // Flags that can be applied to a disk image.
+    /// Flags that can be applied to a disk image.
     pub(crate) flags: DiskImageFlags,
-    // The standard format of the disk image, if it adheres to one. (Nonstandard images will be None)
+    /// The standard format of the disk image, if it adheres to one. (Nonstandard images will be None)
     pub(crate) standard_format: Option<StandardFormat>,
-    // The image format the disk image was sourced from, if any
+    /// The image format the disk image was sourced from, if any
     pub(crate) source_format: Option<DiskImageFileFormat>,
-    // The data-level resolution of the disk image. Set on first write operation to an empty disk image.
-    pub(crate) resolution: Option<DiskDataResolution>,
-    // A DiskDescriptor describing this image with more thorough parameters.
+    /// A flag indicating if this disk image is allowed to contain multiple track resolution types.
+    /// Attempts to add tracks with a different resolution will fail if this is false.
+    pub(crate) multires: bool,
+    /// A set of [TrackDataResolution] representing the different resolutions of track data in the image.
+    /// Normally this will be a set of one; but it is possible to have multi-resolution images (MOOF, WOZ).
+    pub(crate) resolution: FoxHashSet<TrackDataResolution>,
+    /// A [DiskDescriptor] describing this image with more thorough parameters.
     pub(crate) descriptor: DiskDescriptor,
-    // A structure containing information about the disks internal consistency. Used to construct image_caps.
+    /// A structure containing information about the disks internal consistency. Used to construct image_caps.
     pub(crate) analysis: DiskAnalysis,
-    // The boot sector of the disk image, if successfully parsed.
+    /// The boot sector of the disk image, if successfully parsed.
     pub(crate) boot_sector: Option<BootSector>,
-    // The volume name of the disk image, if any.
+    /// The volume name of the disk image, if any.
     pub(crate) volume_name: Option<String>,
-    // An ASCII comment embedded in the disk image, if any.
+    /// An ASCII comment embedded in the disk image, if any.
     pub(crate) comment: Option<String>,
     /// A pool of track data structures, potentially in any order.
     pub(crate) track_pool: Vec<DiskTrack>,
@@ -137,6 +141,7 @@ impl Default for DiskImage {
             flags: DiskImageFlags::empty(),
             standard_format: None,
             source_format: None,
+            multires: false,
             resolution: Default::default(),
             descriptor: DiskDescriptor::default(),
             analysis: Default::default(),
@@ -160,14 +165,15 @@ impl DiskImage {
     }
 
     /// Create a new [`DiskImage`] with the specified disk format. This function should not be called
-    /// directly - use an [`ImageBuilder]` if you wish to create a new [`DiskImage`] from a specified format.
+    /// directly - use an [ImageBuilder] if you wish to create a new [`DiskImage`] from a specified format.
     pub fn create(disk_format: StandardFormat) -> Self {
         Self {
             flags: DiskImageFlags::empty(),
             standard_format: Some(disk_format),
             descriptor: disk_format.descriptor(),
             source_format: None,
-            resolution: None,
+            multires: false,
+            resolution: FoxHashSet::new(),
             analysis: DiskAnalysis {
                 image_caps: Default::default(),
                 weak: false,
@@ -238,8 +244,12 @@ impl DiskImage {
         self.track_pool.get_mut(track_idx)
     }
 
-    pub fn set_resolution(&mut self, resolution: DiskDataResolution) {
-        self.resolution = Some(resolution);
+    pub fn set_multires(&mut self, multires: bool) {
+        self.multires = multires;
+    }
+
+    pub fn multires(&self) -> bool {
+        self.multires
     }
 
     pub fn set_flag(&mut self, flag: DiskImageFlags) {
@@ -720,9 +730,23 @@ impl DiskImage {
         self.source_format = Some(format);
     }
 
-    /// Return the resolution of the disk image, either MetaSector or BitStream.
-    pub fn resolution(&self) -> DiskDataResolution {
-        self.resolution.unwrap_or(DiskDataResolution::MetaSector)
+    /// Return a list of track resolutions present in the disk image.
+    /// This will usually be a single-element vector, but multi-resolution images are possible.
+    pub fn resolution(&self) -> Vec<TrackDataResolution> {
+        self.resolution.iter().cloned().collect()
+    }
+
+    /// Clear resolutions from the disk image and add the specified resolution.
+    /// This should only be called before any tracks have been added to the image.
+    pub fn set_resolution(&mut self, resolution: TrackDataResolution) {
+        self.resolution.clear();
+        self.resolution.insert(resolution);
+    }
+
+    /// Ret
+    pub fn can_visualize(&self) -> bool {
+        self.resolution.contains(&TrackDataResolution::FluxStream)
+            | self.resolution.contains(&TrackDataResolution::BitStream)
     }
 
     /// Adds a new `FluxStream` resolution track to the disk image.
@@ -752,24 +776,20 @@ impl DiskImage {
             return Err(DiskImageError::SeekError);
         }
 
-        // Lock the disk image to BitStream resolution.
-        match self.resolution {
-            None => {
-                self.resolution = Some(DiskDataResolution::FluxStream);
-                log::debug!("add_track_fluxstream(): Disk resolution is now: {:?}", self.resolution);
-            }
-            Some(DiskDataResolution::FluxStream) => {}
-            _ => {
-                return {
-                    log::error!(
-                        "add_track_fluxstream(): Disk resolution is incompatible with FluxStream: {:?}",
-                        self.resolution
-                    );
-                    Err(DiskImageError::IncompatibleImage(
-                        "Disk resolution is incompatible with FluxStream.".to_string(),
-                    ))
-                }
-            }
+        // If the disk image is not multi-res enabled, and contains some other resolution already, reject the track.
+        if !self.multires && !self.resolution.is_empty() && !self.resolution.contains(&TrackDataResolution::FluxStream)
+        {
+            log::error!(
+                "add_track_fluxstream(): Disk resolution is incompatible with FluxStream: {:?}",
+                self.resolution
+            );
+            return Err(DiskImageError::IncompatibleImage(
+                "Disk resolution is incompatible with FluxStream.".to_string(),
+            ));
+        }
+        else {
+            // Otherwise, set FluxStream resolution in the resolution set.
+            self.resolution.insert(TrackDataResolution::FluxStream);
         }
 
         track.set_ch(params.ch);
@@ -812,18 +832,19 @@ impl DiskImage {
             return Err(DiskImageError::SeekError);
         }
 
-        // Lock the disk image to BitStream resolution.
-        match self.resolution {
-            None => {
-                self.resolution = Some(DiskDataResolution::BitStream);
-                log::debug!("add_track_bitstream(): Disk resolution is now: {:?}", self.resolution);
-            }
-            Some(DiskDataResolution::BitStream) => {}
-            _ => {
-                return Err(DiskImageError::IncompatibleImage(
-                    "Disk resolution is incompatible with BitStream.".to_string(),
-                ))
-            }
+        // If the disk image is not multi-res enabled, and contains some other resolution already, reject the track.
+        if !self.multires && !self.resolution.is_empty() && !self.resolution.contains(&TrackDataResolution::BitStream) {
+            log::error!(
+                "add_track_bitstream(): Disk resolution is incompatible with BitStream: {:?}",
+                self.resolution
+            );
+            return Err(DiskImageError::IncompatibleImage(
+                "Disk resolution is incompatible with BitStream.".to_string(),
+            ));
+        }
+        else {
+            // Otherwise, set FluxStream resolution in the resolution set.
+            self.resolution.insert(TrackDataResolution::BitStream);
         }
 
         log::debug!(
@@ -866,15 +887,20 @@ impl DiskImage {
             return Err(DiskImageError::SeekError);
         }
 
-        // Lock the disk image to MetaSector resolution.
-        match self.resolution {
-            None => self.resolution = Some(DiskDataResolution::MetaSector),
-            Some(DiskDataResolution::MetaSector) => {}
-            _ => {
-                return Err(DiskImageError::IncompatibleImage(
-                    "Disk resolution is incompatible with MetaSector.".to_string(),
-                ))
-            }
+        // If the disk image is not multi-res enabled, and contains some other resolution already, reject the track.
+        if !self.multires && !self.resolution.is_empty() && !self.resolution.contains(&TrackDataResolution::MetaSector)
+        {
+            log::error!(
+                "add_track_metasector(): Disk resolution is incompatible with MetaSector: {:?}",
+                self.resolution
+            );
+            return Err(DiskImageError::IncompatibleImage(
+                "Disk resolution is incompatible with MetaSector.".to_string(),
+            ));
+        }
+        else {
+            // Otherwise, set FluxStream resolution in the resolution set.
+            self.resolution.insert(TrackDataResolution::MetaSector);
         }
 
         self.track_pool.push(Box::new(MetaSectorTrack {
@@ -1073,6 +1099,7 @@ impl DiskImage {
         &mut self,
         ch: DiskCh,
         encoding: TrackDataEncoding,
+        resolution: Option<TrackDataResolution>,
         data_rate: TrackDataRate,
         bitcells: usize,
         start_clock: Option<bool>,
@@ -1082,9 +1109,44 @@ impl DiskImage {
         }
 
         let new_track_index;
+        let mut new_track_resolution = None;
+        // If a specific resolution was specified, check that it matches existing track resolutions
+        // & multires flag.
 
-        match self.resolution {
-            Some(DiskDataResolution::BitStream) => {
+        if let Some(specified_resolution) = resolution {
+            if !self.multires && !self.resolution.is_empty() && !self.resolution.contains(&specified_resolution) {
+                log::error!(
+                    "add_empty_track(): Disk resolution is incompatible with specified resolution: {:?}",
+                    self.resolution
+                );
+                return Err(DiskImageError::IncompatibleImage(
+                    "Disk resolution is incompatible with specified resolution.".to_string(),
+                ));
+            }
+            else {
+                // Otherwise, set the specified resolution in the resolution set.
+                self.resolution.insert(specified_resolution);
+                new_track_resolution = Some(specified_resolution);
+            }
+        }
+
+        // If no resolution was specified, there must be an existing resolution.
+        if new_track_resolution.is_none() && self.resolution.is_empty() {
+            log::error!(
+                "add_empty_track(): Disk image resolution not set: {:?}",
+                self.resolution
+            );
+            return Err(DiskImageError::IncompatibleImage(
+                "Disk image resolution not set".to_string(),
+            ));
+        }
+
+        // If no resolution was specified, but we have an existing resolution, use the lowest
+        // level representation present (no use wasting space on empty tracks).
+        new_track_resolution = Some(self.resolution.iter().min().unwrap().clone());
+
+        match new_track_resolution {
+            Some(TrackDataResolution::BitStream) => {
                 if self.track_map[ch.h() as usize].len() != ch.c() as usize {
                     log::error!("add_empty_track(): Can't create sparse track map.");
                     return Err(DiskImageError::ParameterError);
@@ -1130,7 +1192,7 @@ impl DiskImage {
                 new_track_index = self.track_pool.len() - 1;
                 self.track_map[ch.h() as usize].push(self.track_pool.len() - 1);
             }
-            Some(DiskDataResolution::MetaSector) => {
+            Some(TrackDataResolution::MetaSector) => {
                 if self.track_map[ch.h() as usize].len() != ch.c() as usize {
                     log::error!("add_empty_track(): Can't create sparse track map.");
                     return Err(DiskImageError::ParameterError);
@@ -1147,6 +1209,11 @@ impl DiskImage {
 
                 new_track_index = self.track_pool.len() - 1;
                 self.track_map[ch.h() as usize].push(self.track_pool.len() - 1);
+            }
+            Some(TrackDataResolution::FluxStream) => {
+                return Err(DiskImageError::IncompatibleImage(
+                    "Empty flux stream tracks not supported".to_string(),
+                ));
             }
             _ => {
                 log::error!(
@@ -1193,7 +1260,7 @@ impl DiskImage {
         let standard_format = self.standard_format;
         let descriptor = self.descriptor.clone();
         let source_format = self.source_format;
-        let resolution = self.resolution;
+        let resolution = self.resolution.clone();
 
         *self = DiskImage::default();
         self.descriptor = descriptor;
@@ -1205,6 +1272,7 @@ impl DiskImage {
     pub fn format(
         &mut self,
         format: StandardFormat,
+        resolution: TrackDataResolution,
         boot_sector: Option<&[u8]>,
         creator: Option<&[u8; 8]>,
     ) -> Result<(), DiskImageError> {
@@ -1233,7 +1301,7 @@ impl DiskImage {
         for head in 0..layout.h() {
             for cylinder in 0..layout.c() {
                 let ch = DiskCh::new(cylinder, head);
-                self.add_empty_track(ch, encoding, data_rate, bitcell_size, Some(false))?;
+                self.add_empty_track(ch, encoding, Some(resolution), data_rate, bitcell_size, Some(false))?;
             }
         }
 

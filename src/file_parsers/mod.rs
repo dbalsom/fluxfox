@@ -27,6 +27,7 @@
 use crate::io::SeekFrom;
 use bitflags::bitflags;
 
+pub mod r#as;
 pub mod compression;
 pub mod f86;
 pub mod hfe;
@@ -46,6 +47,9 @@ pub mod td0;
 
 #[cfg(feature = "async")]
 use std::sync::{Arc, Mutex};
+
+#[cfg(feature = "moof")]
+use r#as::moof;
 
 use pce::{pfi, pri, psi};
 
@@ -139,7 +143,7 @@ pub fn bitstream_flags() -> FormatCaps {
 ///    writing.
 /// - `Incompatible`: The image is not compatible with the parser and cannot be written.
 /// - `UnsupportedFormat`: The parser does not support writing.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ParserWriteCompatibility {
     Ok,
     DataLoss,
@@ -265,6 +269,8 @@ impl ImageFormatParser for DiskImageFileFormat {
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::capabilities(),
             #[cfg(feature = "ipf")]
             DiskImageFileFormat::IpfImage => ipf::IpFormat::capabilities(),
+            #[cfg(feature = "moof")]
+            DiskImageFileFormat::MoofImage => moof::MoofFormat::capabilities(),
         }
     }
 
@@ -287,6 +293,8 @@ impl ImageFormatParser for DiskImageFileFormat {
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::platforms(),
             #[cfg(feature = "ipf")]
             DiskImageFileFormat::IpfImage => ipf::IpFormat::platforms(),
+            #[cfg(feature = "moof")]
+            DiskImageFileFormat::MoofImage => moof::MoofFormat::platforms(),
         }
     }
 
@@ -309,6 +317,8 @@ impl ImageFormatParser for DiskImageFileFormat {
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::detect(image_buf),
             #[cfg(feature = "ipf")]
             DiskImageFileFormat::IpfImage => ipf::IpFormat::detect(image_buf),
+            #[cfg(feature = "moof")]
+            DiskImageFileFormat::MoofImage => moof::MoofFormat::detect(image_buf),
         }
     }
 
@@ -331,6 +341,8 @@ impl ImageFormatParser for DiskImageFileFormat {
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::extensions(),
             #[cfg(feature = "ipf")]
             DiskImageFileFormat::IpfImage => ipf::IpFormat::extensions(),
+            #[cfg(feature = "moof")]
+            DiskImageFileFormat::MoofImage => moof::MoofFormat::extensions(),
         }
     }
 
@@ -359,6 +371,8 @@ impl ImageFormatParser for DiskImageFileFormat {
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::load_image(read_buf, image, opts, callback),
             #[cfg(feature = "ipf")]
             DiskImageFileFormat::IpfImage => ipf::IpFormat::load_image(read_buf, image, opts, callback),
+            #[cfg(feature = "moof")]
+            DiskImageFileFormat::MoofImage => moof::MoofFormat::load_image(read_buf, image, opts, callback),
         }
     }
 
@@ -383,7 +397,7 @@ impl ImageFormatParser for DiskImageFileFormat {
                 }
             };
             wasm_bindgen_futures::spawn_local(task);
-            // Rustrover gets confused about the conditional compilation here
+            // RustRover gets confused about the conditional compilation here
             #[allow(clippy::needless_return)]
             return Ok(());
         }
@@ -421,6 +435,8 @@ impl ImageFormatParser for DiskImageFileFormat {
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::can_write(image),
             #[cfg(feature = "ipf")]
             DiskImageFileFormat::IpfImage => ipf::IpFormat::can_write(image),
+            #[cfg(feature = "moof")]
+            DiskImageFileFormat::MoofImage => moof::MoofFormat::can_write(image),
         }
     }
 
@@ -448,6 +464,8 @@ impl ImageFormatParser for DiskImageFileFormat {
             DiskImageFileFormat::MameFloppyImage => mfi::MfiFormat::save_image(image, opts, write_buf),
             #[cfg(feature = "ipf")]
             DiskImageFileFormat::IpfImage => ipf::IpFormat::save_image(image, opts, write_buf),
+            #[cfg(feature = "moof")]
+            DiskImageFileFormat::MoofImage => moof::MoofFormat::save_image(image, opts, write_buf),
         }
     }
 }

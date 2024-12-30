@@ -136,7 +136,7 @@ sha1 = "0.10"
 hex = "0.4"    # or the latest version
 
 [features]
-default = ["rand", "viz", "scripting", "rhai", "archives", "mfi", "fat", "flux", "ibmpc", "amiga"]
+default = ["rand", "viz", "scripting", "rhai", "archives", "mfi", "fat", "flux", "ibmpc", "amiga", "macintosh"]
 # the rand feature enables use of the rand crate for random number generation.
 # note: it is intended to be optional but the fallback is not yet implemented
 rand = ["dep:rand"]
@@ -152,6 +152,8 @@ amiga = ["adf", "ipf"]
 # atarist feature enables Atari ST-specific disk image support. It will enable IPF and enable Atari platform support
 # in the IPF parser.
 atarist = ["ipf", "st"]
+# macintosh feature enables Macintosh-specific disk image support (primarily MOOF).
+macintosh = ["moof"]
 # viz feature enables visualization functions - will pull in tiny-skia dependency for drawing
 viz = ["dep:tiny-skia"]
 # fat feature enables reading FAT12/16/32 filesystems. This will pull in fluxfox_fat dependency
@@ -183,6 +185,8 @@ tar = ["dep:tar"]
 # ----------------------------------------------------------------------------------------------------------------------
 # mfi feature enables reading MFI images. This will pull in flate2 dependency for compression/decompression
 mfi = ["dep:flate2", "flux"]
+# moof feature enables reading MOOF images. No extra dependencies, but experimental.
+moof = []
 # td0 feature enables reading TD0 images. This will pull in num-traits and num-derive dependencies and LZW/LZHUF
 # routines for compression/decompression
 td0 = ["dep:num-traits", "dep:num-derive"]

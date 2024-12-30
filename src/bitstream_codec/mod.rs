@@ -26,6 +26,7 @@
 */
 
 pub mod fm;
+pub mod gcr;
 pub mod mfm;
 
 use crate::{

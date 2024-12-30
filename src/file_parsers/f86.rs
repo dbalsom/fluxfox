@@ -43,7 +43,7 @@ use crate::{
     file_parsers::{ParserReadOptions, ParserWriteOptions},
     track::bitstream::BitStreamTrack,
     track_schema::TrackSchema,
-    types::{DiskCh, DiskDataResolution, DiskRpm, Platform, TrackDataEncoding, TrackDataRate, TrackDensity},
+    types::{DiskCh, DiskRpm, Platform, TrackDataEncoding, TrackDataRate, TrackDataResolution, TrackDensity},
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,
@@ -222,8 +222,8 @@ fn f86_track_encoding(flags: u16) -> Option<TrackDataEncoding> {
 
 fn f86_track_rpm(flags: u16) -> Option<DiskRpm> {
     match (flags >> 5) & 0x07 {
-        0b000 => Some(DiskRpm::Rpm300),
-        0b001 => Some(DiskRpm::Rpm360),
+        0b000 => Some(DiskRpm::Rpm300(1.0)),
+        0b001 => Some(DiskRpm::Rpm360(1.0)),
         _ => None,
     }
 }
@@ -295,17 +295,14 @@ impl F86Format {
     pub fn can_write(image: Option<&DiskImage>) -> ParserWriteCompatibility {
         image
             .map(|image| {
-                if let Some(resolution) = image.resolution {
-                    if !matches!(resolution, DiskDataResolution::BitStream) {
-                        return ParserWriteCompatibility::Incompatible;
-                    }
+                if (image.resolution.len() > 1) || !image.resolution.contains(&TrackDataResolution::BitStream) {
+                    // 86f images can't store multiple resolutions, and must store bitstream data
+                    ParserWriteCompatibility::Incompatible
                 }
                 else {
-                    return ParserWriteCompatibility::Incompatible;
+                    // 86f images can encode about everything we can store for a bitstream format
+                    ParserWriteCompatibility::Ok
                 }
-
-                // 86f images can encode about everything we can store for a bitstream format
-                ParserWriteCompatibility::Ok
             })
             .unwrap_or(ParserWriteCompatibility::Ok)
     }
@@ -721,13 +718,11 @@ impl F86Format {
         _opts: &ParserWriteOptions,
         output: &mut RWS,
     ) -> Result<(), DiskImageError> {
-        if matches!(image.resolution(), DiskDataResolution::BitStream) {
-            log::trace!("Saving 86f image...");
-        }
-        else {
-            log::error!("Unsupported image resolution.");
+        if Self::can_write(Some(&image)) == ParserWriteCompatibility::Incompatible {
+            log::error!("Incompatible image format.");
             return Err(DiskImageError::UnsupportedFormat);
         }
+        log::trace!("Saving 86f image...");
 
         let mut disk_flags = 0;
 
@@ -846,8 +841,9 @@ impl F86Format {
 
         log::trace!("Setting RPM: {:?}", image.descriptor.rpm);
         track_flags |= image.descriptor.rpm.map_or(0, |rpm| match rpm {
-            DiskRpm::Rpm300 => 0b000 << 5,
-            DiskRpm::Rpm360 => 0b001 << 5,
+            DiskRpm::Rpm360(_) => 0b001 << 5,
+            DiskRpm::Rpm300(_) => 0b000 << 5,
+            _ => 0b000 << 5,
         });
 
         let mut c = 0;

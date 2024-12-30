@@ -56,7 +56,7 @@ mod meta_encoding;
 pub mod system34;
 
 use crate::{
-    bitstream::{mfm::MFM_BYTE_LEN, TrackDataStream},
+    bitstream_codec::{mfm::MFM_BYTE_LEN, TrackDataStream},
     track::{TrackAnalysis, TrackSectorScanResult},
     track_schema::system34::{System34Element, System34Marker, System34Variant},
     types::{chs::DiskChsn, IntegrityCheck, Platform, RwScope, SectorAttributes},

@@ -52,7 +52,7 @@ pub(crate) fn run(global: &GlobalOptions, params: &args::CreateParams) -> Result
 
     // Override the resolution for raw sector images, at least until we implement formatting MetaSector images.
     let create_resolution = match output_format {
-        DiskImageFileFormat::RawSectorImage => DiskDataResolution::BitStream,
+        DiskImageFileFormat::RawSectorImage => TrackDataResolution::BitStream,
         _ => output_format.resolution(),
     };
 

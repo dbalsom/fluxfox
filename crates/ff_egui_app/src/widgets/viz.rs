@@ -207,10 +207,7 @@ impl VisualizationState {
 
         let disk = &disk_lock.read().unwrap();
 
-        self.compatible = match disk.resolution() {
-            DiskDataResolution::BitStream | DiskDataResolution::FluxStream => true,
-            _ => false,
-        };
+        self.compatible = disk.can_visualize();
 
         if !self.compatible {
             return Err(anyhow!("Incompatible disk resolution"));

@@ -38,10 +38,10 @@ use crate::{
         chs::{DiskChsn, DiskChsnQuery},
         AddSectorParams,
         DiskCh,
-        DiskDataResolution,
         DiskDescriptor,
         MetaSectorTrackParams,
         Platform,
+        TrackDataResolution,
         TrackDensity,
     },
     util::get_length,
@@ -173,7 +173,7 @@ impl RawFormat {
         _opts: &ParserReadOptions,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
-        disk_image.set_resolution(DiskDataResolution::BitStream);
+        disk_image.set_resolution(TrackDataResolution::BitStream);
         let layout = floppy_format.layout();
         log::debug!("Raw::load_as_bitstream(): Disk geometry: {}", layout);
         let data_rate = floppy_format.data_rate();
@@ -191,8 +191,14 @@ impl RawFormat {
         // Iterate through all standard tracks
         for DiskCh { c, h } in layout.ch().iter() {
             log::trace!("Raw::load_as_bitstream(): Adding new track: c:{} h:{}", c, h);
-            let new_track_idx =
-                disk_image.add_empty_track(DiskCh::new(c, h), data_encoding, data_rate, bitcell_ct, Some(false))?;
+            let new_track_idx = disk_image.add_empty_track(
+                DiskCh::new(c, h),
+                data_encoding,
+                Some(TrackDataResolution::BitStream),
+                data_rate,
+                bitcell_ct,
+                Some(false),
+            )?;
             let mut format_buffer = Vec::with_capacity(layout.s() as usize);
             let mut track_pattern = Vec::with_capacity(layout.size() * layout.s() as usize);
 
@@ -236,7 +242,7 @@ impl RawFormat {
         _opts: &ParserReadOptions,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
-        disk_image.set_resolution(DiskDataResolution::MetaSector);
+        disk_image.set_resolution(TrackDataResolution::MetaSector);
         let layout = floppy_format.layout();
         log::trace!("Raw::load_as_metasector(): Disk Geometry: {}", layout);
 

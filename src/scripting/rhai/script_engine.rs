@@ -91,7 +91,7 @@ mod tests {
     fn create_blank_disk_and_list_tracks() {
         // Create a blank disk using ImageBuilder
         let disk = ImageBuilder::new()
-            .with_resolution(DiskDataResolution::MetaSector)
+            .with_resolution(TrackDataResolution::MetaSector)
             .with_standard_format(StandardFormat::PcFloppy360)
             .build()
             .expect("Failed to create disk image");

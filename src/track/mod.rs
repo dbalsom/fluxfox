@@ -35,7 +35,7 @@ pub mod metasector;
 //mod sector_iterator;
 
 use crate::{
-    bitstream::TrackDataStream,
+    bitstream_codec::TrackDataStream,
     source_map::SourceMap,
     track::{bitstream::BitStreamTrack, fluxstream::FluxStreamTrack, metasector::MetaSectorTrack},
     track_schema::{system34::System34Standard, TrackMetadata, TrackSchema},
@@ -45,7 +45,6 @@ use crate::{
         DiskCh,
         DiskChs,
         DiskChsn,
-        DiskDataResolution,
         DiskRpm,
         ReadSectorResult,
         ReadTrackResult,
@@ -53,6 +52,7 @@ use crate::{
         ScanSectorResult,
         TrackDataEncoding,
         TrackDataRate,
+        TrackDataResolution,
         TrackDensity,
         WriteSectorResult,
     },
@@ -68,6 +68,8 @@ use std::any::Any;
 /// and sector count.
 #[derive(Debug)]
 pub struct TrackInfo {
+    /// The resolution of the track as a `TrackDataResolution` enum.
+    pub resolution: TrackDataResolution,
     /// The type of encoding used on the track as a `DiskDataEncoding` enum.
     pub encoding: TrackDataEncoding,
     /// The track data schema
@@ -196,7 +198,7 @@ pub trait Track: DynClone + Any + Send + Sync {
     /// Return the resolution of the track as a `DiskDataResolution`.
     /// This can be used to determine the track's underlying representation, especially if you wish
     /// to downcast the track to a specific type.
-    fn resolution(&self) -> DiskDataResolution;
+    fn resolution(&self) -> TrackDataResolution;
 
     /// Return a reference to the track as a `&dyn Any`, for downcasting.
     fn as_any(&self) -> &dyn Any;
