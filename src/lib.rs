@@ -43,7 +43,7 @@
 //! It is recommended to use the [`ImageBuilder`] interface to load or create a disk image.
 
 mod bit_ring;
-pub mod bitstream;
+pub mod bitstream_codec;
 pub mod boot_sector;
 mod containers;
 mod detect;

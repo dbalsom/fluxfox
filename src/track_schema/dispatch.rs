@@ -29,7 +29,7 @@
 use crate::track_schema::amiga::AmigaSchema;
 
 use crate::{
-    bitstream::TrackDataStream,
+    bitstream_codec::TrackDataStream,
     prelude::RwScope,
     source_map::SourceMap,
     track::{TrackAnalysis, TrackSectorScanResult},

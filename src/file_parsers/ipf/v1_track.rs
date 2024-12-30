@@ -28,7 +28,7 @@
 //! Decoding functions for IPF encoder v1 tracks (CXXX).
 
 use crate::{
-    bitstream::{mfm::MFM_BYTE_LEN, TrackDataStream},
+    bitstream_codec::{mfm::MFM_BYTE_LEN, TrackDataStream},
     file_parsers::ipf::{
         data_block::BlockDescriptor,
         image_record::ImageRecord,

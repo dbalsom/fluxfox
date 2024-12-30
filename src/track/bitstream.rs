@@ -31,7 +31,7 @@
 */
 use super::{Track, TrackAnalysis, TrackInfo, TrackSectorScanResult};
 use crate::{
-    bitstream::{fm::FmCodec, mfm::MfmCodec, EncodingVariant, TrackCodec, TrackDataStream},
+    bitstream_codec::{fm::FmCodec, gcr::GcrCodec, mfm::MfmCodec, EncodingVariant, TrackCodec, TrackDataStream},
     io::SeekFrom,
     source_map::SourceMap,
     track_schema::{
@@ -871,8 +871,10 @@ impl BitStreamTrack {
         // The data vec is optional if we have a bitcell count and MFM/FM encoding.
         let data = if params.data.is_empty() {
             if let Some(bitcell_ct) = params.bitcell_ct {
+                #[allow(unreachable_patterns)]
                 match params.encoding {
                     TrackDataEncoding::Mfm | TrackDataEncoding::Fm => BitVec::from_fn(bitcell_ct, |i| i % 2 == 0),
+                    TrackDataEncoding::Gcr => BitVec::from_elem(bitcell_ct, false),
                     _ => {
                         log::error!(
                             "add_track_bitstream(): Unsupported data encoding: {:?}",
@@ -896,7 +898,29 @@ impl BitStreamTrack {
         let mut track_metadata = TrackMetadata::default();
 
         // TODO: Let the schema handle encoding. We should not need to know the encoding here.
+        #[allow(unreachable_patterns)]
         let mut data_stream: Box<dyn TrackCodec> = match params.encoding {
+            TrackDataEncoding::Gcr => {
+                let mut codec;
+                if weak_bitvec_opt.is_some() {
+                    codec = GcrCodec::new(data, params.bitcell_ct, weak_bitvec_opt);
+                }
+                else {
+                    codec = GcrCodec::new(data, params.bitcell_ct, None);
+                    if params.detect_weak {
+                        log::debug!("add_track_bitstream(): detecting weak bits in GCR stream...");
+                        let weak_bitvec = codec.create_weak_bit_mask(GcrCodec::WEAK_BIT_RUN);
+                        if weak_bitvec.any() {
+                            log::debug!(
+                                "add_track_bitstream(): Detected {} weak bits in GCR bitstream.",
+                                weak_bitvec.count_ones()
+                            );
+                        }
+                        _ = codec.set_weak_mask(weak_bitvec);
+                    }
+                }
+                Box::new(codec)
+            }
             TrackDataEncoding::Mfm => {
                 let mut codec;
                 // If a weak bit mask was provided by the file format, we will honor it.

@@ -45,7 +45,7 @@ use crate::types::{
 use crate::track_schema::{system34::System34Standard, TrackMetadata, TrackSchema};
 
 use crate::{
-    bitstream::TrackDataStream,
+    bitstream_codec::TrackDataStream,
     types::{chs::DiskChsnQuery, DiskCh, DiskChs, DiskChsn, TrackDataEncoding, TrackDataRate, TrackDataResolution},
     DiskImageError,
     FoxHashSet,

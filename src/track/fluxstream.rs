@@ -37,7 +37,7 @@ use std::{
 
 use super::{Track, TrackAnalysis, TrackInfo};
 use crate::{
-    bitstream::TrackDataStream,
+    bitstream_codec::TrackDataStream,
     flux::{
         flux_revolution::FluxRevolution,
         histogram::FluxHistogram,

@@ -35,7 +35,7 @@ pub mod metasector;
 //mod sector_iterator;
 
 use crate::{
-    bitstream::TrackDataStream,
+    bitstream_codec::TrackDataStream,
     source_map::SourceMap,
     track::{bitstream::BitStreamTrack, fluxstream::FluxStreamTrack, metasector::MetaSectorTrack},
     track_schema::{system34::System34Standard, TrackMetadata, TrackSchema},

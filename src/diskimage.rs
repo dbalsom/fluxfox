@@ -32,10 +32,10 @@
 //! A [DiskImage] should not be created directly. Instead, use an [ImageBuilder] to create a new
 //! disk image with specified parameters.
 
-use crate::{bitstream::mfm::MfmCodec, track::bitstream::BitStreamTrack, DiskImageFileFormat, SectorMapEntry};
+use crate::{bitstream_codec::mfm::MfmCodec, track::bitstream::BitStreamTrack, DiskImageFileFormat, SectorMapEntry};
 
 use crate::{
-    bitstream::{fm::FmCodec, TrackCodec},
+    bitstream_codec::{fm::FmCodec, TrackCodec},
     boot_sector::BootSector,
     containers::DiskImageContainer,
     detect::detect_container_format,

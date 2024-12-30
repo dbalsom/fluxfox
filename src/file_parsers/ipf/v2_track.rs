@@ -28,7 +28,7 @@
 //! Decoding functions for IPF encoder v2 tracks (SXX).
 
 use crate::{
-    bitstream::{mfm::MFM_BYTE_LEN, TrackDataStream},
+    bitstream_codec::{mfm::MFM_BYTE_LEN, TrackDataStream},
     file_parsers::ipf::{
         data_block::{BlockDescriptor, BlockFlags},
         image_record::ImageRecord,
