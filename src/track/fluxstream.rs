@@ -642,6 +642,26 @@ impl FluxStreamTrack {
         self.encoding = rev_ref.encoding;
     }
 
+    /// Retrieve the flux deltas for the best revolution.
+    pub fn flux_deltas(&self) -> &[f64] {
+        self.revolutions[self.best_revolution].flux_deltas.as_slice()
+    }
+
+    pub fn flux_deltas_us(&self) -> Vec<f32> {
+        self.revolutions[self.best_revolution]
+            .flux_deltas
+            .iter()
+            .map(|&f| (f * 1_000_000.0) as f32)
+            .collect::<Vec<f32>>()
+    }
+
+    pub fn flux_deltas_revolution(&self, rev: usize) -> Option<&[f64]> {
+        if rev < self.revolutions.len() {
+            return Some(self.revolutions[rev].flux_deltas.as_slice());
+        }
+        None
+    }
+
     fn get_bitstream(&self) -> Option<&BitStreamTrack> {
         if let Some(resolved) = &self.resolved {
             return Some(resolved);
