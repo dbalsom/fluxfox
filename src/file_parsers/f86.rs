@@ -43,7 +43,7 @@ use crate::{
     file_parsers::{ParserReadOptions, ParserWriteOptions},
     track::bitstream::BitStreamTrack,
     track_schema::TrackSchema,
-    types::{DiskCh, DiskDataResolution, DiskRpm, Platform, TrackDataEncoding, TrackDataRate, TrackDensity},
+    types::{DiskCh, DiskRpm, Platform, TrackDataEncoding, TrackDataRate, TrackDataResolution, TrackDensity},
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,
@@ -295,17 +295,14 @@ impl F86Format {
     pub fn can_write(image: Option<&DiskImage>) -> ParserWriteCompatibility {
         image
             .map(|image| {
-                if let Some(resolution) = image.resolution {
-                    if !matches!(resolution, DiskDataResolution::BitStream) {
-                        return ParserWriteCompatibility::Incompatible;
-                    }
+                if (image.resolution.len() > 1) || !image.resolution.contains(&TrackDataResolution::BitStream) {
+                    // 86f images can't store multiple resolutions, and must store bitstream data
+                    ParserWriteCompatibility::Incompatible
                 }
                 else {
-                    return ParserWriteCompatibility::Incompatible;
+                    // 86f images can encode about everything we can store for a bitstream format
+                    ParserWriteCompatibility::Ok
                 }
-
-                // 86f images can encode about everything we can store for a bitstream format
-                ParserWriteCompatibility::Ok
             })
             .unwrap_or(ParserWriteCompatibility::Ok)
     }
@@ -721,13 +718,11 @@ impl F86Format {
         _opts: &ParserWriteOptions,
         output: &mut RWS,
     ) -> Result<(), DiskImageError> {
-        if matches!(image.resolution(), DiskDataResolution::BitStream) {
-            log::trace!("Saving 86f image...");
-        }
-        else {
-            log::error!("Unsupported image resolution.");
+        if Self::can_write(Some(&image)) == ParserWriteCompatibility::Incompatible {
+            log::error!("Incompatible image format.");
             return Err(DiskImageError::UnsupportedFormat);
         }
+        log::trace!("Saving 86f image...");
 
         let mut disk_flags = 0;
 

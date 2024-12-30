@@ -37,7 +37,7 @@ use crate::{
         stream_element::{DataSample, DataStreamElement, DataType, GapSample, GapStreamElement},
     },
     io::ReadSeek,
-    prelude::{DiskDataResolution, TrackDataEncoding, TrackDataRate, TrackDensity},
+    prelude::{TrackDataEncoding, TrackDataRate, TrackDataResolution, TrackDensity},
     source_map::{MapDump, OptionalSourceMap},
     track_schema::TrackSchema,
     DiskImage,
@@ -63,7 +63,7 @@ impl IpfParser {
     where
         RWS: ReadSeek,
     {
-        image.set_resolution(DiskDataResolution::BitStream);
+        image.set_resolution(TrackDataResolution::BitStream);
 
         log::debug!("-------------------------- Decoding V2 (SXX) Track ----------------------------------");
         log::debug!(
@@ -92,6 +92,7 @@ impl IpfParser {
         let new_track_idx = image.add_empty_track(
             image_record.ch(),
             TrackDataEncoding::Mfm,
+            Some(TrackDataResolution::BitStream),
             data_rate,
             image_record.track_bits as usize,
             Some(true),

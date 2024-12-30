@@ -37,17 +37,19 @@ use std::{
 
 pub use crate::platform::Platform;
 
-/// The resolution of the data in the disk image.
-/// fluxfox supports three types of disk images:
-/// * MetaSector images hold only sector data along with optional metadata per sector.
-/// * BitStream images hold a bitwise representation of each track on a disk.
-/// * FluxStream images hold one or more `revolutions` of flux transition delta times per track,
+/// The level of data resolution for a given track.
+/// fluxfox supports three types of data resolutions:
+/// * MetaSector tracks hold only sector data along with optional metadata per sector.
+/// * BitStream tracks hold a bitwise representation of each track on a disk.
+/// * FluxStream tracks hold one or more `revolutions` of flux transition delta times per track,
 ///   which are resolved to a single bitstream.
 ///
+/// It is possible for some image formats to contain a combination of BitStream and FluxStream
+/// tracks.
 #[repr(usize)]
-#[derive(Copy, Clone, Default, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Default, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum DiskDataResolution {
+pub enum TrackDataResolution {
     #[default]
     #[doc = "MetaSector images hold only sector data along with optional metadata per sector."]
     MetaSector = 0,
@@ -418,6 +420,9 @@ pub enum DiskImageFileFormat {
     /// Interchangeable Preservation Format image. Typically, has extension IPF.
     #[cfg(feature = "ipf")]
     IpfImage,
+    /// MOOF - Applesauce Macintosh Disk Image
+    #[cfg(feature = "moof")]
+    MoofImage,
 }
 
 impl DiskImageFileFormat {
@@ -448,29 +453,33 @@ impl DiskImageFileFormat {
             MameFloppyImage => 0,
             #[cfg(feature = "ipf")]
             IpfImage => 0,
+            #[cfg(feature = "moof")]
+            MoofImage => 0,
         }
     }
 
-    pub fn resolution(self) -> DiskDataResolution {
+    pub fn resolution(self) -> TrackDataResolution {
         use DiskImageFileFormat::*;
         match self {
-            RawSectorImage => DiskDataResolution::MetaSector,
-            ImageDisk => DiskDataResolution::MetaSector,
-            PceSectorImage => DiskDataResolution::MetaSector,
-            PceBitstreamImage => DiskDataResolution::BitStream,
-            MfmBitstreamImage => DiskDataResolution::BitStream,
+            RawSectorImage => TrackDataResolution::MetaSector,
+            ImageDisk => TrackDataResolution::MetaSector,
+            PceSectorImage => TrackDataResolution::MetaSector,
+            PceBitstreamImage => TrackDataResolution::BitStream,
+            MfmBitstreamImage => TrackDataResolution::BitStream,
             #[cfg(feature = "td0")]
-            TeleDisk => DiskDataResolution::MetaSector,
-            KryofluxStream => DiskDataResolution::FluxStream,
-            HfeImage => DiskDataResolution::BitStream,
-            F86Image => DiskDataResolution::BitStream,
-            TransCopyImage => DiskDataResolution::BitStream,
-            SuperCardPro => DiskDataResolution::FluxStream,
-            PceFluxImage => DiskDataResolution::FluxStream,
+            TeleDisk => TrackDataResolution::MetaSector,
+            KryofluxStream => TrackDataResolution::FluxStream,
+            HfeImage => TrackDataResolution::BitStream,
+            F86Image => TrackDataResolution::BitStream,
+            TransCopyImage => TrackDataResolution::BitStream,
+            SuperCardPro => TrackDataResolution::FluxStream,
+            PceFluxImage => TrackDataResolution::FluxStream,
             #[cfg(feature = "mfi")]
-            MameFloppyImage => DiskDataResolution::FluxStream,
+            MameFloppyImage => TrackDataResolution::FluxStream,
             #[cfg(feature = "ipf")]
-            IpfImage => DiskDataResolution::BitStream,
+            IpfImage => TrackDataResolution::BitStream,
+            #[cfg(feature = "moof")]
+            MoofImage => TrackDataResolution::BitStream,
         }
     }
 }
@@ -496,6 +505,8 @@ impl Display for DiskImageFileFormat {
             MameFloppyImage => "MAME Flux Stream".to_string(),
             #[cfg(feature = "ipf")]
             IpfImage => "IPF Disk".to_string(),
+            #[cfg(feature = "moof")]
+            MoofImage => "MOOF Disk".to_string(),
         };
         write!(f, "{}", str)
     }

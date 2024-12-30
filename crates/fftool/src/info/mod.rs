@@ -99,10 +99,10 @@ pub fn dump_track_map<W: std::io::Write>(
 
             if let Some(track_ref) = disk.track(ch) {
                 match track_ref.resolution() {
-                    DiskDataResolution::MetaSector => {
+                    TrackDataResolution::MetaSector => {
                         out.write_fmt(format_args!("\tTrack {}\n", track_idx))?;
                     }
-                    DiskDataResolution::FluxStream | DiskDataResolution::BitStream => {
+                    TrackDataResolution::FluxStream | TrackDataResolution::BitStream => {
                         let stream = track_ref.stream().expect("Couldn't retrieve track stream!");
                         out.write_fmt(format_args!(
                             "\tTrack {}: [{} encoding, {} bits]\n",

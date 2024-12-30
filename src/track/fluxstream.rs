@@ -53,7 +53,6 @@ use crate::{
         DiskCh,
         DiskChs,
         DiskChsn,
-        DiskDataResolution,
         DiskRpm,
         ReadSectorResult,
         ReadTrackResult,
@@ -62,6 +61,7 @@ use crate::{
         SharedDiskContext,
         TrackDataEncoding,
         TrackDataRate,
+        TrackDataResolution,
         TrackDensity,
         WriteSectorResult,
     },
@@ -95,8 +95,8 @@ pub struct FluxStreamTrack {
 
 #[cfg_attr(feature = "serde", typetag::serde)]
 impl Track for FluxStreamTrack {
-    fn resolution(&self) -> DiskDataResolution {
-        DiskDataResolution::FluxStream
+    fn resolution(&self) -> TrackDataResolution {
+        TrackDataResolution::FluxStream
     }
 
     fn as_any(&self) -> &dyn Any {

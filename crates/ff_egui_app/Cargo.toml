@@ -20,7 +20,7 @@ eframe = { version = "0.30", default-features = false, features = [
 egui_extras = { version = "0.30", default-features = false, features = ["http", "image"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 log = "0.4"
-fluxfox = { path = "../..", default-features = false, features = ["rand", "serde", "archives", "mfi", "viz", "fat", "ibmpc"] }
+fluxfox = { path = "../..", default-features = false, features = ["rand", "serde", "archives", "mfi", "viz", "fat", "ibmpc", "amiga", "macintosh"] }
 fluxfox_egui = { path = "../ff_egui_lib" }
 
 # We don't need tiny_skia's png support since egui is pulling in image anyway.

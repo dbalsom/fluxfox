@@ -117,7 +117,7 @@ fn serialize(opts: Opts) {
 
     let mut reader = Cursor::new(file_vec);
 
-    let disk_image_type = match DiskImage::detect_format(&mut reader) {
+    let disk_image_type = match DiskImage::detect_format(&mut reader, Some(&filename.clone())) {
         Ok(disk_image_type) => disk_image_type,
         Err(e) => {
             eprintln!("Error detecting disk image type: {}", e);
@@ -127,7 +127,7 @@ fn serialize(opts: Opts) {
 
     println!("Detected disk image type: {}", disk_image_type);
 
-    let mut disk = match DiskImage::load(&mut reader, Some(filename.clone()), None, None) {
+    let mut disk = match DiskImage::load(&mut reader, Some(&filename.clone()), None, None) {
         Ok(disk) => disk,
         Err(e) => {
             eprintln!("Error loading disk image: {}", e);

@@ -31,7 +31,7 @@
 //! a simpler interface for doing so which is less likely to break in future
 //! versions of the library.
 
-use crate::{prelude::DiskDataResolution, types::Platform, DiskImage, DiskImageError, DiskImageFileFormat};
+use crate::{prelude::TrackDataResolution, types::Platform, DiskImage, DiskImageError, DiskImageFileFormat};
 use std::path::PathBuf;
 
 /// Implements the Builder pattern for DiskImage objects.
@@ -47,7 +47,7 @@ pub struct ImageLoader {
     /// If a disk image can be resolved to different resolutions, this field
     /// will determine which resolution to use. If a disk image format does
     /// not support multiple resolutions, this field will be ignored.
-    pub(crate) resolution: Option<DiskDataResolution>,
+    pub(crate) resolution: Option<TrackDataResolution>,
     /// Control whether to parse containers/archives while loading.
     /// If false, we can only handle raw disk images.
     /// This will disable archived disk images like IMZ and ADZ.
@@ -79,8 +79,8 @@ impl ImageLoader {
         self
     }
 
-    /// Set the [`DiskDataResolution`] to use for the [`DiskImage`] to be built.
-    pub fn with_resolution(mut self, resolution: DiskDataResolution) -> ImageLoader {
+    /// Set the [`TrackDataResolution`] to use for the [`DiskImage`] to be built.
+    pub fn with_resolution(mut self, resolution: TrackDataResolution) -> ImageLoader {
         self.resolution = Some(resolution);
         self
     }

@@ -45,7 +45,6 @@ use crate::{
         DiskCh,
         DiskChs,
         DiskChsn,
-        DiskDataResolution,
         DiskRpm,
         ReadSectorResult,
         ReadTrackResult,
@@ -53,6 +52,7 @@ use crate::{
         ScanSectorResult,
         TrackDataEncoding,
         TrackDataRate,
+        TrackDataResolution,
         TrackDensity,
         WriteSectorResult,
     },
@@ -196,7 +196,7 @@ pub trait Track: DynClone + Any + Send + Sync {
     /// Return the resolution of the track as a `DiskDataResolution`.
     /// This can be used to determine the track's underlying representation, especially if you wish
     /// to downcast the track to a specific type.
-    fn resolution(&self) -> DiskDataResolution;
+    fn resolution(&self) -> TrackDataResolution;
 
     /// Return a reference to the track as a `&dyn Any`, for downcasting.
     fn as_any(&self) -> &dyn Any;

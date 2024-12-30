@@ -308,7 +308,7 @@ mod tests {
         let disk = ImageBuilder::new()
             .with_standard_format(StandardFormat::PcFloppy360)
             .with_formatted(true)
-            .with_resolution(DiskDataResolution::BitStream)
+            .with_resolution(TrackDataResolution::BitStream)
             .build()
             .unwrap();
 

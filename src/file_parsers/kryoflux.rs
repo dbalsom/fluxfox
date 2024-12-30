@@ -41,7 +41,7 @@ use crate::{
     io::{ReadBytesExt, ReadSeek, ReadWriteSeek},
     source_map::{OptionalSourceMap, SourceValue},
     track::fluxstream::FluxStreamTrack,
-    types::{DiskCh, DiskDataResolution, DiskDescriptor, FluxStreamTrackParams, Platform, TrackDataEncoding},
+    types::{DiskCh, DiskDescriptor, FluxStreamTrackParams, Platform, TrackDataEncoding, TrackDataResolution},
     util::read_ascii,
     DiskImage,
     DiskImageError,
@@ -183,7 +183,7 @@ impl<'a> KfxFormat<'a> {
         _opts: &ParserReadOptions,
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
-        disk_image.set_resolution(DiskDataResolution::FluxStream);
+        disk_image.set_resolution(TrackDataResolution::FluxStream);
         disk_image.set_source_format(DiskImageFileFormat::KryofluxStream);
 
         let binding = disk_image.source_map_mut();

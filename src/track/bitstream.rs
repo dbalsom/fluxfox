@@ -49,7 +49,6 @@ use crate::{
         DiskCh,
         DiskChs,
         DiskChsn,
-        DiskDataResolution,
         DiskRpm,
         ReadSectorResult,
         ReadTrackResult,
@@ -58,6 +57,7 @@ use crate::{
         SharedDiskContext,
         TrackDataEncoding,
         TrackDataRate,
+        TrackDataResolution,
         TrackDensity,
         WriteSectorResult,
     },
@@ -89,8 +89,8 @@ pub struct BitStreamTrack {
 
 #[cfg_attr(feature = "serde", typetag::serde)]
 impl Track for BitStreamTrack {
-    fn resolution(&self) -> DiskDataResolution {
-        DiskDataResolution::BitStream
+    fn resolution(&self) -> TrackDataResolution {
+        TrackDataResolution::BitStream
     }
 
     fn as_any(&self) -> &dyn Any {

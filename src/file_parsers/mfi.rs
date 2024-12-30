@@ -75,6 +75,7 @@ use crate::{
     LoadingCallback,
 };
 
+use crate::types::TrackDataResolution;
 use binrw::{binrw, BinRead};
 use strum::IntoEnumIterator;
 
@@ -414,9 +415,12 @@ impl MfiFormat {
                     disk_density
                 );
 
+                // TODO: Change this to add a FluxStream resolution track when we support adding
+                //       unformatted fluxstream tracks.
                 disk_image.add_empty_track(
                     track.ch,
                     TrackDataEncoding::Mfm,
+                    Some(TrackDataResolution::BitStream),
                     last_data_rate.unwrap(),
                     last_bitcell_ct.unwrap(),
                     Some(false),
