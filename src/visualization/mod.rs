@@ -40,7 +40,7 @@ pub mod pixmap_to_disk;
 pub use pixmap_to_disk::PixmapToDiskParams;
 
 use crate::{
-    bitstream::TrackDataStream,
+    bitstream_codec::TrackDataStream,
     track_schema::{system34::System34Element, GenericTrackElement, TrackElement, TrackMetadata},
     DiskCh,
 };

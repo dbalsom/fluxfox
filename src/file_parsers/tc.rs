@@ -137,10 +137,26 @@ fn tc_read_comment(raw_comment: &[u8]) -> String {
 fn tc_parse_disk_type(disk_type: u8) -> Result<(TrackDataEncoding, TrackDataRate, DiskRpm), DiskImageError> {
     let (encoding, data_rate, disk_rpm) = match disk_type {
         // Return a default for UNKNOWN, as PCE tools generate TC's with this disk type.
-        TC_DISK_TYPE_UNKNOWN => (TrackDataEncoding::Mfm, TrackDataRate::Rate250Kbps(1.0), DiskRpm::Rpm300),
-        TC_DISK_TYPE_MFM_HD => (TrackDataEncoding::Mfm, TrackDataRate::Rate500Kbps(1.0), DiskRpm::Rpm300),
-        TC_DISK_TYPE_MFM_DD_360 => (TrackDataEncoding::Mfm, TrackDataRate::Rate500Kbps(1.0), DiskRpm::Rpm360),
-        TC_DISK_TYPE_MFM_DD => (TrackDataEncoding::Mfm, TrackDataRate::Rate250Kbps(1.0), DiskRpm::Rpm300),
+        TC_DISK_TYPE_UNKNOWN => (
+            TrackDataEncoding::Mfm,
+            TrackDataRate::Rate250Kbps(1.0),
+            DiskRpm::Rpm300(1.0),
+        ),
+        TC_DISK_TYPE_MFM_HD => (
+            TrackDataEncoding::Mfm,
+            TrackDataRate::Rate500Kbps(1.0),
+            DiskRpm::Rpm300(1.0),
+        ),
+        TC_DISK_TYPE_MFM_DD_360 => (
+            TrackDataEncoding::Mfm,
+            TrackDataRate::Rate500Kbps(1.0),
+            DiskRpm::Rpm360(1.0),
+        ),
+        TC_DISK_TYPE_MFM_DD => (
+            TrackDataEncoding::Mfm,
+            TrackDataRate::Rate250Kbps(1.0),
+            DiskRpm::Rpm300(1.0),
+        ),
         _ => return Err(DiskImageError::UnsupportedFormat),
     };
 

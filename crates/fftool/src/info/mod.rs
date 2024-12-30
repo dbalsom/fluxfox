@@ -33,7 +33,7 @@ pub mod args;
 pub(crate) fn run(_global: &GlobalOptions, params: &args::InfoParams) -> Result<(), Error> {
     let mut reader = read_file(&params.in_file)?;
 
-    let disk_image_type = match DiskImage::detect_format(&mut reader, Some(params.in_file.clone())) {
+    let disk_image_type = match DiskImage::detect_format(&mut reader, Some(&params.in_file)) {
         Ok(disk_image_type) => disk_image_type,
         Err(e) => {
             bail!("Error detecting disk image type: {}", e);
@@ -42,7 +42,7 @@ pub(crate) fn run(_global: &GlobalOptions, params: &args::InfoParams) -> Result<
 
     println!("Detected disk image type: {}", disk_image_type);
 
-    let mut disk = match DiskImage::load(&mut reader, Some(params.in_file.clone()), None, None) {
+    let mut disk = match DiskImage::load(&mut reader, Some(&params.in_file), None, None) {
         Ok(disk) => disk,
         Err(e) => {
             bail!("Error loading disk image: {}", e);
@@ -99,10 +99,10 @@ pub fn dump_track_map<W: std::io::Write>(
 
             if let Some(track_ref) = disk.track(ch) {
                 match track_ref.resolution() {
-                    DiskDataResolution::MetaSector => {
+                    TrackDataResolution::MetaSector => {
                         out.write_fmt(format_args!("\tTrack {}\n", track_idx))?;
                     }
-                    DiskDataResolution::FluxStream | DiskDataResolution::BitStream => {
+                    TrackDataResolution::FluxStream | TrackDataResolution::BitStream => {
                         let stream = track_ref.stream().expect("Couldn't retrieve track stream!");
                         out.write_fmt(format_args!(
                             "\tTrack {}: [{} encoding, {} bits]\n",

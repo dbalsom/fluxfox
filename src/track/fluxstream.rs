@@ -37,7 +37,7 @@ use std::{
 
 use super::{Track, TrackAnalysis, TrackInfo};
 use crate::{
-    bitstream::TrackDataStream,
+    bitstream_codec::TrackDataStream,
     flux::{
         flux_revolution::FluxRevolution,
         histogram::FluxHistogram,
@@ -53,7 +53,6 @@ use crate::{
         DiskCh,
         DiskChs,
         DiskChsn,
-        DiskDataResolution,
         DiskRpm,
         ReadSectorResult,
         ReadTrackResult,
@@ -62,6 +61,7 @@ use crate::{
         SharedDiskContext,
         TrackDataEncoding,
         TrackDataRate,
+        TrackDataResolution,
         TrackDensity,
         WriteSectorResult,
     },
@@ -95,8 +95,8 @@ pub struct FluxStreamTrack {
 
 #[cfg_attr(feature = "serde", typetag::serde)]
 impl Track for FluxStreamTrack {
-    fn resolution(&self) -> DiskDataResolution {
-        DiskDataResolution::FluxStream
+    fn resolution(&self) -> TrackDataResolution {
+        TrackDataResolution::FluxStream
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -129,12 +129,16 @@ impl Track for FluxStreamTrack {
 
     fn info(&self) -> TrackInfo {
         if let Some(resolved) = self.get_bitstream() {
-            let ti = resolved.info();
+            let mut ti = resolved.info();
+
+            ti.resolution = self.resolution();
             log::debug!("FluxStreamTrack::info(): Bitstream info: {:?}", ti);
+
             return ti;
         }
 
         TrackInfo {
+            resolution: self.resolution(),
             encoding: self.encoding,
             schema: self.schema,
             data_rate: self.data_rate,
@@ -341,7 +345,7 @@ impl FluxStreamTrack {
             decoded_revolutions: Vec::new(),
             best_revolution: 0,
             density: TrackDensity::Double,
-            rpm: DiskRpm::Rpm300,
+            rpm: DiskRpm::Rpm300(1.0),
             dirty: false,
             resolved: None,
             shared: None,
@@ -418,7 +422,7 @@ impl FluxStreamTrack {
             // Use the rpm hint if provided, otherwise try to derive from the revolution's index time,
             // falling back to 300 RPM if neither works.
             let mut base_rpm =
-                rpm_hint.unwrap_or(DiskRpm::try_from_index_time(revolution.index_time).unwrap_or(DiskRpm::Rpm300));
+                rpm_hint.unwrap_or(DiskRpm::try_from_index_time(revolution.index_time).unwrap_or(DiskRpm::Rpm300(1.0)));
 
             log::debug!("decode_revolutions:() using base rpm: {}", base_rpm);
 
@@ -463,8 +467,8 @@ impl FluxStreamTrack {
 
             // If RPM calculated from the index time seems accurate, trust it over the rpm hint.
             base_rpm = match rev_rpm {
-                255.0..345.0 => DiskRpm::Rpm300,
-                345.0..414.0 => DiskRpm::Rpm360,
+                255.0..345.0 => DiskRpm::Rpm300(rev_rpm / 300.0),
+                345.0..414.0 => DiskRpm::Rpm360(rev_rpm / 360.0),
                 _ => {
                     log::error!(
                         "Revolution {} RPM is out of range ({:.2}). Assuming {}",
@@ -636,6 +640,26 @@ impl FluxStreamTrack {
             .expect("Best revolution not found.");
 
         self.encoding = rev_ref.encoding;
+    }
+
+    /// Retrieve the flux deltas for the best revolution.
+    pub fn flux_deltas(&self) -> &[f64] {
+        self.revolutions[self.best_revolution].flux_deltas.as_slice()
+    }
+
+    pub fn flux_deltas_us(&self) -> Vec<f32> {
+        self.revolutions[self.best_revolution]
+            .flux_deltas
+            .iter()
+            .map(|&f| (f * 1_000_000.0) as f32)
+            .collect::<Vec<f32>>()
+    }
+
+    pub fn flux_deltas_revolution(&self, rev: usize) -> Option<&[f64]> {
+        if rev < self.revolutions.len() {
+            return Some(self.revolutions[rev].flux_deltas.as_slice());
+        }
+        None
     }
 
     fn get_bitstream(&self) -> Option<&BitStreamTrack> {

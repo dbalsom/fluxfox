@@ -35,7 +35,7 @@ use fluxfox::prelude::*;
 pub struct DiskInfoWidget {
     pub filename: Option<String>,
     pub platforms: Option<Vec<Platform>>,
-    pub resolution: DiskDataResolution,
+    pub resolution: Vec<TrackDataResolution>,
     pub geometry: DiskCh,
     pub rate: TrackDataRate,
     pub encoding: TrackDataEncoding,
@@ -84,9 +84,20 @@ impl DiskInfoWidget {
                     }
                 }
 
-                ui.label("Resolution:");
-                ui.label(format!("{:?}", self.resolution));
-                ui.end_row();
+                if self.resolution.len() > 1 {
+                    ui.label("Multi-resolution:");
+                    ui.end_row();
+                    for (i, resolution) in self.resolution.iter().enumerate() {
+                        ui.label(format!("[{}]", i));
+                        ui.label(format!("{:?}", resolution));
+                        ui.end_row();
+                    }
+                }
+                else {
+                    ui.label("Resolution:");
+                    ui.label(format!("{:?}", self.resolution[0]));
+                    ui.end_row();
+                }
 
                 ui.label("Geometry:");
                 ui.horizontal(|ui| {

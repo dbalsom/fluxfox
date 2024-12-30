@@ -30,32 +30,24 @@
 
 */
 
+//! A stub implementation of a GCR codec. This is a placeholder for a proper
+//! implementation in the future. The Snow mac emulator doesn't need decoding
+//! support, just raw access to GCR tracks.
+
 use std::ops::Index;
 
 use crate::{
     bit_ring::BitRing,
-    bitstream::{EncodingVariant, MarkerEncoding, TrackCodec},
+    bitstream_codec::{EncodingVariant, MarkerEncoding, TrackCodec},
     io::{Error, ErrorKind, Read, Result, Seek, SeekFrom},
     range_check::RangeChecker,
     types::{TrackDataEncoding, TrackRegion},
 };
 use bit_vec::BitVec;
 
-pub const MFM_BYTE_LEN: usize = 16;
-pub const MFM_MARKER_LEN: usize = 64;
-pub const MFM_MARKER_CLOCK: u64 = 0x0220_0220_0220_0000;
-
-#[doc(hidden)]
-#[macro_export]
-macro_rules! mfm_offset {
-    ($x:expr) => {
-        $x * 16
-    };
-}
-
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct MfmCodec {
+pub struct GcrCodec {
     bits: BitRing,
     clock_map: BitRing,
     error_map: BitRing,
@@ -68,37 +60,10 @@ pub struct MfmCodec {
     data_ranges_filtered: RangeChecker,
 }
 
-pub fn get_mfm_sync_offset(track: &BitVec) -> Option<bool> {
-    match find_sync(track, 0) {
-        Some(offset) => {
-            if offset % 2 == 0 {
-                Some(false)
-            }
-            else {
-                Some(true)
-            }
-        }
-        None => None,
-    }
-}
-
-pub fn find_sync(track: &BitVec, start_idx: usize) -> Option<usize> {
-    let mut shift_reg: u32 = 0;
-
-    for (i, bit) in track.into_iter().skip(start_idx).enumerate() {
-        shift_reg = shift_reg << 1 | (bit as u32);
-
-        if i >= 32 && shift_reg == 0xAA_AA_AA_AA {
-            return Some(i - 32);
-        }
-    }
-    None
-}
-
 #[cfg_attr(feature = "serde", typetag::serde)]
-impl TrackCodec for MfmCodec {
+impl TrackCodec for GcrCodec {
     fn encoding(&self) -> TrackDataEncoding {
-        TrackDataEncoding::Mfm
+        TrackDataEncoding::Gcr
     }
 
     fn len(&self) -> usize {
@@ -168,49 +133,7 @@ impl TrackCodec for MfmCodec {
         self.error_map.bits()
     }
 
-    fn set_track_padding(&mut self) {
-        let mut wrap_buffer: [u8; 4] = [0; 4];
-
-        if self.bits.len() % 8 == 0 {
-            // Track length was an even multiple of 8, so it is possible track data was padded to
-            // byte margins.
-
-            let found_pad = false;
-            // Read buffer across the end of the track and see if all bytes are the same.
-            for pad in 1..16 {
-                log::trace!(
-                    "bitcells: {} data bits: {} window_start: {}",
-                    self.bits.len(),
-                    self.bits.len() / 2,
-                    self.bits.len() - (8 * 2)
-                );
-                let wrap_addr = (self.bits.len() / 2) - (8 * 2);
-
-                self.track_padding = pad;
-
-                self.seek(SeekFrom::Start(wrap_addr as u64)).unwrap();
-                self.read_exact(&mut wrap_buffer).unwrap();
-
-                log::trace!(
-                    "set_track_padding(): wrap_buffer at {}, pad {}: {:02X?}",
-                    wrap_addr,
-                    pad,
-                    wrap_buffer
-                );
-            }
-
-            if !found_pad {
-                // No padding found
-                log::debug!("set_track_padding(): Unable to determine track padding",);
-                self.track_padding = 0;
-            }
-        }
-        else {
-            // Track length is not an even multiple of 8 - the only explanation is that there is no
-            // track padding.
-            self.track_padding = 0;
-        }
-    }
+    fn set_track_padding(&mut self) {}
 
     fn read_raw_u8(&self, index: usize) -> Option<u8> {
         let mut byte = 0;
@@ -238,201 +161,35 @@ impl TrackCodec for MfmCodec {
     /// This is essentially a reimplementation of Read + Iterator that avoids mutation.
     /// This allows us to read track data through an immutable reference.
     fn read_decoded_u8(&self, index: usize) -> Option<u8> {
-        let mut byte = 0;
-        let mut cursor = index;
-
-        // If we are not pointing to a clock bit, advance to the next clock bit.
-        cursor += !self.clock_map[cursor] as usize;
-        // Now that we are aligned to a clock bit, point to the next data bit
-        cursor += 1;
-
-        for _ in 0..8 {
-            let decoded_bit = if self.weak_enabled && !self.weak_mask.is_empty() && self.weak_mask[cursor] {
-                // Weak bits return random data
-                rand::random()
-            }
-            else {
-                self.bits[cursor]
-            };
-            byte = (byte << 1) | decoded_bit as u8;
-            // Advance to next data bit.
-            cursor += 2;
-        }
-        Some(byte)
+        None
     }
 
     fn read_decoded_u32_le(&self, index: usize) -> u32 {
-        let mut dword = 0;
-        let mut cursor = index;
-
-        // If we are not pointing to a clock bit, advance to the next clock bit.
-        cursor += !self.clock_map[cursor] as usize;
-        // Now that we are aligned to a clock bit, point to the next data bit
-        cursor += 1;
-
-        for b in 0..4 {
-            let mut byte = 0;
-            for _ in 0..8 {
-                let decoded_bit = if self.weak_enabled && !self.weak_mask.is_empty() && self.weak_mask[cursor] {
-                    // Weak bits return random data
-                    rand::random()
-                }
-                else {
-                    self.bits[cursor]
-                };
-                byte = (byte << 1) | decoded_bit as u32;
-                // Advance to next data bit.
-                cursor += 2;
-            }
-            dword |= byte << (b * 8);
-        }
-        dword
+        0
     }
 
     fn read_decoded_u32_be(&self, index: usize) -> u32 {
-        let mut dword = 0;
-        let mut cursor = index;
-
-        // If we are not pointing to a clock bit, advance to the next clock bit.
-        cursor += !self.clock_map[cursor] as usize;
-        // Now that we are aligned to a clock bit, point to the next data bit
-        cursor += 1;
-
-        for _ in 0..32 {
-            let decoded_bit = if self.weak_enabled && !self.weak_mask.is_empty() && self.weak_mask[cursor] {
-                // Weak bits return random data
-                rand::random()
-            }
-            else {
-                self.bits[cursor]
-            };
-            dword = (dword << 1) | decoded_bit as u32;
-            // Advance to next data bit.
-            cursor += 2;
-        }
-        dword
+        0
     }
 
     fn read_decoded_buf(&self, buf: &mut [u8], offset: usize) -> usize {
-        let mut bytes_read = 0;
-        for byte in buf.iter_mut() {
-            *byte = self.read_decoded_u8(offset + (bytes_read * MFM_BYTE_LEN)).unwrap();
-            bytes_read += 1;
-        }
-        bytes_read
+        0
     }
 
     fn write_encoded_buf(&mut self, buf: &[u8], offset: usize) -> usize {
-        let mut offset = offset;
-        let encoded_buf = self.encode(buf, false, EncodingVariant::Data);
-
-        // let mut copy_len = encoded_buf.len();
-        // if self.bits.len() < offset + encoded_buf.len() {
-        //     copy_len = self.bits.len() - offset;
-        // }
-
-        let mut bits_written = 0;
-
-        // If we landed on a data bit, advance to the next clock bit.
-        // If the next bit is not a clock bit either, we are in an unsynchronized region, so don't
-        // bother.
-        if !self.clock_map[offset] && self.clock_map[offset + 1] {
-            offset += 1;
-        }
-
-        for (i, bit) in encoded_buf.into_iter().enumerate() {
-            self.bits.set(offset + i, bit);
-            bits_written += 1;
-        }
-
-        (bits_written + 7) / 8
+        0
     }
 
     fn write_raw_buf(&mut self, buf: &[u8], offset: usize) -> usize {
-        let mut bytes_written = 0;
-        let mut offset = offset;
-        for byte in buf {
-            for bit_pos in 0..8 {
-                self.bits.set(offset, byte & (0x80 >> bit_pos) != 0);
-                offset += 1;
-            }
-            bytes_written += 1;
-        }
-        bytes_written
+        0
     }
 
     fn encode(&self, data: &[u8], prev_bit: bool, encoding_type: EncodingVariant) -> BitVec {
-        let mut bitvec = BitVec::new();
-        let mut bit_count = 0;
-
-        for &byte in data {
-            for i in 0..8 {
-                //let bit = ;
-                if (byte & (0x80 >> i)) != 0 {
-                    // 1 is encoded as 01
-                    bitvec.push(false);
-                    bitvec.push(true);
-                }
-                else {
-                    // 0 is encoded as 10 if previous bit was 0, otherwise 00
-                    let previous_bit = if bitvec.is_empty() {
-                        prev_bit
-                    }
-                    else {
-                        bitvec[bitvec.len() - 1]
-                    };
-
-                    if previous_bit {
-                        bitvec.push(false);
-                    }
-                    else {
-                        bitvec.push(true);
-                    }
-                    bitvec.push(false);
-                }
-
-                bit_count += 1;
-
-                // Omit clock bit between source bits 3 and 4 for address marks
-                if let EncodingVariant::AddressMark = encoding_type {
-                    if bit_count == 4 {
-                        // Clear the previous clock bit (which is between bit 3 and 4)
-                        bitvec.set(bitvec.len() - 2, false);
-                    }
-                }
-            }
-
-            // Reset bit_count for the next byte
-            bit_count = 0;
-        }
-
-        bitvec
+        BitVec::new()
     }
 
     fn find_marker(&self, marker: &MarkerEncoding, start: usize, limit: Option<usize>) -> Option<(usize, u16)> {
-        //log::debug!("Mfm::find_marker(): Searching for marker: {:016X}", marker);
-        if self.bits.is_empty() {
-            return None;
-        }
-
-        let mut shift_reg: u64 = 0;
-        let mut shift_ct: u32 = 0;
-
-        let search_limit = if let Some(provided_limit) = limit {
-            std::cmp::min(provided_limit, self.bits.len())
-        }
-        else {
-            self.bits.len()
-        };
-
-        for bi in start..search_limit {
-            shift_reg = (shift_reg << 1) | self.bits[bi] as u64;
-            shift_ct += 1;
-            if shift_ct >= 64 && ((shift_reg & marker.mask) == marker.bits) {
-                return Some(((bi - marker.len) + 1, (shift_reg & 0xFFFF) as u16));
-            }
-        }
-        log::trace!("find_marker(): Failed to find marker!");
+        log::trace!("find_marker(): Not implemented for GCR!");
         None
     }
 
@@ -476,7 +233,7 @@ impl TrackCodec for MfmCodec {
     }
 }
 
-impl MfmCodec {
+impl GcrCodec {
     pub const WEAK_BIT_RUN: usize = 6;
 
     pub fn new(mut bits: BitVec, bit_ct: Option<usize>, weak_mask: Option<BitVec>) -> Self {
@@ -485,35 +242,32 @@ impl MfmCodec {
             bits.truncate(bit_ct);
         }
 
-        let encoding_sync = get_mfm_sync_offset(&bits).unwrap_or(false);
-        let sync = encoding_sync.into();
-
-        let clock_map = BitVec::from_elem(bits.len(), encoding_sync);
+        let clock_map = BitVec::from_elem(bits.len(), false);
         let weak_mask = match weak_mask {
             Some(mask) => mask,
             None => BitVec::from_elem(bits.len(), false),
         };
 
         if weak_mask.len() < bits.len() {
-            panic!("MfmCodec::new(): Weak mask must be the same length as the bit vector");
+            panic!("GcrCodec::new(): Weak mask must be the same length as the bit vector");
         }
 
-        let error_bits = MfmCodec::create_error_map(&bits);
+        let error_bits = GcrCodec::create_error_map(&bits);
         let error_bit_ct = error_bits.count_ones();
 
         if error_bit_ct > 16 {
-            log::warn!("MfmCodec::new(): created error map with {} error bits", error_bit_ct);
+            log::warn!("GcrCodec::new(): created error map with {} error bits", error_bit_ct);
         }
         let error_map = BitRing::from(error_bits);
 
-        MfmCodec {
+        GcrCodec {
             bits: BitRing::from(bits),
             clock_map: BitRing::from(clock_map),
             error_map,
             weak_enabled: true,
             weak_mask: BitRing::from(weak_mask),
-            initial_phase: sync,
-            bit_cursor: sync,
+            initial_phase: 0,
+            bit_cursor: 0,
             track_padding: 0,
             data_ranges: Default::default(),
             data_ranges_filtered: Default::default(),
@@ -532,38 +286,12 @@ impl MfmCodec {
         Ok(())
     }
 
-    /// Encode an MFM address mark.
+    /// Encode an GCR address mark.
     /// `data` must be a 4-byte slice.
     /// Returns the encoded value in a u64 suitable for comparison to a shift register used to search
     /// a BitVec.
     pub fn encode_marker(data: &[u8]) -> u64 {
-        assert_eq!(data.len(), 4);
-
-        let mut accum: u64 = 0;
-        // A mark is always preceded by a SYNC block of 0's, so we know the previous bit will always
-        // be 0.
-        let mut previous_bit = false;
-
-        for &byte in data {
-            for i in (0..8).rev() {
-                let bit = (byte & (1 << i)) != 0;
-                if bit {
-                    // 1 is encoded as 01
-                    accum = (accum << 2) | 0b01;
-                }
-                else {
-                    // 0 is encoded as 10 if previous bit was 0, otherwise 00
-                    if !previous_bit {
-                        accum = (accum << 2) | 0b10;
-                    }
-                    else {
-                        accum <<= 2;
-                    }
-                }
-                previous_bit = bit;
-            }
-        }
-        accum
+        0
     }
 
     #[allow(dead_code)]
@@ -701,7 +429,7 @@ impl MfmCodec {
     }
 }
 
-impl Iterator for MfmCodec {
+impl Iterator for GcrCodec {
     type Item = bool;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -727,7 +455,7 @@ impl Iterator for MfmCodec {
     }
 }
 
-impl Seek for MfmCodec {
+impl Seek for GcrCodec {
     fn seek(&mut self, pos: SeekFrom) -> Result<u64> {
         if self.bits.is_empty() {
             return Err(Error::new(ErrorKind::InvalidInput, "Cannot seek on an empty bitstream"));
@@ -752,7 +480,7 @@ impl Seek for MfmCodec {
     }
 }
 
-impl Read for MfmCodec {
+impl Read for GcrCodec {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         if self.bits.is_empty() {
             return Err(Error::new(ErrorKind::InvalidInput, "Cannot read an empty bitstream"));
@@ -775,7 +503,7 @@ impl Read for MfmCodec {
     }
 }
 
-impl Index<usize> for MfmCodec {
+impl Index<usize> for GcrCodec {
     type Output = bool;
 
     fn index(&self, index: usize) -> &Self::Output {

@@ -38,7 +38,6 @@ pub mod image_record;
 pub mod info_record;
 pub mod ipf;
 mod platforms;
-mod source_map;
 mod stream_element;
 mod track_common;
 mod v1_track;

@@ -45,8 +45,8 @@ use crate::types::{
 use crate::track_schema::{system34::System34Standard, TrackMetadata, TrackSchema};
 
 use crate::{
-    bitstream::TrackDataStream,
-    types::{chs::DiskChsnQuery, DiskCh, DiskChs, DiskChsn, DiskDataResolution, TrackDataEncoding, TrackDataRate},
+    bitstream_codec::TrackDataStream,
+    types::{chs::DiskChsnQuery, DiskCh, DiskChs, DiskChsn, TrackDataEncoding, TrackDataRate, TrackDataResolution},
     DiskImageError,
     FoxHashSet,
     SectorMapEntry,
@@ -198,8 +198,8 @@ pub struct MetaSectorTrack {
 
 #[cfg_attr(feature = "serde", typetag::serde)]
 impl Track for MetaSectorTrack {
-    fn resolution(&self) -> DiskDataResolution {
-        DiskDataResolution::MetaSector
+    fn resolution(&self) -> TrackDataResolution {
+        TrackDataResolution::MetaSector
     }
     fn as_any(&self) -> &dyn Any {
         self
@@ -231,6 +231,7 @@ impl Track for MetaSectorTrack {
 
     fn info(&self) -> TrackInfo {
         TrackInfo {
+            resolution: self.resolution(),
             encoding: self.encoding,
             schema: self.schema,
             data_rate: self.data_rate,

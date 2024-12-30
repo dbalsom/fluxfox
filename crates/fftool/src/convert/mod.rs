@@ -34,7 +34,7 @@ use std::io::Cursor;
 pub(crate) fn run(global: &GlobalOptions, params: &args::ConvertParams) -> Result<(), Error> {
     let mut reader = read_file(&params.in_file.clone())?;
 
-    let disk_image_type = match DiskImage::detect_format(&mut reader, Some(params.in_file.clone())) {
+    let disk_image_type = match DiskImage::detect_format(&mut reader, Some(&params.in_file)) {
         Ok(disk_image_type) => disk_image_type,
         Err(e) => {
             bail!("Error detecting input disk image type: {}", e);
@@ -70,7 +70,7 @@ pub(crate) fn run(global: &GlobalOptions, params: &args::ConvertParams) -> Resul
     //std::process::exit(0);
 
     // Load disk image
-    let mut in_disk = match DiskImage::load(&mut reader, Some(params.in_file.clone()), None, None) {
+    let mut in_disk = match DiskImage::load(&mut reader, Some(&params.in_file), None, None) {
         Ok(disk) => disk,
         Err(e) => {
             bail!("Error loading disk image: {}", e);

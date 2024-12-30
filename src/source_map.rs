@@ -216,6 +216,27 @@ impl SourceValue {
             comment: None,
         }
     }
+    /// Create a u8 value with the defaults.
+    #[inline]
+    pub fn u8(value: u8) -> Self {
+        Self::u8_base(value, Repr::default(), ValueState::Good, "")
+    }
+    /// Create a u32 with hexadecimal representation.
+    #[inline]
+    pub fn hex_u8(value: u8) -> Self {
+        Self::u8_base(value, Repr::Hex(8), ValueState::Good, "")
+    }
+    /// Base function for creating a u8 value with different parameters. Usually not called
+    /// directly.
+    pub fn u8_base(value: u8, repr: Repr, state: ValueState, tip: &str) -> Self {
+        SourceValue {
+            scalar: Some(Scalar::U8(value)),
+            repr,
+            tip: (!tip.is_empty()).then_some(tip.to_string()),
+            state,
+            comment: None,
+        }
+    }
     /// Create a String scalar value with the defaults.
     pub fn string(value: &str) -> Self {
         SourceValue {

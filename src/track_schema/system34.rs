@@ -34,7 +34,7 @@ use core::ops::Range;
 use std::fmt::{Display, Formatter};
 
 use crate::{
-    bitstream::{
+    bitstream_codec::{
         mfm::{MfmCodec, MFM_BYTE_LEN, MFM_MARKER_LEN},
         MarkerEncoding,
         TrackDataStream,

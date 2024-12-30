@@ -30,7 +30,7 @@
 
 */
 use crate::{
-    bitstream::{EncodingVariant, MarkerEncoding, TrackCodec},
+    bitstream_codec::{EncodingVariant, MarkerEncoding, TrackCodec},
     io::{Error, ErrorKind, Read, Result, Seek, SeekFrom},
     range_check::RangeChecker,
     types::{TrackDataEncoding, TrackRegion},

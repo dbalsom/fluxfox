@@ -44,7 +44,7 @@ use crate::{
 use crate::{
     file_parsers::{pce::crc::pce_crc, ParserReadOptions, ParserWriteOptions},
     track::bitstream::BitStreamTrack,
-    types::{chs::DiskCh, DiskDataResolution, Platform, TrackDataEncoding, TrackDataRate, TrackDensity},
+    types::{chs::DiskCh, Platform, TrackDataEncoding, TrackDataRate, TrackDataResolution, TrackDensity},
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,
@@ -185,12 +185,8 @@ impl PriFormat {
     pub(crate) fn can_write(image: Option<&DiskImage>) -> ParserWriteCompatibility {
         image
             .map(|image| {
-                if let Some(resolution) = image.resolution {
-                    if !matches!(resolution, DiskDataResolution::BitStream) {
-                        return ParserWriteCompatibility::Incompatible;
-                    }
-                }
-                else {
+                if (image.resolution.len() > 1) || !image.resolution.contains(&TrackDataResolution::BitStream) {
+                    // PRI images can't store multiple resolutions, and must store bitstream data
                     return ParserWriteCompatibility::Incompatible;
                 }
 
@@ -552,13 +548,11 @@ impl PriFormat {
         _opts: &ParserWriteOptions,
         output: &mut RWS,
     ) -> Result<(), DiskImageError> {
-        if matches!(image.resolution(), DiskDataResolution::BitStream) {
-            log::trace!("Saving PRI image...");
-        }
-        else {
+        if (image.resolution.len() > 1) || !image.resolution.contains(&TrackDataResolution::BitStream) {
             log::error!("Unsupported image resolution.");
             return Err(DiskImageError::UnsupportedFormat);
         }
+        log::trace!("Saving PRI image...");
 
         // Write the file header chunk. Version remains at 0 for now.
         let file_header = PriHeader {

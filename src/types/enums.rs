@@ -36,18 +36,21 @@ use std::{
 };
 
 pub use crate::platform::Platform;
+use crate::types::DiskRpm;
 
-/// The resolution of the data in the disk image.
-/// fluxfox supports three types of disk images:
-/// * MetaSector images hold only sector data along with optional metadata per sector.
-/// * BitStream images hold a bitwise representation of each track on a disk.
-/// * FluxStream images hold one or more `revolutions` of flux transition delta times per track,
+/// The level of data resolution for a given track.
+/// fluxfox supports three types of data resolutions:
+/// * MetaSector tracks hold only sector data along with optional metadata per sector.
+/// * BitStream tracks hold a bitwise representation of each track on a disk.
+/// * FluxStream tracks hold one or more `revolutions` of flux transition delta times per track,
 ///   which are resolved to a single bitstream.
 ///
+/// It is possible for some image formats to contain a combination of BitStream and FluxStream
+/// tracks.
 #[repr(usize)]
-#[derive(Copy, Clone, Default, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Default, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum DiskDataResolution {
+pub enum TrackDataResolution {
     #[default]
     #[doc = "MetaSector images hold only sector data along with optional metadata per sector."]
     MetaSector = 0,
@@ -177,8 +180,9 @@ impl TrackDensity {
         match (self, rpm) {
             (Standard, _) => Some(50_000),
             (Double, _) => Some(100_000),
-            (High, Some(DiskRpm::Rpm360)) => Some(166_666),
-            (High, Some(DiskRpm::Rpm300) | None) => Some(200_000),
+            (High, Some(DiskRpm::Rpm360(_))) => Some(166_666),
+            (High, Some(DiskRpm::Rpm300(_)) | None) => Some(200_000),
+            (High, Some(_)) => Some(200_000),
             (Extended, _) => Some(400_000),
         }
     }
@@ -196,11 +200,13 @@ impl TrackDensity {
     /// Return a value in seconds representing the base clock of a PLL for a given disk density.
     /// A `DiskRpm` must be provided for double density disks, as the clock is adjusted for
     /// double-density disks read in high-density 360RPM drives.
+    /// TODO: Add Option<DiskCh> to calculate clocks for Zoned RPM disks.
     pub fn base_clock(&self, rpm: Option<DiskRpm>) -> f64 {
         match (self, rpm) {
             (TrackDensity::Standard, _) => 4e-6,
-            (TrackDensity::Double, None | Some(DiskRpm::Rpm300)) => 2e-6,
-            (TrackDensity::Double, Some(DiskRpm::Rpm360)) => 1.666e-6,
+            (TrackDensity::Double, None | Some(DiskRpm::Rpm300(_))) => 2e-6,
+            (TrackDensity::Double, Some(DiskRpm::Rpm360(_))) => 1.666e-6,
+            (TrackDensity::Double, Some(_)) => 2e-6,
             (TrackDensity::High, _) => 1e-6,
             (TrackDensity::Extended, _) => 5e-7,
         }
@@ -294,75 +300,6 @@ impl Display for TrackDataRate {
     }
 }
 
-/// A `DiskRpm` may represent the standard rotation speed of a standard disk image, or the actual
-/// rotation speed of a disk drive while reading a disk. Double density 5.25" disk drives rotate
-/// at 300RPM, but a double-density disk read in a high-density 5.25" drive may rotate at 360RPM.
-///
-/// All PC floppy disk drives typically rotate at 300 RPM, except for high density 5.25\" drives
-/// which rotate at 360 RPM.
-///
-/// Macintosh disk drives may have variable rotation rates while reading a single disk.
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum DiskRpm {
-    /// A 300 RPM base rotation rate.
-    #[default]
-    Rpm300,
-    /// A 360 RPM base rotation rate.
-    Rpm360,
-}
-
-impl From<DiskRpm> for f64 {
-    /// Convert a DiskRpm to a floating-point RPM value.
-    fn from(rpm: DiskRpm) -> Self {
-        match rpm {
-            DiskRpm::Rpm300 => 300.0,
-            DiskRpm::Rpm360 => 360.0,
-        }
-    }
-}
-
-impl Display for DiskRpm {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self {
-            DiskRpm::Rpm300 => write!(f, "300RPM"),
-            DiskRpm::Rpm360 => write!(f, "360RPM"),
-        }
-    }
-}
-
-impl DiskRpm {
-    /// Try to calculate a [DiskRpm] from the time between index pulses in milliseconds.
-    /// Sometimes flux streams report bizarre RPMs, so you will need fallback logic if this
-    /// conversion fails.
-    pub fn try_from_index_time(time: f64) -> Option<DiskRpm> {
-        let rpm = 60.0 / time;
-        // We'd like to support a 15% deviation, but there is a small overlap between 300 +15%
-        // and 360 -15%, so we split the difference at 327 RPM.
-        match rpm {
-            270.0..327.00 => Some(DiskRpm::Rpm300),
-            327.0..414.00 => Some(DiskRpm::Rpm360),
-            _ => None,
-        }
-    }
-
-    /// Convert a [DiskRpm] to an index time in milliseconds.
-    pub fn index_time_ms(&self) -> f64 {
-        60.0 / f64::from(*self)
-    }
-
-    #[inline]
-    pub fn adjust_clock(&self, base_clock: f64) -> f64 {
-        // Assume a base clock of 1.5us or greater is a double density disk.
-        if matches!(self, DiskRpm::Rpm360) && base_clock >= 1.5e-6 {
-            base_clock * (300.0 / 360.0)
-        }
-        else {
-            base_clock
-        }
-    }
-}
-
 /// A DiskSelection enumeration is used to select a disk image by either index or path when dealing
 /// with containers that contain multiple disk images.
 #[derive(Clone, Debug)]
@@ -418,6 +355,9 @@ pub enum DiskImageFileFormat {
     /// Interchangeable Preservation Format image. Typically, has extension IPF.
     #[cfg(feature = "ipf")]
     IpfImage,
+    /// MOOF - Applesauce Macintosh Disk Image
+    #[cfg(feature = "moof")]
+    MoofImage,
 }
 
 impl DiskImageFileFormat {
@@ -448,29 +388,33 @@ impl DiskImageFileFormat {
             MameFloppyImage => 0,
             #[cfg(feature = "ipf")]
             IpfImage => 0,
+            #[cfg(feature = "moof")]
+            MoofImage => 0,
         }
     }
 
-    pub fn resolution(self) -> DiskDataResolution {
+    pub fn resolution(self) -> TrackDataResolution {
         use DiskImageFileFormat::*;
         match self {
-            RawSectorImage => DiskDataResolution::MetaSector,
-            ImageDisk => DiskDataResolution::MetaSector,
-            PceSectorImage => DiskDataResolution::MetaSector,
-            PceBitstreamImage => DiskDataResolution::BitStream,
-            MfmBitstreamImage => DiskDataResolution::BitStream,
+            RawSectorImage => TrackDataResolution::MetaSector,
+            ImageDisk => TrackDataResolution::MetaSector,
+            PceSectorImage => TrackDataResolution::MetaSector,
+            PceBitstreamImage => TrackDataResolution::BitStream,
+            MfmBitstreamImage => TrackDataResolution::BitStream,
             #[cfg(feature = "td0")]
-            TeleDisk => DiskDataResolution::MetaSector,
-            KryofluxStream => DiskDataResolution::FluxStream,
-            HfeImage => DiskDataResolution::BitStream,
-            F86Image => DiskDataResolution::BitStream,
-            TransCopyImage => DiskDataResolution::BitStream,
-            SuperCardPro => DiskDataResolution::FluxStream,
-            PceFluxImage => DiskDataResolution::FluxStream,
+            TeleDisk => TrackDataResolution::MetaSector,
+            KryofluxStream => TrackDataResolution::FluxStream,
+            HfeImage => TrackDataResolution::BitStream,
+            F86Image => TrackDataResolution::BitStream,
+            TransCopyImage => TrackDataResolution::BitStream,
+            SuperCardPro => TrackDataResolution::FluxStream,
+            PceFluxImage => TrackDataResolution::FluxStream,
             #[cfg(feature = "mfi")]
-            MameFloppyImage => DiskDataResolution::FluxStream,
+            MameFloppyImage => TrackDataResolution::FluxStream,
             #[cfg(feature = "ipf")]
-            IpfImage => DiskDataResolution::BitStream,
+            IpfImage => TrackDataResolution::BitStream,
+            #[cfg(feature = "moof")]
+            MoofImage => TrackDataResolution::BitStream,
         }
     }
 }
@@ -496,6 +440,8 @@ impl Display for DiskImageFileFormat {
             MameFloppyImage => "MAME Flux Stream".to_string(),
             #[cfg(feature = "ipf")]
             IpfImage => "IPF Disk".to_string(),
+            #[cfg(feature = "moof")]
+            MoofImage => "MOOF Disk".to_string(),
         };
         write!(f, "{}", str)
     }
