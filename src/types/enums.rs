@@ -36,6 +36,7 @@ use std::{
 };
 
 pub use crate::platform::Platform;
+use crate::types::DiskRpm;
 
 /// The level of data resolution for a given track.
 /// fluxfox supports three types of data resolutions:
@@ -179,8 +180,9 @@ impl TrackDensity {
         match (self, rpm) {
             (Standard, _) => Some(50_000),
             (Double, _) => Some(100_000),
-            (High, Some(DiskRpm::Rpm360)) => Some(166_666),
-            (High, Some(DiskRpm::Rpm300) | None) => Some(200_000),
+            (High, Some(DiskRpm::Rpm360(_))) => Some(166_666),
+            (High, Some(DiskRpm::Rpm300(_)) | None) => Some(200_000),
+            (High, Some(_)) => Some(200_000),
             (Extended, _) => Some(400_000),
         }
     }
@@ -198,11 +200,13 @@ impl TrackDensity {
     /// Return a value in seconds representing the base clock of a PLL for a given disk density.
     /// A `DiskRpm` must be provided for double density disks, as the clock is adjusted for
     /// double-density disks read in high-density 360RPM drives.
+    /// TODO: Add Option<DiskCh> to calculate clocks for Zoned RPM disks.
     pub fn base_clock(&self, rpm: Option<DiskRpm>) -> f64 {
         match (self, rpm) {
             (TrackDensity::Standard, _) => 4e-6,
-            (TrackDensity::Double, None | Some(DiskRpm::Rpm300)) => 2e-6,
-            (TrackDensity::Double, Some(DiskRpm::Rpm360)) => 1.666e-6,
+            (TrackDensity::Double, None | Some(DiskRpm::Rpm300(_))) => 2e-6,
+            (TrackDensity::Double, Some(DiskRpm::Rpm360(_))) => 1.666e-6,
+            (TrackDensity::Double, Some(_)) => 2e-6,
             (TrackDensity::High, _) => 1e-6,
             (TrackDensity::Extended, _) => 5e-7,
         }
@@ -292,75 +296,6 @@ impl Display for TrackDataRate {
             Rate300Kbps(f) => write!(fmt, "300Kbps (x{:.2})", f),
             Rate500Kbps(f) => write!(fmt, "500Kbps (x{:.2})", f),
             Rate1000Kbps(f) => write!(fmt, "1000Kbps (x{:.2})", f),
-        }
-    }
-}
-
-/// A `DiskRpm` may represent the standard rotation speed of a standard disk image, or the actual
-/// rotation speed of a disk drive while reading a disk. Double density 5.25" disk drives rotate
-/// at 300RPM, but a double-density disk read in a high-density 5.25" drive may rotate at 360RPM.
-///
-/// All PC floppy disk drives typically rotate at 300 RPM, except for high density 5.25\" drives
-/// which rotate at 360 RPM.
-///
-/// Macintosh disk drives may have variable rotation rates while reading a single disk.
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum DiskRpm {
-    /// A 300 RPM base rotation rate.
-    #[default]
-    Rpm300,
-    /// A 360 RPM base rotation rate.
-    Rpm360,
-}
-
-impl From<DiskRpm> for f64 {
-    /// Convert a DiskRpm to a floating-point RPM value.
-    fn from(rpm: DiskRpm) -> Self {
-        match rpm {
-            DiskRpm::Rpm300 => 300.0,
-            DiskRpm::Rpm360 => 360.0,
-        }
-    }
-}
-
-impl Display for DiskRpm {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self {
-            DiskRpm::Rpm300 => write!(f, "300RPM"),
-            DiskRpm::Rpm360 => write!(f, "360RPM"),
-        }
-    }
-}
-
-impl DiskRpm {
-    /// Try to calculate a [DiskRpm] from the time between index pulses in milliseconds.
-    /// Sometimes flux streams report bizarre RPMs, so you will need fallback logic if this
-    /// conversion fails.
-    pub fn try_from_index_time(time: f64) -> Option<DiskRpm> {
-        let rpm = 60.0 / time;
-        // We'd like to support a 15% deviation, but there is a small overlap between 300 +15%
-        // and 360 -15%, so we split the difference at 327 RPM.
-        match rpm {
-            270.0..327.00 => Some(DiskRpm::Rpm300),
-            327.0..414.00 => Some(DiskRpm::Rpm360),
-            _ => None,
-        }
-    }
-
-    /// Convert a [DiskRpm] to an index time in milliseconds.
-    pub fn index_time_ms(&self) -> f64 {
-        60.0 / f64::from(*self)
-    }
-
-    #[inline]
-    pub fn adjust_clock(&self, base_clock: f64) -> f64 {
-        // Assume a base clock of 1.5us or greater is a double density disk.
-        if matches!(self, DiskRpm::Rpm360) && base_clock >= 1.5e-6 {
-            base_clock * (300.0 / 360.0)
-        }
-        else {
-            base_clock
         }
     }
 }

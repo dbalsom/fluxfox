@@ -32,6 +32,7 @@
 
 use crate::{
     file_parsers::{bitstream_flags, FormatCaps},
+    format_ms,
     io::ReadSeek,
     platform::Platform,
     DiskImage,
@@ -43,15 +44,17 @@ use crate::{
 };
 
 use crate::{
-    file_parsers::{ParserReadOptions, ParserWriteOptions},
+    file_parsers::{r#as::flux::decode_as_flux, ParserReadOptions, ParserWriteOptions},
     io::ReadWriteSeek,
-    prelude::{DiskCh, TrackDataEncoding, TrackDataRate, TrackDensity},
+    prelude::{DiskCh, TrackDataEncoding, TrackDataRate, TrackDataResolution, TrackDensity},
     source_map::{MapDump, OptionalSourceMap, SourceValue},
-    types::{BitStreamTrackParams, DiskDescriptor},
+    track::fluxstream::FluxStreamTrack,
+    types::{BitStreamTrackParams, DiskDescriptor, DiskRpm, FluxStreamTrackParams},
 };
 use binrw::{binrw, BinRead};
 
 pub const MOOF_MAGIC: &str = "MOOF";
+pub const MAX_TRACKS: u8 = 160;
 
 #[derive(Debug)]
 pub enum MoofDiskType {
@@ -168,14 +171,12 @@ impl MapDump for InfoChunk {
             .add_sibling("largest_track", SourceValue::u32(self.largest_track as u32))
             .add_sibling(
                 "flux_block",
-                SourceValue::u32(self.flux_block as u32).comment(
-                    if self.flux_block > 0 && self.largest_flux_track > 0 {
-                        "Flux block present"
-                    }
-                    else {
-                        "No flux block"
-                    },
-                ),
+                SourceValue::u32(self.flux_block as u32).comment(if self.has_flux_block() {
+                    "Flux block present"
+                }
+                else {
+                    "No flux block"
+                }),
             )
             .add_sibling("largest_flux_track", SourceValue::u32(self.largest_flux_track as u32));
         record_idx
@@ -408,6 +409,12 @@ impl MoofFormat {
         }
 
         let info_chunk = info_chunk_opt.unwrap();
+
+        // Enable multi-resolution support if necessary
+        if info_chunk.has_flux_block() {
+            disk_image.set_multires(true);
+        }
+
         let disk_heads = info_chunk.disk_type.heads();
         let disk_encoding = match TrackDataEncoding::try_from(&info_chunk.disk_type) {
             Ok(disk_encoding) => disk_encoding,
@@ -439,14 +446,54 @@ impl MoofFormat {
             for (i, track_pair) in tmap.track_map.chunks_exact(2).enumerate() {
                 log::debug!("\tMap Entry {}: h0: Trk {} h1: Trk {}", i, track_pair[0], track_pair[1]);
 
-                for trk_idx in track_pair.iter().take(disk_heads as usize) {
+                for (head, trk_idx) in track_pair.iter().take(disk_heads as usize).enumerate() {
                     if *trk_idx != 0xFF {
+                        if trk_idx >= &MAX_TRACKS {
+                            log::error!("Invalid track index: {}", trk_idx);
+                            return Err(DiskImageError::ImageCorruptError(
+                                "Invalid track index in TMAP chunk".to_string(),
+                            ));
+                        }
+
                         let ch = ch_iter.next().unwrap();
                         let trk_entry = &trks.trks[*trk_idx as usize];
                         Self::add_bitstream_track(&mut reader, disk_image, image_size, ch, disk_encoding, trk_entry)?;
                     }
                     else {
-                        log::debug!("\t\t(no track)");
+                        let ch = ch_iter.next().unwrap();
+
+                        let mut add_empty_track = false;
+                        // If we have a flux chunk we can check if this track has flux data
+                        if let Some(flux_chunk) = &flux_chunk_opt {
+                            let flux_idx = flux_chunk.track_map[(i * 2) + head];
+                            if flux_idx < MAX_TRACKS {
+                                let flux_entry = &trks.trks[flux_idx as usize];
+                                log::debug!("\t\tFlux Track Index: {}", flux_idx);
+                                Self::add_fluxstream_track(
+                                    &mut reader,
+                                    disk_image,
+                                    image_size,
+                                    ch,
+                                    disk_encoding,
+                                    flux_entry,
+                                )?;
+                            }
+                            else {
+                                log::debug!("\t\t(no flux)");
+                                add_empty_track = true;
+                            }
+                        }
+
+                        if add_empty_track {
+                            disk_image.add_empty_track(
+                                ch,
+                                disk_encoding,
+                                Some(TrackDataResolution::BitStream),
+                                TrackDataRate::from(disk_density),
+                                0,
+                                None,
+                            )?;
+                        }
                     }
                 }
             }
@@ -458,9 +505,11 @@ impl MoofFormat {
             ));
         }
 
+        let geometry = DiskCh::new(ch_iter.next().unwrap().c(), disk_heads);
+
         let desc = DiskDescriptor {
             platforms: Some(vec![Platform::Macintosh]),
-            geometry: ch_iter.next().unwrap(),
+            geometry,
             data_encoding: disk_encoding,
             density: disk_density,
             data_rate: TrackDataRate::from(disk_density),
@@ -482,11 +531,11 @@ impl MoofFormat {
         track: &Trk,
     ) -> Result<(), DiskImageError> {
         log::debug!(
-            "add_track(): Track: {} Starting block: {} Blocks: {} ({} bytes) Bitcells: {}",
+            "add_bitstream_track(): Track: {} Starting block: {} Blocks: {} ({} bytes) Bitcells: {}",
             ch,
             track.starting_block,
             track.block_ct,
-            track.block_ct * 512,
+            track.block_ct as usize * 512,
             track.bit_ct
         );
 
@@ -494,7 +543,7 @@ impl MoofFormat {
         reader.seek(std::io::SeekFrom::Start(track.starting_block))?;
 
         // Read in the track data.
-        let mut read_vec = vec![0u8; (track.block_ct * 512) as usize];
+        let mut read_vec = vec![0u8; track.block_ct as usize * 512];
         reader.read_exact(&mut read_vec)?;
 
         // Create the bitstream track parameters
@@ -512,6 +561,66 @@ impl MoofFormat {
         };
 
         disk.add_track_bitstream(&params)?;
+
+        Ok(())
+    }
+
+    fn add_fluxstream_track<RWS: ReadSeek>(
+        mut reader: RWS,
+        disk: &mut DiskImage,
+        image_size: u64,
+        ch: DiskCh,
+        encoding: TrackDataEncoding,
+        track: &Trk,
+    ) -> Result<(), DiskImageError> {
+        log::debug!(
+            "add_fluxstream_track(): Track: {} Starting block: {} Blocks: {} ({} bytes) Fts: {}",
+            ch,
+            track.starting_block,
+            track.block_ct,
+            track.block_ct as usize * 512,
+            track.bit_ct
+        );
+
+        // Seek to the start of the track data block (This was converted to byte offset on read)
+        reader.seek(std::io::SeekFrom::Start(track.starting_block))?;
+
+        // Read in the track data.
+        let mut read_vec = vec![0u8; track.block_ct as usize * 512];
+        reader.read_exact(&mut read_vec)?;
+
+        // Decode the flux data
+        let (fluxes, rev_time) = decode_as_flux(&read_vec);
+
+        log::warn!(
+            "Decoded {} flux transitions, index time: {}",
+            fluxes.len(),
+            format_ms!(rev_time)
+        );
+
+        // Create a fluxstream track
+        let mut flux_track = FluxStreamTrack::new();
+
+        // TODO: calculate the Zoned RPM here for Gcr disks
+        flux_track.add_revolution(ch, &fluxes, DiskRpm::Rpm300(1.0).index_time_ms());
+
+        let params = FluxStreamTrackParams {
+            ch,
+            schema: None,
+            encoding: None,
+            clock: None,
+            rpm: None,
+        };
+
+        let new_track = disk.add_track_fluxstream(flux_track, &params)?;
+        let info = new_track.info();
+
+        log::debug!(
+            "Added {} track {} containing {} bits to image...",
+            ch,
+            info.encoding,
+            info.bit_length,
+        );
 
         Ok(())
     }

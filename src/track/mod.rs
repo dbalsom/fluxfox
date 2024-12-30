@@ -68,6 +68,8 @@ use std::any::Any;
 /// and sector count.
 #[derive(Debug)]
 pub struct TrackInfo {
+    /// The resolution of the track as a `TrackDataResolution` enum.
+    pub resolution: TrackDataResolution,
     /// The type of encoding used on the track as a `DiskDataEncoding` enum.
     pub encoding: TrackDataEncoding,
     /// The track data schema

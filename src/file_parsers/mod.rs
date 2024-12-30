@@ -27,6 +27,7 @@
 use crate::io::SeekFrom;
 use bitflags::bitflags;
 
+pub mod r#as;
 pub mod compression;
 pub mod f86;
 pub mod hfe;
@@ -37,8 +38,6 @@ pub mod kryoflux;
 #[cfg(feature = "mfi")]
 pub mod mfi;
 pub mod mfm;
-#[cfg(feature = "moof")]
-pub mod moof;
 pub mod pce;
 pub mod raw;
 pub mod scp;
@@ -48,6 +47,9 @@ pub mod td0;
 
 #[cfg(feature = "async")]
 use std::sync::{Arc, Mutex};
+
+#[cfg(feature = "moof")]
+use r#as::moof;
 
 use pce::{pfi, pri, psi};
 

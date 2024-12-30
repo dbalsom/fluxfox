@@ -280,19 +280,19 @@ impl StandardFormat {
     /// Note: The actual RPM of an image may vary depending on the drive used to create the disk image.
     pub fn rpm(&self) -> DiskRpm {
         match self {
-            StandardFormat::PcFloppy160 => DiskRpm::Rpm300,
-            StandardFormat::PcFloppy180 => DiskRpm::Rpm300,
-            StandardFormat::PcFloppy320 => DiskRpm::Rpm300,
-            StandardFormat::PcFloppy360 => DiskRpm::Rpm300,
-            StandardFormat::PcFloppy720 => DiskRpm::Rpm300,
-            StandardFormat::PcFloppy1200 => DiskRpm::Rpm360,
-            StandardFormat::PcFloppy1440 => DiskRpm::Rpm300,
-            StandardFormat::PcFloppy2880 => DiskRpm::Rpm300,
+            StandardFormat::PcFloppy160 => DiskRpm::Rpm300(1.0),
+            StandardFormat::PcFloppy180 => DiskRpm::Rpm300(1.0),
+            StandardFormat::PcFloppy320 => DiskRpm::Rpm300(1.0),
+            StandardFormat::PcFloppy360 => DiskRpm::Rpm300(1.0),
+            StandardFormat::PcFloppy720 => DiskRpm::Rpm300(1.0),
+            StandardFormat::PcFloppy1200 => DiskRpm::Rpm360(1.0),
+            StandardFormat::PcFloppy1440 => DiskRpm::Rpm300(1.0),
+            StandardFormat::PcFloppy2880 => DiskRpm::Rpm300(1.0),
             #[cfg(feature = "amiga")]
-            StandardFormat::AmigaFloppy880 => DiskRpm::Rpm300,
+            StandardFormat::AmigaFloppy880 => DiskRpm::Rpm300(1.0),
             // See note above in data_rate() for Amiga HD drives.
             #[cfg(feature = "amiga")]
-            StandardFormat::AmigaFloppy1760 => DiskRpm::Rpm300,
+            StandardFormat::AmigaFloppy1760 => DiskRpm::Rpm300(1.0),
         }
     }
 

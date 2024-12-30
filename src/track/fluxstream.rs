@@ -129,12 +129,16 @@ impl Track for FluxStreamTrack {
 
     fn info(&self) -> TrackInfo {
         if let Some(resolved) = self.get_bitstream() {
-            let ti = resolved.info();
+            let mut ti = resolved.info();
+
+            ti.resolution = self.resolution();
             log::debug!("FluxStreamTrack::info(): Bitstream info: {:?}", ti);
+
             return ti;
         }
 
         TrackInfo {
+            resolution: self.resolution(),
             encoding: self.encoding,
             schema: self.schema,
             data_rate: self.data_rate,
@@ -341,7 +345,7 @@ impl FluxStreamTrack {
             decoded_revolutions: Vec::new(),
             best_revolution: 0,
             density: TrackDensity::Double,
-            rpm: DiskRpm::Rpm300,
+            rpm: DiskRpm::Rpm300(1.0),
             dirty: false,
             resolved: None,
             shared: None,
@@ -418,7 +422,7 @@ impl FluxStreamTrack {
             // Use the rpm hint if provided, otherwise try to derive from the revolution's index time,
             // falling back to 300 RPM if neither works.
             let mut base_rpm =
-                rpm_hint.unwrap_or(DiskRpm::try_from_index_time(revolution.index_time).unwrap_or(DiskRpm::Rpm300));
+                rpm_hint.unwrap_or(DiskRpm::try_from_index_time(revolution.index_time).unwrap_or(DiskRpm::Rpm300(1.0)));
 
             log::debug!("decode_revolutions:() using base rpm: {}", base_rpm);
 
@@ -463,8 +467,8 @@ impl FluxStreamTrack {
 
             // If RPM calculated from the index time seems accurate, trust it over the rpm hint.
             base_rpm = match rev_rpm {
-                255.0..345.0 => DiskRpm::Rpm300,
-                345.0..414.0 => DiskRpm::Rpm360,
+                255.0..345.0 => DiskRpm::Rpm300(rev_rpm / 300.0),
+                345.0..414.0 => DiskRpm::Rpm360(rev_rpm / 360.0),
                 _ => {
                     log::error!(
                         "Revolution {} RPM is out of range ({:.2}). Assuming {}",

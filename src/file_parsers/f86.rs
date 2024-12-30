@@ -222,8 +222,8 @@ fn f86_track_encoding(flags: u16) -> Option<TrackDataEncoding> {
 
 fn f86_track_rpm(flags: u16) -> Option<DiskRpm> {
     match (flags >> 5) & 0x07 {
-        0b000 => Some(DiskRpm::Rpm300),
-        0b001 => Some(DiskRpm::Rpm360),
+        0b000 => Some(DiskRpm::Rpm300(1.0)),
+        0b001 => Some(DiskRpm::Rpm360(1.0)),
         _ => None,
     }
 }
@@ -841,8 +841,9 @@ impl F86Format {
 
         log::trace!("Setting RPM: {:?}", image.descriptor.rpm);
         track_flags |= image.descriptor.rpm.map_or(0, |rpm| match rpm {
-            DiskRpm::Rpm300 => 0b000 << 5,
-            DiskRpm::Rpm360 => 0b001 << 5,
+            DiskRpm::Rpm360(_) => 0b001 << 5,
+            DiskRpm::Rpm300(_) => 0b000 << 5,
+            _ => 0b000 << 5,
         });
 
         let mut c = 0;

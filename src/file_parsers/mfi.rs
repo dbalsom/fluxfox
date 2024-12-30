@@ -615,8 +615,12 @@ impl MfiFormat {
             // If we're explicitly given an RPM value (detected from a previous track)
             // we can skip the detection process.
             return match rpm {
-                DiskRpm::Rpm300 => None,
-                DiskRpm::Rpm360 => Some((Self::adjust_flux_times(fts, 300.0 / 360.0), rpm)),
+                DiskRpm::Rpm300(_) => None,
+                DiskRpm::Rpm360(_) => Some((Self::adjust_flux_times(fts, 300.0 / 360.0), rpm)),
+                _ => {
+                    log::warn!("MfiFormat::normalize_flux_times(): Unsupported RPM value: {:?}", rpm);
+                    None
+                }
             };
         }
 
@@ -643,7 +647,7 @@ impl MfiFormat {
             if (340.0..380.00).contains(&detected_rpm) {
                 // Detected 360RPM
                 let normal_index_time = Self::adjust_flux_times(fts, 300.0 / 360.0);
-                Some((normal_index_time, DiskRpm::Rpm360))
+                Some((normal_index_time, DiskRpm::Rpm360(detected_rpm / 360.0)))
             }
             else if (280.0..320.00).contains(&detected_rpm) {
                 // Detected 300RPM

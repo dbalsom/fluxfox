@@ -149,10 +149,23 @@ impl TrackListWidget {
                                         ui.set_min_width(TRACK_ENTRY_WIDTH);
                                         egui::Grid::new(format!("track_list_grid_{}", ti)).striped(true).show(
                                             ui,
-                                            |ui| {
-                                                ui.label("Bitcells:");
-                                                ui.label(format!("{}", track.info.bit_length));
-                                                ui.end_row();
+                                            |ui| match track.info.resolution {
+                                                TrackDataResolution::FluxStream => {
+                                                    ui.label("FluxStream Track");
+                                                    ui.label("Bitcells:");
+                                                    ui.label(format!("{}", track.info.bit_length));
+                                                    ui.end_row();
+                                                }
+                                                TrackDataResolution::BitStream => {
+                                                    ui.label("BitStream Track");
+                                                    ui.label("Bitcells:");
+                                                    ui.label(format!("{}", track.info.bit_length));
+                                                    ui.end_row();
+                                                }
+                                                TrackDataResolution::MetaSector => {
+                                                    ui.label("MetaSector Track");
+                                                    ui.end_row();
+                                                }
                                             },
                                         );
 

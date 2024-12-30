@@ -231,6 +231,7 @@ impl Track for MetaSectorTrack {
 
     fn info(&self) -> TrackInfo {
         TrackInfo {
+            resolution: self.resolution(),
             encoding: self.encoding,
             schema: self.schema,
             data_rate: self.data_rate,
