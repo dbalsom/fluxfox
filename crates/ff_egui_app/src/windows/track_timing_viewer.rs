@@ -24,21 +24,43 @@
 
     --------------------------------------------------------------------------
 */
+use crate::windows::track_viewer::TrackViewer;
+use fluxfox::prelude::DiskCh;
+use fluxfox_egui::widgets::{data_table::DataTableWidget, track_timing_chart::TrackTimingChart};
 
-pub mod boot_sector;
-pub mod data_table;
-pub mod data_visualizer;
-pub mod dir_tree;
-pub mod disk_info;
-pub mod error_banner;
-pub mod file_list;
-pub mod filesystem;
-pub mod header_group;
-pub mod path_selection;
-pub mod sector_status;
-pub mod source_map;
-pub mod tab_group;
-pub mod texture;
-pub mod track_list;
-#[cfg(feature = "egui_plot")]
-pub mod track_timing_chart;
+#[derive(Default)]
+pub struct TrackTimingViewer {
+    chart:   TrackTimingChart,
+    phys_ch: DiskCh,
+    open:    bool,
+}
+
+impl TrackTimingViewer {
+    #[allow(dead_code)]
+    pub fn new(phys_ch: DiskCh, fts: &[f64]) -> Self {
+        Self {
+            chart: TrackTimingChart::new(fts),
+            phys_ch,
+            open: false,
+        }
+    }
+
+    pub fn set_open(&mut self, open: bool) {
+        self.open = open;
+    }
+
+    pub fn update(&mut self, phys_ch: DiskCh, fts: &[f64]) {
+        self.phys_ch = phys_ch;
+        self.chart = TrackTimingChart::new(fts);
+    }
+
+    pub fn show(&mut self, ctx: &egui::Context) {
+        egui::Window::new("Track Timings").open(&mut self.open).show(ctx, |ui| {
+            ui.vertical(|ui| {
+                ui.label(format!("Physical Track: {}", self.phys_ch));
+
+                self.chart.show(ui);
+            });
+        });
+    }
+}

@@ -29,5 +29,6 @@ pub mod element_map;
 pub mod file_viewer;
 pub mod sector_viewer;
 pub mod source_map;
+pub mod track_timing_viewer;
 pub mod track_viewer;
 pub mod viz;
