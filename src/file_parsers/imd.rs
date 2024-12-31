@@ -177,14 +177,19 @@ impl ImdFormat {
                 let comment = comment_match.map(|c| c.as_str().to_string());
 
                 log::trace!(
-                    "from_image: Detected IMD header version: {}.{} terminator: {:02X}, comment: {}",
+                    "load_image(): Detected IMD header version: {}.{} terminator: {:02X}, comment: {}",
                     v_major,
                     v_minor,
                     terminator,
                     &comment.clone().unwrap_or("None".to_string())
                 );
 
-                disk_image.comment = comment;
+                if let Some(comment) = comment {
+                    if !comment.is_empty() {
+                        log::trace!("load_image(): Setting comment metadata: {}", &comment);
+                        disk_image.set_metadata_key("comment", &comment);
+                    }
+                }
             }
         }
 

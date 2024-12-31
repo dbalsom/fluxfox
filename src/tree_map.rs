@@ -71,10 +71,16 @@ impl<T> FoxTreeMap<T> {
     }
 
     pub fn children(&self, index: usize) -> &[usize] {
+        if index >= self.nodes.len() {
+            return &[];
+        }
         &self.nodes[index].children
     }
 
     pub fn node(&self, index: usize) -> &FoxTreeNode<T> {
+        if index >= self.nodes.len() {
+            panic!("Node index out of bounds: {}", index);
+        }
         &self.nodes[index]
     }
 

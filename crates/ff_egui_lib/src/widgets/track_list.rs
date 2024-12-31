@@ -151,15 +151,48 @@ impl TrackListWidget {
                                             ui,
                                             |ui| match track.info.resolution {
                                                 TrackDataResolution::FluxStream => {
-                                                    ui.label("FluxStream Track");
-                                                    ui.label("Bitcells:");
-                                                    ui.label(format!("{}", track.info.bit_length));
-                                                    ui.end_row();
+                                                    egui::CollapsingHeader::new(
+                                                        egui::RichText::new(format!(
+                                                            "FluxStream Track: {} Bitcells",
+                                                            track.info.bit_length
+                                                        ))
+                                                        .color(ui.visuals().hyperlink_color),
+                                                    )
+                                                    .id_salt(format!("fluxstream_trk{}", ti))
+                                                    .default_open(false)
+                                                    .show(
+                                                        ui,
+                                                        |ui| {
+                                                            if let Some(flux_info) = &track.info.flux_info {
+                                                                egui::Grid::new(format!("fluxstream_trk_grid_{}", ti))
+                                                                    .striped(true)
+                                                                    .show(ui, |ui| {
+                                                                        ui.label("Revolutions:");
+                                                                        ui.label(format!("{}", flux_info.revolutions));
+                                                                        ui.end_row();
+                                                                        ui.label("Flux transitions:");
+                                                                        ui.label(format!(
+                                                                            "{}",
+                                                                            flux_info.transitions
+                                                                                [flux_info.best_revolution]
+                                                                        ));
+                                                                        ui.end_row();
+                                                                        ui.label("Bitcells:");
+                                                                        ui.label(format!("{}", track.info.bit_length));
+                                                                        ui.end_row();
+                                                                    });
+                                                            };
+                                                        },
+                                                    );
                                                 }
                                                 TrackDataResolution::BitStream => {
-                                                    ui.label("BitStream Track");
-                                                    ui.label("Bitcells:");
-                                                    ui.label(format!("{}", track.info.bit_length));
+                                                    ui.label(
+                                                        egui::RichText::new(format!(
+                                                            "BitStream Track: {} Bitcells",
+                                                            track.info.bit_length
+                                                        ))
+                                                        .color(ui.visuals().warn_fg_color),
+                                                    );
                                                     ui.end_row();
                                                 }
                                                 TrackDataResolution::MetaSector => {

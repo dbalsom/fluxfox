@@ -40,6 +40,7 @@ use crate::{
     DiskImageFileFormat,
     FoxHashMap,
     LoadingCallback,
+    LoadingStatus,
     ParserWriteCompatibility,
 };
 
@@ -315,10 +316,15 @@ impl MoofFormat {
         mut reader: RWS,
         disk_image: &mut DiskImage,
         _opts: &ParserReadOptions,
-        _callback: Option<LoadingCallback>,
+        callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFileFormat::MoofImage);
         disk_image.assign_source_map(true);
+
+        // Advertise progress support
+        if let Some(ref callback_fn) = callback {
+            callback_fn(LoadingStatus::ProgressSupport);
+        }
 
         // Get image size
         let image_size = reader.seek(std::io::SeekFrom::End(0))?;
@@ -404,7 +410,18 @@ impl MoofFormat {
                         let meta_map = Self::parse_meta(&meta_str);
 
                         log::debug!("Metadata KV pairs:");
-                        for (key, value) in meta_map.iter() {
+
+                        let mut cursor =
+                            disk_image
+                                .source_map_mut()
+                                .add_child(0, "[META] Chunk", SourceValue::default());
+                        for (i, (key, value)) in meta_map.iter().enumerate() {
+                            if i == 0 {
+                                cursor = cursor.add_child(key, SourceValue::string(value));
+                            }
+                            else {
+                                cursor = cursor.add_sibling(key, SourceValue::string(value));
+                            }
                             log::debug!("{}: {}", key, value);
                         }
                     }
@@ -463,6 +480,11 @@ impl MoofFormat {
                 log::debug!("\tMap Entry {}: h0: Trk {} h1: Trk {}", i, track_pair[0], track_pair[1]);
 
                 for (head, trk_idx) in track_pair.iter().take(disk_heads as usize).enumerate() {
+                    if let Some(ref callback_fn) = callback {
+                        let progress = ((i * 2) + head) as f64 / MAX_TRACKS as f64;
+                        callback_fn(LoadingStatus::Progress(progress));
+                    }
+
                     if *trk_idx != 0xFF {
                         if trk_idx >= &MAX_TRACKS {
                             log::error!("Invalid track index: {}", trk_idx);

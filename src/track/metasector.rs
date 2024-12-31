@@ -239,6 +239,7 @@ impl Track for MetaSectorTrack {
             rpm: None,
             bit_length: 0,
             sector_ct: self.sectors.len(),
+            flux_info: None,
         }
     }
 

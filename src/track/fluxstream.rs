@@ -72,6 +72,17 @@ use crate::{
 use crate::source_map::SourceMap;
 use sha1_smol::Digest;
 
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct FluxTrackInfo {
+    pub revolutions: usize,
+    pub best_revolution: usize,
+    pub transitions: Vec<usize>,
+    pub density: TrackDensity,
+    pub rpm: DiskRpm,
+    pub encoding: TrackDataEncoding,
+}
+
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FluxStreamTrack {
@@ -134,6 +145,15 @@ impl Track for FluxStreamTrack {
             ti.resolution = self.resolution();
             log::debug!("FluxStreamTrack::info(): Bitstream info: {:?}", ti);
 
+            let fti = FluxTrackInfo {
+                revolutions: self.revolutions.len(),
+                best_revolution: self.best_revolution,
+                transitions: self.revolutions.iter().map(|r| r.ft_ct()).collect(),
+                density: self.density,
+                rpm: self.rpm,
+                encoding: self.encoding,
+            };
+            ti.flux_info = Some(fti);
             return ti;
         }
 
@@ -146,6 +166,7 @@ impl Track for FluxStreamTrack {
             rpm: Some(self.rpm),
             bit_length: 0,
             sector_ct: 0,
+            flux_info: None,
         }
     }
 
