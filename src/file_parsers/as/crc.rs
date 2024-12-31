@@ -72,10 +72,10 @@ const AS_CRC32_TABLE: [u32; 256] = [
 //   return crc ^ ~0U;
 // }
 
-fn crc32(buf: &[u8], mut crc: u32) {
+pub fn applesauce_crc32(buf: &[u8], mut crc: u32) -> u32 {
     crc = crc ^ !0;
     for byte in buf {
         crc = AS_CRC32_TABLE[((crc ^ (*byte as u32)) & 0xFF) as usize] ^ (crc >> 8);
     }
-    crc ^ !0;
+    crc ^ !0
 }

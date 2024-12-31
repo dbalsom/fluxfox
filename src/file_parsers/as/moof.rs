@@ -44,7 +44,11 @@ use crate::{
 };
 
 use crate::{
-    file_parsers::{r#as::flux::decode_as_flux, ParserReadOptions, ParserWriteOptions},
+    file_parsers::{
+        r#as::{crc::applesauce_crc32, flux::decode_as_flux},
+        ParserReadOptions,
+        ParserWriteOptions,
+    },
     io::ReadWriteSeek,
     prelude::{DiskCh, TrackDataEncoding, TrackDataRate, TrackDataResolution, TrackDensity},
     source_map::{MapDump, OptionalSourceMap, SourceValue},
@@ -328,6 +332,18 @@ impl MoofFormat {
                     "MOOF magic bytes not found".to_string(),
                 ));
             }
+
+            let rewind_pos = reader.seek(std::io::SeekFrom::Current(0))?;
+            let mut crc_buf = Vec::with_capacity(image_size as usize);
+            reader.read_to_end(&mut crc_buf)?;
+
+            let crc = applesauce_crc32(&crc_buf, 0);
+            log::debug!("Header CRC: {:0X?} Calculated CRC: {:0X?}", file_header.crc, crc);
+            reader.seek(std::io::SeekFrom::Start(rewind_pos))?;
+
+            if file_header.crc != crc {
+                return Err(DiskImageError::ImageCorruptError("Header CRC mismatch".to_string()));
+            }
         }
 
         let mut info_chunk_opt = None;
@@ -405,7 +421,7 @@ impl MoofFormat {
 
         if info_chunk_opt.is_none() {
             log::error!("Missing Info chunk");
-            return Err(DiskImageError::IncompatibleImage("Missing Info chunk".to_string()));
+            return Err(DiskImageError::ImageCorruptError("Missing Info chunk".to_string()));
         }
 
         let info_chunk = info_chunk_opt.unwrap();
@@ -500,7 +516,7 @@ impl MoofFormat {
         }
         else {
             log::error!("Missing Track Map or Tracks chunk");
-            return Err(DiskImageError::IncompatibleImage(
+            return Err(DiskImageError::ImageCorruptError(
                 "Missing Track Map or Tracks chunk".to_string(),
             ));
         }
@@ -568,9 +584,9 @@ impl MoofFormat {
     fn add_fluxstream_track<RWS: ReadSeek>(
         mut reader: RWS,
         disk: &mut DiskImage,
-        image_size: u64,
+        _image_size: u64,
         ch: DiskCh,
-        encoding: TrackDataEncoding,
+        _encoding: TrackDataEncoding,
         track: &Trk,
     ) -> Result<(), DiskImageError> {
         log::debug!(
