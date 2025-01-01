@@ -40,3 +40,5 @@ pub mod source_map;
 pub mod tab_group;
 pub mod texture;
 pub mod track_list;
+#[cfg(feature = "egui_plot")]
+pub mod track_timing_chart;

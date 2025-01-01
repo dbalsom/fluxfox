@@ -33,6 +33,7 @@ use std::{
 
 use fluxfox::{
     file_system::{fat::fat_fs::FatFileSystem, FileSystemArchive},
+    track::Track,
     DiskImage,
     DiskImageError,
     LoadingStatus,
@@ -68,6 +69,7 @@ use crate::{
         file_viewer::FileViewer,
         sector_viewer::SectorViewer,
         source_map::SourceMapViewer,
+        track_timing_viewer::TrackTimingViewer,
         track_viewer::TrackViewer,
         viz::VizViewer,
     },
@@ -175,12 +177,13 @@ impl AppWidgets {
 
 #[derive(Default)]
 pub struct AppWindows {
-    viz_viewer:    VizViewer,
+    viz_viewer: VizViewer,
     sector_viewer: SectorViewer,
-    track_viewer:  TrackViewer,
-    file_viewer:   FileViewer,
-    source_map:    SourceMapViewer,
-    element_map:   ElementMapViewer,
+    track_viewer: TrackViewer,
+    file_viewer: FileViewer,
+    source_map: SourceMapViewer,
+    element_map: ElementMapViewer,
+    track_timing_viewer: TrackTimingViewer,
 }
 
 impl AppWindows {
@@ -191,6 +194,7 @@ impl AppWindows {
         self.file_viewer = FileViewer::default();
         self.source_map = SourceMapViewer::default();
         self.element_map = ElementMapViewer::default();
+        self.track_timing_viewer = TrackTimingViewer::default();
     }
 
     pub fn update(&mut self, disk_lock: Arc<RwLock<DiskImage>>, _name: Option<String>) {
@@ -218,6 +222,7 @@ pub enum AppEvent {
     SectorSelected(SectorSelection),
     TrackSelected(TrackSelection),
     TrackElementsSelected(TrackSelection),
+    TrackTimingsSelected(TrackSelection),
 }
 
 pub struct App {
@@ -338,6 +343,7 @@ impl eframe::App for App {
         self.windows.track_viewer.show(ctx);
         self.windows.file_viewer.show(ctx);
         self.windows.element_map.show(ctx);
+        self.windows.track_timing_viewer.show(ctx);
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             // The top panel is often a good place for a menu bar:
@@ -582,6 +588,24 @@ impl App {
                         .update(self.disk_image.as_ref().unwrap().clone(), selection.clone());
                     self.windows.element_map.set_open(true);
                 }
+                AppEvent::TrackTimingsSelected(selection) => {
+                    if let Some(Some(track)) = self
+                        .disk_image
+                        .as_ref()
+                        .unwrap()
+                        .read()
+                        .unwrap()
+                        .track(selection.phys_ch)
+                        .map(|t| t.as_fluxstream_track())
+                    {
+                        self.windows.track_timing_viewer.update(
+                            selection.phys_ch,
+                            track.flux_deltas(),
+                            Some(track.pll_markers()),
+                        );
+                        self.windows.track_timing_viewer.set_open(true);
+                    }
+                }
             }
         }
     }
@@ -622,6 +646,9 @@ impl App {
                             }
                             TrackSelectionScope::Elements => {
                                 self.events.push(AppEvent::TrackElementsSelected(track));
+                            }
+                            TrackSelectionScope::Timings => {
+                                self.events.push(AppEvent::TrackTimingsSelected(track));
                             }
                             _ => log::warn!("Unsupported TrackSelectionScope: {:?}", track.sel_scope),
                         },

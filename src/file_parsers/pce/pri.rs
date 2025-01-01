@@ -562,7 +562,9 @@ impl PriFormat {
         PriFormat::write_chunk(output, PriChunkType::FileHeader, &file_header)?;
 
         // Write any comments present in the image to a TEXT chunk.
-        image.comment().map(|comment| PriFormat::write_text(output, comment));
+        image
+            .metadata_key("comment")
+            .map(|comment| PriFormat::write_text(output, &comment));
 
         // Iterate through tracks and write track headers and data.
         for track in image.track_iter() {

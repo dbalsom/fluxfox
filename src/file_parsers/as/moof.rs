@@ -40,11 +40,16 @@ use crate::{
     DiskImageFileFormat,
     FoxHashMap,
     LoadingCallback,
+    LoadingStatus,
     ParserWriteCompatibility,
 };
 
 use crate::{
-    file_parsers::{r#as::flux::decode_as_flux, ParserReadOptions, ParserWriteOptions},
+    file_parsers::{
+        r#as::{crc::applesauce_crc32, flux::decode_as_flux},
+        ParserReadOptions,
+        ParserWriteOptions,
+    },
     io::ReadWriteSeek,
     prelude::{DiskCh, TrackDataEncoding, TrackDataRate, TrackDataResolution, TrackDensity},
     source_map::{MapDump, OptionalSourceMap, SourceValue},
@@ -311,10 +316,15 @@ impl MoofFormat {
         mut reader: RWS,
         disk_image: &mut DiskImage,
         _opts: &ParserReadOptions,
-        _callback: Option<LoadingCallback>,
+        callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFileFormat::MoofImage);
         disk_image.assign_source_map(true);
+
+        // Advertise progress support
+        if let Some(ref callback_fn) = callback {
+            callback_fn(LoadingStatus::ProgressSupport);
+        }
 
         // Get image size
         let image_size = reader.seek(std::io::SeekFrom::End(0))?;
@@ -327,6 +337,18 @@ impl MoofFormat {
                 return Err(DiskImageError::ImageCorruptError(
                     "MOOF magic bytes not found".to_string(),
                 ));
+            }
+
+            let rewind_pos = reader.seek(std::io::SeekFrom::Current(0))?;
+            let mut crc_buf = Vec::with_capacity(image_size as usize);
+            reader.read_to_end(&mut crc_buf)?;
+
+            let crc = applesauce_crc32(&crc_buf, 0);
+            log::debug!("Header CRC: {:0X?} Calculated CRC: {:0X?}", file_header.crc, crc);
+            reader.seek(std::io::SeekFrom::Start(rewind_pos))?;
+
+            if file_header.crc != crc {
+                return Err(DiskImageError::ImageCorruptError("Header CRC mismatch".to_string()));
             }
         }
 
@@ -388,7 +410,18 @@ impl MoofFormat {
                         let meta_map = Self::parse_meta(&meta_str);
 
                         log::debug!("Metadata KV pairs:");
-                        for (key, value) in meta_map.iter() {
+
+                        let mut cursor =
+                            disk_image
+                                .source_map_mut()
+                                .add_child(0, "[META] Chunk", SourceValue::default());
+                        for (i, (key, value)) in meta_map.iter().enumerate() {
+                            if i == 0 {
+                                cursor = cursor.add_child(key, SourceValue::string(value));
+                            }
+                            else {
+                                cursor = cursor.add_sibling(key, SourceValue::string(value));
+                            }
                             log::debug!("{}: {}", key, value);
                         }
                     }
@@ -405,7 +438,7 @@ impl MoofFormat {
 
         if info_chunk_opt.is_none() {
             log::error!("Missing Info chunk");
-            return Err(DiskImageError::IncompatibleImage("Missing Info chunk".to_string()));
+            return Err(DiskImageError::ImageCorruptError("Missing Info chunk".to_string()));
         }
 
         let info_chunk = info_chunk_opt.unwrap();
@@ -447,6 +480,11 @@ impl MoofFormat {
                 log::debug!("\tMap Entry {}: h0: Trk {} h1: Trk {}", i, track_pair[0], track_pair[1]);
 
                 for (head, trk_idx) in track_pair.iter().take(disk_heads as usize).enumerate() {
+                    if let Some(ref callback_fn) = callback {
+                        let progress = ((i * 2) + head) as f64 / MAX_TRACKS as f64;
+                        callback_fn(LoadingStatus::Progress(progress));
+                    }
+
                     if *trk_idx != 0xFF {
                         if trk_idx >= &MAX_TRACKS {
                             log::error!("Invalid track index: {}", trk_idx);
@@ -500,7 +538,7 @@ impl MoofFormat {
         }
         else {
             log::error!("Missing Track Map or Tracks chunk");
-            return Err(DiskImageError::IncompatibleImage(
+            return Err(DiskImageError::ImageCorruptError(
                 "Missing Track Map or Tracks chunk".to_string(),
             ));
         }
@@ -568,9 +606,9 @@ impl MoofFormat {
     fn add_fluxstream_track<RWS: ReadSeek>(
         mut reader: RWS,
         disk: &mut DiskImage,
-        image_size: u64,
+        _image_size: u64,
         ch: DiskCh,
-        encoding: TrackDataEncoding,
+        _encoding: TrackDataEncoding,
         track: &Trk,
     ) -> Result<(), DiskImageError> {
         log::debug!(

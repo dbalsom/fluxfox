@@ -26,7 +26,7 @@
 */
 use crate::{
     flux::{
-        pll::{Pll, PllDecodeFlags, PllDecodeStatEntry},
+        pll::{Pll, PllDecodeFlags, PllDecodeStatEntry, PllMarkerEntry},
         BasicFluxStats,
         FluxTransition,
     },
@@ -88,6 +88,8 @@ pub struct FluxRevolution {
     pub biterrors: BitVec,
     /// The data encoding detected for the revolution.
     pub encoding: TrackDataEncoding,
+    /// Any discovered markers.
+    pub markers: Vec<PllMarkerEntry>,
     /// Statistics from the PLL decoding process.
     pub pll_stats: Vec<PllDecodeStatEntry>,
 }
@@ -125,6 +127,7 @@ impl FluxRevolution {
             bitstream: BitVec::with_capacity(deltas.len() * 3),
             biterrors: BitVec::with_capacity(deltas.len() * 3),
             encoding: TrackDataEncoding::Mfm,
+            markers: Vec::new(),
             pll_stats: Vec::new(),
         }
     }
@@ -158,6 +161,7 @@ impl FluxRevolution {
                     bitstream: BitVec::with_capacity(first.bitstream.capacity()),
                     biterrors: BitVec::with_capacity(first.bitstream.capacity()),
                     encoding: TrackDataEncoding::Mfm,
+                    markers: Vec::new(),
                     pll_stats: Vec::new(),
                 };
 
@@ -171,6 +175,7 @@ impl FluxRevolution {
                     bitstream: BitVec::with_capacity(second.bitstream.capacity()),
                     biterrors: BitVec::with_capacity(second.bitstream.capacity()),
                     encoding: TrackDataEncoding::Mfm,
+                    markers: Vec::new(),
                     pll_stats: Vec::new(),
                 };
 
@@ -198,6 +203,7 @@ impl FluxRevolution {
                     bitstream: BitVec::with_capacity(first.bitstream.capacity()),
                     biterrors: BitVec::with_capacity(first.bitstream.capacity()),
                     encoding: TrackDataEncoding::Mfm,
+                    markers: Vec::new(),
                     pll_stats: Vec::new(),
                 };
 
@@ -211,6 +217,7 @@ impl FluxRevolution {
                     bitstream: BitVec::with_capacity(second.bitstream.capacity()),
                     biterrors: BitVec::with_capacity(second.bitstream.capacity()),
                     encoding: TrackDataEncoding::Mfm,
+                    markers: Vec::new(),
                     pll_stats: Vec::new(),
                 };
 
@@ -303,6 +310,7 @@ impl FluxRevolution {
 
         self.data_rate = Some(self.bitstream.len() as f64 * (1.0 / self.index_time) / 2.0);
         self.pll_stats = decode_result.pll_stats;
+        self.markers = decode_result.markers;
         decode_result.flux_stats
     }
 

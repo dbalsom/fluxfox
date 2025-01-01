@@ -50,7 +50,7 @@ pub fn decode_as_flux(buf: &[u8]) -> (Vec<f64>, f64) {
     let mut ticks = 0;
     for &byte in buf {
         if byte == 255 {
-            log::warn!("rollover!");
+            //log::warn!("rollover!");
             ticks += 255;
         }
         else if byte > 0 {

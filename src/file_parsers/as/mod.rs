@@ -35,7 +35,7 @@
 //! These formats share a similar chunk structure and CRC algorithm, quite
 //! similar to Hampa Hug's various PCE disk formats.
 
-mod crc;
-mod flux;
+pub(crate) mod crc;
+pub(crate) mod flux;
 #[cfg(feature = "moof")]
 pub mod moof;

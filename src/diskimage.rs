@@ -114,14 +114,15 @@ pub struct DiskImage {
     pub(crate) resolution: FoxHashSet<TrackDataResolution>,
     /// A [DiskDescriptor] describing this image with more thorough parameters.
     pub(crate) descriptor: DiskDescriptor,
+    /// A k/v store of metadata. Keys are normalized to a standard set of strings; see the metadata
+    /// module for key names.
+    pub(crate) metadata: FoxHashMap<String, String>,
     /// A structure containing information about the disks internal consistency. Used to construct image_caps.
     pub(crate) analysis: DiskAnalysis,
     /// The boot sector of the disk image, if successfully parsed.
     pub(crate) boot_sector: Option<BootSector>,
     /// The volume name of the disk image, if any.
     pub(crate) volume_name: Option<String>,
-    /// An ASCII comment embedded in the disk image, if any.
-    pub(crate) comment: Option<String>,
     /// A pool of track data structures, potentially in any order.
     pub(crate) track_pool: Vec<DiskTrack>,
     /// An array of vectors containing indices into the track pool. The first index is the head
@@ -144,10 +145,10 @@ impl Default for DiskImage {
             multires: false,
             resolution: Default::default(),
             descriptor: DiskDescriptor::default(),
+            metadata: Default::default(),
             analysis: Default::default(),
             boot_sector: None,
             volume_name: None,
-            comment: None,
             track_pool: Vec::new(),
             track_map: [Vec::new(), Vec::new()],
             shared: Some(Arc::new(Mutex::new(SharedDiskContext::default()))),
@@ -171,6 +172,7 @@ impl DiskImage {
             flags: DiskImageFlags::empty(),
             standard_format: Some(disk_format),
             descriptor: disk_format.descriptor(),
+            metadata: FoxHashMap::new(),
             source_format: None,
             multires: false,
             resolution: FoxHashSet::new(),
@@ -187,7 +189,6 @@ impl DiskImage {
             },
             boot_sector: None,
             volume_name: None,
-            comment: None,
             track_pool: Vec::new(),
             track_map: [Vec::new(), Vec::new()],
             shared: Some(Arc::new(Mutex::new(SharedDiskContext::default()))),
@@ -662,19 +663,6 @@ impl DiskImage {
 
     pub fn volume_name(&self) -> Option<&str> {
         self.volume_name.as_deref()
-    }
-
-    /// Retrieve any comment that was saved in the source disk image, or subsequently added
-    /// with `set_comment`.
-    pub fn comment(&self) -> Option<&str> {
-        self.comment.as_deref()
-    }
-
-    /// Set a comment for the disk image. This comment will be saved with the disk image, if the
-    /// output image format supports comments. Note that saving a comment may be a lossy operation
-    /// due to character encoding and length limitations.
-    pub fn set_comment(&mut self, comment: String) {
-        self.comment = Some(comment);
     }
 
     pub fn set_data_rate(&mut self, rate: TrackDataRate) {
@@ -1769,9 +1757,9 @@ impl DiskImage {
         //out.write_fmt(format_args!("RPM: {}\n", rpm_string))?;
         //out.write_fmt(format_args!("Volume Name: {:?}\n", self.volume_name))?;
 
-        if let Some(comment) = &self.comment {
-            out.write_fmt(format_args!("Comment: {:?}\n", comment))?;
-        }
+        // if let Some(comment) = &self.comment {
+        //     out.write_fmt(format_args!("Comment: {:?}\n", comment))?;
+        // }
 
         out.write_fmt(format_args!("Data Rate: {}\n", self.descriptor.data_rate))?;
         out.write_fmt(format_args!("Data Encoding: {}\n", self.descriptor.data_encoding))?;
@@ -2099,5 +2087,13 @@ impl DiskImage {
 
     pub(crate) fn put_source_map(&mut self, source_map: Box<dyn OptionalSourceMap>) {
         self.source_map = Some(source_map);
+    }
+
+    pub fn metadata_key(&self, key: &str) -> Option<String> {
+        self.metadata.get(key).as_deref().cloned()
+    }
+
+    pub fn set_metadata_key(&mut self, key: &str, value: &str) {
+        self.metadata.insert(key.to_string(), value.to_string());
     }
 }

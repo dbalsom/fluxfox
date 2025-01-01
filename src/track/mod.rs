@@ -37,7 +37,11 @@ pub mod metasector;
 use crate::{
     bitstream_codec::TrackDataStream,
     source_map::SourceMap,
-    track::{bitstream::BitStreamTrack, fluxstream::FluxStreamTrack, metasector::MetaSectorTrack},
+    track::{
+        bitstream::BitStreamTrack,
+        fluxstream::{FluxStreamTrack, FluxTrackInfo},
+        metasector::MetaSectorTrack,
+    },
     track_schema::{system34::System34Standard, TrackMetadata, TrackSchema},
     types::{
         chs::DiskChsnQuery,
@@ -84,6 +88,8 @@ pub struct TrackInfo {
     pub bit_length: usize,
     /// The number of sectors on the track.
     pub sector_ct: usize,
+    /// a FluxTrackInfo struct, if the track is a FluxStreamTrack
+    pub flux_info: Option<FluxTrackInfo>,
 }
 
 /// A struct representing the result of a sector scan operation on a track.

@@ -1434,6 +1434,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "egui_plot"
+version = "0.30.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c226cae80a6ee10c4d3aaf9e33bd9e9b2f1c0116b6036bdc2a1cfc9d2d0dcc10"
+dependencies = [
+ "ahash",
+ "egui",
+ "emath",
+]
+
+[[package]]
 name = "ehttp"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1806,6 +1817,7 @@ version = "0.2.0"
 dependencies = [
  "egui",
  "egui_extras",
+ "egui_plot",
  "fluxfox",
  "image",
  "log 0.4.22",
