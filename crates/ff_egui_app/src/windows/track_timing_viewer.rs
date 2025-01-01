@@ -25,7 +25,7 @@
     --------------------------------------------------------------------------
 */
 use crate::windows::track_viewer::TrackViewer;
-use fluxfox::prelude::DiskCh;
+use fluxfox::{flux::pll::PllMarkerEntry, prelude::DiskCh};
 use fluxfox_egui::widgets::{data_table::DataTableWidget, track_timing_chart::TrackTimingChart};
 
 #[derive(Default)]
@@ -37,9 +37,9 @@ pub struct TrackTimingViewer {
 
 impl TrackTimingViewer {
     #[allow(dead_code)]
-    pub fn new(phys_ch: DiskCh, fts: &[f64]) -> Self {
+    pub fn new(phys_ch: DiskCh, fts: &[f64], markers: Option<&[PllMarkerEntry]>) -> Self {
         Self {
-            chart: TrackTimingChart::new(fts),
+            chart: TrackTimingChart::new(fts, markers),
             phys_ch,
             open: false,
         }
@@ -49,16 +49,17 @@ impl TrackTimingViewer {
         self.open = open;
     }
 
-    pub fn update(&mut self, phys_ch: DiskCh, fts: &[f64]) {
+    pub fn update(&mut self, phys_ch: DiskCh, fts: &[f64], markers: Option<&[PllMarkerEntry]>) {
         self.phys_ch = phys_ch;
-        self.chart = TrackTimingChart::new(fts);
+        self.chart = TrackTimingChart::new(fts, markers);
     }
 
     pub fn show(&mut self, ctx: &egui::Context) {
         egui::Window::new("Track Timings").open(&mut self.open).show(ctx, |ui| {
             ui.vertical(|ui| {
                 ui.label(format!("Physical Track: {}", self.phys_ch));
-
+                ui.checkbox(self.chart.marker_enable_mut(), "Show Markers");
+                ui.separator();
                 self.chart.show(ui);
             });
         });

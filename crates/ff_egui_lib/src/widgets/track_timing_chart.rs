@@ -26,18 +26,27 @@
 */
 use egui::{Ui, Vec2b};
 use egui_plot::{Line, MarkerShape, Plot, PlotPoints, Points};
+use fluxfox::flux::pll::PllMarkerEntry;
 
 #[derive(Default)]
 pub struct TrackTimingChart {
     flux_times: Vec<f64>,
+    markers: Vec<PllMarkerEntry>,
+    draw_markers: bool,
 }
 
 impl TrackTimingChart {
     /// Create a new FluxTimingDiagram
-    pub fn new(flux_times: &[f64]) -> Self {
+    pub fn new(flux_times: &[f64], markers: Option<&[PllMarkerEntry]>) -> Self {
         Self {
             flux_times: flux_times.to_vec(),
+            markers: markers.unwrap_or_default().to_vec(),
+            draw_markers: true,
         }
+    }
+
+    pub fn marker_enable_mut(&mut self) -> &mut bool {
+        &mut self.draw_markers
     }
 
     /// Draw the widget
@@ -53,8 +62,15 @@ impl TrackTimingChart {
         }
 
         let scatter = Points::new(PlotPoints::from(points))
-            .color(egui::Color32::YELLOW)
-            .shape(MarkerShape::Circle);
+            .color(egui::Color32::YELLOW) // LIGHT_YELLOW without transparency
+            .shape(MarkerShape::Circle)
+            .radius(1.5); // Set circle radius
+
+        let mut markers = Vec::new();
+        for marker in &self.markers {
+            let x = marker.time * 1_000.0;
+            markers.push(Line::new(PlotPoints::from(vec![[x, 0.0], [x, 10.0]])).color(egui::Color32::LIGHT_BLUE));
+        }
 
         Plot::new("flux_timing_diagram")
             .x_axis_label("Time (ms)")
@@ -67,6 +83,13 @@ impl TrackTimingChart {
             .allow_zoom(Vec2b::new(true, false))
             .allow_drag(Vec2b::new(true, false))
             .auto_bounds(Vec2b::new(true, false))
-            .show(ui, |plot_ui| plot_ui.points(scatter));
+            .show(ui, |plot_ui| {
+                if self.draw_markers {
+                    for marker_line in markers {
+                        plot_ui.line(marker_line);
+                    }
+                }
+                plot_ui.points(scatter)
+            });
     }
 }

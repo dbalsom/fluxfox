@@ -598,9 +598,11 @@ impl App {
                         .track(selection.phys_ch)
                         .map(|t| t.as_fluxstream_track())
                     {
-                        self.windows
-                            .track_timing_viewer
-                            .update(selection.phys_ch, track.flux_deltas());
+                        self.windows.track_timing_viewer.update(
+                            selection.phys_ch,
+                            track.flux_deltas(),
+                            Some(track.pll_markers()),
+                        );
                         self.windows.track_timing_viewer.set_open(true);
                     }
                 }

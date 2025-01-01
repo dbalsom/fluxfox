@@ -55,6 +55,13 @@ bitflags! {
 
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct PllMarkerEntry {
+    pub time:    f64,
+    pub bitcell: usize,
+}
+
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct PllDecodeStatEntry {
     pub time: f64,
     pub len: f64,
@@ -77,7 +84,7 @@ pub struct PllDecodeResult {
     pub bits: BitVec,
     pub flux_stats: BasicFluxStats,
     pub pll_stats: Vec<PllDecodeStatEntry>,
-    pub markers: Vec<usize>,
+    pub markers: Vec<PllMarkerEntry>,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -413,7 +420,10 @@ impl Pll {
                     shift_reg,
                     output_bits.len() - 32
                 );
-                markers.push(output_bits.len() - 32);
+                markers.push(PllMarkerEntry {
+                    time,
+                    bitcell: output_bits.len() - 32,
+                });
             }
 
             if zero_ct > 16 {
@@ -691,7 +701,10 @@ impl Pll {
                     format_ms!(time),
                     flux_ct - 16
                 );
-                markers.push(output_bits.len() - 16);
+                markers.push(PllMarkerEntry {
+                    time,
+                    bitcell: output_bits.len() - 16,
+                });
             }
 
             // Transition should be somewhere within our last clock period, ideally in the center of it.

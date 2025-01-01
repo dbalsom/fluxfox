@@ -69,7 +69,7 @@ use crate::{
     SectorMapEntry,
 };
 
-use crate::source_map::SourceMap;
+use crate::{flux::pll::PllMarkerEntry, source_map::SourceMap};
 use sha1_smol::Digest;
 
 #[derive(Debug, Clone)]
@@ -681,6 +681,19 @@ impl FluxStreamTrack {
             return Some(self.revolutions[rev].flux_deltas.as_slice());
         }
         None
+    }
+
+    pub fn pll_markers(&self) -> &[PllMarkerEntry] {
+        &self.revolutions[self.best_revolution].markers
+    }
+
+    pub fn pll_markers_revolution(&self, rev: usize) -> Option<&[PllMarkerEntry]> {
+        if rev < self.revolutions.len() {
+            Some(self.revolutions[rev].markers.as_slice().clone())
+        }
+        else {
+            None
+        }
     }
 
     fn get_bitstream(&self) -> Option<&BitStreamTrack> {
