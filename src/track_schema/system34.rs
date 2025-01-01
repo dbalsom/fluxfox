@@ -200,12 +200,12 @@ pub enum System34Element {
 impl From<System34Element> for GenericTrackElement {
     fn from(elem: System34Element) -> Self {
         match elem {
-            System34Element::Gap1 => GenericTrackElement::NoElement,
-            System34Element::Gap2 => GenericTrackElement::NoElement,
-            System34Element::Gap3 => GenericTrackElement::NoElement,
-            System34Element::Gap4a => GenericTrackElement::NoElement,
-            System34Element::Gap4b => GenericTrackElement::NoElement,
-            System34Element::Sync => GenericTrackElement::NoElement,
+            System34Element::Gap1 => GenericTrackElement::NullElement,
+            System34Element::Gap2 => GenericTrackElement::NullElement,
+            System34Element::Gap3 => GenericTrackElement::NullElement,
+            System34Element::Gap4a => GenericTrackElement::NullElement,
+            System34Element::Gap4b => GenericTrackElement::NullElement,
+            System34Element::Sync => GenericTrackElement::NullElement,
             System34Element::Marker(_, _) => GenericTrackElement::Marker,
             System34Element::SectorHeader { address_error, .. } => match address_error {
                 true => GenericTrackElement::SectorBadHeader,

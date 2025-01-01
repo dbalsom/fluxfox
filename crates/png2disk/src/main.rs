@@ -42,7 +42,7 @@ use fluxfox::{
         pixmap_to_disk::{render_pixmap_to_disk, render_pixmap_to_disk_grayscale},
         PixmapToDiskParams,
         RenderTrackDataParams,
-        RotationDirection,
+        TurningDirection,
     },
     DiskImage,
     ImageBuilder,
@@ -142,7 +142,7 @@ fn main() {
             true => 0.27, // Applesauce has slightly smaller hole
         }),
         index_angle: opts.angle,
-        direction: RotationDirection::Clockwise,
+        direction: TurningDirection::Clockwise,
         sector_mask: opts.sectors_only,
         ..Default::default()
     };

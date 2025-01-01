@@ -394,7 +394,7 @@ pub enum TrackMarker {
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum GenericTrackElement {
-    NoElement,
+    NullElement,
     Marker,
     SectorHeader,
     SectorBadHeader,
@@ -427,7 +427,7 @@ impl From<TrackElement> for GenericTrackElement {
             TrackElement::System34(sys34elem) => sys34elem.into(),
             #[cfg(feature = "amiga")]
             TrackElement::Amiga(ami_elem) => ami_elem.into(),
-            _ => GenericTrackElement::NoElement,
+            _ => GenericTrackElement::NullElement,
         }
     }
 }

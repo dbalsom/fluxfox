@@ -38,11 +38,11 @@ use tiny_skia::{Color, IntSize, Pixmap, PremultipliedColorU8};
 use fluxfox::{
     visualization::{
         render_track_data,
-        render_track_map,
-        RenderMapType,
+        render_track_mask,
+        RenderMaskType,
         RenderTrackDataParams,
         ResolutionType,
-        RotationDirection,
+        TurningDirection,
     },
     DiskImage,
 };
@@ -78,8 +78,8 @@ pub(crate) fn color_to_premultiplied(color: Color) -> PremultipliedColorU8 {
 
 pub fn render_side(disk: &DiskImage, p: RenderParams) -> Result<Pixmap, anyhow::Error> {
     let direction = match p.side {
-        0 => RotationDirection::Clockwise,
-        1 => RotationDirection::CounterClockwise,
+        0 => TurningDirection::Clockwise,
+        1 => TurningDirection::CounterClockwise,
         _ => {
             bail!("Invalid side: {}", p.side);
         }
@@ -133,7 +133,7 @@ pub fn render_side(disk: &DiskImage, p: RenderParams) -> Result<Pixmap, anyhow::
     if p.errors {
         let error_render_start_time = Instant::now();
         println!("Rendering error map layer for side {}...", p.side);
-        match render_track_map(&disk, &mut rendered_image, RenderMapType::Errors, &render_params) {
+        match render_track_mask(&disk, &mut rendered_image, RenderMaskType::Errors, &render_params) {
             Ok(_) => {
                 println!("Rendered error map layer in {:?}", error_render_start_time.elapsed());
             }
@@ -149,7 +149,7 @@ pub fn render_side(disk: &DiskImage, p: RenderParams) -> Result<Pixmap, anyhow::
         render_params.map_color = p.weak_color;
         let weak_render_start_time = Instant::now();
         println!("Rendering weak bits layer for side {}...", p.side);
-        match render_track_map(&disk, &mut rendered_image, RenderMapType::WeakBits, &render_params) {
+        match render_track_mask(&disk, &mut rendered_image, RenderMaskType::WeakBits, &render_params) {
             Ok(_) => {
                 println!("Rendered weak bits layer in {:?}", weak_render_start_time.elapsed());
             }

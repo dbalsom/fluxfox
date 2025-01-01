@@ -1,5 +1,5 @@
 use crate::{
-    visualization::{RenderTrackDataParams, RotationDirection},
+    visualization::{RenderTrackDataParams, TurningDirection},
     DiskImage,
     DiskImageError,
 };
@@ -145,8 +145,8 @@ pub fn render_pixmap_to_disk(
                 if track_index < num_tracks {
                     // Adjust angle via input angle parameter, for clockwise or counter-clockwise turning
                     let mut normalized_angle = match p.direction {
-                        RotationDirection::Clockwise => angle - p.index_angle,
-                        RotationDirection::CounterClockwise => TAU - (angle - p.index_angle),
+                        TurningDirection::Clockwise => angle - p.index_angle,
+                        TurningDirection::CounterClockwise => TAU - (angle - p.index_angle),
                     };
                     // Normalize the angle to the range 0..2π
                     while normalized_angle < 0.0 {
@@ -322,8 +322,8 @@ pub fn render_pixmap_to_disk_grayscale(
                 if track_index < num_tracks {
                     // Adjust angle via input angle parameter, for clockwise or counter-clockwise turning
                     let mut normalized_angle = match p.direction {
-                        RotationDirection::Clockwise => angle - p.index_angle,
-                        RotationDirection::CounterClockwise => TAU - (angle - p.index_angle),
+                        TurningDirection::Clockwise => angle - p.index_angle,
+                        TurningDirection::CounterClockwise => TAU - (angle - p.index_angle),
                     };
 
                     // Normalize the angle to the range 0..2π

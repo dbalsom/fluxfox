@@ -44,7 +44,7 @@ use fluxfox::{
         RenderDiskSelectionParams,
         RenderTrackDataParams,
         RenderTrackMetadataParams,
-        RotationDirection,
+        TurningDirection,
     },
 };
 use fluxfox_egui::widgets::texture::{PixelCanvas, PixelCanvasDepth};
@@ -219,8 +219,8 @@ impl VisualizationState {
         let min_radius_fraction = 0.333;
         let render_track_gap = 0.10;
         let direction = match head {
-            0 => RotationDirection::CounterClockwise,
-            _ => RotationDirection::Clockwise,
+            0 => TurningDirection::CounterClockwise,
+            _ => TurningDirection::Clockwise,
         };
         let track_ct = disk.track_ct(side.into());
 
@@ -426,7 +426,7 @@ impl VisualizationState {
                     ch: DiskCh::new(c as u16, h),
                     sector_idx: s_idx as usize,
                     track_limit: disk.tracks(h) as usize,
-                    direction: RotationDirection::from(h),
+                    direction: TurningDirection::from(h),
                     color: Color::WHITE,
                     pin_last_standard_track: true,
                     ..Default::default()

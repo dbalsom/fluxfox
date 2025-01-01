@@ -45,7 +45,7 @@ use tiny_skia::{BlendMode, Color, FilterQuality, Pixmap, PixmapPaint, Transform}
 
 use fluxfox::{
     track_schema::GenericTrackElement,
-    visualization::{render_track_metadata_quadrant, RenderTrackMetadataParams, ResolutionType, RotationDirection},
+    visualization::{render_track_metadata_quadrant, RenderTrackMetadataParams, ResolutionType, TurningDirection},
     DiskImage,
 };
 
@@ -258,8 +258,8 @@ fn main() {
                 let sender = sender.clone();
                 let palette = palette.clone();
                 let direction = match side {
-                    0 => RotationDirection::CounterClockwise,
-                    1 => RotationDirection::Clockwise,
+                    0 => TurningDirection::CounterClockwise,
+                    1 => TurningDirection::Clockwise,
                     _ => panic!("Invalid side"),
                 };
                 thread::spawn(move || {
@@ -416,7 +416,7 @@ fn main() {
             10.0,
             1.0,
             Color::from_rgba8(255, 255, 255, 255),
-            RotationDirection::CounterClockwise,
+            TurningDirection::CounterClockwise,
         );
     }
 

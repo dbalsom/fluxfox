@@ -154,8 +154,10 @@ amiga = ["adf", "ipf"]
 atarist = ["ipf", "st"]
 # macintosh feature enables Macintosh-specific disk image support (primarily MOOF).
 macintosh = ["moof"]
-# viz feature enables visualization functions - will pull in tiny-skia dependency for drawing
-viz = ["dep:tiny-skia"]
+# viz feature enables visualization functions
+viz = []
+# tiny_skia feature enables direct rendering of visualizations with tiny-skia.
+tiny_skia = ["dep:tiny-skia"]
 # fat feature enables reading FAT12/16/32 filesystems. This will pull in fluxfox_fat dependency
 fat = ["dep:fluxfox_fat"]
 # flux feature enables reading flux images. This will pull in histogram dependency
