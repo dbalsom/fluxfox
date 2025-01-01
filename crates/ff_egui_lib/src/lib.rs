@@ -44,6 +44,7 @@ pub enum TrackSelectionScope {
     #[default]
     DecodedDataStream,
     Elements,
+    Timings,
 }
 
 #[derive(Debug, Clone, Default)]

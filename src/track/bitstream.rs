@@ -131,6 +131,7 @@ impl Track for BitStreamTrack {
             rpm: self.rpm,
             bit_length: self.data.len(),
             sector_ct: self.metadata.sector_ids().len(),
+            flux_info: None,
         }
     }
 
