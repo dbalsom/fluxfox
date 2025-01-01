@@ -93,7 +93,7 @@ impl DiskInfoWidget {
                         ui.end_row();
                     }
                 }
-                else {
+                else if !self.resolution.is_empty() {
                     ui.label("Resolution:");
                     ui.label(format!("{:?}", self.resolution[0]));
                     ui.end_row();
