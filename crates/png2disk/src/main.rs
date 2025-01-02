@@ -40,6 +40,7 @@ use fluxfox::{
     prelude::*,
     visualization::{
         pixmap_to_disk::{render_pixmap_to_disk, render_pixmap_to_disk_grayscale},
+        tiny_skia::{Pixmap, PixmapPaint, PixmapRef, Transform},
         PixmapToDiskParams,
         RenderTrackDataParams,
         TurningDirection,
@@ -48,8 +49,6 @@ use fluxfox::{
     ImageBuilder,
     ImageWriter,
 };
-
-use tiny_skia::{Pixmap, PixmapRef};
 
 fn main() {
     env_logger::init();
@@ -193,6 +192,7 @@ fn main() {
             data_params.image_size = (pixmap1.width(), pixmap1.height());
             data_params.track_limit = disk.tracks(1) as usize;
             data_params.head = 1;
+            data_params.index_angle = data_params.direction.adjust_angle(opts.angle);
             println!("Rendering side 1...");
             render(&pixmap1.to_owned(), &mut disk, &pixmap_params, &data_params);
         }
@@ -241,8 +241,8 @@ fn rotate_pixmap(pixmap: PixmapRef, angle: f32) -> Pixmap {
         0,
         0,
         pixmap,
-        &tiny_skia::PixmapPaint::default(),
-        tiny_skia::Transform::from_rotate(angle).post_translate(pixmap.height() as f32, 0.0),
+        &PixmapPaint::default(),
+        Transform::from_rotate(angle).post_translate(pixmap.height() as f32, 0.0),
         None,
     );
     new_pixmap

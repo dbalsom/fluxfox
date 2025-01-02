@@ -604,7 +604,14 @@ impl Track for BitStreamTrack {
         // Write the data back to the sector, which will recalculate the CRC.
         // TODO: We may wish to optimize this in the future to just write the new CRC, but I don't expect
         //       this function to be called heavily.
-        self.write_sector(id, offset, &rr.read_buf, RwScope::CrcOnly, rr.deleted_mark, false)?;
+        self.write_sector(
+            id,
+            offset,
+            &rr.read_buf[rr.data_range],
+            RwScope::CrcOnly,
+            rr.deleted_mark,
+            false,
+        )?;
 
         Ok(())
     }

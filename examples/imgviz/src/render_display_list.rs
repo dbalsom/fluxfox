@@ -26,9 +26,13 @@
 */
 
 use fluxfox::{
-    tiny_skia::{BlendMode, Color, Paint, Pixmap},
     track_schema::GenericTrackElement,
-    visualization::{tiny_skia_util::skia_render_element, RenderTrackMetadataParams, VizDisplayList},
+    visualization::{
+        tiny_skia::{BlendMode, Color, Paint, Pixmap},
+        tiny_skia_util::skia_render_element,
+        RenderTrackMetadataParams,
+        VizDisplayList,
+    },
 };
 use std::collections::HashMap;
 use tiny_skia::Transform;

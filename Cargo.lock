@@ -2458,7 +2458,7 @@ checksum = "d0263a3d970d5c054ed9312c0057b4f3bde9c0b33836d3637361d4a9e6e7a408"
 
 [[package]]
 name = "imgviz"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "bpaf",
@@ -3544,7 +3544,7 @@ dependencies = [
 
 [[package]]
 name = "png2disk"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "bpaf",
@@ -3552,7 +3552,6 @@ dependencies = [
  "fluxfox",
  "log 0.4.22",
  "logger",
- "tiny-skia",
 ]
 
 [[package]]

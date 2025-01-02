@@ -39,6 +39,7 @@
 pub mod disk_to_pixmap;
 pub mod display_list;
 pub mod elements_to_sectors;
+#[cfg(feature = "tiny_skia")]
 pub mod pixmap_to_disk;
 #[cfg(feature = "tiny_skia")]
 pub mod tiny_skia_util;
@@ -46,7 +47,6 @@ pub mod types;
 
 pub use display_list::VizDisplayList;
 pub use elements_to_sectors::visualize_disk_elements;
-pub use pixmap_to_disk::PixmapToDiskParams;
 
 use crate::{
     bitstream_codec::TrackDataStream,
@@ -87,6 +87,8 @@ pub trait VizRotate {
 pub use disk_to_pixmap::render_track_data;
 #[cfg(feature = "tiny_skia")]
 pub use disk_to_pixmap::render_track_mask;
+#[cfg(feature = "tiny_skia")]
+pub use pixmap_to_disk::PixmapToDiskParams;
 #[cfg(feature = "tiny_skia")]
 pub use tiny_skia;
 

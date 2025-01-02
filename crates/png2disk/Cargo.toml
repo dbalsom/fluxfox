@@ -1,6 +1,6 @@
 [package]
 name = "png2disk"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Daniel Balsom"]
 edition = "2021"
 publish = true
@@ -9,12 +9,11 @@ readme = "README.md"
 
 [dependencies]
 bpaf = { version = "0.9", features = ["autocomplete"] }
-fluxfox = { path = "../.." }
+fluxfox = { path = "../..", features = ["viz", "tiny_skia"] }
 logger = "0.4"
 env_logger = "0.11"
 log = "0.4.22"
 anyhow = "1.0"
-tiny-skia = { version = "0.11", features = ["png"] }
 
 [features]
 default = ["viz"]

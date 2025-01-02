@@ -199,7 +199,8 @@ fn main() {
     #[rustfmt::skip]
     let palette = HashMap::from([
         (GenericTrackElement::SectorData, pal_medium_green),
-        (GenericTrackElement::SectorBadData, pal_orange),
+        //(GenericTrackElement::SectorBadData, pal_orange),
+        (GenericTrackElement::SectorBadData, pal_medium_green),
         (GenericTrackElement::SectorDeletedData, pal_dark_green),
         (GenericTrackElement::SectorBadDeletedData, viz_light_red),
         (GenericTrackElement::SectorHeader, pal_light_blue),
@@ -382,8 +383,8 @@ fn main() {
 
         if opts.metadata {
             log::debug!("Rendering metadata for side {}...", side);
-            let disk = Arc::clone(&a_disk);
-            let pixmap = Arc::clone(&meta_pixmap_pool[side as usize]);
+            let inner_disk = Arc::clone(&a_disk);
+            let inner_pixmap = Arc::clone(&meta_pixmap_pool[side as usize]);
 
             let palette = palette.clone();
             // let direction = match side {
@@ -393,7 +394,7 @@ fn main() {
             // };
 
             thread::spawn(move || {
-                let mut inner_pixmap = pixmap.lock().unwrap();
+                let mut metadata_pixmap = inner_pixmap.lock().unwrap();
 
                 // We set the angle to 0.0 here, because tiny_skia can rotate the resulting
                 // display list for us.
@@ -411,10 +412,10 @@ fn main() {
                     draw_sector_lookup: false,
                 };
 
-                let inner_disk = disk.read().unwrap();
+                let metadata_disk = inner_disk.read().unwrap();
 
                 let display_list =
-                    match visualize_disk_elements(&inner_disk, opts.resolution as f32 / 2.0, &render_params) {
+                    match visualize_disk_elements(&metadata_disk, opts.resolution as f32 / 2.0, &render_params) {
                         Ok(display_list) => display_list,
                         Err(e) => {
                             eprintln!("Error rendering metadata: {}", e);
@@ -423,9 +424,9 @@ fn main() {
                     };
 
                 render_params.index_angle = opts.angle;
-                render_display_list(&mut inner_pixmap, &render_params, &display_list, &palette);
+                render_display_list(&mut metadata_pixmap, &render_params, &display_list, &palette);
 
-                inner_pixmap.save_png(format!("new_metadata{}.png", side)).unwrap();
+                //inner_pixmap.save_png(format!("new_metadata{}.png", side)).unwrap();
 
                 println!("Sending rendered metadata pixmap for side: {} over channel...", side);
                 if let Err(e) = sender.send(side as u8) {
@@ -438,36 +439,39 @@ fn main() {
                 //     display_list.len()
                 // );
             });
-        }
 
-        for (p, recv_side) in receiver.iter().enumerate() {
-            // let (x, y) = match recv_side {
-            //     0 => (0, 0u32),
-            //     1 => (image_size, 0u32),
-            //     _ => panic!("Invalid side"),
-            // };
-            println!("Received metadata pixmap for side {}...", recv_side);
+            println!("Waiting for metadata pixmap for side {}...", side);
+            std::io::stdout().flush().unwrap();
+            for (p, recv_side) in receiver.iter().enumerate() {
+                // let (x, y) = match recv_side {
+                //     0 => (0, 0u32),
+                //     1 => (image_size, 0u32),
+                //     _ => panic!("Invalid side"),
+                // };
+                println!("Received metadata pixmap for side {}...", recv_side);
+                std::io::stdout().flush().unwrap();
 
-            let paint = match opts.data {
-                true => PixmapPaint {
-                    opacity:    1.0,
-                    blend_mode: BlendMode::HardLight,
-                    quality:    FilterQuality::Nearest,
-                },
-                false => PixmapPaint::default(),
-            };
+                let paint = match opts.data {
+                    true => PixmapPaint {
+                        opacity:    1.0,
+                        blend_mode: BlendMode::HardLight,
+                        quality:    FilterQuality::Nearest,
+                    },
+                    false => PixmapPaint::default(),
+                };
 
-            pixmap.draw_pixmap(
-                0,
-                0,
-                meta_pixmap_pool[recv_side as usize].lock().unwrap().as_ref(), // Convert &Pixmap to PixmapRef
-                &paint,
-                Transform::identity(),
-                None,
-            );
+                pixmap.draw_pixmap(
+                    0,
+                    0,
+                    meta_pixmap_pool[recv_side as usize].lock().unwrap().as_ref(), // Convert &Pixmap to PixmapRef
+                    &paint,
+                    Transform::identity(),
+                    None,
+                );
 
-            if p == heads as usize {
-                break;
+                if p == sides_to_render.saturating_sub(1) as usize {
+                    break;
+                }
             }
         }
 

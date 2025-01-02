@@ -168,7 +168,7 @@ pub fn render_side(disk: &DiskImage, p: RenderParams) -> Result<Pixmap, anyhow::
         _ => {
             let resample_start_time = Instant::now();
 
-            let mut src_image = match FirImage::from_slice_u8(
+            let src_image = match FirImage::from_slice_u8(
                 rendered_image.width(),
                 rendered_image.height(),
                 rendered_image.data_mut(),
@@ -187,7 +187,7 @@ pub fn render_side(disk: &DiskImage, p: RenderParams) -> Result<Pixmap, anyhow::
                 fast_image_resize::ResizeOptions::new().resize_alg(ResizeAlg::Convolution(FilterType::CatmullRom));
 
             println!("Resampling output image for side {}...", p.side);
-            match resizer.resize(&mut src_image, &mut dst_image, &resize_opts) {
+            match resizer.resize(&src_image, &mut dst_image, &resize_opts) {
                 Ok(_) => {
                     println!(
                         "Resampled image to {} in {:?}",

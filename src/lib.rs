@@ -187,8 +187,6 @@ pub use crate::{
     image_writer::ImageWriter,
     types::{DiskImageFileFormat, SectorMapEntry},
 };
-#[cfg(feature = "viz")]
-pub use tiny_skia;
 
 use types::{DiskCh, DiskChs, DiskChsn, DiskChsnQuery};
 // Re-export tiny_skia for convenience
