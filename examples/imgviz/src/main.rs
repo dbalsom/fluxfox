@@ -31,6 +31,7 @@
 */
 mod args;
 mod render;
+mod render_display_list;
 mod text;
 
 use crossbeam::channel;
@@ -43,16 +44,22 @@ use std::{
 };
 use tiny_skia::{BlendMode, Color, FilterQuality, Pixmap, PixmapPaint, Transform};
 
-use fluxfox::{
-    track_schema::GenericTrackElement,
-    visualization::{render_track_metadata_quadrant, RenderTrackMetadataParams, ResolutionType, TurningDirection},
-    DiskImage,
-};
-
 use crate::{
     args::{opts, substitute_title},
     render::render_side,
+    render_display_list::render_display_list,
     text::{calculate_scaled_font_size, create_font, measure_text, render_text, Justification},
+};
+use fluxfox::{
+    track_schema::GenericTrackElement,
+    visualization::{
+        render_track_metadata_quadrant,
+        visualize_disk_elements,
+        RenderTrackMetadataParams,
+        ResolutionType,
+        TurningDirection,
+    },
+    DiskImage,
 };
 
 fn main() {
@@ -131,30 +138,36 @@ fn main() {
     let render_track_gap = 0.10; // Fraction of the track width to leave transparent as a gap between tracks (0.0-1.0)
 
     let heads;
-    let sides;
-    let mut head: u32 = 0;
+    let mut sides_to_render: u32 = 0;
+    let mut starting_head: u32 = 0;
+
+    // If the user specifies a side, we assume that one side will be rendered.
+    // However, the 'sides' parameter can be overridden to 2 to leave a blank space for the missing
+    // empty side.
     if let Some(side) = opts.side {
-        if disk.heads() < side {
-            eprintln!("Disk image does not have side {}", side);
+        log::debug!("Side {} specified.", side);
+        if side >= disk.heads() {
+            eprintln!("Disk image does not have requested side: {}", side);
             std::process::exit(1);
         }
-        heads = 1;
-        sides = opts.sides.unwrap_or(1) as u32;
-        head = side as u32;
+        heads = disk.heads() as u32;
+        sides_to_render = opts.sides.unwrap_or(1) as u32;
+        starting_head = side as u32;
+
+        println!("Visualizing side {}/{}...", starting_head, sides_to_render);
     }
     else {
-        heads = if disk.heads() > 1 { 2 } else { 1 };
-        sides = opts.sides.unwrap_or(if disk.heads() > 1 { 2 } else { 1 }) as u32;
+        // No side was specified. We'll render all sides, starting at side 0.
+        heads = disk.heads() as u32;
+        sides_to_render = opts.sides.unwrap_or(disk.heads()) as u32;
+        starting_head = 0;
+        println!("Visualizing {} sides...", sides_to_render);
     }
 
-    println!("Rendering {} heads, {} tracks...", heads, disk.tracks(0));
-
-    #[rustfmt::skip]
-    let pixmap_pool: Vec<Arc<Mutex<Pixmap>>> = vec![
-        Arc::new(Mutex::new(Pixmap::new(opts.resolution / 2, opts.resolution / 2).unwrap())),
-        Arc::new(Mutex::new(Pixmap::new(opts.resolution / 2, opts.resolution / 2).unwrap())),
-        Arc::new(Mutex::new(Pixmap::new(opts.resolution / 2, opts.resolution / 2).unwrap())),
-        Arc::new(Mutex::new(Pixmap::new(opts.resolution / 2, opts.resolution / 2).unwrap())),
+    // New pool for metadata rendering. Don't bother with quadrants - just render full sides
+    let meta_pixmap_pool = [
+        Arc::new(Mutex::new(Pixmap::new(opts.resolution, opts.resolution).unwrap())),
+        Arc::new(Mutex::new(Pixmap::new(opts.resolution, opts.resolution).unwrap())),
     ];
 
     let null_color = Color::from_rgba8(0, 0, 0, 0);
@@ -201,7 +214,8 @@ fn main() {
     let image_size = opts.resolution;
     let track_ct = disk.tracks(0) as usize;
     log::trace!("Image has {} tracks.", track_ct);
-    let a_disk = Arc::new(Mutex::new(disk));
+
+    let a_disk = disk.into_arc();
 
     // Determine size of legend. Currently, we only have a title.
     let font_h;
@@ -213,8 +227,23 @@ fn main() {
         log::debug!("Using title: {}", title_string);
     }
 
-    for side in head..heads {
+    for si in 0..sides_to_render {
+        let side = si + starting_head;
+        log::debug!(" >>> Rendering side {} of {}...", side, sides_to_render);
         let disk = Arc::clone(&a_disk);
+
+        // Default to clockwise turning, unless --cc flag is passed.
+        let mut direction = if opts.cc {
+            TurningDirection::CounterClockwise
+        }
+        else {
+            TurningDirection::Clockwise
+        };
+
+        // Reverse side 1 as long as --dont_reverse flag is not present.
+        if side > 0 && !opts.dont_reverse {
+            direction = direction.opposite();
+        }
 
         // Render data if data flag was passed.
         let mut pixmap = if opts.data {
@@ -225,6 +254,7 @@ fn main() {
                 supersample: opts.supersample as u8,
                 side,
                 min_radius: min_radius_fraction,
+                direction,
                 angle: opts.angle,
                 track_limit: track_ct,
                 track_gap: render_track_gap,
@@ -236,7 +266,7 @@ fn main() {
                 resolution_type: resolution,
             };
 
-            match render_side(&disk.lock().unwrap(), params) {
+            match render_side(&disk.read().unwrap(), params) {
                 Ok(pixmap) => pixmap,
                 Err(e) => {
                     eprintln!("Error rendering side: {}", e);
@@ -250,6 +280,8 @@ fn main() {
 
         drop(disk);
 
+        // Render metadata if requested.
+        /*
         if opts.metadata {
             let (sender, receiver) = channel::unbounded::<u8>();
             for quadrant in 0..4 {
@@ -344,17 +376,117 @@ fn main() {
             }
         }
 
+        */
+
+        let (sender, receiver) = channel::unbounded::<u8>();
+
+        if opts.metadata {
+            log::debug!("Rendering metadata for side {}...", side);
+            let disk = Arc::clone(&a_disk);
+            let pixmap = Arc::clone(&meta_pixmap_pool[side as usize]);
+
+            let palette = palette.clone();
+            // let direction = match side {
+            //     0 => TurningDirection::Clockwise,
+            //     1 => TurningDirection::CounterClockwise,
+            //     _ => panic!("Invalid side"),
+            // };
+
+            thread::spawn(move || {
+                let mut inner_pixmap = pixmap.lock().unwrap();
+
+                // We set the angle to 0.0 here, because tiny_skia can rotate the resulting
+                // display list for us.
+                let mut render_params = RenderTrackMetadataParams {
+                    quadrant: 0,
+                    head: side as u8,
+                    min_radius_fraction,
+                    index_angle: 0.0,
+                    track_limit: track_ct,
+                    track_gap: render_track_gap,
+                    direction,
+                    palette: HashMap::new(),
+                    draw_empty_tracks: false,
+                    pin_last_standard_track: true,
+                    draw_sector_lookup: false,
+                };
+
+                let inner_disk = disk.read().unwrap();
+
+                let display_list =
+                    match visualize_disk_elements(&inner_disk, opts.resolution as f32 / 2.0, &render_params) {
+                        Ok(display_list) => display_list,
+                        Err(e) => {
+                            eprintln!("Error rendering metadata: {}", e);
+                            std::process::exit(1);
+                        }
+                    };
+
+                render_params.index_angle = opts.angle;
+                render_display_list(&mut inner_pixmap, &render_params, &display_list, &palette);
+
+                inner_pixmap.save_png(format!("new_metadata{}.png", side)).unwrap();
+
+                println!("Sending rendered metadata pixmap for side: {} over channel...", side);
+                if let Err(e) = sender.send(side as u8) {
+                    eprintln!("Error sending metadata pixmap: {}", e);
+                    std::process::exit(1);
+                }
+
+                // println!(
+                //     "visualize_disk_elements() returned a display list of length {}",
+                //     display_list.len()
+                // );
+            });
+        }
+
+        for (p, recv_side) in receiver.iter().enumerate() {
+            // let (x, y) = match recv_side {
+            //     0 => (0, 0u32),
+            //     1 => (image_size, 0u32),
+            //     _ => panic!("Invalid side"),
+            // };
+            println!("Received metadata pixmap for side {}...", recv_side);
+
+            let paint = match opts.data {
+                true => PixmapPaint {
+                    opacity:    1.0,
+                    blend_mode: BlendMode::HardLight,
+                    quality:    FilterQuality::Nearest,
+                },
+                false => PixmapPaint::default(),
+            };
+
+            pixmap.draw_pixmap(
+                0,
+                0,
+                meta_pixmap_pool[recv_side as usize].lock().unwrap().as_ref(), // Convert &Pixmap to PixmapRef
+                &paint,
+                Transform::identity(),
+                None,
+            );
+
+            if p == heads as usize {
+                break;
+            }
+        }
+
+        log::debug!("Adding rendered side {} to vector...", side);
         rendered_pixmaps.push(pixmap);
     }
 
+    if rendered_pixmaps.is_empty() {
+        eprintln!("No sides rendered!");
+        std::process::exit(1);
+    }
     println!("Finished data layer in {:?}", data_render_start_time.elapsed());
 
     let horiz_gap = 0;
 
     // Combine both sides into a single image, if we have two sides.
-    let (mut composited_image, composited_width) = if (rendered_pixmaps.len() > 1) || (sides == 2) {
+    let (mut composited_image, composited_width) = if (rendered_pixmaps.len() > 1) || (sides_to_render == 2) {
         let final_size = (
-            image_size * sides + horiz_gap * (sides - 1),
+            image_size * sides_to_render + horiz_gap * (sides_to_render - 1),
             image_size + legend_height.unwrap_or(0) as u32,
         );
 

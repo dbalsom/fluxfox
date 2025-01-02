@@ -37,10 +37,15 @@
 //! The `imgviz` example in the repository demonstrates how to use the visualization functions.
 
 pub mod disk_to_pixmap;
-mod elements_to_sectors;
+pub mod display_list;
+pub mod elements_to_sectors;
 pub mod pixmap_to_disk;
+#[cfg(feature = "tiny_skia")]
+pub mod tiny_skia_util;
 pub mod types;
 
+pub use display_list::VizDisplayList;
+pub use elements_to_sectors::visualize_disk_elements;
 pub use pixmap_to_disk::PixmapToDiskParams;
 
 use crate::{
@@ -55,6 +60,8 @@ use std::{
     cmp::min,
     f32::consts::{PI, TAU},
 };
+
+#[cfg(feature = "tiny_skia")]
 use tiny_skia::{
     BlendMode,
     Color,
@@ -72,10 +79,16 @@ use tiny_skia::{
     Transform,
 };
 
+pub trait VizRotate {
+    fn rotate(&mut self, angle: f32);
+}
+
 #[cfg(feature = "tiny_skia")]
 pub use disk_to_pixmap::render_track_data;
 #[cfg(feature = "tiny_skia")]
 pub use disk_to_pixmap::render_track_mask;
+#[cfg(feature = "tiny_skia")]
+pub use tiny_skia;
 
 /// A map type selector for visualization functions.
 #[derive(Copy, Clone, Debug)]
@@ -253,6 +266,13 @@ impl TurningDirection {
         match self {
             TurningDirection::Clockwise => TurningDirection::CounterClockwise,
             TurningDirection::CounterClockwise => TurningDirection::Clockwise,
+        }
+    }
+
+    pub fn adjust_angle(&self, angle: f32) -> f32 {
+        match self {
+            TurningDirection::Clockwise => angle,
+            TurningDirection::CounterClockwise => -angle,
         }
     }
 }

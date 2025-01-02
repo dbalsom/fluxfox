@@ -30,12 +30,14 @@
 
 use crate::{
     track_schema::GenericTrackElement,
+    types::DiskCh,
     visualization::{
         collect_metadata,
         collect_streams,
-        types::{VizArc, VizDisplayList, VizElement, VizElementMetadata, VizPoint2d, VizSector, VizSectorFlags},
+        types::{VizArc, VizElement, VizElementFlags, VizElementInfo, VizPoint2d, VizSector},
         RenderTrackMetadataParams,
         TurningDirection,
+        VizDisplayList,
     },
     DiskImage,
     DiskVisualizationError,
@@ -64,9 +66,9 @@ pub fn calc_arc(center: &VizPoint2d, radius: f32, start_angle: f32, end_angle: f
 
     VizArc {
         start: VizPoint2d { x: x1, y: y1 },
-        end:   VizPoint2d { x: x2, y: y2 },
-        cp1:   VizPoint2d { x: x3, y: y3 },
-        cp2:   VizPoint2d { x: x4, y: y4 },
+        end:   VizPoint2d { x: x4, y: y4 },
+        cp1:   VizPoint2d { x: x2, y: y2 },
+        cp2:   VizPoint2d { x: x3, y: y3 },
     }
 }
 
@@ -92,24 +94,24 @@ pub struct CalcElementParams {
     pub end_angle: f32,
     pub inner_radius: f32,
     pub outer_radius: f32,
-    pub c: usize,
+    pub ch: DiskCh,
     pub color: u32,
-    pub flags: VizSectorFlags,
-    pub element: Option<VizElement>,
+    pub flags: VizElementFlags,
+    pub element: Option<VizElementInfo>,
 }
 
-/// Calculate a [VizElementMetadata] from a center point, start and end angles in radians, an inner
-/// and outer radius, a color, and an optional [VizElement].
-pub fn calc_element(p: &CalcElementParams) -> VizElementMetadata {
+/// Calculate a [VizElement] from a center point, start and end angles in radians, an inner
+/// and outer radius, a color, and an optional [VizElementInfo].
+pub fn calc_element(p: &CalcElementParams) -> VizElement {
     let mut element = p.element.clone().unwrap_or_default();
-    element.c = p.c as u16;
+    element.ch = p.ch;
 
     let sector = calc_sector(&p.center, p.start_angle, p.end_angle, p.inner_radius, p.outer_radius);
 
-    VizElementMetadata {
+    VizElement {
         sector,
         flags: p.flags.clone(),
-        element,
+        info: element,
     }
 }
 
@@ -161,11 +163,11 @@ pub fn visualize_disk_elements(
 
     // Calculate the rendered width of each track, excluding the track gap.
     let track_width = (total_radius - min_radius) / num_tracks as f32;
-    let center = VizPoint2d::from((0.0, 0.0));
+    let center = VizPoint2d::from((radius, radius));
 
     let (clip_start, clip_end) = match p.direction {
         TurningDirection::Clockwise => (0.0, TAU),
-        TurningDirection::CounterClockwise => (TAU, 0.0),
+        TurningDirection::CounterClockwise => (0.0, TAU),
     };
 
     for draw_markers in [false, true].iter() {
@@ -213,8 +215,8 @@ pub fn visualize_disk_elements(
                         }
 
                         (start_angle, end_angle) = match p.direction {
-                            TurningDirection::CounterClockwise => (start_angle, end_angle),
-                            TurningDirection::Clockwise => (TAU - start_angle, TAU - end_angle),
+                            TurningDirection::Clockwise => (start_angle, end_angle),
+                            TurningDirection::CounterClockwise => (TAU - start_angle, TAU - end_angle),
                         };
 
                         if start_angle > end_angle {
@@ -243,14 +245,20 @@ pub fn visualize_disk_elements(
                             outer_radius,
                         );
 
-                        let mut flags = VizSectorFlags::default();
-                        flags.set(VizSectorFlags::OVERLAP_LONG, overlap_long);
+                        let mut flags = VizElementFlags::default();
+                        flags.set(VizElementFlags::OVERLAP_LONG, overlap_long);
 
                         let generic_element = GenericTrackElement::from(meta_item.element);
-                        let overlap_metadata = VizElementMetadata {
+                        let overlap_metadata = VizElement {
                             sector: overlap_sector,
                             flags,
-                            element: VizElement::new(generic_element, ti as u16, None, None, None),
+                            info: VizElementInfo::new(
+                                generic_element,
+                                DiskCh::new(ti as u16, p.head),
+                                None,
+                                None,
+                                None,
+                            ),
                         };
 
                         display_list.push(overlap_metadata);
@@ -268,6 +276,7 @@ pub fn visualize_disk_elements(
                     GenericTrackElement::Marker { .. } if !*draw_markers => {
                         continue;
                     }
+                    GenericTrackElement::Marker { .. } => {}
                     _ if *draw_markers => {
                         continue;
                     }
@@ -290,8 +299,8 @@ pub fn visualize_disk_elements(
 
                 // Invert the angles for clockwise rotation
                 (start_angle, end_angle) = match p.direction {
-                    TurningDirection::CounterClockwise => (start_angle, end_angle),
-                    TurningDirection::Clockwise => (TAU - start_angle, TAU - end_angle),
+                    TurningDirection::Clockwise => (start_angle, end_angle),
+                    TurningDirection::CounterClockwise => (TAU - start_angle, TAU - end_angle),
                 };
 
                 // Normalize the angle to the range 0..2π
@@ -326,11 +335,11 @@ pub fn visualize_disk_elements(
                     outer_radius,
                 );
 
-                let element_flags = VizSectorFlags::default();
-                let element_metadata = VizElementMetadata {
-                    sector:  element_sector,
-                    flags:   element_flags,
-                    element: VizElement::new(generic_element, ti as u16, None, None, None),
+                let element_flags = VizElementFlags::default();
+                let element_metadata = VizElement {
+                    sector: element_sector,
+                    flags:  element_flags,
+                    info:   VizElementInfo::new(generic_element, DiskCh::new(ti as u16, p.head), None, None, None),
                 };
 
                 display_list.push(element_metadata);
@@ -346,12 +355,18 @@ pub fn visualize_disk_elements(
                     inner_radius,
                     outer_radius,
                 );
-                let mut element_flags = VizSectorFlags::default();
-                element_flags.set(VizSectorFlags::EMPTY_TRACK, true);
-                let element_metadata = VizElementMetadata {
-                    sector:  element_sector,
-                    flags:   element_flags,
-                    element: VizElement::new(GenericTrackElement::NullElement, ti as u16, None, None, None),
+                let mut element_flags = VizElementFlags::default();
+                element_flags.set(VizElementFlags::EMPTY_TRACK, true);
+                let element_metadata = VizElement {
+                    sector: element_sector,
+                    flags:  element_flags,
+                    info:   VizElementInfo::new(
+                        GenericTrackElement::NullElement,
+                        DiskCh::new(ti as u16, p.head),
+                        None,
+                        None,
+                        None,
+                    ),
                 };
 
                 display_list.push(element_metadata);

@@ -54,6 +54,7 @@ pub struct RenderParams {
     pub supersample: u8,
     pub side: u32,
     pub min_radius: f32,
+    pub direction: TurningDirection,
     pub angle: f32,
     pub track_limit: usize,
     pub track_gap: f32,
@@ -85,6 +86,8 @@ pub fn render_side(disk: &DiskImage, p: RenderParams) -> Result<Pixmap, anyhow::
         }
     };
 
+    let angle = direction.adjust_angle(p.angle);
+
     let supersample_size = match p.supersample {
         1 => p.render_size,
         2 => p.render_size * 2,
@@ -108,7 +111,7 @@ pub fn render_side(disk: &DiskImage, p: RenderParams) -> Result<Pixmap, anyhow::
         image_size: (supersample_size, supersample_size),
         image_pos: (0, 0),
         min_radius_fraction: p.min_radius,
-        index_angle: p.angle,
+        index_angle: angle,
         track_limit: p.track_limit,
         track_gap: p.track_gap,
         direction,

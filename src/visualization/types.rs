@@ -24,13 +24,13 @@
 
     --------------------------------------------------------------------------
 */
-
-use crate::{track_schema::GenericTrackElement, visualization::TurningDirection};
+use crate::{track_schema::GenericTrackElement, types::DiskCh, visualization::VizRotate};
 use bitflags::bitflags;
+use std::ops::Range;
 
 bitflags! {
-    #[derive (Clone, Default)]
-    pub struct VizSectorFlags: u32 {
+    #[derive (Clone, Debug, Default)]
+    pub struct VizElementFlags: u32 {
         const NONE = 0b0000_0000;
         const OVERLAP = 0b0000_0001; // This sector crosses the index
         const OVERLAP_LONG = 0b0000_0010; // This sector crosses the index, and is sufficiently long that it should be faded out
@@ -39,6 +39,7 @@ bitflags! {
 }
 
 /// A [VizPoint2d] represents a point in 2D space in the range `[(0,0), (1,1)]`.
+#[derive(Copy, Clone, Debug)]
 pub struct VizPoint2d {
     pub x: f32,
     pub y: f32,
@@ -57,7 +58,18 @@ impl VizPoint2d {
     }
 }
 
+impl VizRotate for VizPoint2d {
+    #[inline]
+    fn rotate(&mut self, angle: f32) {
+        let cos_theta = angle.cos();
+        let sin_theta = angle.sin();
+        self.x = self.x * cos_theta - self.y * sin_theta;
+        self.y = self.x * sin_theta + self.y * cos_theta;
+    }
+}
+
 /// A [VizArc] represents a cubic Bezier curve in 2D space.
+#[derive(Copy, Clone, Debug)]
 pub struct VizArc {
     pub start: VizPoint2d, // Start point of arc
     pub end:   VizPoint2d, // End point of arc
@@ -65,93 +77,107 @@ pub struct VizArc {
     pub cp2:   VizPoint2d, // 2nd control point
 }
 
+impl VizRotate for VizArc {
+    #[inline]
+    fn rotate(&mut self, angle: f32) {
+        self.start.rotate(angle);
+        self.end.rotate(angle);
+        self.cp1.rotate(angle);
+        self.cp2.rotate(angle);
+    }
+}
+
 /// A [VizSector] represents an arc with thickness, or an 'annular sector'. This may be literally
 /// be a sector on a disk, but may represent other track elements or regions as well.
+#[derive(Copy, Clone, Debug)]
 pub struct VizSector {
     pub outer: VizArc,
     pub inner: VizArc,
 }
 
-/// A [VizElement] represents all the information needed to render a track element in a visualization
+impl VizRotate for VizSector {
+    #[inline]
+    fn rotate(&mut self, angle: f32) {
+        self.outer.rotate(angle);
+        self.inner.rotate(angle);
+    }
+}
+
+/// A [VizElementInfo] represents all the information needed to render a track element in a visualization
 /// as well as resolve the element back to the track, useful for interactive visualizations (e.g.,
 /// selecting sectors with the mouse).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct VizElement {
+pub struct VizElementInfo {
     /// The type of element as [GenericTrackElement]
     pub element_type: GenericTrackElement,
     /// The physical track containing the element
-    pub c: u16,
+    pub ch: DiskCh,
     /// The bit index of the element within the track.
-    pub bit_idx: Option<usize>,
+    pub bit_range: Option<Range<usize>>,
     /// The index of the element within the track's element list.
     pub element_idx: Option<usize>,
     /// The physical index of the sector on the track, starting at 0 at the index.
     pub sector_idx: Option<usize>,
 }
 
-impl VizElement {
+impl VizElementInfo {
     pub fn new(
         element_type: GenericTrackElement,
-        c: u16,
-        bit_idx: Option<usize>,
+        ch: DiskCh,
+        bit_range: Option<Range<usize>>,
         element_idx: Option<usize>,
         sector_idx: Option<usize>,
-    ) -> VizElement {
-        VizElement {
+    ) -> VizElementInfo {
+        VizElementInfo {
             element_type,
-            c,
-            bit_idx,
+            ch,
+            bit_range,
             element_idx,
             sector_idx,
         }
     }
 }
 
-impl Default for VizElement {
-    fn default() -> VizElement {
-        VizElement {
+impl Default for VizElementInfo {
+    fn default() -> VizElementInfo {
+        VizElementInfo {
             element_type: GenericTrackElement::NullElement,
-            c: 0,
-            bit_idx: None,
+            ch: DiskCh::default(),
+            bit_range: None,
             element_idx: None,
             sector_idx: None,
         }
     }
 }
 
-/// A [VizElementMetadata] represents a [VizSector] with additional metadata, such as color and
+/// A [VizElement] represents a [VizSector] with additional metadata, such as color and
 /// track location.
-pub struct VizElementMetadata {
-    pub sector:  VizSector,      // The sector definition
-    pub flags:   VizSectorFlags, // Flags for the sector
-    pub element: VizElement,     // The element represented by the sector
+#[derive(Clone, Debug)]
+pub struct VizElement {
+    pub sector: VizSector,       // The sector definition
+    pub flags:  VizElementFlags, // Flags for the sector
+    pub info:   VizElementInfo,  // The element represented by the sector
 }
 
-impl VizElementMetadata {
-    pub fn new(sector: VizSector, flags: VizSectorFlags, element: VizElement) -> VizElementMetadata {
-        VizElementMetadata { sector, flags, element }
+impl VizElement {
+    pub fn new(sector: VizSector, flags: VizElementFlags, info: VizElementInfo) -> VizElement {
+        VizElement { sector, flags, info }
     }
 }
 
-/// A [VizDisplayList] is a list of [VizElementMetadata] objects to be rendered.
-/// Operations can be implemented on this list, such as scaling and rotation.
-pub struct VizDisplayList {
-    pub turning:  TurningDirection,
-    pub elements: Vec<VizElementMetadata>,
-}
-
-impl VizDisplayList {
-    pub fn new(turning: TurningDirection) -> VizDisplayList {
-        VizDisplayList {
-            turning,
-            elements: Vec::new(),
-        }
-    }
-
-    pub fn push(&mut self, element: VizElementMetadata) {
-        self.elements.push(element);
+impl VizRotate for VizElement {
+    #[inline]
+    fn rotate(&mut self, angle: f32) {
+        self.sector.rotate(angle);
     }
 }
+
+// impl VizRotate for &mut VizElement {
+//     #[inline]
+//     fn rotate(&mut self, angle: f32) {
+//         self.sector.rotate(angle);
+//     }
+// }
 
 /// Convert a tuple of two [VizArc] objects into a [VizSector].
 impl From<(VizArc, VizArc)> for VizSector {

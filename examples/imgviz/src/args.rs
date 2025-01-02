@@ -52,6 +52,7 @@ pub(crate) struct Out {
     pub(crate) index_hole: bool,
     pub(crate) decode: bool,
     pub(crate) cc: bool,
+    pub(crate) dont_reverse: bool,
     pub(crate) supersample: u32,
     pub(crate) img_bg_color: Option<Color>,
     pub(crate) track_bg_color: Option<Color>,
@@ -121,6 +122,8 @@ pub(crate) fn opts() -> OptionParser<Out> {
 
     let cc = long("cc").help("Wrap data counter-clockwise").switch();
 
+    let dont_reverse = long("dont_reverse").help("Don't reverse direction of side 1").switch();
+
     let img_bg_color = long("img_bg_color")
         .help("Specify the image background color as #RRGGBBAA, #RRGGBB, or R,G,B,A")
         .argument::<String>("IMAGE_BACKGROUND_COLOR")
@@ -155,6 +158,7 @@ pub(crate) fn opts() -> OptionParser<Out> {
         index_hole,
         decode,
         cc,
+        dont_reverse,
         supersample,
         img_bg_color,
         track_bg_color,
