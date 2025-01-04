@@ -30,37 +30,46 @@
     visualization of a disk image.
 */
 mod args;
-mod render;
-mod render_display_list;
+mod config;
+mod palette;
+mod render_bitmap;
+mod render_svg;
+mod style;
+mod svg_helpers;
 mod text;
 
-use crossbeam::channel;
 use std::{
-    collections::HashMap,
     io::{Cursor, Write},
     sync::{Arc, Mutex},
     thread,
     time::Instant,
 };
-use tiny_skia::{BlendMode, Color, FilterQuality, Pixmap, PixmapPaint, Transform};
 
 use crate::{
     args::{opts, substitute_title},
-    render::render_side,
-    render_display_list::render_display_list,
+    palette::{default_error_bit_color, default_style_config, default_weak_bit_color},
+    render_bitmap::render_side,
     text::{calculate_scaled_font_size, create_font, measure_text, render_text, Justification},
 };
+
 use fluxfox::{
-    track_schema::GenericTrackElement,
     visualization::{
-        render_track_metadata_quadrant,
-        visualize_disk_elements,
+        tiny_skia::{BlendMode, Color, FilterQuality, Pixmap, PixmapPaint, Transform},
+        tiny_skia_util::*,
+        types::VizDimensions,
+        vectorize_disk_elements,
+        CommonVizParams,
+        RenderRasterizationParams,
+        RenderTrackDataParams,
         RenderTrackMetadataParams,
         ResolutionType,
         TurningDirection,
     },
     DiskImage,
 };
+
+use crate::render_bitmap::rasterize_display_list;
+use crossbeam::channel;
 
 fn main() {
     let mut legend_height = None;
@@ -71,9 +80,9 @@ fn main() {
     let opts = opts().run();
 
     // Perform argument substitution.
-    let title = substitute_title(opts.title, &opts.in_filename);
+    let title = substitute_title(opts.title.clone(), &opts.in_filename);
 
-    // Load font.
+    // Load default font.
     let font_data = include_bytes!("../../../resources/PTN57F.ttf");
     let font = match create_font(font_data) {
         Ok(font) => font,
@@ -83,11 +92,14 @@ fn main() {
         }
     };
 
+    // Enforce power of two image size. This isn't strictly required, but it avoids some aliasing
+    // issues when rasterizing.
     if !is_power_of_two(opts.resolution) {
         eprintln!("Image size must be a power of two");
         return;
     }
 
+    // Limit supersampling from 1-8x.
     match opts.supersample {
         1 => opts.resolution,
         2 => opts.resolution * 2,
@@ -99,6 +111,21 @@ fn main() {
         }
     };
 
+    // Read the style configuration file, if specified.
+    let style_config = if let Some(style_filename) = opts.style_filename.clone() {
+        match config::load_style_config(&style_filename) {
+            Ok(style_config) => style_config,
+            Err(e) => {
+                eprintln!("Error loading style configuration: {}", e);
+                std::process::exit(1);
+            }
+        }
+    }
+    else {
+        default_style_config()
+    };
+
+    // Read in the entire input file and put it in a Cursor.
     let mut file_vec = match std::fs::read(opts.in_filename.clone()) {
         Ok(file_vec) => file_vec,
         Err(e) => {
@@ -108,6 +135,7 @@ fn main() {
     };
     let mut reader = Cursor::new(&mut file_vec);
 
+    // Detect the image file format, or bail.
     let disk_image_type = match DiskImage::detect_format(&mut reader, Some(&opts.in_filename)) {
         Ok(disk_image_type) => disk_image_type,
         Err(e) => {
@@ -119,6 +147,7 @@ fn main() {
     println!("Reading disk image: {}", opts.in_filename.display());
     println!("Detected disk image type: {}", disk_image_type);
 
+    // Load the disk image or bail.
     let disk = match DiskImage::load(&mut reader, Some(&opts.in_filename), None, None) {
         Ok(disk) => disk,
         Err(e) => {
@@ -134,23 +163,21 @@ fn main() {
 
     let resolution = ResolutionType::Byte; // Change to Bit if needed
     let min_radius_fraction = opts.hole_ratio; // Minimum radius as a fraction of the image size
-
+                                               // TODO: Make this a command line parameter
     let render_track_gap = 0.10; // Fraction of the track width to leave transparent as a gap between tracks (0.0-1.0)
 
-    let heads;
-    let mut sides_to_render: u32 = 0;
-    let mut starting_head: u32 = 0;
+    let sides_to_render: u32;
+    let starting_head: u32;
 
-    // If the user specifies a side, we assume that one side will be rendered.
+    // If the user specifies a side, we assume that only that side will be rendered.
     // However, the 'sides' parameter can be overridden to 2 to leave a blank space for the missing
-    // empty side.
+    // empty side. This is useful when rendering slideshows.
     if let Some(side) = opts.side {
         log::debug!("Side {} specified.", side);
         if side >= disk.heads() {
             eprintln!("Disk image does not have requested side: {}", side);
             std::process::exit(1);
         }
-        heads = disk.heads() as u32;
         sides_to_render = opts.sides.unwrap_or(1) as u32;
         starting_head = side as u32;
 
@@ -158,7 +185,6 @@ fn main() {
     }
     else {
         // No side was specified. We'll render all sides, starting at side 0.
-        heads = disk.heads() as u32;
         sides_to_render = opts.sides.unwrap_or(disk.heads()) as u32;
         starting_head = 0;
         println!("Visualizing {} sides...", sides_to_render);
@@ -170,44 +196,6 @@ fn main() {
         Arc::new(Mutex::new(Pixmap::new(opts.resolution, opts.resolution).unwrap())),
     ];
 
-    let null_color = Color::from_rgba8(0, 0, 0, 0);
-
-    //let viz_red: Color = Color::from_rgba8(255, 0, 0, 255);
-    //let viz_green: Color = Color::from_rgba8(0, 255, 0, 255);
-    //let viz_blue: Color = Color::from_rgba8(0, 0, 255, 255);
-
-    //let viz_light_blue: Color = Color::from_rgba8(0, 0, 180, 255);
-    //let viz_light_green: Color = Color::from_rgba8(0, 180, 0, 255);
-    let viz_light_red: Color = Color::from_rgba8(180, 0, 0, 255);
-
-    //let viz_orange: Color = Color::from_rgba8(255, 100, 0, 255);
-    let vis_purple: Color = Color::from_rgba8(180, 0, 180, 255);
-    //let viz_cyan: Color = Color::from_rgba8(70, 200, 200, 255);
-    //let vis_light_purple: Color = Color::from_rgba8(185, 0, 255, 255);
-
-    let pal_medium_green = Color::from_rgba8(0x38, 0xb7, 0x64, 0xff);
-    let pal_dark_green = Color::from_rgba8(0x25, 0x71, 0x79, 0xff);
-    //let pal_dark_blue = Color::from_rgba8(0x29, 0x36, 0x6f, 0xff);
-    let pal_medium_blue = Color::from_rgba8(0x3b, 0x5d, 0xc9, 0xff);
-    let pal_light_blue = Color::from_rgba8(0x41, 0xa6, 0xf6, 0xff);
-    //let pal_dark_purple = Color::from_rgba8(0x5d, 0x27, 0x5d, 0xff);
-    let pal_orange = Color::from_rgba8(0xef, 0x7d, 0x57, 0xff);
-    //let pal_dark_red = Color::from_rgba8(0xb1, 0x3e, 0x53, 0xff);
-    let pal_weak_bits = Color::from_rgba8(70, 200, 200, 255);
-    let pal_error_bits = Color::from_rgba8(255, 0, 0, 255);
-
-    #[rustfmt::skip]
-    let palette = HashMap::from([
-        (GenericTrackElement::SectorData, pal_medium_green),
-        //(GenericTrackElement::SectorBadData, pal_orange),
-        (GenericTrackElement::SectorBadData, pal_medium_green),
-        (GenericTrackElement::SectorDeletedData, pal_dark_green),
-        (GenericTrackElement::SectorBadDeletedData, viz_light_red),
-        (GenericTrackElement::SectorHeader, pal_light_blue),
-        (GenericTrackElement::SectorBadHeader, pal_medium_blue),
-        (GenericTrackElement::Marker, vis_purple),
-    ]);
-
     let _total_render_start_time = Instant::now();
     let data_render_start_time = Instant::now();
     let mut rendered_pixmaps = Vec::new();
@@ -215,8 +203,6 @@ fn main() {
     let image_size = opts.resolution;
     let track_ct = disk.tracks(0) as usize;
     log::trace!("Image has {} tracks.", track_ct);
-
-    let a_disk = disk.into_arc();
 
     // Determine size of legend. Currently, we only have a title.
     let font_h;
@@ -227,6 +213,26 @@ fn main() {
         legend_height = Some(font_h * 3); // 3 lines of text. Title will be centered within.
         log::debug!("Using title: {}", title_string);
     }
+
+    // Determine whether our output format is SVG or PNG. Only do so if `use_svg` is enabled.
+    #[cfg(feature = "use_svg")]
+    if let Some(extension) = opts.out_filename.extension() {
+        if extension == "svg" {
+            log::debug!("Rendering SVG...");
+            match render_svg::render_svg(&disk, starting_head, sides_to_render, &opts, &style_config, &title) {
+                Ok(_) => {
+                    log::debug!("Saved SVG to: {}", opts.out_filename.display());
+                    std::process::exit(0);
+                }
+                Err(e) => {
+                    eprintln!("Error rendering SVG: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+    }
+
+    let a_disk = disk.into_arc();
 
     for si in 0..sides_to_render {
         let side = si + starting_head;
@@ -246,28 +252,51 @@ fn main() {
             direction = direction.opposite();
         }
 
+        log::debug!("Rendering display list at resolution: {}", opts.resolution);
+        let common_params = CommonVizParams {
+            radius: Some(image_size as f32 / 2.0),
+            max_radius_ratio: 1.0,
+            min_radius_ratio: min_radius_fraction,
+            pos_offset: None,
+            index_angle: direction.adjust_angle(opts.angle),
+            track_limit: Some(track_ct),
+            pin_last_standard_track: true,
+            track_gap: render_track_gap,
+            absolute_gap: false,
+            direction,
+        };
+
+        let render_params = RenderTrackDataParams {
+            side: si as u8,
+            decode: opts.decode,
+            sector_mask: true,
+            resolution,
+        };
+
+        let rasterization_params = RenderRasterizationParams {
+            image_size: VizDimensions::from((image_size, image_size)),
+            supersample: opts.supersample,
+            image_bg_color: opts.img_bg_color,
+            disk_bg_color: opts.track_bg_color,
+            mask_color: None,
+            palette: None,
+            pos_offset: None,
+        };
+
+        let weak_color = default_weak_bit_color();
+        let error_color = default_error_bit_color();
+
         // Render data if data flag was passed.
         let mut pixmap = if opts.data {
-            let params = render::RenderParams {
-                bg_color: opts.img_bg_color,
-                track_bg_color: Some(Color::from_rgba8(0, 0, 0, 255)),
-                render_size: image_size,
-                supersample: opts.supersample as u8,
-                side,
-                min_radius: min_radius_fraction,
-                direction,
-                angle: opts.angle,
-                track_limit: track_ct,
-                track_gap: render_track_gap,
-                decode: opts.decode,
-                weak: opts.weak,
-                errors: opts.errors,
-                weak_color: Some(pal_weak_bits),
-                error_color: Some(pal_error_bits),
-                resolution_type: resolution,
-            };
-
-            match render_side(&disk.read().unwrap(), params) {
+            match render_side(
+                &disk.read().unwrap(),
+                &opts,
+                &common_params,
+                &render_params,
+                &rasterization_params,
+                weak_color,
+                error_color,
+            ) {
                 Ok(pixmap) => pixmap,
                 Err(e) => {
                     eprintln!("Error rendering side: {}", e);
@@ -385,59 +414,56 @@ fn main() {
             log::debug!("Rendering metadata for side {}...", side);
             let inner_disk = Arc::clone(&a_disk);
             let inner_pixmap = Arc::clone(&meta_pixmap_pool[side as usize]);
+            let palette = style_config.element_styles.clone();
 
-            let palette = palette.clone();
-            // let direction = match side {
-            //     0 => TurningDirection::Clockwise,
-            //     1 => TurningDirection::CounterClockwise,
-            //     _ => panic!("Invalid side"),
-            // };
+            let render_debug = opts.debug;
+            let inner_params = common_params.clone();
 
             thread::spawn(move || {
                 let mut metadata_pixmap = inner_pixmap.lock().unwrap();
 
                 // We set the angle to 0.0 here, because tiny_skia can rotate the resulting
                 // display list for us.
-                let mut render_params = RenderTrackMetadataParams {
-                    quadrant: 0,
+                let mut common_params = inner_params.clone();
+                common_params.index_angle = 0.0;
+
+                let metadata_params = RenderTrackMetadataParams {
+                    quadrant: None,
                     head: side as u8,
-                    min_radius_fraction,
-                    index_angle: 0.0,
-                    track_limit: track_ct,
-                    track_gap: render_track_gap,
-                    direction,
-                    palette: HashMap::new(),
                     draw_empty_tracks: false,
-                    pin_last_standard_track: true,
                     draw_sector_lookup: false,
                 };
 
                 let metadata_disk = inner_disk.read().unwrap();
 
-                let display_list =
-                    match visualize_disk_elements(&metadata_disk, opts.resolution as f32 / 2.0, &render_params) {
-                        Ok(display_list) => display_list,
-                        Err(e) => {
-                            eprintln!("Error rendering metadata: {}", e);
-                            std::process::exit(1);
-                        }
-                    };
+                let list_start_time = Instant::now();
+                let display_list = match vectorize_disk_elements(&metadata_disk, &common_params, &metadata_params) {
+                    Ok(display_list) => display_list,
+                    Err(e) => {
+                        eprintln!("Error rendering metadata: {}", e);
+                        std::process::exit(1);
+                    }
+                };
 
-                render_params.index_angle = opts.angle;
-                render_display_list(&mut metadata_pixmap, &render_params, &display_list, &palette);
+                println!(
+                    "visualize_disk_elements() returned a display list of length {} in {:.3}ms",
+                    display_list.len(),
+                    list_start_time.elapsed().as_secs_f64() * 1000.0
+                );
 
-                //inner_pixmap.save_png(format!("new_metadata{}.png", side)).unwrap();
+                // Set the index angle for rasterization.
+                let angle = inner_params.index_angle;
+                rasterize_display_list(&mut metadata_pixmap, angle, &display_list, &palette);
+
+                if render_debug {
+                    metadata_pixmap.save_png(format!("new_metadata{}.png", side)).unwrap();
+                }
 
                 println!("Sending rendered metadata pixmap for side: {} over channel...", side);
                 if let Err(e) = sender.send(side as u8) {
                     eprintln!("Error sending metadata pixmap: {}", e);
                     std::process::exit(1);
                 }
-
-                // println!(
-                //     "visualize_disk_elements() returned a display list of length {}",
-                //     display_list.len()
-                // );
             });
 
             println!("Waiting for metadata pixmap for side {}...", side);
@@ -496,7 +522,7 @@ fn main() {
 
         let mut final_image = Pixmap::new(final_size.0, final_size.1).unwrap();
         if let Some(color) = opts.img_bg_color {
-            final_image.fill(color);
+            final_image.fill(Color::from(color));
         }
 
         println!("Compositing sides...");
@@ -521,7 +547,7 @@ fn main() {
 
         let mut final_image = Pixmap::new(final_size.0, final_size.1).unwrap();
         if let Some(color) = opts.img_bg_color {
-            final_image.fill(color);
+            final_image.fill(Color::from(color));
         }
 
         println!("Compositing side...");
@@ -545,7 +571,7 @@ fn main() {
 
     // Render index hole if requested.
     if opts.index_hole {
-        fluxfox::visualization::draw_index_hole(
+        draw_index_hole(
             &mut composited_image,
             0.39,
             2.88,

@@ -104,11 +104,11 @@ impl Display for DiskRpm {
             format!(" -{:.3}%", f - 1.0)
         };
         match self {
-            DiskRpm::Rpm150(f) => write!(fmt, "150RPM{}", f_str),
-            DiskRpm::Rpm300(f) => write!(fmt, "300RPM{}", f_str),
-            DiskRpm::Rpm360(f) => write!(fmt, "360RPM{}", f_str),
-            DiskRpm::Rpm600(f) => write!(fmt, "600RPM{}", f_str),
-            DiskRpm::Zoned(_map, f) => write!(fmt, "Zoned RPM"),
+            DiskRpm::Rpm150(_) => write!(fmt, "150RPM{}", f_str),
+            DiskRpm::Rpm300(_) => write!(fmt, "300RPM{}", f_str),
+            DiskRpm::Rpm360(_) => write!(fmt, "360RPM{}", f_str),
+            DiskRpm::Rpm600(_) => write!(fmt, "600RPM{}", f_str),
+            DiskRpm::Zoned(_map, _) => write!(fmt, "Zoned RPM"),
         }
     }
 }

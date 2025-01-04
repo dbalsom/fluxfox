@@ -67,6 +67,7 @@ use crate::{
     windows::{
         element_map::ElementMapViewer,
         file_viewer::FileViewer,
+        new_viz::NewVizViewer,
         sector_viewer::SectorViewer,
         source_map::SourceMapViewer,
         track_timing_viewer::TrackTimingViewer,
@@ -178,6 +179,7 @@ impl AppWidgets {
 #[derive(Default)]
 pub struct AppWindows {
     viz_viewer: VizViewer,
+    new_viz_viewer: NewVizViewer,
     sector_viewer: SectorViewer,
     track_viewer: TrackViewer,
     file_viewer: FileViewer,
@@ -189,6 +191,7 @@ pub struct AppWindows {
 impl AppWindows {
     pub fn reset(&mut self) {
         self.viz_viewer.reset();
+        self.new_viz_viewer.reset();
         self.sector_viewer = SectorViewer::default();
         self.track_viewer = TrackViewer::default();
         self.file_viewer = FileViewer::default();
@@ -336,6 +339,7 @@ impl eframe::App for App {
         // Show windows
         if let Some(disk_image) = &self.disk_image {
             self.windows.viz_viewer.show(ctx, disk_image.clone());
+            self.windows.new_viz_viewer.show(ctx, disk_image.clone());
             self.windows.source_map.show(ctx);
         }
 
@@ -495,6 +499,7 @@ impl App {
 
             ui.menu_button("Windows", |ui| {
                 ui.checkbox(self.windows.viz_viewer.open_mut(), "Visualization");
+                ui.checkbox(self.windows.new_viz_viewer.open_mut(), "Visualization (New)");
                 ui.checkbox(self.windows.source_map.open_mut(), "Image Source Map");
             });
 
@@ -548,8 +553,22 @@ impl App {
                         }
                     }
 
+                    match self
+                        .windows
+                        .new_viz_viewer
+                        .render(self.disk_image.as_ref().unwrap().clone())
+                    {
+                        Ok(_) => {
+                            log::info!("Visualization rendered successfully!");
+                        }
+                        Err(e) => {
+                            log::error!("Error rendering visualization: {:?}", e);
+                        }
+                    }
+
                     if self.p_state.user_opts.auto_show_viz {
                         self.windows.viz_viewer.set_open(true);
+                        self.windows.new_viz_viewer.set_open(true);
                     }
 
                     // Update widgets.

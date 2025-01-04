@@ -25,31 +25,14 @@
     --------------------------------------------------------------------------
 */
 
-//! Rasterization utilities for the [tiny-skia](https://crates.io/crates/tiny-skia) crate.
-//! This module can be enabled via the `tiny_skia` feature flag.
-
 use crate::{
     track_schema::GenericTrackElement,
     visualization::types::{VizArc, VizElement, VizSector},
+    FoxHashMap,
 };
-use std::collections::HashMap;
-#[cfg(feature = "tiny_skia")]
-use tiny_skia::{
-    BlendMode,
-    Color,
-    FillRule,
-    GradientStop,
-    LineCap,
-    LineJoin,
-    LinearGradient,
-    Paint,
-    PathBuilder,
-    Pixmap,
-    Point,
-    SpreadMode,
-    Stroke,
-    Transform,
-};
+
+use crate::visualization::tiny_skia_util::SkiaStyle;
+use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Transform};
 
 #[inline]
 pub fn skia_render_arc(path: &mut PathBuilder, arc: &VizArc, line_to: bool, reverse: bool) {
@@ -92,7 +75,7 @@ pub fn skia_render_element(
     paint: &mut Paint,
     element: &VizElement,
     transform: &Transform,
-    palette: &HashMap<GenericTrackElement, Color>,
+    palette: &FoxHashMap<GenericTrackElement, SkiaStyle>,
 ) {
     let mut path = PathBuilder::new();
 
@@ -100,8 +83,10 @@ pub fn skia_render_element(
     //log::debug!("Rendering element: {:#?}", &element);
     skia_render_sector(&mut path, &element.sector);
     path.close();
-    let color = palette.get(&element.info.element_type).unwrap_or(&Color::TRANSPARENT);
-    paint.set_color(*color);
+    let default_style = SkiaStyle::default();
+    let style = palette.get(&element.info.element_type).unwrap_or(&default_style);
+
+    paint.set_color(Color::from(style.fill));
 
     if let Some(path) = path.finish() {
         if !path.is_empty() {

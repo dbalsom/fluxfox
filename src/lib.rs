@@ -42,6 +42,8 @@
 //!
 //! It is recommended to use the [`ImageBuilder`] interface to load or create a disk image.
 
+extern crate core;
+
 mod bit_ring;
 pub mod bitstream_codec;
 pub mod boot_sector;
@@ -80,6 +82,11 @@ use thiserror::Error;
 pub const MAXIMUM_SECTOR_SIZE: usize = 8192;
 pub const DEFAULT_SECTOR_SIZE: usize = 512;
 pub const ASCII_EOF: u8 = 0x1A;
+/// The maximum cylinder any drive can seek to or that we will ever see in an image.
+/// This is used for setting safe capacities for vectors and other data structures and track-based
+/// normalization logic.
+/// This may need to be adjusted if we ever see a disk image with more than 85 cylinders.
+pub const MAX_CYLINDER: usize = 85;
 
 #[allow(unused)]
 pub type FoxHashMap<K, V, S = RandomState> = std::collections::HashMap<K, V, S>;

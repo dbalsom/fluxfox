@@ -1,0 +1,53 @@
+# imgviz style definition
+#
+# This file defines the desired style settings for the rendered image.
+# Color definitions can be an array of 4 values: [r, g, b, a], or a hexadecimal value in the form 0xRRGGBBAA.
+# `Stroke` must be a floating-point value. Include the decimal point!
+
+# Default Style Settings
+[default_style]
+fill = [128, 128, 128, 255]   # Default gray fill
+stroke = [0, 0, 0, 0]         # Default transparent stroke. Stroke is not very useful as the disk is split into 
+                              # quadrants to avoid rendering issues, but hey, it's here if you want to see it.
+stroke_width = 0.0            # Default stroke width (none)
+
+# Mask style definitions.
+[masks]
+weak = [0, 0, 255, 255]        # Weak mask color (blue)
+error = [255, 0, 0, 255]       # Error mask color (red)
+
+# A vector for a track is only drawn if it has nonzero alpha fill.
+# Specifying a full-alpha fill color will hide the data layer. This is mostly useful if only rendering metadata,
+# and you want to see the full track ring.
+[track_style]
+fill = [128, 128, 128, 255]    # Default gray fill
+
+# Element style definitions.
+# An element will inherit the default style settings unless overridden here.
+# A full element definition takes the form:
+# ElementName = { fill = [r, g, b, a], stroke = [r, g, b, a], stroke_width = 1 }
+#
+# The following elements are defined:
+# - Marker: A marker element, such as an IAM, IDAM or DAM marker on an MFM track.
+# - SectorHeader: A sector header element - not all track schemas will have these.
+# - SectorBadHeader - A bad sector header element - same as above, but with a failed CRC/checksum.
+# - SectorData - A sector data element.
+# - SectorBadData - A bad sector data element - same as above, but with a failed CRC/checksum.
+# - SectorDeletedData - A `deleted` sector data element. Only applicable to some track schemas (System34).
+# - SectorBadDeletedData - A bad `deleted` sector data element. Same as above, but with a failed CRC/checksum.
+[element_styles]
+# Medium Green
+SectorData = { fill = [56, 183, 100, 255] }
+#SectorData = { fill = [0, 0, 255, 255] }
+# Orange
+SectorBadData = { fill = [239, 125, 87, 255] }
+# Dark Green
+SectorDeletedData = { fill = [37, 113, 121, 255] }
+# Light Red
+SectorBadDeletedData = { fill = [180, 0, 0, 255] }
+# Light Blue
+SectorHeader = { fill = [65, 166, 246, 255] }
+# Medium Blue
+SectorBadHeader = { fill = [59, 93, 201, 255] }
+# Purple  
+Marker = { fill = [180, 0, 180, 255] }      

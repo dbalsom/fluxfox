@@ -25,11 +25,10 @@
     --------------------------------------------------------------------------
 */
 
-pub mod element_map;
-pub mod file_viewer;
-pub mod new_viz;
-pub mod sector_viewer;
-pub mod source_map;
-pub mod track_timing_viewer;
-pub mod track_viewer;
-pub mod viz;
+//! Prelude for visualization module. This module re-exports all necessary
+//! types and functions for visualization.
+
+pub use super::{display_list::*, types::*, vectorize_disk::*, *};
+
+#[cfg(feature = "tiny_skia")]
+pub use super::tiny_skia_util::*;

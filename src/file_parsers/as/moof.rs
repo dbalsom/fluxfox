@@ -563,7 +563,7 @@ impl MoofFormat {
     fn add_bitstream_track<RWS: ReadSeek>(
         mut reader: RWS,
         disk: &mut DiskImage,
-        image_size: u64,
+        _image_size: u64,
         ch: DiskCh,
         encoding: TrackDataEncoding,
         track: &Trk,

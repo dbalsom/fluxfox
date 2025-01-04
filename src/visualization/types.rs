@@ -26,39 +26,275 @@
 */
 use crate::{track_schema::GenericTrackElement, types::DiskCh, visualization::VizRotate};
 use bitflags::bitflags;
-use std::ops::Range;
+use core::fmt;
+use num_traits::Num;
+use std::{
+    fmt::{Display, Formatter},
+    ops::{Add, Div, Range},
+};
+
+/// A [VizColor] represents a color in 32-bit premultiplied RGBA format.
+#[derive(Copy, Clone, Debug)]
+pub struct VizColor {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
+}
+
+impl Default for VizColor {
+    fn default() -> VizColor {
+        VizColor::TRANSPARENT
+    }
+}
+
+#[rustfmt::skip]
+impl VizColor {
+    pub const TRANSPARENT: VizColor = VizColor { r: 0, g: 0, b: 0, a: 0 };
+    pub const WHITE: VizColor = VizColor { r: 255, g: 255, b: 255, a: 255 };
+    pub const BLACK: VizColor = VizColor { r: 0, g: 0, b: 0, a: 255 };
+    pub const RED: VizColor = VizColor { r: 255, g: 0, b: 0, a: 255 };
+    pub const GREEN: VizColor = VizColor { r: 0, g: 255, b: 0, a: 255 };
+    pub const BLUE: VizColor = VizColor { r: 0, g: 0, b: 255, a: 255 };
+    
+    pub fn from_rgba8(r: u8, g: u8, b: u8, a: u8) -> VizColor {
+        VizColor { r, g, b, a }
+    }
+}
+
+#[cfg(feature = "tiny_skia")]
+impl From<VizColor> for tiny_skia::Color {
+    #[inline]
+    fn from(color: VizColor) -> tiny_skia::Color {
+        tiny_skia::Color::from_rgba8(color.r, color.g, color.b, color.a)
+    }
+}
 
 bitflags! {
     #[derive (Clone, Debug, Default)]
     pub struct VizElementFlags: u32 {
+        // No flags set
         const NONE = 0b0000_0000;
-        const OVERLAP = 0b0000_0001; // This sector crosses the index
-        const OVERLAP_LONG = 0b0000_0010; // This sector crosses the index, and is sufficiently long that it should be faded out
-        const EMPTY_TRACK = 0b0000_0100; // This sector represents an entire empty track
+        // This element represents a section of an entire track and can be used to draw the track background
+        const TRACK = 0b0000_0001;
+        /// This element represents a section of an empty track
+        const EMPTY_TRACK = 0b0000_0010;
+        // This element crosses the index
+        const OVERLAP = 0b0000_0100;
+        // This element crosses the index, and is sufficiently long that it should be faded out
+        const OVERLAP_LONG = 0b0000_1000;
+
+    }
+}
+
+/// A [VizDimensions] represents the width and height of a rectangular region, such as a pixmap.
+pub type VizDimensions = VizPoint2d<u32>;
+
+/// A [VizRect] represents a rectangle in 2D space. It is generic across numeric types, using
+/// `num_traits`.
+///
+/// The rectangle is defined by two points, the top-left and bottom-right corners.
+/// Methods are provided for calculating the width and height of the rectangle.
+pub struct VizRect<T> {
+    pub top_left: VizPoint2d<T>,
+    pub bottom_right: VizPoint2d<T>,
+}
+
+impl<T: Num + Copy + PartialOrd + Default> VizRect<T> {
+    #[inline]
+    fn min(a: T, b: T) -> T {
+        if a < b {
+            a
+        }
+        else {
+            b
+        }
+    }
+
+    #[inline]
+    fn max(a: T, b: T) -> T {
+        if a > b {
+            a
+        }
+        else {
+            b
+        }
+    }
+
+    pub fn new(top_left: VizPoint2d<T>, bottom_right: VizPoint2d<T>) -> VizRect<T> {
+        VizRect { top_left, bottom_right }
+    }
+
+    pub fn from_tuple(top_left: (T, T), bottom_right: (T, T)) -> VizRect<T> {
+        VizRect {
+            top_left: VizPoint2d::from(top_left),
+            bottom_right: VizPoint2d::from(bottom_right),
+        }
+    }
+
+    pub fn width(&self) -> T {
+        self.bottom_right.x - self.top_left.x
+    }
+
+    pub fn height(&self) -> T {
+        self.bottom_right.y - self.top_left.y
+    }
+
+    /// Returns the intersection of two [VizRect] as a [VizRect], or returns `None` if they do not
+    /// intersect.
+    pub fn intersection(&self, other: &VizRect<T>) -> Option<VizRect<T>> {
+        let top_left = VizPoint2d::new(
+            Self::max(self.top_left.x, other.top_left.x),
+            Self::max(self.top_left.y, other.top_left.y),
+        );
+
+        let bottom_right = VizPoint2d::new(
+            Self::min(self.bottom_right.x, other.bottom_right.x),
+            Self::min(self.bottom_right.y, other.bottom_right.y),
+        );
+
+        if top_left.x <= bottom_right.x && top_left.y <= bottom_right.y {
+            Some(VizRect::new(top_left, bottom_right))
+        }
+        else {
+            None
+        }
+    }
+
+    /// Returns bounding box that includes both [VizRect]s
+    pub fn bounding_box(&self, other: &VizRect<T>) -> VizRect<T> {
+        let top_left = VizPoint2d::new(
+            Self::min(self.top_left.x, other.top_left.x),
+            Self::min(self.top_left.y, other.top_left.y),
+        );
+
+        let bottom_right = VizPoint2d::new(
+            Self::max(self.bottom_right.x, other.bottom_right.x),
+            Self::max(self.bottom_right.y, other.bottom_right.y),
+        );
+
+        VizRect::new(top_left, bottom_right)
+    }
+
+    /// Return whether the specified point is within Self
+    pub fn contains_point(&self, point: &VizPoint2d<T>) -> bool {
+        point.x >= self.top_left.x
+            && point.x <= self.bottom_right.x
+            && point.y >= self.top_left.y
+            && point.y <= self.bottom_right.y
+    }
+
+    /// Return whether the specified rectangle is within Self
+    pub fn contains_rect(&self, other: &VizRect<T>) -> bool {
+        self.contains_point(&other.top_left) && self.contains_point(&other.bottom_right)
+    }
+
+    /// Grow the rectangle by a factor, preserving the top-left corner position.
+    /// If the factor is negative, the rectangle will flip across the top-left corner.
+    pub fn grow_pinned(&self, factor: T) -> VizRect<T> {
+        let new_width = self.width() * factor;
+        let new_height = self.height() * factor;
+
+        let new_rect = VizRect {
+            top_left: VizPoint2d::new(self.top_left.x, self.top_left.y),
+            bottom_right: VizPoint2d::new(self.top_left.x + new_width, self.bottom_right.y + new_height),
+        };
+
+        new_rect.normalize()
+    }
+
+    /// Ensure that the top left coordinate is less than the bottom right coordinate.
+    pub fn normalize(&self) -> VizRect<T> {
+        let top_left = VizPoint2d::new(
+            Self::min(self.top_left.x, self.bottom_right.x),
+            Self::min(self.top_left.y, self.bottom_right.y),
+        );
+
+        let bottom_right = VizPoint2d::new(
+            Self::max(self.top_left.x, self.bottom_right.x),
+            Self::max(self.top_left.y, self.bottom_right.y),
+        );
+        VizRect::new(top_left, bottom_right)
+    }
+
+    pub fn to_tuple(&self) -> (T, T, T, T) {
+        (
+            self.top_left.x,
+            self.top_left.y,
+            self.bottom_right.x,
+            self.bottom_right.y,
+        )
+    }
+}
+
+impl<T> VizRect<T>
+where
+    T: Num + Copy + Add<T, Output = T> + Div<T, Output = T> + From<f32> + PartialOrd + Default,
+{
+    pub fn center(&self) -> VizPoint2d<T> {
+        VizPoint2d::new(
+            self.top_left.x + self.width() / T::from(2.0),
+            self.top_left.y + self.height() / T::from(2.0),
+        )
+    }
+}
+
+impl From<(f32, f32, f32, f32)> for VizRect<f32> {
+    fn from(tuple: (f32, f32, f32, f32)) -> Self {
+        VizRect {
+            top_left: VizPoint2d::new(tuple.0, tuple.1),
+            bottom_right: VizPoint2d::new(tuple.2, tuple.3),
+        }
     }
 }
 
 /// A [VizPoint2d] represents a point in 2D space in the range `[(0,0), (1,1)]`.
+/// It is generic across numeric types, using `num_traits`.
 #[derive(Copy, Clone, Debug)]
-pub struct VizPoint2d {
-    pub x: f32,
-    pub y: f32,
+pub struct VizPoint2d<T> {
+    pub x: T,
+    pub y: T,
 }
 
-impl From<(f32, f32)> for VizPoint2d {
-    #[inline]
-    fn from(tuple: (f32, f32)) -> VizPoint2d {
+impl<T: Num + Copy + Default + Display> Display for VizPoint2d<T> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "({}, {})", self.x, self.y)
+    }
+}
+
+impl<T: Num + Copy + Default> Default for VizPoint2d<T> {
+    fn default() -> Self {
+        VizPoint2d {
+            x: T::default(),
+            y: T::default(),
+        }
+    }
+}
+
+impl<T: Num + Copy + Default> From<(T, T)> for VizPoint2d<T> {
+    fn from(tuple: (T, T)) -> Self {
         VizPoint2d { x: tuple.0, y: tuple.1 }
     }
 }
 
-impl VizPoint2d {
-    pub fn new(x: f32, y: f32) -> VizPoint2d {
+impl<T: Num + Copy + Default> VizPoint2d<T> {
+    pub fn new(x: T, y: T) -> Self {
         VizPoint2d { x, y }
+    }
+
+    pub fn to_tuple(&self) -> (T, T) {
+        (self.x, self.y)
+    }
+
+    pub fn scale(&self, factor: T) -> VizPoint2d<T> {
+        VizPoint2d {
+            x: self.x * factor,
+            y: self.y * factor,
+        }
     }
 }
 
-impl VizRotate for VizPoint2d {
+impl VizRotate for VizPoint2d<f32> {
     #[inline]
     fn rotate(&mut self, angle: f32) {
         let cos_theta = angle.cos();
@@ -71,10 +307,10 @@ impl VizRotate for VizPoint2d {
 /// A [VizArc] represents a cubic Bezier curve in 2D space.
 #[derive(Copy, Clone, Debug)]
 pub struct VizArc {
-    pub start: VizPoint2d, // Start point of arc
-    pub end:   VizPoint2d, // End point of arc
-    pub cp1:   VizPoint2d, // 1st control point
-    pub cp2:   VizPoint2d, // 2nd control point
+    pub start: VizPoint2d<f32>, // Start point of arc
+    pub end:   VizPoint2d<f32>, // End point of arc
+    pub cp1:   VizPoint2d<f32>, // 1st control point
+    pub cp2:   VizPoint2d<f32>, // 2nd control point
 }
 
 impl VizRotate for VizArc {
@@ -91,6 +327,8 @@ impl VizRotate for VizArc {
 /// be a sector on a disk, but may represent other track elements or regions as well.
 #[derive(Copy, Clone, Debug)]
 pub struct VizSector {
+    pub start: f32, // The angle at which the sector starts
+    pub end:   f32, // The angle at which the sector ends
     pub outer: VizArc,
     pub inner: VizArc,
 }
@@ -180,25 +418,44 @@ impl VizRotate for VizElement {
 // }
 
 /// Convert a tuple of two [VizArc] objects into a [VizSector].
-impl From<(VizArc, VizArc)> for VizSector {
+impl From<(f32, f32, VizArc, VizArc)> for VizSector {
     #[inline]
-    fn from((outer, inner): (VizArc, VizArc)) -> VizSector {
-        VizSector { outer, inner }
+    fn from((start, end, outer, inner): (f32, f32, VizArc, VizArc)) -> VizSector {
+        VizSector {
+            start,
+            end,
+            outer,
+            inner,
+        }
     }
 }
 
 #[cfg(feature = "tiny_skia")]
-impl From<VizPoint2d> for tiny_skia::Point {
+impl From<VizPoint2d<f32>> for tiny_skia::Point {
     #[inline]
-    fn from(p: VizPoint2d) -> tiny_skia::Point {
+    fn from(p: VizPoint2d<f32>) -> tiny_skia::Point {
         tiny_skia::Point { x: p.x, y: p.y }
     }
 }
 
 #[cfg(feature = "tiny_skia")]
-impl From<tiny_skia::Point> for VizPoint2d {
+impl From<tiny_skia::Point> for VizPoint2d<f32> {
     #[inline]
-    fn from(p: tiny_skia::Point) -> VizPoint2d {
+    fn from(p: tiny_skia::Point) -> VizPoint2d<f32> {
         VizPoint2d { x: p.x, y: p.y }
+    }
+}
+
+/// A slice of a track used in vector based data layer visualization.
+pub struct VizDataSlice {
+    pub popcnt: u8,         // The count of `1` bits in the slice
+    pub decoded_popcnt: u8, // The count of `1` bits in the slice after decoding
+    pub sector: VizSector,  // The sector definition
+}
+
+impl VizRotate for VizDataSlice {
+    #[inline]
+    fn rotate(&mut self, angle: f32) {
+        self.sector.rotate(angle);
     }
 }

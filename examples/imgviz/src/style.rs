@@ -25,11 +25,52 @@
     --------------------------------------------------------------------------
 */
 
-pub mod element_map;
-pub mod file_viewer;
-pub mod new_viz;
-pub mod sector_viewer;
-pub mod source_map;
-pub mod track_timing_viewer;
-pub mod track_viewer;
-pub mod viz;
+use std::collections::HashMap;
+
+use fluxfox::{
+    track_schema::GenericTrackElement,
+    visualization::{
+        prelude::{skia_render_element, SkiaStyle, VizColor},
+        VizElementDisplayList,
+    },
+    FoxHashMap,
+};
+
+use crate::svg_helpers::svg_render_element;
+use tiny_skia::{BlendMode, Paint, Pixmap, Transform};
+
+// Style struct for storing visual properties
+#[derive(Copy, Clone, Debug, Default)]
+pub struct Style {
+    pub fill: VizColor,
+    pub stroke: VizColor,
+    pub stroke_width: f32,
+}
+
+impl Style {
+    pub fn fill_only(fill: VizColor) -> Style {
+        Style {
+            fill,
+            stroke: VizColor::from_rgba8(0, 0, 0, 0),
+            stroke_width: 0.0,
+        }
+    }
+}
+
+pub fn style_map_to_skia(
+    style_map: &FoxHashMap<GenericTrackElement, Style>,
+) -> FoxHashMap<GenericTrackElement, SkiaStyle> {
+    style_map
+        .iter()
+        .map(|(k, v)| {
+            (
+                k.clone(),
+                SkiaStyle {
+                    fill: v.fill,
+                    stroke: v.stroke,
+                    stroke_width: v.stroke_width,
+                },
+            )
+        })
+        .collect()
+}

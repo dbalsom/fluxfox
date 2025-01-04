@@ -74,7 +74,7 @@ rand = { version = "0.8", optional = true }
 # Modular-bitfield is used by the IPF parser
 modular-bitfield = { version = "0.11", optional = true }
 
-# Num-traits and num-derive are used by retrocompressor ('td0' feature)
+# Num-traits and num-derive are used by retrocompressor ('td0' feature) and visualizations ('viz' feature)
 num-traits = { version = "0.2", optional = true }
 num-derive = { version = "0.4", optional = true }
 

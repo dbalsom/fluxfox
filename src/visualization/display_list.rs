@@ -25,56 +25,177 @@
     --------------------------------------------------------------------------
 */
 
-//! A [VizDisplayList] is a list of [VizElement] objects to be rendered.
+//! A [VizElementDisplayList] is a list of [VizElement] objects to be rendered.
 //! Operations can be implemented on this list, such as scaling and rotation.
 
-use crate::visualization::{types::VizElement, TurningDirection, VizRotate};
+use crate::{
+    visualization::{
+        types::{VizDataSlice, VizElement},
+        TurningDirection,
+        VizRotate,
+    },
+    MAX_CYLINDER,
+};
 
-/// A [VizDisplayList] is a list of [VizElement] objects to be rendered.
+/// A [VizElementDisplayList] is a list of [VizElement] objects to be rendered.
 /// Operations can be implemented on this list, such as scaling and rotation.
-pub struct VizDisplayList {
-    pub turning:  TurningDirection,
-    pub elements: Vec<VizElement>,
+pub struct VizElementDisplayList {
+    pub turning: TurningDirection,
+    pub tracks:  Vec<Vec<VizElement>>,
 }
 
-impl VizDisplayList {
-    pub fn new(turning: TurningDirection) -> VizDisplayList {
-        VizDisplayList {
+impl VizElementDisplayList {
+    pub fn new(turning: TurningDirection, cylinders: usize) -> VizElementDisplayList {
+        VizElementDisplayList {
             turning,
-            elements: Vec::new(),
+            tracks: vec![Vec::new(); cylinders],
         }
     }
 
-    pub fn push(&mut self, element: VizElement) {
-        self.elements.push(element);
+    /// Push a [VizElement] onto the display list at the specified track.
+    /// If the track does not exist, nothing will happen.
+    pub fn push(&mut self, c: usize, element: VizElement) {
+        if c < self.tracks.len() {
+            self.tracks[c].push(element);
+        }
     }
 
+    /// Return the total number of [VizElement]s in the display list.
     pub fn len(&self) -> usize {
-        self.elements.len()
+        let mut total = 0;
+        for track in &self.tracks {
+            log::debug!("track.len() = {}", track.len());
+            total += track.len()
+        }
+        total
     }
 
+    /// Rotate all items in the display list by the specified `angle` in radians.
+    /// ## Warning: This is a lossy operation. Multiple rotations will accumulate errors.
+    /// This feature is mostly designed for debugging and testing.
+    /// To properly rotate a visualization you should use a transformation matrix in your rendering
+    /// engine. See the `imgviz` example crate for an example of how to do this with `svg` and
+    /// `tiny_skia`, or the `ff_egui_lib` crate for an example of how to do this with `egui`.
     pub fn rotate(&mut self, angle: f32) {
-        for element in self.elements.iter_mut() {
-            element.rotate(angle);
+        for track in &mut self.tracks {
+            for element in track {
+                element.rotate(angle);
+            }
         }
     }
 
+    /// Return an Iterator that yields all the [VizElement]s in the display list,
+    /// in order, by track.
     pub fn iter(&self) -> VizDisplayListIter {
-        VizDisplayListIter {
-            iter: self.elements.iter(),
-        }
+        let mut outer = self.tracks.iter();
+        // Initialize inner iterator with the first track
+        let inner = outer.next().map(|v| v.iter());
+        VizDisplayListIter { outer, inner }
     }
 }
 
 // Iterator struct
 pub struct VizDisplayListIter<'a> {
-    iter: std::slice::Iter<'a, VizElement>,
+    outer: std::slice::Iter<'a, Vec<VizElement>>,
+    inner: Option<std::slice::Iter<'a, VizElement>>,
 }
 
 impl<'a> Iterator for VizDisplayListIter<'a> {
     type Item = &'a VizElement;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next()
+        loop {
+            if let Some(inner) = &mut self.inner {
+                if let Some(next_item) = inner.next() {
+                    return Some(next_item);
+                }
+            }
+
+            // Move to the next outer track if the current inner is exhausted
+            self.inner = self.outer.next().map(|v| v.iter());
+
+            // If there are no more tracks, break out
+            if self.inner.is_none() {
+                return None;
+            }
+        }
+    }
+}
+
+/// A [VizDataSliceDisplayList] is a list of [VizDataSlice] objects to be rendered.
+/// Operations can be implemented on this list, such as scaling and rotation.
+pub struct VizDataSliceDisplayList {
+    pub turning: TurningDirection,
+    pub tracks:  Vec<Vec<VizDataSlice>>,
+}
+
+// Iterator struct
+pub struct VizDataDisplayListIter<'a> {
+    outer: std::slice::Iter<'a, Vec<VizDataSlice>>,
+    inner: Option<std::slice::Iter<'a, VizDataSlice>>,
+}
+
+impl<'a> Iterator for VizDataDisplayListIter<'a> {
+    type Item = &'a VizDataSlice;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(inner) = &mut self.inner {
+                if let Some(next_item) = inner.next() {
+                    return Some(next_item);
+                }
+            }
+
+            // Move to the next outer track if the current inner is exhausted
+            self.inner = self.outer.next().map(|v| v.iter());
+
+            // If there are no more tracks, break out
+            if self.inner.is_none() {
+                return None;
+            }
+        }
+    }
+}
+
+impl VizDataSliceDisplayList {
+    pub fn new(turning: TurningDirection) -> VizDataSliceDisplayList {
+        VizDataSliceDisplayList {
+            turning,
+            tracks: Vec::with_capacity(MAX_CYLINDER),
+        }
+    }
+
+    pub fn push(&mut self, c: usize, element: VizDataSlice) {
+        if c < self.tracks.len() {
+            self.tracks[c].push(element);
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        let mut total = 0;
+        for track in &self.tracks {
+            total += track.len()
+        }
+        total
+    }
+
+    /// Rotate all items in the display list by the specified `angle` in radians.
+    /// ## Warning: This is a lossy operation. Multiple rotations will accumulate errors.
+    /// This feature is mostly designed for debugging and testing.
+    /// To properly rotate a visualization you should use a transformation matrix in your rendering engine.
+    pub fn rotate(&mut self, angle: f32) {
+        for track in &mut self.tracks {
+            for element in track {
+                element.rotate(angle);
+            }
+        }
+    }
+
+    /// Produce an iterator that yields all the [VizDataSlice]s in the display list,
+    pub fn iter(&self) -> VizDataDisplayListIter {
+        let mut outer = self.tracks.iter();
+        // Initialize inner iterator with the first track
+        let inner = outer.next().map(|v| v.iter());
+        VizDataDisplayListIter { outer, inner }
     }
 }

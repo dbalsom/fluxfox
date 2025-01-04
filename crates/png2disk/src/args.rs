@@ -32,7 +32,7 @@
 use std::path::PathBuf;
 
 use bpaf::{construct, long, short, OptionParser, Parser};
-use fluxfox::{types::StandardFormatParam, visualization::tiny_skia::Color, StandardFormat};
+use fluxfox::{types::StandardFormatParam, visualization::tiny_skia_util::Color, StandardFormat};
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]

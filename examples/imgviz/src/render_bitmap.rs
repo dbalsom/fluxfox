@@ -29,26 +29,36 @@
     Rendering functions for imgviz.
 
 */
-use std::time::Instant;
+use std::{collections::HashMap, time::Instant};
 
 use anyhow::bail;
 use fast_image_resize::{images::Image as FirImage, FilterType, PixelType, ResizeAlg, Resizer};
-use tiny_skia::{Color, IntSize, Pixmap, PremultipliedColorU8};
+use tiny_skia::{BlendMode, Color, IntSize, Paint, Pixmap, PremultipliedColorU8, Transform};
 
+use crate::{
+    args::VizArgs,
+    style::{style_map_to_skia, Style},
+};
 use fluxfox::{
+    track_schema::GenericTrackElement,
     visualization::{
-        render_track_data,
+        prelude::skia_render_element,
+        rasterize_track_data,
         render_track_mask,
+        types::{VizColor, VizDimensions},
+        CommonVizParams,
         RenderMaskType,
+        RenderRasterizationParams,
         RenderTrackDataParams,
         ResolutionType,
         TurningDirection,
+        VizElementDisplayList,
     },
     DiskImage,
 };
 
 pub struct RenderParams {
-    pub bg_color: Option<Color>,
+    pub bg_color: Option<VizColor>,
     pub track_bg_color: Option<Color>,
     pub render_size: u32,
     pub supersample: u8,
@@ -61,8 +71,8 @@ pub struct RenderParams {
     pub decode: bool,
     pub weak: bool,
     pub errors: bool,
-    pub weak_color: Option<Color>,
-    pub error_color: Option<Color>,
+    pub weak_color: Option<VizColor>,
+    pub error_color: Option<VizColor>,
     pub resolution_type: ResolutionType,
 }
 
@@ -77,52 +87,48 @@ pub(crate) fn color_to_premultiplied(color: Color) -> PremultipliedColorU8 {
     .expect("Failed to create PremultipliedColorU8")
 }
 
-pub fn render_side(disk: &DiskImage, p: RenderParams) -> Result<Pixmap, anyhow::Error> {
-    let direction = match p.side {
+pub fn render_side(
+    disk: &DiskImage,
+    opts: &VizArgs,
+    p: &CommonVizParams,
+    r: &RenderTrackDataParams,
+    rr: &RenderRasterizationParams,
+    weak_color: VizColor,
+    error_color: VizColor,
+) -> Result<Pixmap, anyhow::Error> {
+    let direction = match r.side {
         0 => TurningDirection::Clockwise,
         1 => TurningDirection::CounterClockwise,
         _ => {
-            bail!("Invalid side: {}", p.side);
+            bail!("Invalid side: {}", r.side);
         }
     };
 
-    let angle = direction.adjust_angle(p.angle);
+    let mut rr = rr.clone();
 
-    let supersample_size = match p.supersample {
-        1 => p.render_size,
-        2 => p.render_size * 2,
-        4 => p.render_size * 4,
-        8 => p.render_size * 8,
+    let angle = direction.adjust_angle(p.index_angle);
+
+    let supersample_size = match rr.supersample {
+        1 => rr.image_size,
+        2 => rr.image_size.scale(2),
+        4 => rr.image_size.scale(4),
+        8 => rr.image_size.scale(8),
         _ => {
-            bail!("Invalid supersample factor: {}", p.supersample);
+            bail!("Invalid supersample factor: {}", rr.supersample);
         }
     };
 
-    let mut rendered_image = Pixmap::new(supersample_size, supersample_size).unwrap();
-    if let Some(color) = p.track_bg_color {
-        rendered_image.fill(color);
+    let mut rendered_image = Pixmap::new(supersample_size.x, supersample_size.y).unwrap();
+
+    // To implement the disk background color, we first fill the entire image with it.
+    // The areas outside the disk circumference will be set to the img_bg_color during rendering.
+    if let Some(color) = rr.disk_bg_color {
+        rendered_image.fill(Color::from(color));
     }
     let data_render_start_time = Instant::now();
 
-    let mut render_params = RenderTrackDataParams {
-        bg_color: p.bg_color,
-        map_color: p.error_color,
-        head: p.side as u8,
-        image_size: (supersample_size, supersample_size),
-        image_pos: (0, 0),
-        min_radius_fraction: p.min_radius,
-        index_angle: angle,
-        track_limit: p.track_limit,
-        track_gap: p.track_gap,
-        direction,
-        decode: p.decode,
-        resolution: p.resolution_type,
-        pin_last_standard_track: true,
-        sector_mask: p.decode,
-    };
-
-    println!("Rendering data layer for side {}...", p.side);
-    match render_track_data(&disk, &mut rendered_image, &render_params) {
+    println!("Rendering data layer for side {}...", r.side);
+    match rasterize_track_data(disk, &mut rendered_image, p, r, &rr) {
         Ok(_) => {
             println!("Rendered data layer in {:?}", data_render_start_time.elapsed());
         }
@@ -133,10 +139,10 @@ pub fn render_side(disk: &DiskImage, p: RenderParams) -> Result<Pixmap, anyhow::
     };
 
     // Render error bits on composited image if requested.
-    if p.errors {
+    if opts.errors {
         let error_render_start_time = Instant::now();
-        println!("Rendering error map layer for side {}...", p.side);
-        match render_track_mask(&disk, &mut rendered_image, RenderMaskType::Errors, &render_params) {
+        println!("Rendering error map layer for side {}...", r.side);
+        match render_track_mask(disk, &mut rendered_image, RenderMaskType::Errors, p, r, &rr) {
             Ok(_) => {
                 println!("Rendered error map layer in {:?}", error_render_start_time.elapsed());
             }
@@ -148,11 +154,11 @@ pub fn render_side(disk: &DiskImage, p: RenderParams) -> Result<Pixmap, anyhow::
     }
 
     // Render weak bits on composited image if requested.
-    if p.weak {
-        render_params.map_color = p.weak_color;
+    if opts.weak {
+        rr.mask_color = Some(weak_color);
         let weak_render_start_time = Instant::now();
-        println!("Rendering weak bits layer for side {}...", p.side);
-        match render_track_mask(&disk, &mut rendered_image, RenderMaskType::WeakBits, &render_params) {
+        println!("Rendering weak bits layer for side {}...", r.side);
+        match render_track_mask(disk, &mut rendered_image, RenderMaskType::WeakBits, p, r, &rr) {
             Ok(_) => {
                 println!("Rendered weak bits layer in {:?}", weak_render_start_time.elapsed());
             }
@@ -163,7 +169,7 @@ pub fn render_side(disk: &DiskImage, p: RenderParams) -> Result<Pixmap, anyhow::
         };
     }
 
-    let resampled_image = match p.supersample {
+    let resampled_image = match rr.supersample {
         1 => rendered_image,
         _ => {
             let resample_start_time = Instant::now();
@@ -180,23 +186,23 @@ pub fn render_side(disk: &DiskImage, p: RenderParams) -> Result<Pixmap, anyhow::
                     std::process::exit(1);
                 }
             };
-            let mut dst_image = FirImage::new(p.render_size, p.render_size, PixelType::U8x4);
+            let mut dst_image = FirImage::new(rr.image_size.x, rr.image_size.y, PixelType::U8x4);
 
             let mut resizer = Resizer::new();
             let resize_opts =
                 fast_image_resize::ResizeOptions::new().resize_alg(ResizeAlg::Convolution(FilterType::CatmullRom));
 
-            println!("Resampling output image for side {}...", p.side);
+            println!("Resampling output image for side {}...", r.side);
             match resizer.resize(&src_image, &mut dst_image, &resize_opts) {
                 Ok(_) => {
                     println!(
                         "Resampled image to {} in {:?}",
-                        p.render_size,
+                        rr.image_size,
                         resample_start_time.elapsed()
                     );
                     Pixmap::from_vec(
                         dst_image.into_vec(),
-                        IntSize::from_wh(p.render_size, p.render_size).unwrap(),
+                        IntSize::from_wh(rr.image_size.x, rr.image_size.y).unwrap(),
                     )
                     .unwrap()
                 }
@@ -209,4 +215,34 @@ pub fn render_side(disk: &DiskImage, p: RenderParams) -> Result<Pixmap, anyhow::
     };
 
     Ok(resampled_image)
+}
+
+pub fn rasterize_display_list(
+    pixmap: &mut Pixmap,
+    angle: f32,
+    display_list: &VizElementDisplayList,
+    palette: &HashMap<GenericTrackElement, Style>,
+) {
+    let mut paint = Paint {
+        blend_mode: BlendMode::SourceOver,
+        anti_alias: true,
+        ..Default::default()
+    };
+
+    let mut transform = Transform::identity();
+
+    if angle != 0.0 {
+        log::warn!("Rotating tiny_skia Transform by {}", angle);
+        transform = Transform::from_rotate_at(
+            angle.to_degrees(),
+            pixmap.width() as f32 / 2.0,
+            pixmap.height() as f32 / 2.0,
+        );
+    }
+
+    let skia_styles = style_map_to_skia(palette);
+
+    for element in display_list.iter() {
+        skia_render_element(pixmap, &mut paint, element, &transform, &skia_styles);
+    }
 }

@@ -40,7 +40,7 @@ use fluxfox::{
     prelude::*,
     visualization::{
         pixmap_to_disk::{render_pixmap_to_disk, render_pixmap_to_disk_grayscale},
-        tiny_skia::{Pixmap, PixmapPaint, PixmapRef, Transform},
+        tiny_skia_util::{Pixmap, PixmapPaint, PixmapRef, Transform},
         PixmapToDiskParams,
         RenderTrackDataParams,
         TurningDirection,
@@ -134,9 +134,9 @@ fn main() {
     let mut data_params = RenderTrackDataParams {
         image_size: (pixmap0.width(), pixmap0.height()),
         image_pos: (0, 0),
-        head: 0,
+        side: 0,
         track_limit: disk.tracks(0) as usize,
-        min_radius_fraction: opts.hole_ratio.unwrap_or(match opts.applesauce {
+        min_radius_ratio: opts.hole_ratio.unwrap_or(match opts.applesauce {
             false => 0.3, // Good hole ratio for HxC and fluxfox
             true => 0.27, // Applesauce has slightly smaller hole
         }),
@@ -191,7 +191,7 @@ fn main() {
             }
             data_params.image_size = (pixmap1.width(), pixmap1.height());
             data_params.track_limit = disk.tracks(1) as usize;
-            data_params.head = 1;
+            data_params.side = 1;
             data_params.index_angle = data_params.direction.adjust_angle(opts.angle);
             println!("Rendering side 1...");
             render(&pixmap1.to_owned(), &mut disk, &pixmap_params, &data_params);

@@ -25,42 +25,10 @@
     --------------------------------------------------------------------------
 */
 
-use fluxfox::{
-    track_schema::GenericTrackElement,
-    visualization::{
-        tiny_skia::{BlendMode, Color, Paint, Pixmap},
-        tiny_skia_util::skia_render_element,
-        RenderTrackMetadataParams,
-        VizDisplayList,
-    },
-};
-use std::collections::HashMap;
-use tiny_skia::Transform;
+pub mod palette;
+pub mod viz_elements;
 
-pub fn render_display_list(
-    pixmap: &mut Pixmap,
-    params: &RenderTrackMetadataParams,
-    display_list: &VizDisplayList,
-    palette: &HashMap<GenericTrackElement, Color>,
-) {
-    let mut paint = Paint {
-        blend_mode: BlendMode::SourceOver,
-        anti_alias: true,
-        ..Default::default()
-    };
+use egui::Color32;
+use fluxfox::{track_schema::GenericTrackElement, FoxHashMap};
 
-    let mut transform = Transform::identity();
-
-    if params.index_angle != 0.0 {
-        log::warn!("Rotating display list by {}", params.index_angle);
-        transform = Transform::from_rotate_at(
-            params.direction.adjust_angle(params.index_angle.to_degrees()),
-            pixmap.width() as f32 / 2.0,
-            pixmap.height() as f32 / 2.0,
-        );
-    }
-
-    for element in display_list.iter() {
-        skia_render_element(pixmap, &mut paint, element, &transform, palette);
-    }
-}
+pub type VizPalette = FoxHashMap<GenericTrackElement, Color32>;

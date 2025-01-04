@@ -24,6 +24,11 @@
 
     --------------------------------------------------------------------------
 */
+use std::{
+    collections::HashMap,
+    default::Default,
+    sync::{mpsc, Arc, Mutex, RwLock},
+};
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::native::worker;
@@ -34,26 +39,24 @@ use crate::App;
 use anyhow::{anyhow, Error};
 use fluxfox::{
     prelude::*,
-    tiny_skia,
-    tiny_skia::{Color, Pixmap},
     track_schema::GenericTrackElement,
     visualization::{
-        render_disk_selection,
-        render_track_data,
-        render_track_metadata_quadrant,
+        rasterize_track_data,
+        tiny_skia::{BlendMode, Color, FilterQuality, Pixmap, PixmapPaint, Transform},
+        tiny_skia_util::rasterize_disk::{rasterize_disk_selection, rasterize_track_metadata_quadrant},
+        types::{VizColor, VizDimensions},
+        CommonVizParams,
         RenderDiskSelectionParams,
+        RenderDiskSelectionType,
+        RenderRasterizationParams,
         RenderTrackDataParams,
         RenderTrackMetadataParams,
+        ResolutionType,
         TurningDirection,
     },
+    FoxHashMap,
 };
 use fluxfox_egui::widgets::texture::{PixelCanvas, PixelCanvasDepth};
-use std::{
-    collections::HashMap,
-    default::Default,
-    sync::{mpsc, Arc, Mutex, RwLock},
-};
-use tiny_skia::{BlendMode, FilterQuality, PixmapPaint};
 
 pub const VIZ_DATA_SUPERSAMPLE: u32 = 2;
 pub const VIZ_RESOLUTION: u32 = 512;
@@ -72,6 +75,7 @@ pub enum VizEvent {
 }
 
 pub struct VisualizationState {
+    pub common_viz_params: CommonVizParams,
     pub compatible: bool,
     pub supersample: u32,
     pub meta_pixmap_pool: Vec<Arc<Mutex<Pixmap>>>,
@@ -80,12 +84,13 @@ pub struct VisualizationState {
     pub metadata_img: [Pixmap; 2],
     pub composite_img: [Pixmap; 2],
     pub sector_lookup_img: [Pixmap; 2],
-    pub meta_palette: HashMap<GenericTrackElement, Color>,
+    pub meta_palette: HashMap<GenericTrackElement, VizColor>,
     pub have_render: [bool; 2],
     pub canvas: [Option<PixelCanvas>; 2],
     pub sides: usize,
     pub render_sender: mpsc::SyncSender<RenderMessage>,
     pub render_receiver: mpsc::Receiver<RenderMessage>,
+    pub decode_data_layer: bool,
     pub show_data_layer: bool,
     pub show_metadata_layer: bool,
     #[allow(dead_code)]
@@ -101,6 +106,7 @@ impl Default for VisualizationState {
     fn default() -> Self {
         let (render_sender, render_receiver) = mpsc::sync_channel(2);
         Self {
+            common_viz_params: CommonVizParams::default(),
             compatible: false,
             supersample: VIZ_DATA_SUPERSAMPLE,
             meta_pixmap_pool: Vec::new(),
@@ -134,6 +140,7 @@ impl Default for VisualizationState {
             sides: 1,
             render_sender,
             render_receiver,
+            decode_data_layer: true,
             show_data_layer: true,
             show_metadata_layer: true,
             show_error_layer: false,
@@ -148,20 +155,20 @@ impl VisualizationState {
     pub fn new(ctx: egui::Context, resolution: u32) -> Self {
         assert_eq!(resolution % 2, 0);
 
-        let viz_light_red: Color = Color::from_rgba8(180, 0, 0, 255);
+        let viz_light_red: VizColor = VizColor::from_rgba8(180, 0, 0, 255);
 
         //let viz_orange: Color = Color::from_rgba8(255, 100, 0, 255);
-        let vis_purple: Color = Color::from_rgba8(180, 0, 180, 255);
+        let vis_purple: VizColor = VizColor::from_rgba8(180, 0, 180, 255);
         //let viz_cyan: Color = Color::from_rgba8(70, 200, 200, 255);
         //let vis_light_purple: Color = Color::from_rgba8(185, 0, 255, 255);
 
-        let pal_medium_green = Color::from_rgba8(0x38, 0xb7, 0x64, 0xff);
-        let pal_dark_green = Color::from_rgba8(0x25, 0x71, 0x79, 0xff);
+        let pal_medium_green = VizColor::from_rgba8(0x38, 0xb7, 0x64, 0xff);
+        let pal_dark_green = VizColor::from_rgba8(0x25, 0x71, 0x79, 0xff);
         //let pal_dark_blue = Color::from_rgba8(0x29, 0x36, 0x6f, 0xff);
-        let pal_medium_blue = Color::from_rgba8(0x3b, 0x5d, 0xc9, 0xff);
-        let pal_light_blue = Color::from_rgba8(0x41, 0xa6, 0xf6, 0xff);
+        let pal_medium_blue = VizColor::from_rgba8(0x3b, 0x5d, 0xc9, 0xff);
+        let pal_light_blue = VizColor::from_rgba8(0x41, 0xa6, 0xf6, 0xff);
         //let pal_dark_purple = Color::from_rgba8(0x5d, 0x27, 0x5d, 0xff);
-        let pal_orange = Color::from_rgba8(0xef, 0x7d, 0x57, 0xff);
+        let pal_orange = VizColor::from_rgba8(0xef, 0x7d, 0x57, 0xff);
         //let pal_dark_red = Color::from_rgba8(0xb1, 0x3e, 0x53, 0xff);
 
         let mut meta_pixmap_pool = Vec::new();
@@ -177,7 +184,7 @@ impl VisualizationState {
 
         Self {
             meta_pixmap_pool,
-            meta_palette: HashMap::from([
+            meta_palette: FoxHashMap::from([
                 (GenericTrackElement::SectorData, pal_medium_green),
                 (GenericTrackElement::SectorBadData, pal_orange),
                 (GenericTrackElement::SectorDeletedData, pal_dark_green),
@@ -229,29 +236,50 @@ impl VisualizationState {
             return Ok(());
         }
 
+        self.common_viz_params = CommonVizParams {
+            radius: None,
+            max_radius_ratio: 1.0,
+            min_radius_ratio: min_radius_fraction,
+            pos_offset: None,
+            index_angle: angle,
+            track_limit: Some(track_ct),
+            pin_last_standard_track: true,
+            track_gap: render_track_gap,
+            absolute_gap: false,
+            direction,
+        };
+
+        let inner_common_params = self.common_viz_params.clone();
+        let inner_decode_data = self.decode_data_layer;
+
         // Render the main data layer.
         match worker::spawn_closure_worker(move || {
             let render_params = RenderTrackDataParams {
-                bg_color: None,
-                map_color: None,
-                head,
-                image_size: (VIZ_SUPER_RESOLUTION, VIZ_SUPER_RESOLUTION),
-                min_radius_fraction,
-                index_angle: angle,
-                track_limit: track_ct,
-                track_gap: render_track_gap,
-                direction: direction.opposite(),
-                decode: true,
-                sector_mask: true,
-                pin_last_standard_track: true,
-                ..Default::default()
+                side: head,
+                decode: inner_decode_data,
+                sector_mask: false,
+                resolution: ResolutionType::Byte,
+            };
+
+            let rasterize_params = RenderRasterizationParams {
+                image_size: VizDimensions::from((VIZ_SUPER_RESOLUTION, VIZ_SUPER_RESOLUTION)),
+                bg_color:   None,
+                mask_color: None,
+                palette:    None,
+                pos_offset: None,
             };
 
             let disk = render_lock.read().unwrap();
             let mut render_pixmap = render_target.lock().unwrap();
             render_pixmap.fill(Color::TRANSPARENT);
 
-            match render_track_data(&disk, &mut render_pixmap, &render_params) {
+            match rasterize_track_data(
+                &disk,
+                &mut render_pixmap,
+                &inner_common_params,
+                &render_params,
+                &rasterize_params,
+            ) {
                 Ok(_) => {
                     log::debug!("render worker: Data layer rendered for side {}", head);
                     render_sender.send(RenderMessage::DataRenderComplete(head)).unwrap();
@@ -276,15 +304,16 @@ impl VisualizationState {
         let mut render_params = RenderTrackMetadataParams {
             quadrant,
             head,
-            min_radius_fraction,
-            index_angle: angle,
-            track_limit: track_ct,
-            track_gap: render_track_gap,
-            direction,
-            palette: self.meta_palette.clone(),
             draw_empty_tracks: false,
-            pin_last_standard_track: true,
             draw_sector_lookup: false,
+        };
+
+        let rasterize_params = RenderRasterizationParams {
+            image_size: VizDimensions::from((VIZ_SUPER_RESOLUTION, VIZ_SUPER_RESOLUTION)),
+            bg_color:   None,
+            mask_color: None,
+            palette:    Some(self.meta_palette.clone()),
+            pos_offset: None,
         };
 
         // Render metadata quadrants into pixmap pool.
@@ -292,7 +321,13 @@ impl VisualizationState {
             render_params.quadrant = quadrant as u8;
             let mut pixmap = self.meta_pixmap_pool[quadrant].lock().unwrap();
 
-            match render_track_metadata_quadrant(disk, &mut pixmap, &render_params) {
+            match rasterize_track_metadata_quadrant(
+                disk,
+                &mut pixmap,
+                &self.common_viz_params,
+                &render_params,
+                &rasterize_params,
+            ) {
                 Ok(_) => {
                     log::debug!("...Rendered quadrant {}", quadrant);
                 }
@@ -322,7 +357,7 @@ impl VisualizationState {
                 y as i32,
                 self.meta_pixmap_pool[quadrant].lock().unwrap().as_ref(),
                 &paint,
-                tiny_skia::Transform::identity(),
+                Transform::identity(),
                 None,
             );
 
@@ -337,12 +372,19 @@ impl VisualizationState {
         // Render sector lookup quadrants into pixmap pool.
         render_params.draw_sector_lookup = true;
         // Make it easier to select sectors by removing track gap.
-        render_params.track_gap = 0.0;
+        self.common_viz_params.track_gap = 0.0;
+
         for quadrant in 0..4 {
             render_params.quadrant = quadrant as u8;
             let mut pixmap = self.meta_pixmap_pool[quadrant].lock().unwrap();
 
-            match render_track_metadata_quadrant(disk, &mut pixmap, &render_params) {
+            match rasterize_track_metadata_quadrant(
+                disk,
+                &mut pixmap,
+                &self.common_viz_params,
+                &render_params,
+                &rasterize_params,
+            ) {
                 Ok(_) => {
                     log::debug!("...Rendered quadrant {}", quadrant);
                 }
@@ -372,7 +414,7 @@ impl VisualizationState {
                 y as i32,
                 self.meta_pixmap_pool[quadrant].lock().unwrap().as_ref(),
                 &paint,
-                tiny_skia::Transform::identity(),
+                Transform::identity(),
                 None,
             );
 
@@ -422,17 +464,14 @@ impl VisualizationState {
         // If we can acquire the selection image mutex, we can composite the data and metadata layers.
         match self.selection_img[side].try_lock() {
             Ok(mut data) => {
-                let params = RenderDiskSelectionParams {
+                let render_selection_params = RenderDiskSelectionParams {
+                    selection_type: RenderDiskSelectionType::Sector,
                     ch: DiskCh::new(c as u16, h),
                     sector_idx: s_idx as usize,
-                    track_limit: disk.tracks(h) as usize,
-                    direction: TurningDirection::from(h),
-                    color: Color::WHITE,
-                    pin_last_standard_track: true,
-                    ..Default::default()
+                    color: VizColor::from_rgba8(255, 255, 255, 255),
                 };
 
-                match render_disk_selection(&disk, &mut data, &params) {
+                match rasterize_disk_selection(&disk, &mut data, &self.common_viz_params, &render_selection_params) {
                     Ok(_) => {
                         log::debug!("Sector selection rendered for side {}", side);
                     }
@@ -463,7 +502,7 @@ impl VisualizationState {
 
                 if self.show_data_layer {
                     let scale = 1.0 / self.supersample as f32;
-                    let transform = tiny_skia::Transform::from_scale(scale, scale);
+                    let transform = Transform::from_scale(scale, scale);
                     self.composite_img[side].fill(Color::TRANSPARENT);
                     self.composite_img[side].draw_pixmap(0, 0, data.as_ref(), &paint, transform, None);
                 }
@@ -481,7 +520,7 @@ impl VisualizationState {
                         0,
                         self.metadata_img[side].as_ref(),
                         &paint,
-                        tiny_skia::Transform::identity(),
+                        Transform::identity(),
                         None,
                     );
                 }
@@ -496,7 +535,7 @@ impl VisualizationState {
                         0,
                         self.metadata_img[side].as_ref(),
                         &paint,
-                        tiny_skia::Transform::identity(),
+                        Transform::identity(),
                         None,
                     );
                 }
@@ -513,14 +552,7 @@ impl VisualizationState {
                 };
 
                 if self.show_metadata_layer {
-                    self.composite_img[side].draw_pixmap(
-                        0,
-                        0,
-                        selection.as_ref(),
-                        &paint,
-                        tiny_skia::Transform::identity(),
-                        None,
-                    );
+                    self.composite_img[side].draw_pixmap(0, 0, selection.as_ref(), &paint, Transform::identity(), None);
                 }
             }
             Err(_) => {
