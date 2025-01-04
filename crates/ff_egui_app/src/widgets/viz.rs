@@ -37,6 +37,7 @@ use crate::wasm::worker;
 
 use crate::App;
 use anyhow::{anyhow, Error};
+
 use fluxfox::{
     prelude::*,
     track_schema::GenericTrackElement,
@@ -259,13 +260,16 @@ impl VisualizationState {
                 decode: inner_decode_data,
                 sector_mask: false,
                 resolution: ResolutionType::Byte,
+                ..Default::default()
             };
 
             let rasterize_params = RenderRasterizationParams {
-                image_size: VizDimensions::from((VIZ_SUPER_RESOLUTION, VIZ_SUPER_RESOLUTION)),
-                bg_color:   None,
+                image_size: VizDimensions::from((VIZ_RESOLUTION, VIZ_RESOLUTION)),
+                supersample: VIZ_DATA_SUPERSAMPLE,
+                image_bg_color: None,
+                disk_bg_color: None,
                 mask_color: None,
-                palette:    None,
+                palette: None,
                 pos_offset: None,
             };
 
@@ -302,23 +306,25 @@ impl VisualizationState {
         self.metadata_img[side].fill(Color::TRANSPARENT);
 
         let mut render_params = RenderTrackMetadataParams {
-            quadrant,
+            quadrant: Some(quadrant),
             head,
             draw_empty_tracks: false,
             draw_sector_lookup: false,
         };
 
         let rasterize_params = RenderRasterizationParams {
-            image_size: VizDimensions::from((VIZ_SUPER_RESOLUTION, VIZ_SUPER_RESOLUTION)),
-            bg_color:   None,
+            image_size: VizDimensions::from((VIZ_RESOLUTION, VIZ_RESOLUTION)),
+            supersample: VIZ_DATA_SUPERSAMPLE,
+            image_bg_color: None,
+            disk_bg_color: None,
             mask_color: None,
-            palette:    Some(self.meta_palette.clone()),
+            palette: Some(self.meta_palette.clone()),
             pos_offset: None,
         };
 
         // Render metadata quadrants into pixmap pool.
         for quadrant in 0..4 {
-            render_params.quadrant = quadrant as u8;
+            render_params.quadrant = Some(quadrant as u8);
             let mut pixmap = self.meta_pixmap_pool[quadrant].lock().unwrap();
 
             match rasterize_track_metadata_quadrant(
@@ -375,7 +381,7 @@ impl VisualizationState {
         self.common_viz_params.track_gap = 0.0;
 
         for quadrant in 0..4 {
-            render_params.quadrant = quadrant as u8;
+            render_params.quadrant = Some(quadrant as u8);
             let mut pixmap = self.meta_pixmap_pool[quadrant].lock().unwrap();
 
             match rasterize_track_metadata_quadrant(

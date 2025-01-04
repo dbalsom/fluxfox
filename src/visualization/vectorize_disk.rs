@@ -47,7 +47,6 @@ use crate::{
         VizElementDisplayList,
     },
     DiskImage,
-    DiskImageError,
     DiskVisualizationError,
     MAX_CYLINDER,
 };

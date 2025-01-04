@@ -40,7 +40,7 @@ pub struct DiskVisualizerWidget {
 }
 
 impl DiskVisualizerWidget {
-    pub fn new(resolution: u32, turning_direction: TurningDirection) -> Self {
+    pub fn new(resolution: u32, turning_direction: TurningDirection, cylinders: usize) -> Self {
         Self {
             open: false,
             show_data_layer: true,
@@ -49,7 +49,7 @@ impl DiskVisualizerWidget {
             show_weak_layer: false,
             resolution: Vec2::new(resolution as f32, resolution as f32),
             palette: default_palette(),
-            metadata_display_list: VizElementDisplayList::new(turning_direction),
+            metadata_display_list: VizElementDisplayList::new(turning_direction, cylinders),
         }
     }
 

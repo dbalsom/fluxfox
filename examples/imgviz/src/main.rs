@@ -271,6 +271,7 @@ fn main() {
             decode: opts.decode,
             sector_mask: true,
             resolution,
+            ..Default::default()
         };
 
         let rasterization_params = RenderRasterizationParams {

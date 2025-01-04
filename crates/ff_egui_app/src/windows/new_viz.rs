@@ -62,7 +62,7 @@ impl NewVizViewer {
     pub fn new() -> Self {
         Self {
             compatible: false,
-            viz: DiskVisualizerWidget::new(VIZ_RESOLUTION, TurningDirection::Clockwise),
+            viz: DiskVisualizerWidget::new(VIZ_RESOLUTION, TurningDirection::Clockwise, 80),
             resolution: VIZ_RESOLUTION,
             open: false,
             show_data_layer: true,
@@ -109,7 +109,7 @@ impl NewVizViewer {
             };
 
             let metadata_params = RenderTrackMetadataParams {
-                quadrant: 0,
+                quadrant: None,
                 head: 0,
                 draw_empty_tracks: false,
                 draw_sector_lookup: false,
