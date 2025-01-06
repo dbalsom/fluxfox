@@ -26,10 +26,11 @@
 */
 use std::{fs, path::Path};
 
-use fluxfox::{track_schema::GenericTrackElement, visualization::types::VizColor, FoxHashMap};
-
 use crate::style::Style;
+
 use anyhow::Error;
+use fluxfox::{track_schema::GenericTrackElement, visualization::types::VizColor, FoxHashMap};
+use fluxfox_svg::prelude::BlendMode;
 use serde::Deserialize;
 
 // Deserialize colors as either RGBA tuple or u32
@@ -38,6 +39,51 @@ use serde::Deserialize;
 enum ConfigColor {
     Rgba(u8, u8, u8, u8),
     U32(u32),
+}
+
+#[derive(Copy, Clone, Debug, Default, Deserialize)]
+pub enum ConfigBlendMode {
+    #[default]
+    Normal,
+    Multiply,
+    Screen,
+    Overlay,
+    Darken,
+    Lighten,
+    ColorDodge,
+    ColorBurn,
+    HardLight,
+    SoftLight,
+    Difference,
+    Exclusion,
+    Hue,
+    Saturation,
+    Color,
+    Luminosity,
+}
+
+#[cfg(feature = "use_svg")]
+impl From<ConfigBlendMode> for BlendMode {
+    fn from(value: ConfigBlendMode) -> Self {
+        match value {
+            ConfigBlendMode::Normal => BlendMode::Normal,
+            ConfigBlendMode::Multiply => BlendMode::Multiply,
+            ConfigBlendMode::Screen => BlendMode::Screen,
+            ConfigBlendMode::Overlay => BlendMode::Overlay,
+            ConfigBlendMode::Darken => BlendMode::Darken,
+            ConfigBlendMode::Lighten => BlendMode::Lighten,
+            ConfigBlendMode::ColorDodge => BlendMode::ColorDodge,
+            ConfigBlendMode::ColorBurn => BlendMode::ColorBurn,
+            ConfigBlendMode::HardLight => BlendMode::HardLight,
+            ConfigBlendMode::SoftLight => BlendMode::SoftLight,
+            ConfigBlendMode::Difference => BlendMode::Difference,
+            ConfigBlendMode::Exclusion => BlendMode::Exclusion,
+            ConfigBlendMode::Hue => BlendMode::Hue,
+            ConfigBlendMode::Saturation => BlendMode::Saturation,
+            ConfigBlendMode::Color => BlendMode::Color,
+            ConfigBlendMode::Luminosity => BlendMode::Luminosity,
+        }
+    }
 }
 
 // Optional style fields
@@ -62,17 +108,21 @@ pub(crate) struct MaskConfig {
 // Complete palette configuration
 #[derive(Debug, Deserialize)]
 struct StyleConfigFileInput {
+    track_gap: f32,
     default_style: PartialStyleConfig,
     masks: MaskConfigInput,
     track_style: PartialStyleConfig,
     element_styles: FoxHashMap<String, PartialStyleConfig>,
+    blend_mode: ConfigBlendMode,
 }
 
 // Translated and merged configuration
 pub(crate) struct StyleConfig {
+    pub(crate) track_gap: f32,
     pub(crate) masks: MaskConfig,
     pub(crate) track_style: Style,
     pub(crate) element_styles: FoxHashMap<GenericTrackElement, Style>,
+    pub(crate) blend_mode: ConfigBlendMode,
 }
 
 // Conversion for ConfigColor to VizColor
@@ -142,11 +192,13 @@ pub fn load_style_config(path: impl AsRef<Path>) -> Result<StyleConfig, Error> {
     let track_style = merge_style(&config.default_style, &config.track_style);
 
     Ok(StyleConfig {
+        track_gap: config.track_gap,
         masks: MaskConfig {
             weak:  config.masks.weak.to_viz_color(),
             error: config.masks.error.to_viz_color(),
         },
         track_style,
         element_styles: styles,
+        blend_mode: config.blend_mode,
     })
 }

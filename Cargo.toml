@@ -1,3 +1,5 @@
+# Workspace package definition
+# ----------------------------------------------------------------------------------------------------------------------
 [workspace.package]
 version = "0.2.0"
 edition = "2021"
@@ -6,6 +8,8 @@ keywords = ["emulation", "ibm", "floppy", "disk"]
 repository = "https://github.com/dbalsom/fluxfox"
 license = "MIT"
 
+# Package definition
+# ----------------------------------------------------------------------------------------------------------------------
 [package]
 name = "fluxfox"
 description = "A library crate for working with floppy disk images for the IBM PC and compatibles."
@@ -31,7 +35,9 @@ members = [
     "crates/fftool",
     "crates/ff_egui_app",
     "crates/ff_egui_lib",
-    "examples/fat"
+    "crates/fluxfox_svg",
+    "examples/fat", 
+    "crates/fluxfox_svg"
 ]
 
 # Required dependencies
@@ -39,65 +45,67 @@ members = [
 [dependencies]
 # bit-vec provides the BitVec type which is the fundamental data structure BitStream tracks are built on.
 # It has no extra dependencies.
-bit-vec = "0.8"
+bit-vec.workspace = true
 # bitflags simplifies binary flag handling.
-bitflags = "2.6"
+bitflags.workspace = true
 # binrw is a powerful crate for reading and writing binary data - it powers all of fluxfox's disk image parsers.
-binrw = "0.14"
+binrw.workspace = true
 # bytemuck is a safe wrapper around transumte for working with slices at different alignments. it can significantly
 # improve performance when parsing data from byte slices.
-bytemuck = "1.7"
-# thiserror simplifies error handling for library crates.
-thiserror = "2.0"
+bytemuck.workspace = true
+# log is a logging facade
+log.workspace = true
 # envlogger is a logger backend for control over logging levels via the RUST_LOG environment variable
 env_logger = "0.11"
 # regular expressions are used for file matching - notably expanding a raw kryoflux stream filename into a file set
-regex = "1.11"
-# log is a logging facade
-log = "0.4"
+regex.workspace = true
+# thiserror simplifies error handling for library crates.
+thiserror.workspace = true
 # sha1_smol is used for hashing track data to detect duplicate tracks
 sha1_smol = "1.0"
 # dyn-clone is used to clone trait objects
-dyn-clone = "1.0"
+dyn-clone.workspace = true
 # strum is used to for useful macros, such as deriving iterators over enums
-strum = { version = "0.26", features = ["derive"] }
+strum = { workspace = true, features = ["derive"] }
 
 # Optional dependencies
-# ----------------------------------------------------------------------------------------------------------------------
-
-# Bytemuck is used for data transformation, especially for odd/even Amiga encoding
+# ---------------------------------------------------------------------------------------------------------------------
 
 # rand is used for generating random numbers - primarily for genering random bits for fuzzy/weak bits
-# if the 'rand' feature is not enabled we will fall back to using an inexpensive pseudo-random bit generation
-rand = { version = "0.8", optional = true }
+# if the 'rand' feature is not enabled we should fall back to using an internal, fast pseudo-random bit generation
+# (not yet implemented, so this feature is actually required)
+rand = { workspace = true, optional = true }
 
 # Modular-bitfield is used by the IPF parser
-modular-bitfield = { version = "0.11", optional = true }
+modular-bitfield = { workspace=true, optional = true }
 
 # Num-traits and num-derive are used by retrocompressor ('td0' feature) and visualizations ('viz' feature)
-num-traits = { version = "0.2", optional = true }
-num-derive = { version = "0.4", optional = true }
+num-traits = { workspace = true, optional = true }
+num-derive = { workspace = true, optional = true }
 
 # tiny-skia is used by visualization functions ('viz' feature)
-tiny-skia = { version = "0.11", optional = true }
+tiny-skia = { workspace = true, optional = true }
 
-# flate2 is required for MFI decompression ('mfi' feature)
+# flate2 is required for MFI decompression ('mfi' feature) and gzip decompression ('gzip' feature)
 flate2 = { version = "1.0", optional = true }
 
 # histogram is required for flux timing detection / PLL initialization
 histogram = { version = "0.11", optional = true }
 
 # plotly is used for plotting flux timings
-plotly = { version = "0.11", optional = true }
+plotly = { version = "0.12", optional = true }
 
 # serde is used for serialization / deserialization of app state and disk images ('serde' feature)
-serde = { version = "1.0", optional = true }
+serde = { workspace = true, optional = true }
 
 # typetag is used for serialization / deserialization of dyn trait objects ('serde' feature)
-typetag = { version = "0.2", optional = true }
+typetag = { workspace = true, optional = true }
 
 # rhai is used for scripting ('scripting' and 'rhai' features)
 rhai = { version = "1.20", optional = true }
+
+# svg is used by imgviz and fluxfox_svg
+svg = { workspace = true, optional = true }
 
 #wasm-bindgen-futures = { version = "0.4", optional = true }
 
@@ -128,6 +136,47 @@ tar = { version = "0.4", optional = true }
 #time = { version = "0.3", features = ["wasm-bindgen"], optional = true }
 wasm-bindgen = { version = "0.2", optional = true }
 wasm-bindgen-futures = { version = "0.4", optional = true }
+
+# Workspace dependencies - centralize version control for all crates
+# ----------------------------------------------------------------------------------------------------------------------
+[workspace.dependencies]
+# fluxfox itself! We can control how other crates in this workspace resolve the main fluxfox crate here
+fluxfox = { path = ".", default-features = false }
+# Several crates use Serde. We can keep them all in sync here.
+serde = { version = "1.0", features = ["derive"] }
+# tiny-skia is used for rasterization of fluxfox visualizations
+tiny-skia = "0.11"
+# svg is used for creating SVG-format visualization output
+svg = "0.18"
+# log is a logging facade
+log = "0.4"
+# thiserror simplifies error handling for library crates.
+thiserror = "2.0"
+# binrw is a powerful crate for reading and writing binary data - it powers all of fluxfox's disk image parsers.
+binrw = "0.14"
+# bitflags simplifies binary flag handling.
+bitflags = "2.6"
+# bit-vec provides the BitVec type which is the fundamental data structure BitStream tracks are built on.
+# It has no extra dependencies.
+bit-vec = "0.8"
+# dyn-clone is used to clone trait objects
+dyn-clone = "1.0"
+# bytemuck is a safe wrapper around transumte for working with slices at different alignments. it can significantly
+# improve performance when parsing data from byte slices.
+bytemuck = "1.7"
+# regular expressions are used for file matching - notably expanding a raw kryoflux stream filename into a file set
+regex = "1.11"
+# strum is used to for useful macros, such as deriving iterators over enums
+strum = { version = "0.26", features = ["derive"] }
+# typetag is used for serialization / deserialization of dyn trait objects ('serde' feature)
+typetag = "0.2"
+# Num-traits and num-derive are used by retrocompressor ('td0' feature) and visualizations ('viz' feature)
+num-traits = "0.2"
+num-derive = "0.4"
+# modular-bitfield implements enum-capable bitfields. Currently only used by the IPF parser
+modular-bitfield = "0.11"
+# rand is used for random number generation, primarily for generating random bits for fuzzy/weak bits
+rand = "0.8"
 
 # Dev dependencies
 # ----------------------------------------------------------------------------------------------------------------------

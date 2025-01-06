@@ -381,8 +381,8 @@ pub fn rasterize_track_metadata_quadrant(
     r: &RenderTrackMetadataParams,
     rr: &RenderRasterizationParams,
 ) -> Result<(), DiskVisualizationError> {
-    let r_tracks = collect_streams(r.head, disk_image);
-    let r_metadata = collect_metadata(r.head, disk_image);
+    let r_tracks = collect_streams(r.side, disk_image);
+    let r_metadata = collect_metadata(r.side, disk_image);
 
     let track_limit = p.track_limit.unwrap_or(MAX_CYLINDER);
     let num_tracks = min(r_tracks.len(), track_limit);
@@ -477,7 +477,7 @@ pub fn rasterize_track_metadata_quadrant(
                     // This is so that we can retrieve a mapping of physical sector from bitmap
                     // x,y coordinates.
                     // Alpha must remain 255 for our values to survive pre-multiplication.
-                    color = VizColor::from_rgba8(r.head, phys_c as u8, phys_s, 255);
+                    color = VizColor::from_rgba8(r.side, phys_c as u8, phys_s, 255);
                 }
                 false => {
                     let generic_elem = GenericTrackElement::from(element_type);

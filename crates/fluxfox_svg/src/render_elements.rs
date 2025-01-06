@@ -24,22 +24,35 @@
 
     --------------------------------------------------------------------------
 */
-use crate::style::Style;
+
+use crate::styles::ElementStyle;
 use fluxfox::{
     track_schema::GenericTrackElement,
     visualization::{
-        prelude::{VizArc, VizColor, VizElement, VizSector},
+        prelude::{VizArc, VizColor, VizDataSlice, VizElement, VizQuadraticArc, VizSector},
         types::VizElementFlags,
     },
     FoxHashMap,
 };
+//use log::log;
+use fluxfox::visualization::types::VizShape;
 use svg::node::{
-    element::{path::Data, Path},
+    element::{path::Data, Circle, Path},
     Value,
 };
 
+#[derive(Clone, Debug)]
+pub enum RenderNode {
+    Path(Path),
+    Circle(Circle),
+}
+
 fn viz_color_to_value(color: VizColor) -> Value {
-    if color.a < 255 {
+    if color.a == 0 {
+        // Fully transparent, return 'none' to prevent rendering
+        Value::from("none")
+    }
+    else if color.a < 255 {
         // Convert to rgba() string if alpha is present
         Value::from(format!(
             "rgba({}, {}, {}, {:.3})",
@@ -65,32 +78,43 @@ fn svg_render_arc(data: Data, arc: &VizArc, line_to: bool) -> Data {
     data.cubic_curve_to(((arc.cp1.x, arc.cp1.y), (arc.cp2.x, arc.cp2.y), (arc.end.x, arc.end.y)))
 }
 
+fn svg_render_quadratic_arc(data: Data, arc: &VizQuadraticArc, line_to: bool) -> Data {
+    let data = if line_to {
+        data.line_to((arc.start.x, arc.start.y)) // Draw a line to start
+    }
+    else {
+        data.move_to((arc.start.x, arc.start.y)) // Move without drawing
+    };
+    data.quadratic_curve_to(((arc.cp.x, arc.cp.y), (arc.end.x, arc.end.y)))
+}
+
 fn svg_render_sector(data: Data, sector: &VizSector) -> Data {
     let mut data = svg_render_arc(data, &sector.inner, false);
     data = svg_render_arc(data, &sector.outer, true);
     data.line_to((sector.inner.start.x, sector.inner.start.y))
 }
 
+/// Render shapes as paths. Notably we do not render circles here as they are not paths!
+fn svg_render_shape(data: Data, shape: &VizShape) -> Data {
+    match shape {
+        VizShape::CubicArc(arc) => svg_render_arc(data, arc, false),
+        VizShape::QuadraticArc(arc) => svg_render_quadratic_arc(data, arc, false),
+        VizShape::Sector(sector) => svg_render_sector(data, sector),
+        _ => data,
+    }
+}
+
 pub fn svg_render_element(
     element: &VizElement,
-    track_style: &Style,
-    element_styles: &FoxHashMap<GenericTrackElement, Style>,
-) -> Path {
+    track_style: &ElementStyle,
+    element_styles: &FoxHashMap<GenericTrackElement, ElementStyle>,
+) -> RenderNode {
     let mut data = Data::new();
-    data = svg_render_sector(data, &element.sector);
-
-    let default_style = Style::default();
-
+    let default_style = ElementStyle::default();
     let style = match element.info.element_type {
         GenericTrackElement::NullElement => {
             // Check if this is a track-level element
             if element.flags.contains(VizElementFlags::TRACK) {
-                log::warn!(
-                    "emitting track element, start: {} end: {} style: {:?}",
-                    element.sector.start,
-                    element.sector.end,
-                    track_style
-                );
                 track_style
             }
             else {
@@ -100,9 +124,46 @@ pub fn svg_render_element(
         _ => element_styles.get(&element.info.element_type).unwrap_or(&default_style),
     };
 
+    match element.shape {
+        VizShape::CubicArc(_) | VizShape::QuadraticArc(_) | VizShape::Sector(_) => {
+            data = svg_render_shape(data, &element.shape);
+        }
+        VizShape::Circle(circle) => {
+            // Circles are not paths, so we do not add to data.
+            let new_circle = Circle::new()
+                .set("cx", circle.center.x)
+                .set("cy", circle.center.y)
+                .set("r", circle.radius)
+                .set("fill", viz_color_to_value(style.fill))
+                .set("stroke", viz_color_to_value(style.stroke))
+                .set("stroke-width", style.stroke_width);
+
+            return RenderNode::Circle(new_circle);
+        }
+        _ => {}
+    };
+
+    RenderNode::Path(
+        Path::new()
+            .set("d", data)
+            .set("fill", viz_color_to_value(style.fill))
+            .set("stroke", viz_color_to_value(style.stroke))
+            .set("stroke-width", style.stroke_width),
+    )
+}
+
+/// Render a single data slice as an SVG path. Unlike a sector element, a data slice is a single
+/// arc with a stroke rendered at the track width.
+pub fn svg_render_data_slice(slice: &VizDataSlice, stroke: f32) -> Path {
+    let mut data = Data::new();
+    data = svg_render_quadratic_arc(data, &slice.arc, false);
+
+    // Boost contrast by increasing density by 50%
+    let adjusted_density = (slice.density * 1.5).clamp(0.0, 1.0);
+    let value_u8 = (adjusted_density * 255.0) as u8;
+    let fill_color = VizColor::from_value(value_u8, 255);
     Path::new()
         .set("d", data)
-        .set("fill", viz_color_to_value(style.fill))
-        .set("stroke", viz_color_to_value(style.stroke))
-        .set("stroke-width", style.stroke_width)
+        .set("stroke", viz_color_to_value(fill_color))
+        .set("stroke-width", stroke)
 }

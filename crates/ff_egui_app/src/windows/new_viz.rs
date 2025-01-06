@@ -110,7 +110,7 @@ impl NewVizViewer {
 
             let metadata_params = RenderTrackMetadataParams {
                 quadrant: None,
-                head: 0,
+                side: 0,
                 draw_empty_tracks: false,
                 draw_sector_lookup: false,
             };

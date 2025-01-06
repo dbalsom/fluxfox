@@ -29,15 +29,11 @@ use std::collections::HashMap;
 
 use fluxfox::{
     track_schema::GenericTrackElement,
-    visualization::{
-        prelude::{skia_render_element, SkiaStyle, VizColor},
-        VizElementDisplayList,
-    },
+    visualization::prelude::{SkiaStyle, VizColor},
     FoxHashMap,
 };
 
-use crate::svg_helpers::svg_render_element;
-use tiny_skia::{BlendMode, Paint, Pixmap, Transform};
+use fluxfox_svg::prelude::ElementStyle;
 
 // Style struct for storing visual properties
 #[derive(Copy, Clone, Debug, Default)]
@@ -66,6 +62,24 @@ pub fn style_map_to_skia(
             (
                 k.clone(),
                 SkiaStyle {
+                    fill: v.fill,
+                    stroke: v.stroke,
+                    stroke_width: v.stroke_width,
+                },
+            )
+        })
+        .collect()
+}
+
+pub fn style_map_to_fluxfox_svg(
+    style_map: &FoxHashMap<GenericTrackElement, Style>,
+) -> FoxHashMap<GenericTrackElement, ElementStyle> {
+    style_map
+        .iter()
+        .map(|(k, v)| {
+            (
+                k.clone(),
+                ElementStyle {
                     fill: v.fill,
                     stroke: v.stroke,
                     stroke_width: v.stroke_width,

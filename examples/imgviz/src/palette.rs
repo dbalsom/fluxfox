@@ -31,7 +31,7 @@
 //! be able to load a user-specified palette, probably from a TOML file...
 
 use crate::{
-    config::{MaskConfig, StyleConfig},
+    config::{ConfigBlendMode, MaskConfig, StyleConfig},
     style::Style,
 };
 use fluxfox::{track_schema::GenericTrackElement, visualization::types::VizColor, FoxHashMap};
@@ -82,12 +82,14 @@ pub fn palette_to_style_config(palette: &FoxHashMap<GenericTrackElement, VizColo
     }
 
     StyleConfig {
+        track_gap: 0.0,
         masks: MaskConfig {
             weak:  default_weak_bit_color(),
             error: default_error_bit_color(),
         },
         track_style: Style::fill_only(VizColor::from_rgba8(0, 0, 0, 0)),
         element_styles: style_map,
+        blend_mode: ConfigBlendMode::Multiply,
     }
 }
 

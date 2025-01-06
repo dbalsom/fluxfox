@@ -4,10 +4,45 @@
 # Color definitions can be an array of 4 values: [r, g, b, a], or a hexadecimal value in the form 0xRRGGBBAA.
 # `Stroke` must be a floating-point value. Include the decimal point!
 
-# Default Style Settings
+# Margins around the rendered image, in pixels or view box units. The order is top, right, bottom, left.
+margins = [10.0, 10.0, 10.0, 10.0]
+
+# Spacing between side 0 and side 1 if both sides are rendered, in pixels or view box units
+side_spacing = 64.0
+
+# Gap between tracks, as a ratio of calculated track width. To think of it another way,
+# final track width is (calculated track width) * (1.0 - track_gap).
+track_gap = 0.25
+
+
+# Blend mode. This can be any of the following values:
+#
+# Normal
+# Multiply
+# Screen
+# Overlay
+# Darken
+# Lighten
+# ColorDodge
+# ColorBurn
+# HardLight
+# SoftLight
+# Difference
+# Exclusion
+# Hue
+# Saturation
+# Color
+# Luminosity
+#
+# These should be somewhat familiar if you've ever worked with layers in image editing software.
+# Explanations are here: https://developer.mozilla.org/en-US/docs/Web/CSS/mix-blend-mode
+# The best looking blend modes for visualizations are Color, HardLight and Multiply.
+blend_mode = "Color"
+
+# Default Element Style Settings
 [default_style]
 fill = [128, 128, 128, 255]   # Default gray fill
-stroke = [0, 0, 0, 0]         # Default transparent stroke. Stroke is not very useful as the disk is split into 
+stroke = [0, 0, 0, 0]         # Default transparent stroke. Stroke is not very useful as the disk is split into
                               # quadrants to avoid rendering issues, but hey, it's here if you want to see it.
 stroke_width = 0.0            # Default stroke width (none)
 
@@ -20,12 +55,16 @@ error = [255, 0, 0, 255]       # Error mask color (red)
 # Specifying a full-alpha fill color will hide the data layer. This is mostly useful if only rendering metadata,
 # and you want to see the full track ring.
 [track_style]
-fill = [128, 128, 128, 255]    # Default gray fill
+fill = [128, 128, 128, 0]
 
 # Element style definitions.
 # An element will inherit the default style settings unless overridden here.
 # A full element definition takes the form:
 # ElementName = { fill = [r, g, b, a], stroke = [r, g, b, a], stroke_width = 1 }
+#
+# Elements are drawn slightly overlapped to avoid seeing pixel gaps between elements due to floating point errors.
+# For this reason, it is recommended that all elements have full opacity, or you will see bright lines where they overlap.
+# Instead, you can set the entire layer blend opacity.
 #
 # The following elements are defined:
 # - Marker: A marker element, such as an IAM, IDAM or DAM marker on an MFM track.
@@ -50,4 +89,5 @@ SectorHeader = { fill = [65, 166, 246, 255] }
 # Medium Blue
 SectorBadHeader = { fill = [59, 93, 201, 255] }
 # Purple  
-Marker = { fill = [180, 0, 180, 255] }      
+Marker = { fill = [180, 0, 180, 255] }
+

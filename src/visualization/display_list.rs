@@ -28,13 +28,10 @@
 //! A [VizElementDisplayList] is a list of [VizElement] objects to be rendered.
 //! Operations can be implemented on this list, such as scaling and rotation.
 
-use crate::{
-    visualization::{
-        types::{VizDataSlice, VizElement},
-        TurningDirection,
-        VizRotate,
-    },
-    MAX_CYLINDER,
+use crate::visualization::{
+    types::{VizDataSlice, VizElement},
+    TurningDirection,
+    VizRotate,
 };
 
 /// A [VizElementDisplayList] is a list of [VizElement] objects to be rendered.
@@ -125,8 +122,11 @@ impl<'a> Iterator for VizDisplayListIter<'a> {
 /// A [VizDataSliceDisplayList] is a list of [VizDataSlice] objects to be rendered.
 /// Operations can be implemented on this list, such as scaling and rotation.
 pub struct VizDataSliceDisplayList {
+    pub min_density: f32,
+    pub max_density: f32,
+    pub track_width: f32,
     pub turning: TurningDirection,
-    pub tracks:  Vec<Vec<VizDataSlice>>,
+    pub tracks: Vec<Vec<VizDataSlice>>,
 }
 
 // Iterator struct
@@ -158,11 +158,18 @@ impl<'a> Iterator for VizDataDisplayListIter<'a> {
 }
 
 impl VizDataSliceDisplayList {
-    pub fn new(turning: TurningDirection) -> VizDataSliceDisplayList {
+    pub fn new(turning: TurningDirection, cylinders: usize, track_width: f32) -> VizDataSliceDisplayList {
         VizDataSliceDisplayList {
+            min_density: 0.0,
+            max_density: 1.0,
+            track_width,
             turning,
-            tracks: Vec::with_capacity(MAX_CYLINDER),
+            tracks: vec![Vec::new(); cylinders],
         }
+    }
+
+    pub fn set_track_width(&mut self, track_width: f32) {
+        self.track_width = track_width;
     }
 
     pub fn push(&mut self, c: usize, element: VizDataSlice) {

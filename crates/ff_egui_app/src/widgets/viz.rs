@@ -307,7 +307,7 @@ impl VisualizationState {
 
         let mut render_params = RenderTrackMetadataParams {
             quadrant: Some(quadrant),
-            head,
+            side: head,
             draw_empty_tracks: false,
             draw_sector_lookup: false,
         };

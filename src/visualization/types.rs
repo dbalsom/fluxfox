@@ -24,16 +24,29 @@
 
     --------------------------------------------------------------------------
 */
-use crate::{track_schema::GenericTrackElement, types::DiskCh, visualization::VizRotate};
-use bitflags::bitflags;
-use core::fmt;
-use num_traits::Num;
+
+//! Methods to construct cubic and quadratic Bezier approximations of circular arcs.
+//! These methods are used to represent track elements in the visualization layer.
+//! The cubic approximation is used for longer arcs, while the quadratic approximation is used for
+//! shorter arcs.
+//!
+//! Derived constants are used to generate quadrant (90 degree) arcs, taken from:
+//! https://spencermortensen.com/articles/bezier-circle/
+//!
+//! I'm not the greatest at math so if you spot any optimizations here, please let me know!
+
 use std::{
     fmt::{Display, Formatter},
     ops::{Add, Div, Range},
 };
 
+use crate::{track_schema::GenericTrackElement, types::DiskCh, visualization::VizRotate};
+use bitflags::bitflags;
+use core::fmt;
+use num_traits::Num;
+
 /// A [VizColor] represents a color in 32-bit premultiplied RGBA format.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug)]
 pub struct VizColor {
     pub r: u8,
@@ -59,6 +72,15 @@ impl VizColor {
     
     pub fn from_rgba8(r: u8, g: u8, b: u8, a: u8) -> VizColor {
         VizColor { r, g, b, a }
+    }
+    
+    pub fn from_value(value: u8, alpha: u8) -> VizColor {
+        VizColor {
+            r: value,
+            g: value,
+            b: value,
+            a: alpha,
+        }
     }
 }
 
@@ -90,12 +112,69 @@ bitflags! {
 /// A [VizDimensions] represents the width and height of a rectangular region, such as a pixmap.
 pub type VizDimensions = VizPoint2d<u32>;
 
+#[derive(Copy, Clone, Debug)]
+pub enum VizShape {
+    CubicArc(VizArc),
+    QuadraticArc(VizQuadraticArc),
+    Sector(VizSector),
+    Circle(VizCircle),
+    Line(VizLine<f32>),
+}
+
+impl VizRotate for VizShape {
+    #[inline]
+    fn rotate(&mut self, angle: f32) {
+        match self {
+            VizShape::CubicArc(arc) => arc.rotate(angle),
+            VizShape::QuadraticArc(arc) => arc.rotate(angle),
+            VizShape::Sector(sector) => sector.rotate(angle),
+            VizShape::Circle(_) => {}
+            VizShape::Line(_) => {}
+        }
+    }
+}
+
+/// A [VizLine] represents a line segment in 2D space.
+#[derive(Copy, Clone, Debug)]
+pub struct VizLine<T: Num + Copy + Default + Into<f64>> {
+    pub start: VizPoint2d<T>,
+    pub end:   VizPoint2d<T>,
+}
+
+impl<T: Num + Copy + Default> VizLine<T>
+where
+    f64: From<T>,
+{
+    pub fn new(start: VizPoint2d<T>, end: VizPoint2d<T>) -> VizLine<T> {
+        VizLine { start, end }
+    }
+
+    pub fn length(&self) -> f64 {
+        let dx = f64::from(self.end.x - self.start.x);
+        let dy = f64::from(self.end.y - self.start.y);
+        (dx * dx + dy * dy).sqrt()
+    }
+}
+
+impl<T: Num + Copy + Default> From<(T, T, T, T)> for VizLine<T>
+where
+    f64: From<T>,
+{
+    fn from(tuple: (T, T, T, T)) -> Self {
+        VizLine {
+            start: VizPoint2d::from((tuple.0, tuple.1)),
+            end:   VizPoint2d::from((tuple.2, tuple.3)),
+        }
+    }
+}
+
 /// A [VizRect] represents a rectangle in 2D space. It is generic across numeric types, using
 /// `num_traits`.
 ///
 /// The rectangle is defined by two points, the top-left and bottom-right corners.
 /// Methods are provided for calculating the width and height of the rectangle.
-pub struct VizRect<T> {
+#[derive(Clone, Default, Debug)]
+pub struct VizRect<T: Num + Copy + PartialOrd + Default> {
     pub top_left: VizPoint2d<T>,
     pub bottom_right: VizPoint2d<T>,
 }
@@ -295,6 +374,7 @@ impl<T: Num + Copy + Default> VizPoint2d<T> {
 }
 
 impl VizRotate for VizPoint2d<f32> {
+    /// Rotate the point around the origin by the specified angle in radians.
     #[inline]
     fn rotate(&mut self, angle: f32) {
         let cos_theta = angle.cos();
@@ -313,6 +393,49 @@ pub struct VizArc {
     pub cp2:   VizPoint2d<f32>, // 2nd control point
 }
 
+impl VizArc {
+    /// Calculate cubic Bézier parameters from a center point, radius, and start and end angles.
+    /// This assumes the curve represents a segment of a circle.
+    pub fn from_angles(center: &VizPoint2d<f32>, radius: f32, start_angle: f32, end_angle: f32) -> VizArc {
+        // Calculate start and end points with simple trigonometry
+        let x1 = center.x + radius * start_angle.cos();
+        let y1 = center.y + radius * start_angle.sin();
+        let x4 = center.x + radius * end_angle.cos();
+        let y4 = center.y + radius * end_angle.sin();
+
+        // Compute relative vectors
+        let ax = x1 - center.x;
+        let ay = y1 - center.y;
+        let bx = x4 - center.x;
+        let by = y4 - center.y;
+
+        // Circular cubic approximation using (4/3).
+        // q1 = |A|^2 = ax² + ay²
+        // q2 = q1 + (A · B) = q1 + ax*bx + ay*by
+        let q1 = ax * ax + ay * ay;
+        let q2 = q1 + ax * bx + ay * by;
+        let k2 = (4.0 / 3.0) * ((2.0 * q1 * q2).sqrt() - q2) / (ax * by - ay * bx);
+
+        // Reapply center offset
+        let (x2, y2) = (center.x + ax - k2 * ay, center.y + ay + k2 * ax);
+        let (x3, y3) = (center.x + bx + k2 * by, center.y + by - k2 * bx);
+
+        VizArc {
+            start: VizPoint2d { x: x1, y: y1 },
+            end:   VizPoint2d { x: x4, y: y4 },
+            cp1:   VizPoint2d { x: x2, y: y2 },
+            cp2:   VizPoint2d { x: x3, y: y3 },
+        }
+    }
+}
+
+impl From<VizArc> for VizShape {
+    #[inline]
+    fn from(arc: VizArc) -> VizShape {
+        VizShape::CubicArc(arc)
+    }
+}
+
 impl VizRotate for VizArc {
     #[inline]
     fn rotate(&mut self, angle: f32) {
@@ -320,6 +443,76 @@ impl VizRotate for VizArc {
         self.end.rotate(angle);
         self.cp1.rotate(angle);
         self.cp2.rotate(angle);
+    }
+}
+
+/// A [VizQuadraticArc] represents a quadratic Bézier curve in 2D space.
+/// A lower order curve than a cubic Bézier, a Quadratic Bézier requires more curves to represent
+/// the same shapes as a cubic Bezier, but is computationally simpler and requires one fewer control
+/// point.
+/// We can optimize the representation of short arcs with quadratic Bézier curves and use cubic
+/// Bézier curves for longer arcs.
+#[derive(Copy, Clone, Debug)]
+pub struct VizQuadraticArc {
+    pub start: VizPoint2d<f32>, // Start point of arc
+    pub end:   VizPoint2d<f32>, // End point of arc
+    pub cp:    VizPoint2d<f32>, // Control point
+}
+
+impl VizQuadraticArc {
+    /// Calculate quadratic Bézier parameters from a center point, radius, and start and end angles.
+    /// This assumes the curve represents a segment of a circle.
+    pub fn from_angles(center: &VizPoint2d<f32>, radius: f32, start_angle: f32, end_angle: f32) -> VizQuadraticArc {
+        // Calculate start and end points with simple trigonometry
+        let x1 = center.x + radius * start_angle.cos();
+        let y1 = center.y + radius * start_angle.sin();
+        let x2 = center.x + radius * end_angle.cos();
+        let y2 = center.y + radius * end_angle.sin();
+
+        // Calculate the midpoint of the arc
+        let mid_angle = (start_angle + end_angle) * 0.5;
+        let mx = center.x + radius * mid_angle.cos();
+        let my = center.y + radius * mid_angle.sin();
+
+        // Calculate the control point to represent a circular arc
+        let cx = 2.0 * mx - 0.5 * (x1 + x2);
+        let cy = 2.0 * my - 0.5 * (y1 + y2);
+
+        VizQuadraticArc {
+            start: VizPoint2d { x: x1, y: y1 },
+            end:   VizPoint2d { x: x2, y: y2 },
+            cp:    VizPoint2d { x: cx, y: cy },
+        }
+    }
+}
+
+impl From<VizQuadraticArc> for VizShape {
+    #[inline]
+    fn from(arc: VizQuadraticArc) -> VizShape {
+        VizShape::QuadraticArc(arc)
+    }
+}
+
+impl VizRotate for VizQuadraticArc {
+    #[inline]
+    fn rotate(&mut self, angle: f32) {
+        self.start.rotate(angle);
+        self.end.rotate(angle);
+        self.cp.rotate(angle);
+    }
+}
+
+/// A [VizCircle] represents a simple circle with center point and radius.
+#[derive(Copy, Clone, Debug)]
+pub struct VizCircle {
+    pub center: VizPoint2d<f32>,
+    pub radius: f32,
+}
+
+impl From<VizCircle> for VizShape {
+    #[inline]
+    fn from(circle: VizCircle) -> VizShape {
+        VizShape::Circle(circle)
     }
 }
 
@@ -331,6 +524,31 @@ pub struct VizSector {
     pub end:   f32, // The angle at which the sector ends
     pub outer: VizArc,
     pub inner: VizArc,
+}
+
+impl VizSector {
+    /// Calculate a [VizSector] from a center point, start and end angles in radians, and an inner and
+    /// outer radius.
+    #[inline]
+    pub fn from_angles(
+        center: &VizPoint2d<f32>,
+        start_angle: f32,
+        end_angle: f32,
+        inner_radius: f32,
+        outer_radius: f32,
+    ) -> VizSector {
+        let inner = VizArc::from_angles(center, inner_radius, start_angle, end_angle);
+        let outer = VizArc::from_angles(center, outer_radius, end_angle, start_angle);
+
+        VizSector::from((start_angle, end_angle, outer, inner))
+    }
+}
+
+impl From<VizSector> for VizShape {
+    #[inline]
+    fn from(sector: VizSector) -> VizShape {
+        VizShape::Sector(sector)
+    }
 }
 
 impl VizRotate for VizSector {
@@ -392,30 +610,27 @@ impl Default for VizElementInfo {
 /// track location.
 #[derive(Clone, Debug)]
 pub struct VizElement {
-    pub sector: VizSector,       // The sector definition
-    pub flags:  VizElementFlags, // Flags for the sector
-    pub info:   VizElementInfo,  // The element represented by the sector
+    pub shape: VizShape,        // The shape of the element
+    pub flags: VizElementFlags, // Flags to control rendering of the element
+    pub info:  VizElementInfo,  // Metadata fields for the element
 }
 
 impl VizElement {
-    pub fn new(sector: VizSector, flags: VizElementFlags, info: VizElementInfo) -> VizElement {
-        VizElement { sector, flags, info }
+    pub fn new(shape: impl Into<VizShape>, flags: VizElementFlags, info: VizElementInfo) -> VizElement {
+        VizElement {
+            shape: shape.into(),
+            flags,
+            info,
+        }
     }
 }
 
 impl VizRotate for VizElement {
     #[inline]
     fn rotate(&mut self, angle: f32) {
-        self.sector.rotate(angle);
+        self.shape.rotate(angle);
     }
 }
-
-// impl VizRotate for &mut VizElement {
-//     #[inline]
-//     fn rotate(&mut self, angle: f32) {
-//         self.sector.rotate(angle);
-//     }
-// }
 
 /// Convert a tuple of two [VizArc] objects into a [VizSector].
 impl From<(f32, f32, VizArc, VizArc)> for VizSector {
@@ -447,15 +662,16 @@ impl From<tiny_skia::Point> for VizPoint2d<f32> {
 }
 
 /// A slice of a track used in vector based data layer visualization.
+#[derive(Clone, Debug)]
 pub struct VizDataSlice {
-    pub popcnt: u8,         // The count of `1` bits in the slice
-    pub decoded_popcnt: u8, // The count of `1` bits in the slice after decoding
-    pub sector: VizSector,  // The sector definition
+    pub density: f32,         // The ratio of 1 bits set to the total number of bits in the slice
+    pub decoded_density: f32, // The ratio of 1 bits set to the total number of bits in the slice after decoding
+    pub arc: VizQuadraticArc, // The slice arc
 }
 
 impl VizRotate for VizDataSlice {
     #[inline]
     fn rotate(&mut self, angle: f32) {
-        self.sector.rotate(angle);
+        self.arc.rotate(angle);
     }
 }

@@ -36,12 +36,12 @@
 //!
 //! The `imgviz` example in the repository demonstrates how to use the visualization functions.
 
+pub mod data_segmenter;
 pub mod display_list;
 pub mod prelude;
 pub mod types;
 pub mod vectorize_disk;
 
-mod data_segmenter;
 #[cfg(feature = "tiny_skia")]
 pub mod tiny_skia_util;
 
@@ -79,12 +79,16 @@ const POPCOUNT_TABLE: [u8; 256] = {
     table
 };
 
-/// A simple trait to allow for rotation of visualization elements around a common center
+/// A simple trait to allow for rotation of visualization elements
 pub trait VizRotate {
+    /// Rotate the element around the origin
     fn rotate(&mut self, angle: f32);
 }
 
-use crate::visualization::types::{VizColor, VizDimensions, VizPoint2d};
+use crate::visualization::{
+    prelude::VizRect,
+    types::{VizColor, VizDimensions, VizPoint2d},
+};
 #[cfg(feature = "tiny_skia")]
 pub use tiny_skia;
 #[cfg(feature = "tiny_skia")]
@@ -105,7 +109,7 @@ pub enum RenderMaskType {
 #[derive(Clone)]
 pub struct RenderVectorizationParams {
     /// View box dimensions to use for the visualization.
-    pub view_box: VizDimensions,
+    pub view_box: VizRect<f32>,
     /// Image background color to use for the visualization. If None, background will be transparent.
     pub image_bg_color: Option<VizColor>,
     /// Background color to use for the disk surface, in absence of any rendered elements.
@@ -248,7 +252,7 @@ pub struct RenderTrackMetadataParams {
     /// Which quadrant to render (0-3) if Some. If None, all quadrants will be rendered.
     pub quadrant: Option<u8>,
     /// Which side of disk to render
-    pub head: u8,
+    pub side: u8,
     /// Whether to draw empty tracks as black rings
     pub draw_empty_tracks: bool,
     /// Draw a sector lookup bitmap instead of color information
@@ -259,7 +263,7 @@ impl Default for RenderTrackMetadataParams {
     fn default() -> Self {
         Self {
             quadrant: None,
-            head: 0,
+            side: 0,
             draw_empty_tracks: false,
             draw_sector_lookup: false,
         }
@@ -340,9 +344,10 @@ impl From<u8> for TurningDirection {
 
 /// Determines the visualization resolution - either byte resolution or bit resolution.
 /// Bit resolution requires extremely high resolution output to be legible.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Default, Debug)]
 pub enum ResolutionType {
     Bit,
+    #[default]
     Byte,
 }
 

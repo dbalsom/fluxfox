@@ -33,6 +33,7 @@ use std::path::{Path, PathBuf};
 
 use bpaf::{construct, long, short, OptionParser, Parser};
 
+use crate::DEFAULT_DATA_SLICES;
 use fluxfox::visualization::types::VizColor;
 
 #[allow(dead_code)]
@@ -46,9 +47,11 @@ pub(crate) struct VizArgs {
     pub(crate) side: Option<u8>,
     pub(crate) sides: Option<u8>,
     pub(crate) side_spacing: f32,
+    pub(crate) track_gap: Option<f32>,
     pub(crate) hole_ratio: f32,
     pub(crate) angle: f32,
     pub(crate) data: bool,
+    pub(crate) data_slices: usize,
     pub(crate) weak: bool,
     pub(crate) errors: bool,
     pub(crate) metadata: bool,
@@ -104,6 +107,11 @@ pub(crate) fn opts() -> OptionParser<VizArgs> {
         .argument::<f32>("SIDE_SPACING")
         .fallback(0.0);
 
+    let track_gap = long("track_gap")
+        .help("Size of gap between tracks as a ratio of track width")
+        .argument::<f32>("TRACK_GAP")
+        .optional();
+
     let hole_ratio = short('h')
         .long("hole_ratio")
         .help("Ratio of inner radius to outer radius")
@@ -117,6 +125,11 @@ pub(crate) fn opts() -> OptionParser<VizArgs> {
         .fallback(0.0);
 
     let data = long("data").help("Render data").switch();
+
+    let data_slices = long("data_slices")
+        .help("Number of slices to use rendering data")
+        .argument::<usize>("DATA_SLICES")
+        .fallback(DEFAULT_DATA_SLICES);
 
     let weak = short('w').long("weak").help("Render weak bits").switch();
 
@@ -163,7 +176,9 @@ pub(crate) fn opts() -> OptionParser<VizArgs> {
         resolution,
         side,
         sides,
+        data_slices,
         side_spacing,
+        track_gap,
         hole_ratio,
         angle,
         data,

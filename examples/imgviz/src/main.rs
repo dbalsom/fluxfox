@@ -35,7 +35,6 @@ mod palette;
 mod render_bitmap;
 mod render_svg;
 mod style;
-mod svg_helpers;
 mod text;
 
 use std::{
@@ -70,6 +69,9 @@ use fluxfox::{
 
 use crate::render_bitmap::rasterize_display_list;
 use crossbeam::channel;
+
+pub const MAX_SLICES: usize = 2880;
+pub const DEFAULT_DATA_SLICES: usize = 1440;
 
 fn main() {
     let mut legend_height = None;
@@ -430,7 +432,7 @@ fn main() {
 
                 let metadata_params = RenderTrackMetadataParams {
                     quadrant: None,
-                    head: side as u8,
+                    side: side as u8,
                     draw_empty_tracks: false,
                     draw_sector_lookup: false,
                 };

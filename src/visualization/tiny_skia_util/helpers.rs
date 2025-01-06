@@ -31,7 +31,7 @@ use crate::{
     FoxHashMap,
 };
 
-use crate::visualization::tiny_skia_util::SkiaStyle;
+use crate::visualization::{tiny_skia_util::SkiaStyle, types::VizShape};
 use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Transform};
 
 #[inline]
@@ -70,6 +70,26 @@ pub fn skia_render_sector(path: &mut PathBuilder, sector: &VizSector) {
     path.line_to(sector.inner.start.x, sector.inner.start.y);
 }
 
+pub fn skia_render_shape(path: &mut PathBuilder, shape: &VizShape) {
+    match shape {
+        VizShape::CubicArc(arc) => {
+            skia_render_arc(path, arc, false, false);
+        }
+        VizShape::QuadraticArc(arc) => {
+            //skia_render_quadratic_arc(data, arc, line_to);
+        }
+        VizShape::Sector(sector) => {
+            skia_render_sector(path, sector);
+        }
+        VizShape::Circle(circle) => {
+            //skia_render_circle(data, circle, line_to);
+        }
+        VizShape::Line(line) => {
+            //skia_render_line(data, line, line_to);
+        }
+    }
+}
+
 pub fn skia_render_element(
     pixmap: &mut Pixmap,
     paint: &mut Paint,
@@ -81,7 +101,7 @@ pub fn skia_render_element(
 
     //log::debug!("Rendering sector: {:#?}", &element.sector);
     //log::debug!("Rendering element: {:#?}", &element);
-    skia_render_sector(&mut path, &element.sector);
+    skia_render_shape(&mut path, &element.shape);
     path.close();
     let default_style = SkiaStyle::default();
     let style = palette.get(&element.info.element_type).unwrap_or(&default_style);
