@@ -339,7 +339,10 @@ impl eframe::App for App {
         // Show windows
         if let Some(disk_image) = &self.disk_image {
             self.windows.viz_viewer.show(ctx, disk_image.clone());
-            self.windows.new_viz_viewer.show(ctx, disk_image.clone());
+            #[cfg(feature = "devmode")]
+            {
+                self.windows.new_viz_viewer.show(ctx, disk_image.clone());
+            }
             self.windows.source_map.show(ctx);
         }
 
@@ -499,7 +502,10 @@ impl App {
 
             ui.menu_button("Windows", |ui| {
                 ui.checkbox(self.windows.viz_viewer.open_mut(), "Visualization");
-                ui.checkbox(self.windows.new_viz_viewer.open_mut(), "Visualization (New)");
+                #[cfg(feature = "devmode")]
+                {
+                    ui.checkbox(self.windows.new_viz_viewer.open_mut(), "Visualization (New)");
+                }
                 ui.checkbox(self.windows.source_map.open_mut(), "Image Source Map");
             });
 
@@ -553,6 +559,7 @@ impl App {
                         }
                     }
 
+                    #[cfg(feature = "devmode")]
                     match self
                         .windows
                         .new_viz_viewer

@@ -56,6 +56,8 @@ eframe = { version = "0.30", default-features = false, features = [
     "glow",          # Use the glow rendering backend. Alternative: "wgpu".
     "persistence",   # Enable restoring app state when restarting the app.
 ]}
+# Use web-time for Instant and Duration
+web-time.workspace = true
 
 # We are limited to the wasm-bindgen binary version bundled with trunk
 wasm-bindgen = "=0.2.95"
@@ -77,5 +79,8 @@ features = [
 ]
 
 [features]
-default = ["amiga"]
+default = ["amiga", "macintosh"]
 amiga = ["fluxfox/amiga"]
+macintosh = ["fluxfox/macintosh"]
+# enable dev stuff - warning, may be unstable or completely broken
+devmode = []

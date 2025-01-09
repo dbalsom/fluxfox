@@ -25,17 +25,11 @@
     --------------------------------------------------------------------------
 */
 
-#![warn(clippy::all, rust_2018_idioms)]
+//! Module providing time utilities for the application, resolving to either
+//! `std::time` or `web_time` depending on the target platform.
 
-pub(crate) mod app;
-pub(crate) mod time;
-pub(crate) mod widgets;
+#[cfg(target_arch = "wasm32")]
+pub use web_time::{Duration, Instant};
 
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) mod native;
-pub(crate) mod ui;
-#[cfg(target_arch = "wasm32")]
-pub(crate) mod wasm;
-pub(crate) mod windows;
-
-pub use app::{App, APP_NAME};
+pub use std::time::{Duration, Instant};

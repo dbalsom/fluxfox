@@ -36,7 +36,7 @@ use crate::native::worker;
 #[cfg(target_arch = "wasm32")]
 use crate::wasm::worker;
 
-use crate::App;
+use crate::{time::*, App};
 
 use fluxfox::{
     prelude::*,
@@ -264,11 +264,13 @@ impl VisualizationState {
             let mut render_pixmap = render_target.lock().unwrap();
             render_pixmap.fill(Color::TRANSPARENT);
 
+            let vectorize_data_timer = Instant::now();
             match vectorize_disk_data(&disk, &inner_common_params, &data_params, &vector_params) {
                 Ok(display_list) => {
                     log::debug!(
-                        "render worker: Data layer vectorized for side {}, display list of {} elements",
+                        "render worker: Data layer vectorized for side {} in {:.2}ms, created display list of {} elements",
                         head,
+                        vectorize_data_timer.elapsed().as_millis(),
                         display_list.len()
                     );
 
