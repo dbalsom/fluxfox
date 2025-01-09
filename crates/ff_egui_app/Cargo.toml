@@ -22,6 +22,7 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 log = "0.4"
 fluxfox = { path = "../..", default-features = false, features = ["rand", "serde", "archives", "mfi", "viz", "tiny_skia", "fat", "ibmpc", "amiga", "macintosh"] }
 fluxfox_egui = { path = "../ff_egui_lib" }
+fluxfox_tiny_skia = { path = "../fluxfox_tiny_skia" }
 
 # We don't need tiny_skia's png support since egui is pulling in image anyway.
 tiny-skia = { version = "0.11", default-features = false, features = ["std", "simd"] }

@@ -25,15 +25,10 @@
     --------------------------------------------------------------------------
 */
 
-use std::collections::HashMap;
-
-use fluxfox::{
-    track_schema::GenericTrackElement,
-    visualization::prelude::{SkiaStyle, VizColor},
-    FoxHashMap,
-};
+use fluxfox::{track_schema::GenericTrackElement, visualization::prelude::*, FoxHashMap};
 
 use fluxfox_svg::prelude::ElementStyle;
+use fluxfox_tiny_skia::styles::SkiaStyle;
 
 // Style struct for storing visual properties
 #[derive(Copy, Clone, Debug, Default)]
@@ -53,24 +48,7 @@ impl Style {
     }
 }
 
-pub fn style_map_to_skia(
-    style_map: &FoxHashMap<GenericTrackElement, Style>,
-) -> FoxHashMap<GenericTrackElement, SkiaStyle> {
-    style_map
-        .iter()
-        .map(|(k, v)| {
-            (
-                k.clone(),
-                SkiaStyle {
-                    fill: v.fill,
-                    stroke: v.stroke,
-                    stroke_width: v.stroke_width,
-                },
-            )
-        })
-        .collect()
-}
-
+#[cfg(feature = "use_svg")]
 pub fn style_map_to_fluxfox_svg(
     style_map: &FoxHashMap<GenericTrackElement, Style>,
 ) -> FoxHashMap<GenericTrackElement, ElementStyle> {
@@ -80,6 +58,25 @@ pub fn style_map_to_fluxfox_svg(
             (
                 k.clone(),
                 ElementStyle {
+                    fill: v.fill,
+                    stroke: v.stroke,
+                    stroke_width: v.stroke_width,
+                },
+            )
+        })
+        .collect()
+}
+
+#[cfg(feature = "use_tiny_skia")]
+pub fn style_map_to_skia(
+    style_map: &FoxHashMap<GenericTrackElement, Style>,
+) -> FoxHashMap<GenericTrackElement, SkiaStyle> {
+    style_map
+        .iter()
+        .map(|(k, v)| {
+            (
+                k.clone(),
+                SkiaStyle {
                     fill: v.fill,
                     stroke: v.stroke,
                     stroke_width: v.stroke_width,

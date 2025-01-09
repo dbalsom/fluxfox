@@ -29,9 +29,8 @@
 //! Operations can be implemented on this list, such as scaling and rotation.
 
 use crate::visualization::{
-    types::{VizDataSlice, VizElement},
+    types::shapes::{VizDataSlice, VizElement},
     TurningDirection,
-    VizRotate,
 };
 
 /// A [VizElementDisplayList] is a list of [VizElement] objects to be rendered.
@@ -73,13 +72,13 @@ impl VizElementDisplayList {
     /// To properly rotate a visualization you should use a transformation matrix in your rendering
     /// engine. See the `imgviz` example crate for an example of how to do this with `svg` and
     /// `tiny_skia`, or the `ff_egui_lib` crate for an example of how to do this with `egui`.
-    pub fn rotate(&mut self, angle: f32) {
-        for track in &mut self.tracks {
-            for element in track {
-                element.rotate(angle);
-            }
-        }
-    }
+    // pub fn rotate(&mut self, angle: f32) {
+    //     for track in &mut self.tracks {
+    //         for element in track {
+    //             element.rotate(angle);
+    //         }
+    //     }
+    // }
 
     /// Return an Iterator that yields all the [VizElement]s in the display list,
     /// in order, by track.
@@ -190,13 +189,13 @@ impl VizDataSliceDisplayList {
     /// ## Warning: This is a lossy operation. Multiple rotations will accumulate errors.
     /// This feature is mostly designed for debugging and testing.
     /// To properly rotate a visualization you should use a transformation matrix in your rendering engine.
-    pub fn rotate(&mut self, angle: f32) {
-        for track in &mut self.tracks {
-            for element in track {
-                element.rotate(angle);
-            }
-        }
-    }
+    // pub fn rotate(&mut self, angle: f32) {
+    //     for track in &mut self.tracks {
+    //         for element in track {
+    //             element.rotate(angle);
+    //         }
+    //     }
+    // }
 
     /// Produce an iterator that yields all the [VizDataSlice]s in the display list,
     pub fn iter(&self) -> VizDataDisplayListIter {

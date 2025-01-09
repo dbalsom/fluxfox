@@ -25,13 +25,4 @@
     --------------------------------------------------------------------------
 */
 
-//! Prelude for visualization module. This module re-exports all necessary
-//! types and functions for visualization.
-
-pub use super::{
-    types::{blend::VizBlendMode, color::VizColor, shapes::*},
-    vectorize_disk::*,
-    TurningDirection,
-    *,
-};
-pub use crate::visualization::types::display_list::*;
+use crate::styles;

@@ -25,4 +25,4 @@
     --------------------------------------------------------------------------
 */
 
-pub use crate::{document::*, renderer::SvgRenderer, styles::*};
+pub use crate::{document::*, overlays::*, renderer::SvgRenderer, styles::*};

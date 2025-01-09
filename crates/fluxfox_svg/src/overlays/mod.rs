@@ -24,14 +24,42 @@
 
     --------------------------------------------------------------------------
 */
+use crate::styles::ElementStyle;
+use fluxfox::visualization::prelude::VizColor;
 
-//! Prelude for visualization module. This module re-exports all necessary
-//! types and functions for visualization.
+pub const SVG_OVERLAY_5_25_FLOPPY_SIDE0: &str = include_str!("5_25_side0_03.svg");
 
-pub use super::{
-    types::{blend::VizBlendMode, color::VizColor, shapes::*},
-    vectorize_disk::*,
-    TurningDirection,
-    *,
-};
-pub use crate::visualization::types::display_list::*;
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone, Debug)]
+pub enum Overlay {
+    Overlay8,
+    Overlay5_25,
+    Overlay3_5,
+}
+
+impl Overlay {
+    pub fn svg(&self, h: u8) -> &'static str {
+        match self {
+            Overlay::Overlay8 => match h {
+                0 => "",
+                _ => "",
+            },
+            Overlay::Overlay5_25 => match h {
+                0 => SVG_OVERLAY_5_25_FLOPPY_SIDE0,
+                _ => "",
+            },
+            Overlay::Overlay3_5 => match h {
+                0 => "",
+                _ => "",
+            },
+        }
+    }
+
+    pub fn default_style() -> ElementStyle {
+        ElementStyle {
+            fill: Default::default(),
+            stroke: VizColor::BLACK,
+            stroke_width: 0.5,
+        }
+    }
+}

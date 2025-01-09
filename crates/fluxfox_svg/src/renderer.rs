@@ -26,6 +26,7 @@
 */
 use fluxfox::{prelude::*, track_schema::GenericTrackElement, visualization::prelude::*, FoxHashMap};
 use svg::Document;
+use web_time::Instant;
 
 use crate::{
     render_display_list::{render_data_display_list_as_svg, render_display_list_as_svg},
@@ -36,7 +37,10 @@ use crate::{
 
 use crate::{
     document::DocumentLayer,
+    overlays::Overlay,
     prelude::{DocumentSide, RenderedDocument},
+    render_elements::viz_color_to_value,
+    render_overlays::svg_to_group,
 };
 use svg::node::element::Group;
 
@@ -53,14 +57,9 @@ pub struct SvgRenderer {
     // Maximum outer radius (should not exceed side_view_box.width / 2).
     // Will be overridden if outer_radius_ratio is set.
     outer_radius: f32,
-    // Maximum outer radius as a ratio of the side view box width. Will
-    // override outer_radius if set.
-    outer_radius_ratio: f32,
     // The direct inner radius (should not exceed max_outer_radius). Will be overridden if
     // inner_radius_ratio is set.
     inner_radius: f32,
-    // Inner radius as a ratio of the side view box width. (should not exceed max_outer_radius).
-    inner_radius_ratio: f32,
     // Whether to decode the data layer.
     decode_data: bool,
     // Whether to disable antialiasing for data groups (recommended: true, avoids moiré patterns).
@@ -106,8 +105,12 @@ pub struct SvgRenderer {
     // Internal state
     common_params: CommonVizParams,
 
+    overlay: Option<Overlay>,
+    overlay_style: ElementStyle,
+
     data_groups: [Option<Group>; 2],
     metadata_groups: [Option<Group>; 2],
+    overlay_groups: [Option<Group>; 2],
 
     composited_group: Option<Group>,
     export_path: Option<String>,
@@ -127,6 +130,7 @@ impl SvgRenderer {
             // Start at 2 and take the minimum of image heads and 2.
             // This can also get set to 1 if a specific side is set.
             total_sides_to_render: 2,
+            overlay_style: Overlay::default_style(),
             ..Default::default()
         }
     }
@@ -268,7 +272,7 @@ impl SvgRenderer {
     /// The default is true. If false, separate documents will be created for each side, and
     /// potentially up to four documents may be created if `render_layered` is false and metadata
     /// layer rendering is enabled.
-    pub fn with_side_by_side(mut self, state: bool, spacing: f32) -> Self {
+    pub fn side_by_side(mut self, state: bool, spacing: f32) -> Self {
         self.render_side_by_side = state;
         self.side_spacing = spacing;
         self
@@ -286,6 +290,20 @@ impl SvgRenderer {
     pub fn with_blend_mode(mut self, mode: BlendMode) -> Self {
         log::trace!("Setting blend mode to {:?}", mode);
         self.layer_blend_mode = mode;
+        self
+    }
+
+    /// Specify an SVG overlay to apply to the rendered visualization. This overlay will be
+    /// added to the final document as the last group.
+    pub fn with_overlay(mut self, overlay: Overlay) -> Self {
+        self.overlay = Some(overlay);
+        self
+    }
+
+    /// Specify the inner and outer radius ratios, as a fraction of the side view box width.
+    pub fn with_radius_ratios(mut self, inner: f32, outer: f32) -> Self {
+        self.common_params.min_radius_ratio = inner;
+        self.common_params.max_radius_ratio = outer;
         self
     }
 
@@ -353,6 +371,8 @@ impl SvgRenderer {
         let metadata_params = RenderTrackMetadataParams {
             quadrant: None,
             side,
+            geometry: Default::default(),
+            winding: Default::default(),
             draw_empty_tracks: false,
             draw_sector_lookup: false,
         };
@@ -416,13 +436,35 @@ impl SvgRenderer {
             // Render data group
             if self.render_data {
                 log::trace!("render(): Rendering data layer group for side {}", side);
+                let data_timer = Instant::now();
                 self.data_groups[side as usize] = Some(self.render_data_group(disk, side)?);
+                log::trace!(
+                    "render(): Rendering data for side {} took {:.3}ms",
+                    side,
+                    data_timer.elapsed().as_secs_f64() * 1000.0
+                );
             }
 
             // Render metadata group
             if self.render_metadata {
                 log::trace!("render(): Rendering metadata layer group for side {}", side);
+                let metadata_timer = Instant::now();
                 self.metadata_groups[side as usize] = Some(self.render_metadata_group(disk, side)?);
+                log::trace!(
+                    "render(): Rendering metadata for side {} took {:.3}ms",
+                    side,
+                    metadata_timer.elapsed().as_secs_f64() * 1000.0
+                );
+            }
+
+            // Render overlay group
+            if let Some(overlay) = &self.overlay {
+                log::trace!("render(): Rendering overlay layer group for side {}", side);
+                self.overlay_groups[side as usize] = Some(svg_to_group(
+                    overlay.svg(side),
+                    &self.side_view_box,
+                    &self.overlay_style,
+                )?);
             }
         }
 
@@ -482,11 +524,42 @@ impl SvgRenderer {
                     for idx in metadata_sides {
                         group = group.add(self.metadata_groups[idx].take().unwrap());
                     }
+                    group = group
+                        .set("fill", viz_color_to_value(self.overlay_style.fill))
+                        .set("stroke", viz_color_to_value(self.overlay_style.stroke))
+                        .set("stroke-width", self.overlay_style.stroke_width);
                     Some(group)
                 }
                 else if !metadata_sides.is_empty() {
                     // Only one side was rendered, so just return that side's group.
                     Some(self.metadata_groups[0].take().unwrap())
+                }
+                else {
+                    // No sides were rendered, so return None
+                    None
+                }
+            };
+
+            let overlay_group = {
+                // Put both sides in a single document
+                // First, check if we even rendered two sides:
+                let mut overlay_sides = Vec::with_capacity(2);
+                for (i, group) in self.overlay_groups.iter().enumerate() {
+                    if group.is_some() {
+                        overlay_sides.push(i);
+                    }
+                }
+
+                if overlay_sides.len() > 1 {
+                    let mut group = Group::new();
+                    for idx in overlay_sides {
+                        group = group.add(self.overlay_groups[idx].take().unwrap());
+                    }
+                    Some(group)
+                }
+                else if !overlay_sides.is_empty() {
+                    // Only one side was rendered, so just return that side's group.
+                    Some(self.overlay_groups[0].take().unwrap())
                 }
                 else {
                     // No sides were rendered, so return None
@@ -530,7 +603,6 @@ impl SvgRenderer {
 
             // We may now have a data group and a metadata group. If layered rendering is enabled,
             // combine them into the same document.
-
             if self.render_layered {
                 log::trace!(
                     "Rendering metadata layer on top of data layer with blend mode: {:?}",
@@ -542,6 +614,9 @@ impl SvgRenderer {
                     document = document.add(group);
                 }
                 if let Some(group) = metadata_group {
+                    document = document.add(group);
+                }
+                if let Some(group) = overlay_group {
                     document = document.add(group);
                 }
 

@@ -25,20 +25,16 @@
     --------------------------------------------------------------------------
 */
 use crate::widgets::viz::{VisualizationState, VizEvent};
-use fluxfox::DiskImage;
+use anyhow::Result;
+use fluxfox::{prelude::TrackDataResolution, visualization::prelude::*, DiskImage};
+use fluxfox_egui::widgets::{disk_visualizer::DiskVisualizerWidget, error_banner::ErrorBanner};
 use std::{
     collections::HashMap,
+    f32::consts::TAU,
     sync::{Arc, RwLock},
 };
 
-use anyhow::Result;
-use fluxfox::{
-    prelude::TrackDataResolution,
-    visualization::{vectorize_disk_elements, CommonVizParams, RenderTrackMetadataParams, TurningDirection},
-};
-use fluxfox_egui::widgets::{disk_visualizer::DiskVisualizerWidget, error_banner::ErrorBanner};
-
-pub const VIZ_RESOLUTION: u32 = 1024;
+pub const VIZ_RESOLUTION: u32 = 768;
 
 pub struct NewVizViewer {
     compatible: bool,
@@ -103,28 +99,44 @@ impl NewVizViewer {
                 index_angle: 0.0,
                 track_limit: None,
                 pin_last_standard_track: true,
-                track_gap: 0.1,
-                absolute_gap: false,
+                track_gap: 0.0,
                 direction: TurningDirection::Clockwise,
             };
 
             let metadata_params = RenderTrackMetadataParams {
                 quadrant: None,
+                geometry: RenderGeometry::Arc,
+                winding: Default::default(),
                 side: 0,
                 draw_empty_tracks: false,
                 draw_sector_lookup: false,
             };
 
-            let display_list = match vectorize_disk_elements(&disk, &common_viz_params, &metadata_params) {
-                Ok(display_list) => display_list,
-                Err(e) => {
-                    eprintln!("Error rendering metadata: {}", e);
-                    std::process::exit(1);
-                }
-            };
+            let display_list = vectorize_disk_elements_by_quadrants(&disk, &common_viz_params, &metadata_params)?;
 
             log::debug!("Updating visualization with {} elements", display_list.len());
-            self.viz.update(display_list);
+            self.viz.update_metadata(display_list);
+
+            let data_params = RenderTrackDataParams {
+                side: 0,
+                decode: false,
+                sector_mask: false,
+                resolution: Default::default(),
+                slices: 360,
+                overlap: -0.10,
+            };
+
+            let vector_params = RenderVectorizationParams {
+                view_box: Default::default(),
+                image_bg_color: None,
+                disk_bg_color: None,
+                mask_color: None,
+                pos_offset: None,
+            };
+
+            let data_display_list = vectorize_disk_data(&disk, &common_viz_params, &data_params, &vector_params)?;
+
+            self.viz.update_data(data_display_list);
         }
         Ok(())
     }
@@ -136,10 +148,13 @@ impl NewVizViewer {
                 .show(ctx, |ui| {
                     egui::menu::bar(ui, |ui| {
                         ui.menu_button("Layers", |ui| {
-                            if ui.checkbox(&mut self.show_data_layer, "Data Layer").changed() {
+                            if ui.checkbox(self.viz.show_data_layer_mut(), "Data Layer").changed() {
                                 //self.viz.enable_data_layer(self.show_data_layer);
                             }
-                            if ui.checkbox(&mut self.show_metadata_layer, "Metadata Layer").changed() {
+                            if ui
+                                .checkbox(self.viz.show_metadata_layer_mut(), "Metadata Layer")
+                                .changed()
+                            {
                                 //self.viz.enable_metadata_layer(self.show_metadata_layer);
                             }
                             if ui.checkbox(&mut self.show_error_layer, "Error Layer").changed() {
@@ -157,6 +172,15 @@ impl NewVizViewer {
                         //         }
                         //     }
                         // });
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.set_min_width(200.0);
+                        ui.add(
+                            egui::Slider::new(self.viz.angle_mut(), 0.0..=TAU)
+                                .text("Angle")
+                                .step_by((TAU / 360.0) as f64),
+                        );
                     });
 
                     if self.compatible {

@@ -23,6 +23,7 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/png2disk/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/examples/fat/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/fluxfox_svg/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/fluxfox_tiny_skia/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/venv" />
     </content>

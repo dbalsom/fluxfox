@@ -52,7 +52,7 @@ bitflags.workspace = true
 binrw.workspace = true
 # bytemuck is a safe wrapper around transumte for working with slices at different alignments. it can significantly
 # improve performance when parsing data from byte slices.
-bytemuck.workspace = true
+bytemuck = { workspace = true, features = ["derive"] }
 # log is a logging facade
 log.workspace = true
 # envlogger is a logger backend for control over logging levels via the RUST_LOG environment variable
@@ -177,6 +177,8 @@ num-derive = "0.4"
 modular-bitfield = "0.11"
 # rand is used for random number generation, primarily for generating random bits for fuzzy/weak bits
 rand = "0.8"
+# web-time is a wasm-compatible replacement for std::time
+web-time = "1.1"
 
 # Dev dependencies
 # ----------------------------------------------------------------------------------------------------------------------

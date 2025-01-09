@@ -37,24 +37,23 @@
 //! The `imgviz` example in the repository demonstrates how to use the visualization functions.
 
 pub mod data_segmenter;
-pub mod display_list;
 pub mod prelude;
+pub mod rasterize_disk;
 pub mod types;
 pub mod vectorize_disk;
-
-#[cfg(feature = "tiny_skia")]
-pub mod tiny_skia_util;
-
-pub use display_list::VizElementDisplayList;
-pub use vectorize_disk::vectorize_disk_elements;
 
 use crate::{
     bitstream_codec::TrackDataStream,
     track_schema::{GenericTrackElement, TrackMetadata},
+    visualization::types::{
+        color::VizColor,
+        shapes::{VizDimensions, VizPoint2d, VizRect, VizRotation},
+    },
     DiskCh,
+    DiskImage,
+    FoxHashMap,
 };
 
-use crate::{DiskImage, FoxHashMap};
 use bit_vec::BitVec;
 
 /// A vector data visualization is broken up into 1440 slices, representing four slices for
@@ -81,20 +80,14 @@ const POPCOUNT_TABLE: [u8; 256] = {
 
 /// A simple trait to allow for rotation of visualization elements
 pub trait VizRotate {
-    /// Rotate the element around the origin
-    fn rotate(&mut self, angle: f32);
+    /// Produce a rotated copy of the element
+    fn rotate(self, rotation: &VizRotation) -> Self;
 }
 
-use crate::visualization::{
-    prelude::VizRect,
-    types::{VizColor, VizDimensions, VizPoint2d},
-};
 #[cfg(feature = "tiny_skia")]
-pub use tiny_skia;
+pub use rasterize_disk::rasterize_track_data;
 #[cfg(feature = "tiny_skia")]
-pub use tiny_skia_util::rasterize_disk::rasterize_track_data;
-#[cfg(feature = "tiny_skia")]
-pub use tiny_skia_util::rasterize_disk::render_track_mask;
+pub use rasterize_disk::render_track_mask;
 
 /// A map type selector for visualization functions.
 #[derive(Copy, Clone, Debug)]
@@ -105,8 +98,25 @@ pub enum RenderMaskType {
     Errors,
 }
 
+#[derive(Copy, Clone, Default)]
+pub enum RenderWinding {
+    #[default]
+    Clockwise,
+    CounterClockwise,
+}
+
+/// A [RenderGeometry] enum specifies what geometry to generate for metadata element sectors.
+/// This is useful if your rasterizer cannot fill concave paths - you can use an arc and stroke
+/// it at the track width instead.
+#[derive(Copy, Clone, Default)]
+pub enum RenderGeometry {
+    #[default]
+    Sector,
+    Arc,
+}
+
 /// Parameter struct for use with display list rasterization functions
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RenderVectorizationParams {
     /// View box dimensions to use for the visualization.
     pub view_box: VizRect<f32>,
@@ -189,9 +199,6 @@ pub struct CommonVizParams {
     /// Width of the gap between tracks as a fraction of total track width (0.0 to 1.0)
     /// Track width itself is determined by the track count and the inner and outer radii.
     pub track_gap: f32,
-    /// Interpret the above track_gap as an absolute gap with in units, rather than a fraction.
-    /// Note that the maximum gap will be limited to 1/2 the track width.
-    pub absolute_gap: bool,
     /// How the data should visually turn on the disk surface, starting from the index position.
     /// Note: this is the logical reverse of the physical rotation of the disk.
     pub direction: TurningDirection,
@@ -208,7 +215,6 @@ impl Default for CommonVizParams {
             track_limit: None,
             pin_last_standard_track: true,
             track_gap: 0.1,
-            absolute_gap: false,
             direction: TurningDirection::CounterClockwise,
         }
     }
@@ -233,6 +239,9 @@ pub struct RenderTrackDataParams {
     pub resolution: ResolutionType,
     /// Number of slices to use to segment the data. This is only used during vector-based rendering.
     pub slices: usize,
+    /// Factor to overlap slices by. This can avoid rendering artifacts at full opacity, but can
+    /// cause artifacts if fractional opacity is used.
+    pub overlap: f32,
 }
 
 impl Default for RenderTrackDataParams {
@@ -243,6 +252,8 @@ impl Default for RenderTrackDataParams {
             sector_mask: false,
             resolution: ResolutionType::Byte,
             slices: VIZ_SLICES,
+            // Default 10% overlap
+            overlap: 0.1,
         }
     }
 }
@@ -253,6 +264,10 @@ pub struct RenderTrackMetadataParams {
     pub quadrant: Option<u8>,
     /// Which side of disk to render
     pub side: u8,
+    /// The type of geometry to generate for metadata elements
+    pub geometry: RenderGeometry,
+    /// Which point winding to use when creating sectors and other closed paths
+    pub winding: RenderWinding,
     /// Whether to draw empty tracks as black rings
     pub draw_empty_tracks: bool,
     /// Draw a sector lookup bitmap instead of color information
@@ -264,6 +279,8 @@ impl Default for RenderTrackMetadataParams {
         Self {
             quadrant: None,
             side: 0,
+            geometry: RenderGeometry::default(),
+            winding: RenderWinding::default(),
             draw_empty_tracks: false,
             draw_sector_lookup: false,
         }
@@ -344,6 +361,30 @@ impl From<u8> for TurningDirection {
 
 /// Determines the visualization resolution - either byte resolution or bit resolution.
 /// Bit resolution requires extremely high resolution output to be legible.
+pub struct PixmapToDiskParams {
+    pub img_dimensions: VizDimensions,
+    pub img_pos: VizPoint2d<u32>,
+    pub sample_size: (u32, u32),
+    pub skip_tracks: u16,
+    pub black_byte: u8,
+    pub white_byte: u8,
+    pub mask_resolution: u8,
+}
+
+impl Default for PixmapToDiskParams {
+    fn default() -> Self {
+        Self {
+            img_dimensions: VizDimensions::default(),
+            img_pos: VizPoint2d::default(),
+            sample_size: (4096, 4096),
+            skip_tracks: 0,
+            black_byte: 0x88,   // Represents a valid MFM pattern with low flux density (0b1000_1000)
+            white_byte: 0x66,   // Represents a valid MFM pattern with high flux density (0b1010_1010)
+            mask_resolution: 3, // 3 bits = 0b0111 or 8 bit mask
+        }
+    }
+}
+
 #[derive(Copy, Clone, Default, Debug)]
 pub enum ResolutionType {
     Bit,

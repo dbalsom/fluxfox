@@ -34,7 +34,7 @@ use crate::{
     config::{ConfigBlendMode, MaskConfig, StyleConfig},
     style::Style,
 };
-use fluxfox::{track_schema::GenericTrackElement, visualization::types::VizColor, FoxHashMap};
+use fluxfox::{track_schema::GenericTrackElement, visualization::prelude::*, FoxHashMap};
 
 /// Return a default palette for visualization.
 /// There's no need to modify this - override colors with a style.toml file and use the `--style`

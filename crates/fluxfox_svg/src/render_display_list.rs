@@ -29,7 +29,10 @@ use crate::{render_elements::*, styles::ElementStyle};
 
 use fluxfox::{
     track_schema::GenericTrackElement,
-    visualization::{display_list::VizDataSliceDisplayList, prelude::VizRect, VizElementDisplayList},
+    visualization::{
+        prelude::VizRect,
+        types::display_list::{VizDataSliceDisplayList, VizElementDisplayList},
+    },
     FoxHashMap,
 };
 use svg::node::element::Group;

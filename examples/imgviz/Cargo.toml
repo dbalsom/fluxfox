@@ -15,20 +15,24 @@ env_logger = "0.11"
 log = "0.4.22"
 image = "0.25"
 fast_image_resize = "4.2.1"
-tiny-skia = "0.11"
 crossbeam = "0.8.4"
 anyhow = "1.0"
 rusttype = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8.19"
 
-fluxfox_svg = { path = "../../crates/fluxfox_svg" }
+fluxfox_svg = { path = "../../crates/fluxfox_svg", optional = true }
+fluxfox_tiny_skia = { path = "../../crates/fluxfox_tiny_skia", optional = true }
 
 # Optional dependencies
-
+# ----------------------------------------------------------------------------------------------------------------------
 # svg support for saving to SVG format
 svg = { version = "0.18", optional = true }
 
+# tiny-skia support for saving to PNG format
+tiny-skia = { version = "0.11", optional = true }
+
 [features]
-default = ["use_svg"]
-use_svg = ["fluxfox/viz", "dep:svg"]
+default = ["use_svg", "use_tiny_skia"]
+use_svg = ["fluxfox/viz", "dep:fluxfox_svg", "dep:svg"]
+use_tiny_skia = ["fluxfox/viz", "dep:fluxfox_tiny_skia", "dep:tiny-skia"]

@@ -30,12 +30,11 @@ use fluxfox::{
     track_schema::GenericTrackElement,
     visualization::{
         prelude::{VizArc, VizColor, VizDataSlice, VizElement, VizQuadraticArc, VizSector},
-        types::VizElementFlags,
+        types::shapes::{VizElementFlags, VizShape},
     },
     FoxHashMap,
 };
-//use log::log;
-use fluxfox::visualization::types::VizShape;
+
 use svg::node::{
     element::{path::Data, Circle, Path},
     Value,
@@ -47,7 +46,7 @@ pub enum RenderNode {
     Circle(Circle),
 }
 
-fn viz_color_to_value(color: VizColor) -> Value {
+pub(crate) fn viz_color_to_value(color: VizColor) -> Value {
     if color.a == 0 {
         // Fully transparent, return 'none' to prevent rendering
         Value::from("none")
@@ -97,8 +96,8 @@ fn svg_render_sector(data: Data, sector: &VizSector) -> Data {
 /// Render shapes as paths. Notably we do not render circles here as they are not paths!
 fn svg_render_shape(data: Data, shape: &VizShape) -> Data {
     match shape {
-        VizShape::CubicArc(arc) => svg_render_arc(data, arc, false),
-        VizShape::QuadraticArc(arc) => svg_render_quadratic_arc(data, arc, false),
+        VizShape::CubicArc(arc, _h) => svg_render_arc(data, arc, false),
+        VizShape::QuadraticArc(arc, _h) => svg_render_quadratic_arc(data, arc, false),
         VizShape::Sector(sector) => svg_render_sector(data, sector),
         _ => data,
     }
@@ -125,10 +124,10 @@ pub fn svg_render_element(
     };
 
     match element.shape {
-        VizShape::CubicArc(_) | VizShape::QuadraticArc(_) | VizShape::Sector(_) => {
+        VizShape::CubicArc(_, _) | VizShape::QuadraticArc(_, _) | VizShape::Sector(_) => {
             data = svg_render_shape(data, &element.shape);
         }
-        VizShape::Circle(circle) => {
+        VizShape::Circle(circle, _) => {
             // Circles are not paths, so we do not add to data.
             let new_circle = Circle::new()
                 .set("cx", circle.center.x)

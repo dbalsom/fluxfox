@@ -28,10 +28,15 @@
 pub mod prelude;
 
 mod document;
+mod overlays;
 mod render_display_list;
 mod render_elements;
+mod render_overlays;
 mod renderer;
 mod styles;
+
+// Re-export svg
+pub use svg;
 
 pub const DEFAULT_DATA_SLICES: usize = 1440;
 pub const DEFAULT_VIEW_BOX: f32 = 512.0;

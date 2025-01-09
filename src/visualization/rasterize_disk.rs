@@ -36,7 +36,7 @@ use crate::{
         collect_weak_masks,
         metadata,
         stream,
-        types::{VizColor, VizPoint2d},
+        types::{color::VizColor, shapes::VizPoint2d},
         CommonVizParams,
         RenderDiskSelectionParams,
         RenderMaskType,

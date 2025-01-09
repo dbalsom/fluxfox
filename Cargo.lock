@@ -1708,6 +1708,7 @@ dependencies = [
  "env_logger",
  "fluxfox",
  "fluxfox_egui",
+ "fluxfox_tiny_skia",
  "futures",
  "image",
  "log 0.4.22",
@@ -1820,6 +1821,7 @@ dependencies = [
  "egui_extras",
  "egui_plot",
  "fluxfox",
+ "fluxfox_tiny_skia",
  "image",
  "log 0.4.22",
  "serde",
@@ -1835,6 +1837,18 @@ dependencies = [
  "log 0.4.22",
  "serde",
  "svg",
+ "web-time",
+]
+
+[[package]]
+name = "fluxfox_tiny_skia"
+version = "0.2.0"
+dependencies = [
+ "fluxfox",
+ "log 0.4.22",
+ "serde",
+ "tiny-skia",
+ "web-time",
 ]
 
 [[package]]
@@ -2478,6 +2492,7 @@ dependencies = [
  "fast_image_resize",
  "fluxfox",
  "fluxfox_svg",
+ "fluxfox_tiny_skia",
  "image",
  "log 0.4.22",
  "logger",

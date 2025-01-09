@@ -35,17 +35,29 @@ use crate::{
         collect_metadata,
         collect_streams,
         data_segmenter::DataSegmenter,
-        display_list::VizDataSliceDisplayList,
         metadata,
         stream,
-        types::{VizDataSlice, VizElement, VizElementFlags, VizElementInfo, VizPoint2d, VizQuadraticArc, VizSector},
+        types::{
+            display_list::{VizDataSliceDisplayList, *},
+            shapes::{
+                VizArc,
+                VizDataSlice,
+                VizElement,
+                VizElementFlags,
+                VizElementInfo,
+                VizPoint2d,
+                VizQuadraticArc,
+                VizSector,
+            },
+        },
         CommonVizParams,
         RenderDiskSelectionParams,
+        RenderGeometry,
         RenderTrackDataParams,
         RenderTrackMetadataParams,
         RenderVectorizationParams,
+        RenderWinding,
         TurningDirection,
-        VizElementDisplayList,
     },
     DiskImage,
     DiskVisualizationError,
@@ -68,17 +80,6 @@ pub struct CalcElementParams {
     pub element: Option<VizElementInfo>,
 }
 
-/// Calculate a [VizElement] from a center point, start and end angles in radians, an inner
-/// and outer radius, a color, and an optional [VizElementInfo].
-fn calc_element(p: &CalcElementParams) -> VizElement {
-    let mut element = p.element.clone().unwrap_or_default();
-    element.ch = p.ch;
-
-    let sector = VizSector::from_angles(&p.center, p.start_angle, p.end_angle, p.inner_radius, p.outer_radius);
-
-    VizElement::new(sector, p.flags.clone(), element)
-}
-
 /// Create a [VizElementDisplayList] collection for a single side of a [DiskImage].
 /// # Arguments:
 /// - `disk_image`: The [DiskImage] to render.
@@ -91,9 +92,9 @@ pub fn vectorize_disk_elements(
     p: &CommonVizParams,
     r: &RenderTrackMetadataParams,
 ) -> Result<VizElementDisplayList, DiskVisualizationError> {
-    let rtracks = collect_streams(r.side, disk_image);
-    let rmetadata = collect_metadata(r.side, disk_image);
-    let num_tracks = min(rtracks.len(), p.track_limit.unwrap_or(MAX_CYLINDER));
+    let r_tracks = collect_streams(r.side, disk_image);
+    let r_metadata = collect_metadata(r.side, disk_image);
+    let num_tracks = min(r_tracks.len(), p.track_limit.unwrap_or(MAX_CYLINDER));
 
     if num_tracks == 0 {
         return Err(DiskVisualizationError::NoTracks);
@@ -140,7 +141,7 @@ pub fn vectorize_disk_elements(
     // data elements.  This guarantees that markers are emitted last, and thus rendered on top of
     // all other elements.
     for draw_markers in [false, true].iter() {
-        for (ti, track_meta) in rmetadata.iter().enumerate() {
+        for (ti, track_meta) in r_metadata.iter().enumerate() {
             let mut has_elements = false;
             let outer_radius = outer_radius - (ti as f32 * track_width);
             let inner_radius = outer_radius - (track_width * (1.0 - p.track_gap));
@@ -150,7 +151,7 @@ pub fn vectorize_disk_elements(
             // display list entries for each element that crosses the index.
             if !r.draw_sector_lookup && !*draw_markers {
                 for meta_item in track_meta.items.iter() {
-                    if meta_item.end >= rtracks[ti].len() {
+                    if meta_item.end >= r_tracks[ti].len() {
                         let meta_length = meta_item.end - meta_item.start;
                         let overlap_long = meta_length > overlap_max;
 
@@ -170,13 +171,13 @@ pub fn vectorize_disk_elements(
                         if overlap_long {
                             start_angle = p.index_angle;
                             end_angle = p.index_angle
-                                + ((((meta_item.start + overlap_max) % rtracks[ti].len()) as f32
-                                    / rtracks[ti].len() as f32)
+                                + ((((meta_item.start + overlap_max) % r_tracks[ti].len()) as f32
+                                    / r_tracks[ti].len() as f32)
                                     * TAU);
                         }
                         else {
                             start_angle = p.index_angle;
-                            end_angle = p.index_angle + ((meta_item.end as f32 / rtracks[ti].len() as f32) * TAU);
+                            end_angle = p.index_angle + ((meta_item.end as f32 / r_tracks[ti].len() as f32) * TAU);
                         }
 
                         if start_angle > end_angle {
@@ -208,6 +209,7 @@ pub fn vectorize_disk_elements(
 
                         let overlap_sector = VizSector::from_angles(
                             &VizPoint2d::new(center.x, center.y),
+                            r.winding,
                             start_angle,
                             end_angle,
                             inner_radius,
@@ -254,8 +256,8 @@ pub fn vectorize_disk_elements(
 
                 has_elements = true;
 
-                let mut start_angle = ((meta_item.start as f32 / rtracks[ti].len() as f32) * TAU) + p.index_angle;
-                let mut end_angle = ((meta_item.end as f32 / rtracks[ti].len() as f32) * TAU) + p.index_angle;
+                let mut start_angle = ((meta_item.start as f32 / r_tracks[ti].len() as f32) * TAU) + p.index_angle;
+                let mut end_angle = ((meta_item.end as f32 / r_tracks[ti].len() as f32) * TAU) + p.index_angle;
 
                 if start_angle > end_angle {
                     std::mem::swap(&mut start_angle, &mut end_angle);
@@ -292,6 +294,7 @@ pub fn vectorize_disk_elements(
 
                 let element_sector = VizSector::from_angles(
                     &VizPoint2d::new(center.x, center.y),
+                    r.winding,
                     start_angle,
                     end_angle,
                     inner_radius,
@@ -312,6 +315,7 @@ pub fn vectorize_disk_elements(
             if !has_elements && r.draw_empty_tracks {
                 let element_sector = VizSector::from_angles(
                     &VizPoint2d::new(center.x, center.y),
+                    r.winding,
                     clip_start,
                     clip_end,
                     inner_radius,
@@ -404,7 +408,7 @@ pub fn vectorize_disk_elements_by_quadrants(
             0..50 => 40,
             50.. => 80,
         };
-        let track_width = (total_radius - min_radius) / normalized_track_ct as f32;
+        let track_width = (max_radius - min_radius) / normalized_track_ct as f32;
         let overdump = num_tracks.saturating_sub(normalized_track_ct);
         p.min_radius_ratio * total_radius - (overdump as f32 * track_width)
     }
@@ -413,7 +417,7 @@ pub fn vectorize_disk_elements_by_quadrants(
     };
 
     // Calculate the rendered width of each track, excluding the track gap.
-    let mut track_width = (total_radius - min_radius) / num_tracks as f32;
+    let mut track_width = (max_radius - min_radius) / num_tracks as f32;
     if p.track_gap == 0.0 {
         // slightly increase the track width to avoid rendering sparkles between tracks if there's
         // 0 gap specified, due to floating point errors
@@ -429,6 +433,7 @@ pub fn vectorize_disk_elements_by_quadrants(
     for (ti, track_meta) in r_metadata.iter().enumerate() {
         let mut outer_radius = max_radius - (ti as f32 * track_width);
         let mut inner_radius = outer_radius - track_width;
+        let middle_radius = (outer_radius + inner_radius) / 2.0;
 
         // Radius adjustment is half of the track gap, since we adjust both
         // inner and outer radius inwards.
@@ -452,11 +457,20 @@ pub fn vectorize_disk_elements_by_quadrants(
             // Emit a NullElement for this quadrant to represent the track background.
             let track_quadrant_sector = VizSector::from_angles(
                 &VizPoint2d::new(center.x, center.y),
+                r.winding,
                 clip_start,
                 clip_end,
                 inner_radius,
                 outer_radius,
             );
+
+            let track_quadrant_arc = VizArc::from_angles(
+                &VizPoint2d::new(center.x, center.y),
+                middle_radius,
+                clip_start,
+                clip_end,
+            );
+
             let mut track_quadrant_flags = VizElementFlags::default();
             track_quadrant_flags.set(VizElementFlags::TRACK, true);
             // If no elements on this track, also set the empty track flag
@@ -470,7 +484,11 @@ pub fn vectorize_disk_elements_by_quadrants(
                 None,
                 None,
             );
-            let element_metadata = VizElement::new(track_quadrant_sector, track_quadrant_flags, element_info);
+            let element_metadata = VizElement::new(
+                (track_quadrant_arc, track_width * (1.0 - p.track_gap)),
+                track_quadrant_flags,
+                element_info,
+            );
 
             display_list.push(ti, element_metadata);
 
@@ -539,23 +557,60 @@ pub fn vectorize_disk_elements_by_quadrants(
                             end_angle = clip_end;
                         }
 
-                        let overlap_sector = VizSector::from_angles(
-                            &VizPoint2d::new(center.x, center.y),
-                            start_angle,
-                            end_angle,
-                            inner_radius,
-                            outer_radius,
-                        );
+                        match r.geometry {
+                            RenderGeometry::Sector => {
+                                let overlap_sector = VizSector::from_angles(
+                                    &VizPoint2d::new(center.x, center.y),
+                                    r.winding,
+                                    start_angle,
+                                    end_angle,
+                                    inner_radius,
+                                    outer_radius,
+                                );
 
-                        let mut flags = VizElementFlags::default();
-                        flags.set(VizElementFlags::OVERLAP_LONG, overlap_long);
+                                let mut flags = VizElementFlags::default();
+                                flags.set(VizElementFlags::OVERLAP_LONG, overlap_long);
 
-                        let generic_element = GenericTrackElement::from(meta_item.element);
-                        let element_info =
-                            VizElementInfo::new(generic_element, DiskCh::new(ti as u16, r.side), None, None, None);
-                        let overlap_metadata = VizElement::new(overlap_sector, flags, element_info);
+                                let generic_element = GenericTrackElement::from(meta_item.element);
+                                let element_info = VizElementInfo::new(
+                                    generic_element,
+                                    DiskCh::new(ti as u16, r.side),
+                                    None,
+                                    None,
+                                    None,
+                                );
+                                let overlap_metadata = VizElement::new(overlap_sector, flags, element_info);
 
-                        display_list.push(ti, overlap_metadata);
+                                display_list.push(ti, overlap_metadata);
+                            }
+                            RenderGeometry::Arc => {
+                                let overlap_arc = VizArc::from_angles(
+                                    &VizPoint2d::new(center.x, center.y),
+                                    middle_radius,
+                                    start_angle,
+                                    end_angle,
+                                );
+
+                                let mut flags = VizElementFlags::default();
+                                flags.set(VizElementFlags::OVERLAP_LONG, overlap_long);
+
+                                let generic_element = GenericTrackElement::from(meta_item.element);
+                                let element_info = VizElementInfo::new(
+                                    generic_element,
+                                    DiskCh::new(ti as u16, r.side),
+                                    None,
+                                    None,
+                                    None,
+                                );
+                                let overlap_metadata = VizElement::new(
+                                    (overlap_arc, track_width * (1.0 - p.track_gap)),
+                                    flags,
+                                    element_info,
+                                );
+
+                                display_list.push(ti, overlap_metadata);
+                            }
+                        }
                     }
                 }
             }
@@ -624,19 +679,43 @@ pub fn vectorize_disk_elements_by_quadrants(
                     start_angle = start_angle.max(clip_start);
                     end_angle = end_angle.min(clip_end);
 
-                    let element_sector = VizSector::from_angles(
-                        &VizPoint2d::new(center.x, center.y),
-                        start_angle,
-                        end_angle,
-                        inner_radius,
-                        outer_radius,
-                    );
+                    match r.geometry {
+                        RenderGeometry::Sector => {
+                            let element_sector = VizSector::from_angles(
+                                &VizPoint2d::new(center.x, center.y),
+                                r.winding,
+                                start_angle,
+                                end_angle,
+                                inner_radius,
+                                outer_radius,
+                            );
 
-                    let element_flags = VizElementFlags::default();
-                    let element_info =
-                        VizElementInfo::new(generic_element, DiskCh::new(ti as u16, r.side), None, None, None);
-                    let element_metadata = VizElement::new(element_sector, element_flags, element_info);
-                    display_list.push(ti, element_metadata);
+                            let flags = VizElementFlags::default();
+                            let generic_element = GenericTrackElement::from(meta_item.element);
+                            let element_info =
+                                VizElementInfo::new(generic_element, DiskCh::new(ti as u16, r.side), None, None, None);
+                            let element_metadata = VizElement::new(element_sector, flags, element_info);
+
+                            display_list.push(ti, element_metadata);
+                        }
+                        RenderGeometry::Arc => {
+                            let overlap_arc = VizArc::from_angles(
+                                &VizPoint2d::new(center.x, center.y),
+                                middle_radius,
+                                start_angle,
+                                end_angle,
+                            );
+
+                            let flags = VizElementFlags::default();
+                            let generic_element = GenericTrackElement::from(meta_item.element);
+                            let element_info =
+                                VizElementInfo::new(generic_element, DiskCh::new(ti as u16, r.side), None, None, None);
+                            let overlap_metadata =
+                                VizElement::new((overlap_arc, track_width * (1.0 - p.track_gap)), flags, element_info);
+
+                            display_list.push(ti, overlap_metadata);
+                        }
+                    }
                 }
             }
         }
@@ -769,6 +848,7 @@ pub fn vectorize_disk_selection(
 
             let element_sector = VizSector::from_angles(
                 &VizPoint2d::new(center.x, center.y),
+                RenderWinding::Clockwise,
                 start_angle,
                 end_angle,
                 inner_radius,
@@ -829,7 +909,7 @@ pub fn vectorize_disk_data(
     // Get the arc angle in radians for each slice.
     let slice_arc = TAU / r.slices as f32;
     // Overlap each slice a little bit to avoid rendering gaps between slices due to floating point errors.
-    let slice_overlap = slice_arc * 0.10;
+    let slice_overlap = slice_arc * r.overlap;
 
     // If pinning has been specified, adjust the minimum radius.
     // We subtract any over-dumped tracks from the radius, so that the minimum radius fraction
@@ -848,22 +928,23 @@ pub fn vectorize_disk_data(
     };
 
     log::trace!("render_track_data(): Collected {} track references.", num_tracks);
-    for (ti, track) in r_tracks.iter().enumerate() {
-        log::trace!("render_track_data(): Track {} length: {}", ti, track.len());
-    }
+    // for (ti, track) in r_tracks.iter().enumerate() {
+    //     log::trace!("render_track_data(): Track {} length: {}", ti, track.len());
+    // }
 
     // Calculate the rendered width of each track, excluding the track gap.
-    let mut track_width = (max_radius - min_radius) / num_tracks as f32;
-    if p.track_gap == 0.0 {
-        // slightly increase the track width to avoid rendering sparkles between tracks if there's
-        // 0 gap specified, due to floating point errors
-        track_width *= 1.01;
+    let track_width = (max_radius - min_radius) / num_tracks as f32;
+    let stroke_width = if p.track_gap == 0.0 {
+        // If 0 gap specified, slightly increase the track width to avoid rendering sparkles between tracks
+        track_width * (1.0 - p.track_gap) * 1.01
     }
+    else {
+        track_width * (1.0 - p.track_gap)
+    };
     log::trace!("render_track_data(): Track width: {} gap: {}", track_width, p.track_gap);
-    let mut display_list = VizDataSliceDisplayList::new(p.direction, num_tracks, track_width * (1.0 - p.track_gap));
+    let mut display_list = VizDataSliceDisplayList::new(p.direction, num_tracks, stroke_width);
 
     for (ti, track) in r_tracks.iter().enumerate() {
-        log::trace!("vectorize_disk_data(): Processing track {}", ti);
         // Calculate the inner and outer radii for the track, then calculate the midpoint radius.
         // We stroke the data segment slices along this midpoint.
         let outer_radius = max_radius - (ti as f32 * track_width);

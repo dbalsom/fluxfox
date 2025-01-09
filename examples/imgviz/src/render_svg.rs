@@ -27,23 +27,16 @@
 
 //! Module to render disk visualization to SVG using the `svg` crate.
 
-use crate::{
-    args::VizArgs,
-    config::StyleConfig,
-    style::{style_map_to_fluxfox_svg, Style},
-    DEFAULT_DATA_SLICES,
-};
+use crate::{args::VizArgs, config::StyleConfig, style::style_map_to_fluxfox_svg};
 
 use fluxfox::{
-    visualization::{
-        prelude::{VizDataSliceDisplayList, VizRect},
-        TurningDirection,
-        VizElementDisplayList,
-    },
+    visualization::{prelude::*, TurningDirection},
     DiskImage,
 };
 
 use anyhow::{anyhow, Error};
+
+use crate::legend::VizLegend;
 use fluxfox_svg::prelude::*;
 
 pub(crate) fn render_svg(
@@ -52,12 +45,15 @@ pub(crate) fn render_svg(
     sides_to_render: u32,
     opts: &VizArgs,
     style: &StyleConfig,
-    _title: &Option<String>,
+    _legend: &VizLegend,
 ) -> Result<(), Error> {
     // Render with fluxfox_svg's SvgRenderer
 
     let render_timer = std::time::Instant::now();
     let mut renderer = SvgRenderer::new()
+        .side_by_side(true, 20.0)
+        .with_radius_ratios(0.55, 0.88)
+        .with_track_gap(opts.track_gap.unwrap_or(style.track_gap))
         .with_data_layer(opts.data, Some(opts.data_slices))
         .decode_data(opts.decode)
         .with_metadata_layer(opts.metadata)
@@ -69,9 +65,9 @@ pub(crate) fn render_svg(
             opts.resolution as f32,
             opts.resolution as f32,
         )))
-        .with_track_gap(opts.track_gap.unwrap_or(style.track_gap))
         .with_styles(style_map_to_fluxfox_svg(&style.element_styles))
         .with_blend_mode(style.blend_mode.into())
+        .with_overlay(Overlay::Overlay5_25)
         .with_initial_turning(if opts.cc {
             TurningDirection::CounterClockwise
         }
@@ -83,7 +79,7 @@ pub(crate) fn render_svg(
         renderer = renderer.with_side(starting_head as u8);
     }
     else {
-        renderer = renderer.with_side_by_side(true, opts.side_spacing);
+        renderer = renderer.side_by_side(true, opts.side_spacing);
     }
 
     let documents = renderer

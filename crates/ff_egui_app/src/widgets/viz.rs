@@ -24,6 +24,7 @@
 
     --------------------------------------------------------------------------
 */
+
 use std::{
     collections::HashMap,
     default::Default,
@@ -36,28 +37,23 @@ use crate::native::worker;
 use crate::wasm::worker;
 
 use crate::App;
-use anyhow::{anyhow, Error};
 
 use fluxfox::{
     prelude::*,
     track_schema::GenericTrackElement,
     visualization::{
-        rasterize_track_data,
-        tiny_skia::{BlendMode, Color, FilterQuality, Pixmap, PixmapPaint, Transform},
-        tiny_skia_util::rasterize_disk::{rasterize_disk_selection, rasterize_track_metadata_quadrant},
-        types::{VizColor, VizDimensions},
-        CommonVizParams,
-        RenderDiskSelectionParams,
-        RenderDiskSelectionType,
-        RenderRasterizationParams,
-        RenderTrackDataParams,
-        RenderTrackMetadataParams,
-        ResolutionType,
-        TurningDirection,
+        prelude::*,
+        rasterize_disk::{rasterize_disk_selection, rasterize_track_metadata_quadrant},
     },
     FoxHashMap,
 };
+
 use fluxfox_egui::widgets::texture::{PixelCanvas, PixelCanvasDepth};
+use fluxfox_tiny_skia::tiny_skia::{BlendMode, Color, FilterQuality, Pixmap, PixmapPaint, Transform};
+
+use anyhow::{anyhow, Error};
+use fluxfox_tiny_skia::render_display_list::render_data_display_list;
+use tiny_skia::Paint;
 
 pub const VIZ_DATA_SUPERSAMPLE: u32 = 2;
 pub const VIZ_RESOLUTION: u32 = 512;
@@ -224,11 +220,11 @@ impl VisualizationState {
         let head = side as u8;
         let quadrant = 0;
         let angle = 0.0;
-        let min_radius_fraction = 0.333;
-        let render_track_gap = 0.10;
+        let min_radius_fraction = 0.30;
+        let render_track_gap = 0.0;
         let direction = match head {
-            0 => TurningDirection::CounterClockwise,
-            _ => TurningDirection::Clockwise,
+            0 => TurningDirection::Clockwise,
+            _ => TurningDirection::CounterClockwise,
         };
         let track_ct = disk.track_ct(side.into());
 
@@ -238,7 +234,7 @@ impl VisualizationState {
         }
 
         self.common_viz_params = CommonVizParams {
-            radius: None,
+            radius: Some(VIZ_SUPER_RESOLUTION as f32 / 2.0),
             max_radius_ratio: 1.0,
             min_radius_ratio: min_radius_fraction,
             pos_offset: None,
@@ -246,51 +242,56 @@ impl VisualizationState {
             track_limit: Some(track_ct),
             pin_last_standard_track: true,
             track_gap: render_track_gap,
-            absolute_gap: false,
             direction,
         };
 
         let inner_common_params = self.common_viz_params.clone();
         let inner_decode_data = self.decode_data_layer;
+        let inner_angle = self.common_viz_params.index_angle;
 
         // Render the main data layer.
         match worker::spawn_closure_worker(move || {
-            let render_params = RenderTrackDataParams {
+            let data_params = RenderTrackDataParams {
                 side: head,
                 decode: inner_decode_data,
-                sector_mask: false,
-                resolution: ResolutionType::Byte,
+                slices: 1440,
                 ..Default::default()
             };
 
-            let rasterize_params = RenderRasterizationParams {
-                image_size: VizDimensions::from((VIZ_RESOLUTION, VIZ_RESOLUTION)),
-                supersample: VIZ_DATA_SUPERSAMPLE,
-                image_bg_color: None,
-                disk_bg_color: None,
-                mask_color: None,
-                palette: None,
-                pos_offset: None,
-            };
+            let vector_params = RenderVectorizationParams::default();
 
             let disk = render_lock.read().unwrap();
             let mut render_pixmap = render_target.lock().unwrap();
             render_pixmap.fill(Color::TRANSPARENT);
 
-            match rasterize_track_data(
-                &disk,
-                &mut render_pixmap,
-                &inner_common_params,
-                &render_params,
-                &rasterize_params,
-            ) {
-                Ok(_) => {
-                    log::debug!("render worker: Data layer rendered for side {}", head);
-                    render_sender.send(RenderMessage::DataRenderComplete(head)).unwrap();
+            match vectorize_disk_data(&disk, &inner_common_params, &data_params, &vector_params) {
+                Ok(display_list) => {
+                    log::debug!(
+                        "render worker: Data layer vectorized for side {}, display list of {} elements",
+                        head,
+                        display_list.len()
+                    );
+
+                    // Disable antialiasing to reduce moiré. For antialiasing, use supersampling.
+                    let mut paint = Paint {
+                        anti_alias: false,
+                        ..Default::default()
+                    };
+
+                    match render_data_display_list(&mut render_pixmap, &mut paint, inner_angle, &display_list) {
+                        Ok(_) => {
+                            log::debug!("render worker: Data display list rendered for side {}", head);
+                            render_sender.send(RenderMessage::DataRenderComplete(head)).unwrap();
+                        }
+                        Err(e) => {
+                            log::error!("Error rendering display list: {}", e);
+                            //std::process::exit(1);
+                        }
+                    }
                 }
                 Err(e) => {
                     log::error!("Error rendering tracks: {}", e);
-                    std::process::exit(1);
+                    //std::process::exit(1);
                 }
             };
         }) {
@@ -302,12 +303,63 @@ impl VisualizationState {
             }
         };
 
+        // // Render the main data layer (old rasterization method)
+        // match worker::spawn_closure_worker(move || {
+        //     let render_params = RenderTrackDataParams {
+        //         side: head,
+        //         decode: inner_decode_data,
+        //         sector_mask: false,
+        //         resolution: ResolutionType::Byte,
+        //         ..Default::default()
+        //     };
+        //
+        //     let rasterize_params = RenderRasterizationParams {
+        //         image_size: VizDimensions::from((VIZ_RESOLUTION, VIZ_RESOLUTION)),
+        //         supersample: VIZ_DATA_SUPERSAMPLE,
+        //         image_bg_color: None,
+        //         disk_bg_color: None,
+        //         mask_color: None,
+        //         palette: None,
+        //         pos_offset: None,
+        //     };
+        //
+        //     let disk = render_lock.read().unwrap();
+        //     let mut render_pixmap = render_target.lock().unwrap();
+        //     render_pixmap.fill(Color::TRANSPARENT);
+        //
+        //     match rasterize_track_data(
+        //         &disk,
+        //         &mut render_pixmap,
+        //         &inner_common_params,
+        //         &render_params,
+        //         &rasterize_params,
+        //     ) {
+        //         Ok(_) => {
+        //             log::debug!("render worker: Data layer rendered for side {}", head);
+        //             render_sender.send(RenderMessage::DataRenderComplete(head)).unwrap();
+        //         }
+        //         Err(e) => {
+        //             log::error!("Error rendering tracks: {}", e);
+        //             std::process::exit(1);
+        //         }
+        //     };
+        // }) {
+        //     Ok(_) => {
+        //         log::debug!("Spawned rendering worker for data layer...");
+        //     }
+        //     Err(_e) => {
+        //         log::error!("Error spawning rendering worker for data layer!");
+        //     }
+        // };
+
         // Clear pixmap before rendering
         self.metadata_img[side].fill(Color::TRANSPARENT);
 
         let mut render_params = RenderTrackMetadataParams {
             quadrant: Some(quadrant),
             side: head,
+            geometry: RenderGeometry::Arc,
+            winding: Default::default(),
             draw_empty_tracks: false,
             draw_sector_lookup: false,
         };
@@ -507,6 +559,7 @@ impl VisualizationState {
                 paint.quality = FilterQuality::Bilinear;
 
                 if self.show_data_layer {
+                    log::debug!(">>>> Compositing data layer for side {}", side);
                     let scale = 1.0 / self.supersample as f32;
                     let transform = Transform::from_scale(scale, scale);
                     self.composite_img[side].fill(Color::TRANSPARENT);

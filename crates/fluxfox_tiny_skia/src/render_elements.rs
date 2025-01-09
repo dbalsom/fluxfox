@@ -25,66 +25,65 @@
     --------------------------------------------------------------------------
 */
 
-use crate::{
+use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Stroke, Transform};
+
+use crate::styles::{ElementStyle, SkiaStyle};
+use fluxfox::{
     track_schema::GenericTrackElement,
-    visualization::types::{VizArc, VizElement, VizSector},
+    visualization::{
+        prelude::{VizArc, VizColor, VizDataSlice, VizElement, VizQuadraticArc, VizSector},
+        types::shapes::{VizElementFlags, VizShape},
+    },
     FoxHashMap,
 };
 
-use crate::visualization::{tiny_skia_util::SkiaStyle, types::VizShape};
-use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Transform};
+#[inline]
+pub fn skia_render_arc(path: &mut PathBuilder, arc: &VizArc, line_to: bool) {
+    if line_to {
+        path.line_to(arc.start.x, arc.start.y);
+    }
+    else {
+        path.move_to(arc.start.x, arc.start.y);
+    }
+    path.cubic_to(arc.cp1.x, arc.cp1.y, arc.cp2.x, arc.cp2.y, arc.end.x, arc.end.y);
+}
 
 #[inline]
-pub fn skia_render_arc(path: &mut PathBuilder, arc: &VizArc, line_to: bool, reverse: bool) {
-    match reverse {
-        true => {
-            if line_to {
-                path.line_to(arc.end.x, arc.end.y);
-            }
-            else {
-                path.move_to(arc.end.x, arc.end.y);
-            }
-            path.cubic_to(arc.cp1.x, arc.cp1.y, arc.cp2.x, arc.cp2.y, arc.start.x, arc.start.y);
-            //path.line_to(arc.start.x, arc.start.y);
-        }
-        false => {
-            if line_to {
-                path.line_to(arc.start.x, arc.start.y);
-            }
-            else {
-                path.move_to(arc.start.x, arc.start.y);
-            }
-            path.cubic_to(arc.cp1.x, arc.cp1.y, arc.cp2.x, arc.cp2.y, arc.end.x, arc.end.y);
-            //path.line_to(arc.end.x, arc.end.y);
-        }
+pub fn skia_render_quadratic_arc(path: &mut PathBuilder, arc: &VizQuadraticArc, line_to: bool) {
+    if line_to {
+        path.line_to(arc.start.x, arc.start.y);
     }
+    else {
+        path.move_to(arc.start.x, arc.start.y);
+    }
+    path.quad_to(arc.cp.x, arc.cp.y, arc.end.x, arc.end.y);
 }
 
 #[inline]
 pub fn skia_render_sector(path: &mut PathBuilder, sector: &VizSector) {
     // Draw the inner curve from start to end
-    skia_render_arc(path, &sector.inner, false, false);
+    skia_render_arc(path, &sector.inner, false);
     // Draw the outer curve from end to start
-    skia_render_arc(path, &sector.outer, true, false);
+    skia_render_arc(path, &sector.outer, true);
     // Draw a line back to the inner curve start
     path.line_to(sector.inner.start.x, sector.inner.start.y);
 }
 
 pub fn skia_render_shape(path: &mut PathBuilder, shape: &VizShape) {
     match shape {
-        VizShape::CubicArc(arc) => {
-            skia_render_arc(path, arc, false, false);
+        VizShape::CubicArc(arc, _thickness) => {
+            skia_render_arc(path, arc, false);
         }
-        VizShape::QuadraticArc(arc) => {
-            //skia_render_quadratic_arc(data, arc, line_to);
+        VizShape::QuadraticArc(arc, _thickness) => {
+            skia_render_quadratic_arc(path, arc, false);
         }
         VizShape::Sector(sector) => {
             skia_render_sector(path, sector);
         }
-        VizShape::Circle(circle) => {
+        VizShape::Circle(_circle, _thickness) => {
             //skia_render_circle(data, circle, line_to);
         }
-        VizShape::Line(line) => {
+        VizShape::Line(_line, _thickness) => {
             //skia_render_line(data, line, line_to);
         }
     }
@@ -93,9 +92,9 @@ pub fn skia_render_shape(path: &mut PathBuilder, shape: &VizShape) {
 pub fn skia_render_element(
     pixmap: &mut Pixmap,
     paint: &mut Paint,
-    element: &VizElement,
     transform: &Transform,
     palette: &FoxHashMap<GenericTrackElement, SkiaStyle>,
+    element: &VizElement,
 ) {
     let mut path = PathBuilder::new();
 
@@ -111,6 +110,28 @@ pub fn skia_render_element(
     if let Some(path) = path.finish() {
         if !path.is_empty() {
             pixmap.fill_path(&path, &paint, FillRule::Winding, transform.clone(), None);
+        }
+    }
+}
+
+/// Render a single data slice as an SVG path. Unlike a sector element, a data slice is a single
+/// arc with a stroke rendered at the track width.
+pub fn skia_render_data_slice(
+    pixmap: &mut Pixmap,
+    paint: &mut Paint,
+    stroke: &mut Stroke,
+    transform: &Transform,
+    slice: &VizDataSlice,
+) {
+    let mut path = PathBuilder::new();
+    skia_render_quadratic_arc(&mut path, &slice.arc, false);
+
+    let v = ((slice.density * 1.5).clamp(0.0, 1.0) * 255.0) as u8;
+    paint.set_color(Color::from_rgba8(v, v, v, 255));
+
+    if let Some(path) = path.finish() {
+        if !path.is_empty() {
+            pixmap.stroke_path(&path, &paint, stroke, transform.clone(), None);
         }
     }
 }

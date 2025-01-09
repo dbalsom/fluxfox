@@ -32,7 +32,7 @@
 use std::path::PathBuf;
 
 use bpaf::{construct, long, short, OptionParser, Parser};
-use fluxfox::{types::StandardFormatParam, visualization::tiny_skia_util::Color, StandardFormat};
+use fluxfox::{types::StandardFormatParam, visualization::prelude::VizColor, StandardFormat};
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -139,7 +139,7 @@ fn standard_format_parser() -> impl Parser<StandardFormatParam> {
 
 /// Parse a color from either a hex string (`#RRGGBBAA` or `#RRGGBB`) or an RGBA string (`R,G,B,A`).
 #[allow(dead_code)]
-pub(crate) fn parse_color(input: &str) -> Result<Color, String> {
+pub(crate) fn parse_color(input: &str) -> Result<VizColor, String> {
     if input.starts_with('#') {
         // Parse hex color: #RRGGBBAA or #RRGGBB
         let hex = input.strip_prefix('#').ok_or("Invalid hex color")?;
@@ -148,14 +148,14 @@ pub(crate) fn parse_color(input: &str) -> Result<Color, String> {
                 let r = u8::from_str_radix(&hex[0..2], 16).map_err(|_| "Invalid hex color")?;
                 let g = u8::from_str_radix(&hex[2..4], 16).map_err(|_| "Invalid hex color")?;
                 let b = u8::from_str_radix(&hex[4..6], 16).map_err(|_| "Invalid hex color")?;
-                Ok(Color::from_rgba8(r, g, b, 255))
+                Ok(VizColor::from_rgba8(r, g, b, 255))
             }
             8 => {
                 let r = u8::from_str_radix(&hex[0..2], 16).map_err(|_| "Invalid hex color")?;
                 let g = u8::from_str_radix(&hex[2..4], 16).map_err(|_| "Invalid hex color")?;
                 let b = u8::from_str_radix(&hex[4..6], 16).map_err(|_| "Invalid hex color")?;
                 let a = u8::from_str_radix(&hex[6..8], 16).map_err(|_| "Invalid hex color")?;
-                Ok(Color::from_rgba8(r, g, b, a))
+                Ok(VizColor::from_rgba8(r, g, b, a))
             }
             _ => Err("Hex color must be in the format #RRGGBB or #RRGGBBAA".to_string()),
         }
@@ -170,6 +170,6 @@ pub(crate) fn parse_color(input: &str) -> Result<Color, String> {
         let g = parts[1].parse::<u8>().map_err(|_| "Invalid RGBA color component")?;
         let b = parts[2].parse::<u8>().map_err(|_| "Invalid RGBA color component")?;
         let a = parts[3].parse::<u8>().map_err(|_| "Invalid RGBA color component")?;
-        Ok(Color::from_rgba8(r, g, b, a))
+        Ok(VizColor::from_rgba8(r, g, b, a))
     }
 }

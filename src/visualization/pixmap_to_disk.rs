@@ -37,30 +37,6 @@ const MFM_GRAYSCALE_RAMP: [u64; 16] = [
     0xAAAAAAAAAAAAAAAA, // popcount: 32
 ];
 
-pub struct PixmapToDiskParams {
-    pub img_dimensions: VizDimensions,
-    pub img_pos: VizPoint2d<u32>,
-    pub sample_size: (u32, u32),
-    pub skip_tracks: u16,
-    pub black_byte: u8,
-    pub white_byte: u8,
-    pub mask_resolution: u8,
-}
-
-impl Default for PixmapToDiskParams {
-    fn default() -> Self {
-        Self {
-            img_dimensions: VizDimensions::default(),
-            img_pos: VizPoint2d::default(),
-            sample_size: (4096, 4096),
-            skip_tracks: 0,
-            black_byte: 0x88,   // Represents a valid MFM pattern with low flux density (0b1000_1000)
-            white_byte: 0x66,   // Represents a valid MFM pattern with high flux density (0b1010_1010)
-            mask_resolution: 3, // 3 bits = 0b0111 or 8 bit mask
-        }
-    }
-}
-
 /// We can't collect mutable references to the track streams, so we collect the indices into the
 /// track pool instead.
 fn collect_stream_indices(head: u8, disk_image: &mut DiskImage) -> Vec<usize> {
@@ -365,8 +341,8 @@ pub fn render_pixmap_to_disk_grayscale(
                             if offset < pix_buf.len() {
                                 let color = pix_buf[offset];
 
-                                // We work in monochrome so just take the red channel...
-                                let color_value = color.red();
+                                // We work in monochrome so just take the green channel...
+                                let color_value = color.green();
                                 let alpha_value = color.alpha();
 
                                 // Alpha channel controls whether we write the pixel or not

@@ -29,7 +29,7 @@ use std::{fs, path::Path};
 use crate::style::Style;
 
 use anyhow::Error;
-use fluxfox::{track_schema::GenericTrackElement, visualization::types::VizColor, FoxHashMap};
+use fluxfox::{track_schema::GenericTrackElement, visualization::prelude::*, FoxHashMap};
 use fluxfox_svg::prelude::BlendMode;
 use serde::Deserialize;
 

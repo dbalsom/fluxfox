@@ -40,49 +40,15 @@ use std::{
     ops::{Add, Div, Range},
 };
 
-use crate::{track_schema::GenericTrackElement, types::DiskCh, visualization::VizRotate};
+use crate::{
+    track_schema::GenericTrackElement,
+    types::DiskCh,
+    visualization::{types::color::VizColor, RenderWinding, VizRotate},
+};
+
 use bitflags::bitflags;
 use core::fmt;
 use num_traits::Num;
-
-/// A [VizColor] represents a color in 32-bit premultiplied RGBA format.
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Copy, Clone, Debug)]
-pub struct VizColor {
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
-    pub a: u8,
-}
-
-impl Default for VizColor {
-    fn default() -> VizColor {
-        VizColor::TRANSPARENT
-    }
-}
-
-#[rustfmt::skip]
-impl VizColor {
-    pub const TRANSPARENT: VizColor = VizColor { r: 0, g: 0, b: 0, a: 0 };
-    pub const WHITE: VizColor = VizColor { r: 255, g: 255, b: 255, a: 255 };
-    pub const BLACK: VizColor = VizColor { r: 0, g: 0, b: 0, a: 255 };
-    pub const RED: VizColor = VizColor { r: 255, g: 0, b: 0, a: 255 };
-    pub const GREEN: VizColor = VizColor { r: 0, g: 255, b: 0, a: 255 };
-    pub const BLUE: VizColor = VizColor { r: 0, g: 0, b: 255, a: 255 };
-    
-    pub fn from_rgba8(r: u8, g: u8, b: u8, a: u8) -> VizColor {
-        VizColor { r, g, b, a }
-    }
-    
-    pub fn from_value(value: u8, alpha: u8) -> VizColor {
-        VizColor {
-            r: value,
-            g: value,
-            b: value,
-            a: alpha,
-        }
-    }
-}
 
 #[cfg(feature = "tiny_skia")]
 impl From<VizColor> for tiny_skia::Color {
@@ -112,24 +78,28 @@ bitflags! {
 /// A [VizDimensions] represents the width and height of a rectangular region, such as a pixmap.
 pub type VizDimensions = VizPoint2d<u32>;
 
+/// A VizShape represents a shape that can be rendered in a visualization. This is a simple enum
+/// that can represent a cubic Bezier arc, a quadratic Bezier arc, a sector, a circle, or a line.
+/// The second parameter, if present, is the thickness of the shape. This should be used for the
+/// stroke parameter during rendering.
 #[derive(Copy, Clone, Debug)]
 pub enum VizShape {
-    CubicArc(VizArc),
-    QuadraticArc(VizQuadraticArc),
+    CubicArc(VizArc, f32),
+    QuadraticArc(VizQuadraticArc, f32),
     Sector(VizSector),
-    Circle(VizCircle),
-    Line(VizLine<f32>),
+    Circle(VizCircle, f32),
+    Line(VizLine<f32>, f32),
 }
 
 impl VizRotate for VizShape {
     #[inline]
-    fn rotate(&mut self, angle: f32) {
+    fn rotate(self, rot: &VizRotation) -> VizShape {
         match self {
-            VizShape::CubicArc(arc) => arc.rotate(angle),
-            VizShape::QuadraticArc(arc) => arc.rotate(angle),
-            VizShape::Sector(sector) => sector.rotate(angle),
-            VizShape::Circle(_) => {}
-            VizShape::Line(_) => {}
+            VizShape::CubicArc(arc, t) => VizShape::from((arc.rotate(rot), t)),
+            VizShape::QuadraticArc(quadratic, t) => VizShape::from((quadratic.rotate(rot), t)),
+            VizShape::Sector(sector) => sector.rotate(rot).into(),
+            VizShape::Circle(_, _) => self,
+            VizShape::Line(_, _) => self,
         }
     }
 }
@@ -327,6 +297,26 @@ impl From<(f32, f32, f32, f32)> for VizRect<f32> {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
+pub struct VizRotation {
+    pub angle:  f32,
+    pub sin:    f32,
+    pub cos:    f32,
+    pub center: VizPoint2d<f32>,
+}
+
+impl VizRotation {
+    pub fn new(angle: f32, center: VizPoint2d<f32>) -> VizRotation {
+        let (sin, cos) = angle.sin_cos();
+        VizRotation {
+            angle,
+            sin,
+            cos,
+            center,
+        }
+    }
+}
+
 /// A [VizPoint2d] represents a point in 2D space in the range `[(0,0), (1,1)]`.
 /// It is generic across numeric types, using `num_traits`.
 #[derive(Copy, Clone, Debug)]
@@ -374,13 +364,15 @@ impl<T: Num + Copy + Default> VizPoint2d<T> {
 }
 
 impl VizRotate for VizPoint2d<f32> {
-    /// Rotate the point around the origin by the specified angle in radians.
     #[inline]
-    fn rotate(&mut self, angle: f32) {
-        let cos_theta = angle.cos();
-        let sin_theta = angle.sin();
-        self.x = self.x * cos_theta - self.y * sin_theta;
-        self.y = self.x * sin_theta + self.y * cos_theta;
+    fn rotate(self, rot: &VizRotation) -> VizPoint2d<f32> {
+        let dx = self.x - rot.center.x;
+        let dy = self.y - rot.center.y;
+
+        VizPoint2d {
+            x: rot.center.x + dx * rot.cos - dy * rot.sin,
+            y: rot.center.y + dx * rot.sin + dy * rot.cos,
+        }
     }
 }
 
@@ -429,20 +421,22 @@ impl VizArc {
     }
 }
 
-impl From<VizArc> for VizShape {
+impl From<(VizArc, f32)> for VizShape {
     #[inline]
-    fn from(arc: VizArc) -> VizShape {
-        VizShape::CubicArc(arc)
+    fn from(tuple: (VizArc, f32)) -> VizShape {
+        VizShape::CubicArc(tuple.0, tuple.1)
     }
 }
 
 impl VizRotate for VizArc {
     #[inline]
-    fn rotate(&mut self, angle: f32) {
-        self.start.rotate(angle);
-        self.end.rotate(angle);
-        self.cp1.rotate(angle);
-        self.cp2.rotate(angle);
+    fn rotate(self, rot: &VizRotation) -> VizArc {
+        VizArc {
+            start: self.start.rotate(rot),
+            end:   self.end.rotate(rot),
+            cp1:   self.cp1.rotate(rot),
+            cp2:   self.cp2.rotate(rot),
+        }
     }
 }
 
@@ -486,19 +480,21 @@ impl VizQuadraticArc {
     }
 }
 
-impl From<VizQuadraticArc> for VizShape {
+impl From<(VizQuadraticArc, f32)> for VizShape {
     #[inline]
-    fn from(arc: VizQuadraticArc) -> VizShape {
-        VizShape::QuadraticArc(arc)
+    fn from(tuple: (VizQuadraticArc, f32)) -> VizShape {
+        VizShape::QuadraticArc(tuple.0, tuple.1)
     }
 }
 
 impl VizRotate for VizQuadraticArc {
     #[inline]
-    fn rotate(&mut self, angle: f32) {
-        self.start.rotate(angle);
-        self.end.rotate(angle);
-        self.cp.rotate(angle);
+    fn rotate(self, rot: &VizRotation) -> VizQuadraticArc {
+        VizQuadraticArc {
+            start: self.start.rotate(rot),
+            end:   self.end.rotate(rot),
+            cp:    self.cp.rotate(rot),
+        }
     }
 }
 
@@ -509,10 +505,10 @@ pub struct VizCircle {
     pub radius: f32,
 }
 
-impl From<VizCircle> for VizShape {
+impl From<(VizCircle, f32)> for VizShape {
     #[inline]
-    fn from(circle: VizCircle) -> VizShape {
-        VizShape::Circle(circle)
+    fn from(tuple: (VizCircle, f32)) -> VizShape {
+        VizShape::Circle(tuple.0, tuple.1)
     }
 }
 
@@ -532,14 +528,24 @@ impl VizSector {
     #[inline]
     pub fn from_angles(
         center: &VizPoint2d<f32>,
+        render_winding: RenderWinding,
         start_angle: f32,
         end_angle: f32,
         inner_radius: f32,
         outer_radius: f32,
     ) -> VizSector {
-        let inner = VizArc::from_angles(center, inner_radius, start_angle, end_angle);
-        let outer = VizArc::from_angles(center, outer_radius, end_angle, start_angle);
-
+        let (outer, inner) = match render_winding {
+            RenderWinding::Clockwise => {
+                let outer = VizArc::from_angles(center, outer_radius, start_angle, end_angle);
+                let inner = VizArc::from_angles(center, inner_radius, end_angle, start_angle);
+                (outer, inner)
+            }
+            RenderWinding::CounterClockwise => {
+                let outer = VizArc::from_angles(center, outer_radius, end_angle, start_angle);
+                let inner = VizArc::from_angles(center, inner_radius, start_angle, end_angle);
+                (outer, inner)
+            }
+        };
         VizSector::from((start_angle, end_angle, outer, inner))
     }
 }
@@ -553,9 +559,13 @@ impl From<VizSector> for VizShape {
 
 impl VizRotate for VizSector {
     #[inline]
-    fn rotate(&mut self, angle: f32) {
-        self.outer.rotate(angle);
-        self.inner.rotate(angle);
+    fn rotate(self, rot: &VizRotation) -> VizSector {
+        VizSector {
+            start: self.start + rot.angle,
+            end:   self.end + rot.angle,
+            outer: self.outer.rotate(rot),
+            inner: self.inner.rotate(rot),
+        }
     }
 }
 
@@ -627,8 +637,12 @@ impl VizElement {
 
 impl VizRotate for VizElement {
     #[inline]
-    fn rotate(&mut self, angle: f32) {
-        self.shape.rotate(angle);
+    fn rotate(self, rot: &VizRotation) -> VizElement {
+        VizElement {
+            shape: self.shape.rotate(rot),
+            flags: self.flags,
+            info:  self.info,
+        }
     }
 }
 
@@ -671,7 +685,11 @@ pub struct VizDataSlice {
 
 impl VizRotate for VizDataSlice {
     #[inline]
-    fn rotate(&mut self, angle: f32) {
-        self.arc.rotate(angle);
+    fn rotate(self, rot: &VizRotation) -> VizDataSlice {
+        VizDataSlice {
+            density: self.density,
+            decoded_density: self.decoded_density,
+            arc: self.arc.rotate(rot),
+        }
     }
 }

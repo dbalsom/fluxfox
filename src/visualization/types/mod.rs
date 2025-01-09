@@ -25,32 +25,8 @@
     --------------------------------------------------------------------------
 */
 
-//! Module providing default rasterization functions based on `tiny_skia`.
-//! This module can be enabled via the `tiny_skia` feature flag, which means
-//! if you are willing to pull in this dependency you do not have to write
-//! your own rasterization functions.
-
-pub mod helpers;
-pub mod rasterize_disk;
-
-use crate::visualization::prelude::VizColor;
-
-pub use helpers::*;
-pub use rasterize_disk::*;
-
-#[derive(Copy, Clone, Debug, Default)]
-pub struct SkiaStyle {
-    pub fill: VizColor,
-    pub stroke: VizColor,
-    pub stroke_width: f32,
-}
-
-impl SkiaStyle {
-    pub fn fill_only(fill: VizColor) -> SkiaStyle {
-        SkiaStyle {
-            fill,
-            stroke: VizColor::from_rgba8(0, 0, 0, 0),
-            stroke_width: 0.0,
-        }
-    }
-}
+pub mod blend;
+pub mod color;
+pub mod display_list;
+pub mod pixmap;
+pub mod shapes;

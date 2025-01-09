@@ -31,10 +31,11 @@
 
 use std::path::{Path, PathBuf};
 
+use fluxfox::visualization::prelude::*;
+
 use bpaf::{construct, long, short, OptionParser, Parser};
 
 use crate::DEFAULT_DATA_SLICES;
-use fluxfox::visualization::types::VizColor;
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -51,6 +52,7 @@ pub(crate) struct VizArgs {
     pub(crate) hole_ratio: f32,
     pub(crate) angle: f32,
     pub(crate) data: bool,
+    pub(crate) rasterize_data: bool,
     pub(crate) data_slices: usize,
     pub(crate) weak: bool,
     pub(crate) errors: bool,
@@ -131,6 +133,10 @@ pub(crate) fn opts() -> OptionParser<VizArgs> {
         .argument::<usize>("DATA_SLICES")
         .fallback(DEFAULT_DATA_SLICES);
 
+    let rasterize_data = long("rasterize_data")
+        .help("Use rasterization method for data rendering.")
+        .switch();
+
     let weak = short('w').long("weak").help("Render weak bits").switch();
 
     let errors = short('e').long("errors").help("Render bitstream errors").switch();
@@ -177,6 +183,7 @@ pub(crate) fn opts() -> OptionParser<VizArgs> {
         side,
         sides,
         data_slices,
+        rasterize_data,
         side_spacing,
         track_gap,
         hole_ratio,

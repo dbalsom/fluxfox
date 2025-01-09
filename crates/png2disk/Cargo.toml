@@ -9,7 +9,7 @@ readme = "README.md"
 
 [dependencies]
 bpaf = { version = "0.9", features = ["autocomplete"] }
-fluxfox = { path = "../..", features = ["viz", "tiny_skia"] }
+fluxfox = { path = "../..", features = ["viz"] }
 logger = "0.4"
 env_logger = "0.11"
 log = "0.4.22"
