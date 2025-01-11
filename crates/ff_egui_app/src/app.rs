@@ -48,6 +48,7 @@ use fluxfox_egui::{
     UiEvent,
 };
 use std::{
+    collections::VecDeque,
     default::Default,
     fmt,
     fmt::{Display, Formatter},
@@ -244,8 +245,8 @@ impl AppWindows {
 
     /// Update windows that hold a disk image lock with a new lock.
     pub fn update_disk(&mut self, disk_lock: TrackingLock<DiskImage>, _name: Option<String>) {
-        self.viz_viewer.update_disk(disk_lock.clone());
-
+        // The visualization viewer can hold a read lock in the background for rendering, so it
+        // should be updated last.
         match disk_lock.read(Tool::App) {
             Ok(disk) => self.source_map.update(&disk),
             Err(_) => {
@@ -253,6 +254,12 @@ impl AppWindows {
                 return;
             }
         };
+
+        log::debug!("Updating sector viewer...");
+        self.sector_viewer.update(disk_lock.clone(), SectorSelection::default());
+
+        log::debug!("Updating visualization...");
+        self.viz_viewer.update_disk(disk_lock.clone());
     }
 }
 
@@ -325,7 +332,7 @@ pub struct App {
     viz_window_open: bool,
     windows: AppWindows,
 
-    events: Vec<AppEvent>,
+    events: VecDeque<AppEvent>,
     deferred_file_ui_event: Option<UiEvent>,
     sector_selection: Option<SectorSelection>,
     track_selection: Option<TrackSelection>,
@@ -360,7 +367,7 @@ impl Default for App {
 
             windows: AppWindows::default(),
 
-            events: Vec::new(),
+            events: VecDeque::new(),
             deferred_file_ui_event: None,
             sector_selection: None,
             track_selection: None,
@@ -473,6 +480,18 @@ impl App {
 
         app_state
     }
+
+    pub fn collect_garbage(&mut self) {
+        let lock_ct = self.old_locks.len();
+        self.old_locks.retain(|lock| lock.strong_count() > 0);
+        if lock_ct != self.old_locks.len() {
+            log::debug!(
+                "collect_garbage(): Collected {} locks, {} remaining",
+                lock_ct - self.old_locks.len(),
+                self.old_locks.len()
+            );
+        }
+    }
 }
 
 impl eframe::App for App {
@@ -480,6 +499,8 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Put your widgets into a `SidePanel`, `TopBottomPanel`, `CentralPanel`, `Window` or `Area`.
         // For inspiration and more examples, go to https://emilk.github.io/egui
+
+        self.collect_garbage();
 
         if !self.ctx_init {
             self.ctx_init(ctx);
@@ -648,7 +669,7 @@ impl App {
                                 self.set_slot(0, disk);
                                 self.new_disk();
                                 ctx.request_repaint();
-                                self.events.push(AppEvent::ImageLoaded(self.selected_slot));
+                                self.events.push_back(AppEvent::ImageLoaded(self.selected_slot));
                             })
                             .unwrap_or_else(|e| {
                                 log::error!("Error loading disk image: {:?}", e);
@@ -690,7 +711,7 @@ impl App {
     }
 
     fn handle_events(&mut self) {
-        while let Some(event) = self.events.pop() {
+        while let Some(event) = self.events.pop_front() {
             match event {
                 AppEvent::Reset => {
                     log::debug!("Got AppEvent::Reset");
@@ -718,16 +739,13 @@ impl App {
                         self.slot(slot_idx).image.clone(),
                         self.slot(slot_idx).image_name.clone(),
                     ) {
-                        // Update widgets.
+                        // Update widgets. Update widgets that use a mutable reference first.
                         log::debug!("Updating widgets with new disk image...");
-                        self.widgets.update_disk(disk_image.clone(), image_name.clone());
                         self.widgets.update_mut(disk_image.clone());
+                        self.widgets.update_disk(disk_image.clone(), image_name.clone());
 
-                        log::debug!("Updating sector viewer...");
                         self.windows.update_disk(disk_image.clone(), image_name.clone());
-                        self.windows
-                            .sector_viewer
-                            .update(disk_image.clone(), SectorSelection::default());
+
                         self.sector_selection = Some(SectorSelection::default());
                         self.widgets.hello.set_small(true);
                     }
@@ -810,18 +828,18 @@ impl App {
                     match selection {
                         TrackListSelection::Track(track) => match track.sel_scope {
                             TrackSelectionScope::DecodedDataStream => {
-                                self.events.push(AppEvent::TrackSelected(track));
+                                self.events.push_back(AppEvent::TrackSelected(track));
                             }
                             TrackSelectionScope::Elements => {
-                                self.events.push(AppEvent::TrackElementsSelected(track));
+                                self.events.push_back(AppEvent::TrackElementsSelected(track));
                             }
                             TrackSelectionScope::Timings => {
-                                self.events.push(AppEvent::TrackTimingsSelected(track));
+                                self.events.push_back(AppEvent::TrackTimingsSelected(track));
                             }
                             _ => log::warn!("Unsupported TrackSelectionScope: {:?}", track.sel_scope),
                         },
                         TrackListSelection::Sector(sector) => {
-                            self.events.push(AppEvent::SectorSelected(sector));
+                            self.events.push_back(AppEvent::SectorSelected(sector));
                         }
                     }
                 }
@@ -945,8 +963,8 @@ impl App {
 
                                 match self.load_status {
                                     ThreadLoadStatus::Inactive => {
-                                        //log::debug!("Inactive->Loading. Sending AppEvent::ResetDisk");
-                                        self.events.push(AppEvent::ResetDisk);
+                                        log::debug!("ThreadLoadStatus::Inactive->Loading. Sending AppEvent::ResetDisk");
+                                        self.events.push_back(AppEvent::ResetDisk);
                                     }
                                     _ => {}
                                 };
@@ -962,7 +980,7 @@ impl App {
                                 }
                                 self.load_status = ThreadLoadStatus::Inactive;
                                 ctx.request_repaint();
-                                self.events.push(AppEvent::ImageLoaded(slot_idx));
+                                self.events.push_back(AppEvent::ImageLoaded(slot_idx));
                             }
                             ThreadLoadStatus::Error(e) => {
                                 log::error!("Error loading disk image: {:?}", e);

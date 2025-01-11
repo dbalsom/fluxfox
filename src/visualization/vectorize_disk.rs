@@ -631,11 +631,6 @@ pub fn vectorize_disk_elements_by_quadrants(
             for draw_markers in [false, true].iter() {
                 let mut phys_s: u8 = 0; // Physical sector index, 0-indexed from first sector on track
 
-                log::trace!(
-                    "vectorize_disk_elements_by_quadrants(): Rendering elements on track {}",
-                    ti
-                );
-
                 // Draw non-overlapping metadata.
                 for (_mi, meta_item) in track_meta.items.iter().enumerate() {
                     let generic_element = GenericTrackElement::from(meta_item.element);
@@ -1006,7 +1001,7 @@ pub fn vectorize_disk_hit_test(
         });
     }
 
-    log::warn!("vectorize_disk_hit_test(): No element found at bit index {}", bit_index);
+    //log::warn!("vectorize_disk_hit_test(): No element found at bit index {}", bit_index);
 
     Ok(DiskHitTestResult {
         display_list: None,
