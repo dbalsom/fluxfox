@@ -30,7 +30,7 @@ use web_time::Instant;
 
 use crate::{
     render_display_list::{render_data_display_list, render_display_list},
-    styles::{default_element_styles, BlendMode, ElementStyle},
+    styles::{default_skia_styles, BlendMode, ElementStyle, SkiaStyle},
     DEFAULT_DATA_SLICES,
     DEFAULT_VIEW_BOX,
 };
@@ -89,7 +89,7 @@ pub struct TinySkiaRenderer {
     // Flag to control whether turning direction is reversed for the second side.
     reverse_turning: bool,
     // Style mappings for generic elements. If not set, a default set of styles will be used.
-    element_styles: FoxHashMap<GenericTrackElement, ElementStyle>,
+    skia_styles: FoxHashMap<GenericTrackElement, SkiaStyle>,
     // Default style for track elements - a solid ring that is the background of each track.
     // Default is transparent fill and 0 stroke.
     track_style: ElementStyle,
@@ -108,7 +108,7 @@ impl TinySkiaRenderer {
         Self {
             side_view_box: VizRect::from_tuple((0.0, 0.0), (DEFAULT_VIEW_BOX, DEFAULT_VIEW_BOX)),
             global_view_box: VizRect::from_tuple((0.0, 0.0), (DEFAULT_VIEW_BOX, DEFAULT_VIEW_BOX)),
-            element_styles: default_element_styles(),
+            skia_styles: default_skia_styles(),
             data_crisp: true,
             reverse_turning: true,
             // Start at 2 and take the minimum of image heads and 2.

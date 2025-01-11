@@ -1708,6 +1708,7 @@ dependencies = [
  "env_logger",
  "fluxfox",
  "fluxfox_egui",
+ "fluxfox_svg",
  "fluxfox_tiny_skia",
  "futures",
  "image",

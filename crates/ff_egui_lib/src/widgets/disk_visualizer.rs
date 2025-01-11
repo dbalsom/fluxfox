@@ -59,7 +59,7 @@ impl DiskVisualizerWidget {
             track_width: 1.0,
             palette: default_palette(),
             data_display_list: VizDataSliceDisplayList::new(turning_direction, cylinders, 0.0),
-            metadata_display_list: VizElementDisplayList::new(turning_direction, cylinders),
+            metadata_display_list: VizElementDisplayList::new(turning_direction, 0, cylinders as u16),
         }
     }
 

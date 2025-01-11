@@ -49,6 +49,7 @@ use crate::{
 use bitflags::bitflags;
 use core::fmt;
 use num_traits::Num;
+use std::ops::Mul;
 
 #[cfg(feature = "tiny_skia")]
 impl From<VizColor> for tiny_skia::Color {
@@ -71,7 +72,10 @@ bitflags! {
         const OVERLAP = 0b0000_0100;
         // This element crosses the index, and is sufficiently long that it should be faded out
         const OVERLAP_LONG = 0b0000_1000;
-
+        // This element represents a highlighted element
+        const HIGHLIGHT = 0b0001_0000;
+        // This element represents a selected element
+        const SELECTED = 0b0010_0000;
     }
 }
 
@@ -359,6 +363,20 @@ impl<T: Num + Copy + Default> VizPoint2d<T> {
         VizPoint2d {
             x: self.x * factor,
             y: self.y * factor,
+        }
+    }
+}
+
+impl<T, Rhs> Mul<Rhs> for VizPoint2d<T>
+where
+    T: Num + Copy + Default + Mul<Rhs, Output = T>,
+    Rhs: Num + Copy + Default + Mul<T>,
+{
+    type Output = VizPoint2d<<T as Mul<Rhs>>::Output>;
+    fn mul(self, rhs: Rhs) -> Self::Output {
+        Self {
+            x: self.x * rhs,
+            y: self.y * rhs,
         }
     }
 }

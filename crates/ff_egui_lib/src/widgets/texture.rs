@@ -27,14 +27,19 @@
 #![allow(dead_code)]
 
 use egui::{
+    emath::RectTransform,
+    epaint::Vertex,
     Color32,
     ColorImage,
     Context,
     ImageData,
+    Mesh,
+    Pos2,
     Rect,
     Response,
     ScrollArea,
     Sense,
+    Shape,
     TextureHandle,
     TextureOptions,
     Vec2,
@@ -131,6 +136,8 @@ pub struct PixelCanvas {
     data_buf: Vec<u8>,
     backing_buf: Vec<Color32>,
     view_dimensions: (u32, u32),
+    virtual_rect: Rect,
+    virtual_transform: RectTransform,
     zoom: f32,
     bpp: PixelCanvasDepth,
     device_palette: PixelCanvasPalette,
@@ -144,6 +151,7 @@ pub struct PixelCanvas {
     default_uv: Rect,
     ctx: Context,
     data_unpacked: bool,
+    rotation: f32,
 }
 
 impl Default for PixelCanvas {
@@ -153,6 +161,14 @@ impl Default for PixelCanvas {
             data_buf: Vec::new(),
             backing_buf: Vec::new(),
             view_dimensions: (DEFAULT_WIDTH, DEFAULT_HEIGHT),
+            virtual_rect: Rect::from_min_size(
+                egui::pos2(0.0, 0.0),
+                egui::vec2(DEFAULT_WIDTH as f32, DEFAULT_HEIGHT as f32),
+            ),
+            virtual_transform: RectTransform::identity(Rect::from_min_size(
+                egui::pos2(0.0, 0.0),
+                egui::vec2(DEFAULT_WIDTH as f32, DEFAULT_HEIGHT as f32),
+            )),
             zoom: 1.0,
             bpp: PixelCanvasDepth::OneBpp,
             device_palette: PixelCanvasPalette {
@@ -178,6 +194,7 @@ impl Default for PixelCanvas {
             default_uv: Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
             ctx: Context::default(),
             data_unpacked: false,
+            rotation: 0.0,
         }
     }
 }
@@ -188,6 +205,7 @@ impl PixelCanvas {
         let mut pc = PixelCanvas::default();
         pc.id = id.to_string();
         pc.view_dimensions = dims;
+        pc.virtual_rect = Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(dims.0 as f32, dims.1 as f32));
         pc.data_buf = vec![0; PixelCanvas::calc_slice_size(dims, pc.bpp)];
         pc.backing_buf = vec![Color32::WHITE; (dims.0 * dims.1) as usize];
         pc.ctx = ctx.clone();
@@ -242,8 +260,36 @@ impl PixelCanvas {
             .load_texture("pixel_canvas".to_string(), self.image_data.clone(), self.texture_opts)
     }
 
-    pub fn get_width(&self) -> f32 {
+    pub fn width(&self) -> f32 {
         self.view_dimensions.0 as f32 * self.zoom
+    }
+
+    pub fn rotation_mut(&mut self) -> &mut f32 {
+        &mut self.rotation
+    }
+
+    pub fn set_rotation(&mut self, angle: f32) {
+        self.rotation = angle;
+    }
+
+    pub fn set_virtual_rect(&mut self, rect: Rect) {
+        self.virtual_rect = rect;
+
+        self.virtual_transform = RectTransform::from_to(
+            Rect::from_min_size(
+                egui::pos2(0.0, 0.0),
+                egui::vec2(self.view_dimensions.0 as f32, self.view_dimensions.1 as f32),
+            ),
+            rect,
+        );
+    }
+
+    pub fn virtual_rect(&self) -> &Rect {
+        &self.virtual_rect
+    }
+
+    pub fn virtual_transform(&self) -> &RectTransform {
+        &self.virtual_transform
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui, on_hover: Option<impl FnOnce(&Response, f32, f32)>) -> Option<Response> {
@@ -294,6 +340,279 @@ impl PixelCanvas {
                     }
                     inner_response = Some(response);
                 });
+                inner_response
+            })
+            .inner
+        }
+        else {
+            log::debug!("No texture to draw.");
+            None
+        }
+    }
+
+    pub fn show_as_mesh2(
+        &mut self,
+        ui: &mut egui::Ui,
+        on_hover: Option<impl FnOnce(&egui::Response, Pos2, Pos2)>,
+    ) -> Option<egui::Response> {
+        let mut inner_response = None;
+
+        if let Some(texture) = &self.texture {
+            ui.vertical(|ui| {
+                // The final UI region to fill, e.g. 512×512
+                let view_w = self.view_dimensions.0 as f32;
+                let view_h = self.view_dimensions.1 as f32;
+                ui.set_width(view_w);
+                ui.set_height(view_h);
+
+                let (rect, response) =
+                    ui.allocate_exact_size(egui::vec2(view_w, view_h), egui::Sense::click_and_drag());
+
+                let top_left = Pos2::new(ui.min_rect().left(), ui.min_rect().top());
+
+                if ui.is_rect_visible(rect) {
+                    let painter = ui.painter().with_clip_rect(rect);
+
+                    // Full image corners in "image space"
+                    let image_corners = [
+                        egui::pos2(0.0, 0.0),
+                        egui::pos2(view_w, 0.0),
+                        egui::pos2(view_w, view_h),
+                        egui::pos2(0.0, view_h),
+                    ];
+
+                    let pivot = egui::pos2(view_w / 2.0, view_h / 2.0);
+
+                    let sub_rect = self.virtual_rect;
+                    let sub_w = sub_rect.width();
+                    let sub_h = sub_rect.height();
+                    let scale_x = view_w / sub_w;
+                    let scale_y = view_h / sub_h;
+
+                    let sub_min_local_x = sub_rect.min.x - pivot.x; // e.g. 256-256=0 if quadrant
+                    let sub_min_local_y = sub_rect.min.y - pivot.y; // e.g. 0-256=-256 if quadrant
+
+                    // Scale that local corner (without rotation, i.e. rotation=0 path)
+                    let scaled_sub_min_x = sub_min_local_x * scale_x;
+                    let scaled_sub_min_y = sub_min_local_y * scale_y;
+
+                    // So offset is:
+                    let offset_x = rect.min.x - scaled_sub_min_x;
+                    let offset_y = rect.min.y - scaled_sub_min_y;
+
+                    let cos_a = self.rotation.cos();
+                    let sin_a = self.rotation.sin();
+
+                    // Create mesh
+                    let mut mesh = Mesh::default();
+                    for corner in image_corners {
+                        // local coords: corner minus pivot
+                        let lx = corner.x - pivot.x;
+                        let ly = corner.y - pivot.y;
+
+                        // rotate
+                        let rx = lx * cos_a - ly * sin_a;
+                        let ry = lx * sin_a + ly * cos_a;
+
+                        // scale
+                        let sx = rx * scale_x;
+                        let sy = ry * scale_y;
+
+                        // offset
+                        let final_x = offset_x + sx;
+                        let final_y = offset_y + sy;
+
+                        mesh.vertices.push(Vertex {
+                            pos:   egui::pos2(final_x, final_y),
+                            uv:    egui::pos2(corner.x / 512.0, corner.y / 512.0),
+                            color: Color32::WHITE,
+                        });
+                    }
+                    mesh.indices.extend(&[0, 1, 2, 2, 3, 0]);
+                    mesh.texture_id = texture.id();
+
+                    painter.add(Shape::Mesh(mesh));
+                }
+
+                if let Some(mouse_pos) = response.hover_pos() {
+                    let pos = mouse_pos - top_left;
+
+                    if pos.x >= 0.0 && pos.x < view_w && pos.y >= 0.0 && pos.y < view_h {
+                        if let Some(on_hover) = on_hover {
+                            on_hover(
+                                &response,
+                                pos.to_pos2(),
+                                self.virtual_transform.transform_pos(pos.to_pos2()),
+                            );
+                        }
+                    }
+                }
+
+                inner_response = Some(response);
+            });
+
+            inner_response
+        }
+        else {
+            None
+        }
+    }
+
+    pub fn show_as_mesh(
+        &mut self,
+        ui: &mut egui::Ui,
+        on_hover: Option<impl FnOnce(&Response, f32, f32)>,
+    ) -> Option<Response> {
+        let mut inner_response = None;
+        if let Some(texture) = &self.texture {
+            ui.vertical(|ui| {
+                let scroll_area = ScrollArea::vertical().id_salt(&self.id).auto_shrink([false; 2]);
+
+                let img_w = self.view_dimensions.0 as f32 * self.zoom;
+                let img_h = self.view_dimensions.1 as f32 * self.zoom;
+
+                ui.shrink_width_to_current();
+                ui.set_width(img_w);
+                ui.set_height(img_h);
+
+                // Debug resolution and view dimensions
+                log::debug!(
+                    "Virtual: {} x {}, View Dimensions: {} x {}",
+                    self.virtual_rect.width(),
+                    self.virtual_rect.height(),
+                    self.view_dimensions.0,
+                    self.view_dimensions.1
+                );
+
+                scroll_area.show_viewport(ui, |ui, viewport| {
+                    let (rect, response) = ui.allocate_exact_size(Vec2::new(img_w, img_h), Sense::click_and_drag());
+
+                    if ui.is_rect_visible(rect) {
+                        let painter = ui.painter();
+
+                        // Map the full texture to the mesh (full UV range)
+                        let uv = [
+                            Pos2::new(0.0, 0.0),
+                            Pos2::new(1.0, 0.0),
+                            Pos2::new(1.0, 1.0),
+                            Pos2::new(0.0, 1.0),
+                        ];
+
+                        // Define the transformation from virtual_rect (zoomed-in space) to UI space
+                        // Scale and translate based on the virtual rect
+                        let scale_x = img_w / self.virtual_rect.width();
+                        let scale_y = img_h / self.virtual_rect.height();
+
+                        // Calculate the offset in logical space
+                        let offset_x =
+                            (img_w / 2.0) - (self.virtual_rect.min.x + self.virtual_rect.width() / 2.0) * scale_x;
+                        let offset_y =
+                            (img_h / 2.0) - (self.virtual_rect.min.y + self.virtual_rect.height() / 2.0) * scale_y;
+
+                        log::debug!(
+                            "Scale X: {}, Scale Y: {}, Offset X: {}, Offset Y: {}",
+                            scale_x,
+                            scale_y,
+                            offset_x,
+                            offset_y
+                        );
+
+                        // Calculate the center of the image for rotation
+                        let mesh_center = rect.center();
+                        let center =
+                            Pos2::new(rect.min.x + img_w / 2.0 + offset_x, rect.min.y + img_h / 2.0 + offset_y);
+
+                        // Define corners of the image relative to its center
+                        let half_size = Vec2::new(img_w / 2.0, img_h / 2.0);
+                        let corners = [
+                            Vec2::new(-half_size.x, -half_size.y),
+                            Vec2::new(half_size.x, -half_size.y),
+                            Vec2::new(half_size.x, half_size.y),
+                            Vec2::new(-half_size.x, half_size.y),
+                        ];
+
+                        // let corners = [
+                        //     Vec2::new(0.0, 0.0),
+                        //     Vec2::new(img_w , 0.0),
+                        //     Vec2::new(img_w, img_h),
+                        //     Vec2::new(0.0, img_h),
+                        // ];
+
+                        // Apply scaling, translation, and rotation to the corners
+                        let transformed_corners: Vec<Pos2> = corners
+                            .iter()
+                            .map(|corner| {
+                                // Scale the corner
+                                let scaled = Vec2::new(corner.x * scale_x, corner.y * scale_y);
+
+                                // Rotate the corner around the mesh center
+                                let cos_angle = self.rotation.cos();
+                                let sin_angle = self.rotation.sin();
+                                let rotated = Vec2::new(
+                                    scaled.x * cos_angle - scaled.y * sin_angle,
+                                    scaled.x * sin_angle + scaled.y * cos_angle,
+                                );
+
+                                Pos2::new(
+                                    mesh_center.x + rotated.x + offset_x,
+                                    mesh_center.y + rotated.y + offset_y,
+                                )
+                            })
+                            .collect();
+
+                        // Rotate corners
+                        // let transformed_corners: Vec<Pos2> = corners
+                        //     .iter()
+                        //     .map(|corner| {
+                        //         let cos_angle = self.rotation.cos();
+                        //         let sin_angle = self.rotation.sin();
+                        //         let rotated = Vec2::new(
+                        //             corner.x * cos_angle - corner.y * sin_angle,
+                        //             corner.x * sin_angle + corner.y * cos_angle,
+                        //         );
+                        //         Pos2::new(center.x + rotated.x, center.y + rotated.y)
+                        //     })
+                        //     .collect();
+
+                        // Create a mesh for the rotated image
+                        let mut mesh = Mesh::default();
+                        let vertices = transformed_corners
+                            .iter()
+                            .zip(&uv)
+                            .map(|(&pos, &uv)| egui::epaint::Vertex {
+                                pos,
+                                uv,
+                                color: Color32::WHITE,
+                            })
+                            .collect::<Vec<_>>();
+                        mesh.vertices.extend(vertices);
+
+                        // Indices for the two triangles forming the rectangle
+                        mesh.indices.extend(&[0, 1, 2, 2, 3, 0]);
+
+                        // Assign the texture ID
+                        mesh.texture_id = texture.id();
+
+                        // Add the mesh to the painter
+                        painter.add(Shape::Mesh(mesh));
+                    }
+
+                    if response.secondary_clicked() {
+                        log::debug!("Secondary click detected!");
+                    }
+
+                    if let Some(mouse_pos) = response.hover_pos() {
+                        let x = mouse_pos.x - rect.min.x;
+                        let y = mouse_pos.y - rect.min.y;
+                        if x >= 0.0 && x < img_w && y >= 0.0 && y < img_h {
+                            if let Some(on_hover) = on_hover {
+                                on_hover(&response, x, y);
+                            }
+                        }
+                    }
+                    inner_response = Some(response);
+                });
+
                 inner_response
             })
             .inner

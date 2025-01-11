@@ -201,6 +201,8 @@ impl AppWindows {
     }
 
     pub fn update(&mut self, disk_lock: Arc<RwLock<DiskImage>>, _name: Option<String>) {
+        self.viz_viewer.update_disk(disk_lock.clone());
+
         log::debug!(
             "AppWindows::update(): Attempting to lock disk image with {} references",
             Arc::strong_count(&disk_lock)
@@ -546,11 +548,7 @@ impl App {
                     self.run_mode = RunMode::Reactive;
                     self.error_msg = None;
 
-                    match self
-                        .windows
-                        .viz_viewer
-                        .render(self.disk_image.as_ref().unwrap().clone())
-                    {
+                    match self.windows.viz_viewer.render() {
                         Ok(_) => {
                             log::info!("Visualization rendered successfully!");
                         }
@@ -698,12 +696,16 @@ impl App {
                 new_event = self.widgets.file_system.show(ui);
             });
 
-            if Arc::strong_count(disk) > 1 {
-                log::debug!("handle_fs_info(): Disk image is locked, deferring event...");
-                self.deferred_file_ui_event = new_event.take();
-            }
-            else if new_event.is_none() && self.deferred_file_ui_event.is_some() {
-                log::debug!("handle_fs_info(): Disk image is unlocked, processing deferred event...");
+            // if Arc::strong_count(disk) > 1 {
+            //     log::debug!("handle_fs_info(): Disk image is locked, deferring event...");
+            //     self.deferred_file_ui_event = new_event.take();
+            // }
+            // else if new_event.is_none() && self.deferred_file_ui_event.is_some() {
+            //     log::debug!("handle_fs_info(): Disk image is unlocked, processing deferred event...");
+            //     new_event = self.deferred_file_ui_event.take();
+            // }
+
+            if new_event.is_none() && self.deferred_file_ui_event.is_some() {
                 new_event = self.deferred_file_ui_event.take();
             }
 

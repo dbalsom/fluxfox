@@ -36,6 +36,7 @@ use crate::{
         collect_streams,
         data_segmenter::DataSegmenter,
         metadata,
+        prelude::VizShape,
         stream,
         types::{
             display_list::{VizDataSliceDisplayList, *},
@@ -51,6 +52,8 @@ use crate::{
             },
         },
         CommonVizParams,
+        DiskHitTestResult,
+        RenderDiskHitTestParams,
         RenderDiskSelectionParams,
         RenderGeometry,
         RenderTrackDataParams,
@@ -66,6 +69,7 @@ use crate::{
 use std::{
     cmp::min,
     f32::consts::{PI, TAU},
+    ops::Range,
 };
 
 pub struct CalcElementParams {
@@ -87,6 +91,10 @@ pub struct CalcElementParams {
 ///      visualization functions.
 /// - `r`: A reference to a [RenderTrackMetadataParams] object containing the parameters for
 ///      rendering the disk.
+#[deprecated(
+    since = "0.1.0",
+    note = "Can generate un-renderable geometry. Please use `vectorize_disk_elements_by_quadrants` instead"
+)]
 pub fn vectorize_disk_elements(
     disk_image: &DiskImage,
     p: &CommonVizParams,
@@ -102,7 +110,7 @@ pub fn vectorize_disk_elements(
 
     log::debug!("visualize_disk_elements(): Rendering {} tracks", num_tracks);
 
-    let mut display_list = VizElementDisplayList::new(p.direction, num_tracks);
+    let mut display_list = VizElementDisplayList::new(p.direction, r.side, num_tracks as u16);
 
     // Maximum size of a metadata item that can overlap the index without being excluded
     // from rendering. Large sectors (8192 bytes) will fill the entire disk surface, so are not
@@ -156,7 +164,7 @@ pub fn vectorize_disk_elements(
                         let overlap_long = meta_length > overlap_max;
 
                         log::trace!(
-                            "visualize_disk_elements(): Overlapping metadata item at {}-{} len: {} max: {} long: {}",
+                            "vectorize_disk_elements(): Overlapping metadata item at {}-{} len: {} max: {} long: {}",
                             meta_item.start,
                             meta_item.end,
                             meta_length,
@@ -231,11 +239,11 @@ pub fn vectorize_disk_elements(
 
             let mut phys_s: u8 = 0; // Physical sector index, 0-indexed from first sector on track
 
-            log::debug!("visualize_disk_elements(): Rendering elements on track {}", ti);
+            log::debug!("vectorize_disk_elements(): Rendering elements on track {}", ti);
 
             // Draw non-overlapping metadata.
             for (_mi, meta_item) in track_meta.items.iter().enumerate() {
-                log::debug!("visualize_disk_elements(): Rendering element at {}", _mi);
+                log::debug!("vectorize_disk_elements(): Rendering element at {}", _mi);
                 let generic_element = GenericTrackElement::from(meta_item.element);
 
                 match generic_element {
@@ -306,7 +314,7 @@ pub fn vectorize_disk_elements(
                     VizElementInfo::new(generic_element, DiskCh::new(ti as u16, r.side), None, None, None);
                 let element_metadata = VizElement::new(element_sector, element_flags, element_info);
 
-                log::debug!("visualize_disk_elements(): Pushing element to display list");
+                log::debug!("vectorize_disk_elements(): Pushing element to display list");
                 display_list.push(ti, element_metadata);
             }
 
@@ -379,7 +387,9 @@ pub fn vectorize_disk_elements_by_quadrants(
     let max_radius = p.max_radius_ratio * total_radius;
     let mut min_radius = p.min_radius_ratio * total_radius;
     if max_radius <= min_radius {
-        return Err(DiskVisualizationError::InvalidParameter);
+        return Err(DiskVisualizationError::InvalidParameter(
+            "max_radius must be greater than min_radius".to_string(),
+        ));
     }
 
     let center = VizPoint2d::from((total_radius, total_radius));
@@ -388,12 +398,18 @@ pub fn vectorize_disk_elements_by_quadrants(
     let r_tracks = collect_streams(r.side, disk_image);
     let r_metadata = collect_metadata(r.side, disk_image);
 
+    if r_tracks.len() != r_metadata.len() {
+        return Err(DiskVisualizationError::InvalidParameter(
+            "Mismatched track and metadata lengths".to_string(),
+        ));
+    }
+
     let num_tracks = min(r_tracks.len(), p.track_limit.unwrap_or(MAX_CYLINDER));
     if num_tracks == 0 {
         return Err(DiskVisualizationError::NoTracks);
     }
 
-    let mut display_list = VizElementDisplayList::new(p.direction, num_tracks);
+    let mut display_list = VizElementDisplayList::new(p.direction, r.side, num_tracks as u16);
     log::debug!(
         "vectorize_disk_elements_by_quadrants(): Rendering {} tracks over quadrants: {:?}",
         num_tracks,
@@ -444,26 +460,18 @@ pub fn vectorize_disk_elements_by_quadrants(
         // Loop through each quadrant and render the elements for that quadrant.
         for quadrant in &quadrant_list {
             // Set the appropriate clipping angles for the current quadrant.
-            let quadrant_angles_cc = match quadrant {
+            let quadrant_angles = match quadrant & 0x03 {
                 0 => (0.0, PI / 2.0),
                 1 => (PI / 2.0, PI),
                 2 => (PI, 3.0 * PI / 2.0),
                 3 => (3.0 * PI / 2.0, TAU),
-                _ => return Err(DiskVisualizationError::InvalidParameter),
+                _ => unreachable!(),
             };
 
-            let (clip_start, clip_end) = (quadrant_angles_cc.0, quadrant_angles_cc.1);
+            let (clip_start, clip_end) = (quadrant_angles.0, quadrant_angles.1);
 
-            // Emit a NullElement for this quadrant to represent the track background.
-            let track_quadrant_sector = VizSector::from_angles(
-                &VizPoint2d::new(center.x, center.y),
-                r.winding,
-                clip_start,
-                clip_end,
-                inner_radius,
-                outer_radius,
-            );
-
+            // Emit a NullElement arc for this quadrant to represent the track background.
+            // Note: must be a cubic arc due to 90-degree angle.
             let track_quadrant_arc = VizArc::from_angles(
                 &VizPoint2d::new(center.x, center.y),
                 middle_radius,
@@ -725,6 +733,7 @@ pub fn vectorize_disk_elements_by_quadrants(
 }
 
 /// Return a [VizElementDisplayList] representing a selection on a disk image.
+/// The selection will be divided into multiple display elements if it exceeds 90 degrees.
 /// # Arguments:
 /// - `disk_image`: The [DiskImage] to render.
 /// - `p`: A reference to a [CommonVizParams] object containing the parameters common to all
@@ -748,10 +757,12 @@ pub fn vectorize_disk_selection(
     }
 
     if r.ch.c() >= num_tracks as u16 {
-        return Err(DiskVisualizationError::InvalidParameter);
+        return Err(DiskVisualizationError::InvalidParameter(
+            "Invalid track number".to_string(),
+        ));
     }
 
-    let mut display_list = VizElementDisplayList::new(p.direction, num_tracks);
+    let mut display_list = VizElementDisplayList::new(p.direction, r.ch.h(), num_tracks as u16);
 
     // If no radius was specified, default to 0.5 - this creates a display list that is in the
     // range [(0,0)-(1,1)], suitable for transformations as desired by the output rasterizer.
@@ -868,6 +879,143 @@ pub fn vectorize_disk_selection(
     Ok(display_list)
 }
 
+/// Return a [VizElementDisplayList] representing a selection on a disk image.
+/// The selection will be divided into multiple display elements if it exceeds 90 degrees.
+/// # Arguments:
+/// - `disk_image`: The [DiskImage] to render.
+/// - `p`: A reference to a [CommonVizParams] object containing the parameters common to all
+///     visualization functions.
+/// - `r`: A reference to a [RenderDiskSelectionParams] object containing the parameters for
+///     rendering the disk selection.
+/// - `flags`: A [VizElementFlags] object containing flags to apply to the selection.
+pub fn vectorize_disk_hit_test(
+    disk: &DiskImage,
+    p: &CommonVizParams,
+    r: &RenderDiskHitTestParams,
+    flags: VizElementFlags,
+) -> Result<DiskHitTestResult, DiskVisualizationError> {
+    let tp = p.track_params(disk.track_ct(r.side as usize))?;
+    let (x, y) = r.point.to_tuple();
+    let (dx, dy) = (x - tp.center.x, y - tp.center.y);
+    let distance = (dx.powi(2) + dy.powi(2)).sqrt();
+    let angle = (dy.atan2(dx) + TAU) % TAU;
+
+    if distance > tp.max_radius || distance < tp.min_radius {
+        // Hit test coordinate is outside of data area.
+        //log::trace!("Hit test at ({}, {}) is outside of data area", dx, dy);
+        return Ok(DiskHitTestResult::default());
+    }
+
+    // log::trace!(
+    //     "Hit test at ({}, {}) center ({}, {}) distance: {} angle: {}",
+    //     dx,
+    //     dy,
+    //     tp.center.x,
+    //     tp.center.y,
+    //     distance,
+    //     angle
+    // );
+
+    // Use the full render with for hit-testing - ignore track gap
+    let track_offset = (distance - tp.min_radius) / tp.render_track_width;
+    let cylinder = (tp.num_tracks - 1).saturating_sub(track_offset.floor() as usize);
+    // Get the track metadata for this track.
+    let track_opt = disk.track(DiskCh::new(cylinder as u16, r.side));
+    if track_opt.is_none() {
+        return Ok(DiskHitTestResult::default());
+    }
+    let track = track_opt.unwrap();
+    let track_len = track.stream().and_then(|s| Some(s.len())).unwrap();
+
+    let metadata_opt = track.metadata();
+    if metadata_opt.is_none() {
+        return Ok(DiskHitTestResult::default());
+    }
+    let r_metadata = metadata_opt.unwrap();
+
+    // Selection can only be on one cylinder.
+    let mut display_list = VizElementDisplayList::new(p.direction, r.side, 1);
+
+    let center = tp.center;
+
+    let (clip_start, clip_end) = (0.0, TAU);
+
+    let mut normalized_angle = p.direction.adjust_angle(angle);
+
+    // Calculate the bit index from angle and track length.
+    let bit_index = ((normalized_angle / TAU) * track_len as f32) as usize;
+
+    if let Some((ei, idx)) = r_metadata.hit_test(bit_index) {
+        let generic_element = GenericTrackElement::from(ei.element);
+
+        let mut start_angle = ((ei.start as f32 / track_len as f32) * TAU) + p.index_angle;
+        let mut end_angle = ((ei.end as f32 / track_len as f32) * TAU) + p.index_angle;
+
+        // Invert the angles for clockwise rotation
+        (start_angle, end_angle) = match p.direction {
+            TurningDirection::Clockwise => (start_angle, end_angle),
+            TurningDirection::CounterClockwise => (TAU - start_angle, TAU - end_angle),
+        };
+
+        // Exchange start and end if reversed
+        if start_angle > end_angle {
+            std::mem::swap(&mut start_angle, &mut end_angle);
+        }
+
+        let start_angle = start_angle.max(clip_start);
+        let end_angle = end_angle.min(clip_end);
+        let outer_radius = tp.total_radius - (cylinder as f32 * tp.render_track_width);
+        let inner_radius = outer_radius - (tp.render_track_width * (1.0 - p.track_gap));
+        let mid_radius = (outer_radius + inner_radius) / 2.0;
+
+        // Start and end angles are now in the range 0..2π, but we can't emit cubic arcs longer
+        // than 90 degrees. We need to break up the arc into multiple sectors if it exceeds 90 degrees
+        // here.
+
+        let sector = VizSector::from_angles(
+            &VizPoint2d::new(center.x, center.y),
+            RenderWinding::Clockwise,
+            start_angle,
+            end_angle,
+            inner_radius,
+            outer_radius,
+        );
+
+        let arc = VizArc::from_angles(&VizPoint2d::new(center.x, center.y), mid_radius, start_angle, end_angle);
+
+        let info = VizElementInfo {
+            element_type: generic_element,
+            ch: DiskCh::new(cylinder as u16, r.side),
+            bit_range: Some(Range::from(ei.start..ei.end)),
+            element_idx: Some(idx),
+            sector_idx: None,
+        };
+
+        let element = VizElement {
+            shape: VizShape::CubicArc(arc, tp.render_track_width * (1.0 - p.track_gap)),
+            flags,
+            info,
+        };
+
+        display_list.push(0, element);
+        return Ok(DiskHitTestResult {
+            display_list: Some(display_list),
+            angle: normalized_angle,
+            bit_index,
+            track: cylinder as u16,
+        });
+    }
+
+    log::warn!("vectorize_disk_hit_test(): No element found at bit index {}", bit_index);
+
+    Ok(DiskHitTestResult {
+        display_list: None,
+        bit_index,
+        angle: normalized_angle,
+        track: cylinder as u16,
+    })
+}
+
 /// Return a [VizDataDisplayList] representing a selection on a disk image.
 /// # Arguments:
 /// - `disk_image`: The [DiskImage] to render.
@@ -891,7 +1039,9 @@ pub fn vectorize_disk_data(
     let max_radius = p.max_radius_ratio * total_radius;
     let mut min_radius = p.min_radius_ratio * total_radius;
     if max_radius <= min_radius {
-        return Err(DiskVisualizationError::InvalidParameter);
+        return Err(DiskVisualizationError::InvalidParameter(
+            "max_radius must be greater than min_radius".to_string(),
+        ));
     }
 
     let center = VizPoint2d::from((total_radius, total_radius));
@@ -994,9 +1144,15 @@ pub fn vectorize_disk_data(
             }
 
             // Calculate the start and end angles for the segment
-            let start_angle = ((track_idx as f32 / track.len() as f32) * TAU) + p.index_angle;
-            let end_angle = (((track_idx + *segment_size) as f32 / track.len() as f32) * TAU) + p.index_angle;
-            let end_angle = end_angle + slice_overlap;
+            let mut start_angle = ((track_idx as f32 / track.len() as f32) * TAU) + p.index_angle;
+            let mut end_angle = (((track_idx + *segment_size) as f32 / track.len() as f32) * TAU) + p.index_angle;
+            end_angle += slice_overlap;
+
+            // Invert the angle turning based on direction
+            (start_angle, end_angle) = match p.direction {
+                TurningDirection::Clockwise => (start_angle, end_angle),
+                TurningDirection::CounterClockwise => (TAU - start_angle, TAU - end_angle),
+            };
 
             // Since data slices are short, we can render them as quadratic arcs.
             // This saves us some space when rendering to SVG as quadratics have one fewer

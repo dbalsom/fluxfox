@@ -46,7 +46,7 @@ pub fn render_display_list(
     );
 
     for element in display_list.iter() {
-        skia_render_element(pixmap, paint, &transform, &styles, element);
+        skia_render_element(pixmap, paint, &transform, track_style, &styles, element);
     }
 
     Ok(())

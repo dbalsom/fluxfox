@@ -37,14 +37,16 @@ use crate::visualization::{
 /// Operations can be implemented on this list, such as scaling and rotation.
 pub struct VizElementDisplayList {
     pub turning: TurningDirection,
+    pub side:    u8,
     pub tracks:  Vec<Vec<VizElement>>,
 }
 
 impl VizElementDisplayList {
-    pub fn new(turning: TurningDirection, cylinders: usize) -> VizElementDisplayList {
+    pub fn new(turning: TurningDirection, side: u8, cylinders: u16) -> VizElementDisplayList {
         VizElementDisplayList {
             turning,
-            tracks: vec![Vec::new(); cylinders],
+            side,
+            tracks: vec![Vec::new(); cylinders as usize],
         }
     }
 
@@ -87,6 +89,11 @@ impl VizElementDisplayList {
         // Initialize inner iterator with the first track
         let inner = outer.next().map(|v| v.iter());
         VizDisplayListIter { outer, inner }
+    }
+
+    /// Return a slice of the items in the display list at the specified track.
+    pub fn items(&self, c: usize) -> Option<&[VizElement]> {
+        self.tracks.get(c).map(|v| v.as_slice())
     }
 }
 

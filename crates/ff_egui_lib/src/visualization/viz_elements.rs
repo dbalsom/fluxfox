@@ -217,23 +217,34 @@ pub fn paint_elements(
         true => {
             // Check track flag and draw as gray
             for element in elements {
-                if element.flags.contains(VizElementFlags::TRACK) {
-                    let fill_color = Color32::from_gray(128);
-                    paint_shape(painter, transform, rotation, &element.shape, fill_color, &stroke);
+                let fill_color = if element.flags.contains(VizElementFlags::TRACK) {
+                    Color32::from_gray(128)
                 }
                 else if let Some(color) = palette.get(&element.info.element_type) {
-                    let fill_color = *color;
-                    paint_shape(painter, transform, rotation, &element.shape, fill_color, &stroke);
+                    *color
                 }
+                else {
+                    // Use a warning color to indicate missing palette entry.
+                    Color32::RED
+                };
+                paint_shape(painter, transform, rotation, &element.shape, fill_color, &stroke);
             }
         }
         false => {
             // Paint normally.
             for element in elements {
-                if let Some(color) = palette.get(&element.info.element_type) {
-                    let fill_color = *color;
-                    paint_shape(painter, transform, rotation, &element.shape, fill_color, &stroke);
+                let fill_color = if element.flags.contains(VizElementFlags::HIGHLIGHT) {
+                    log::warn!("Highlighting element: {:?}", element.info.element_type);
+                    Color32::from_white_alpha(128)
                 }
+                else if let Some(color) = palette.get(&element.info.element_type) {
+                    *color
+                }
+                else {
+                    // Use a warning color to indicate missing palette entry.
+                    Color32::RED
+                };
+                paint_shape(painter, transform, rotation, &element.shape, fill_color, &stroke);
             }
         }
     }

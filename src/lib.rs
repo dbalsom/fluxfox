@@ -42,8 +42,6 @@
 //!
 //! It is recommended to use the [`ImageBuilder`] interface to load or create a disk image.
 
-extern crate core;
-
 mod bit_ring;
 pub mod bitstream_codec;
 pub mod boot_sector;
@@ -180,10 +178,14 @@ impl From<binrw::Error> for DiskImageError {
 
 #[derive(Debug, Error)]
 pub enum DiskVisualizationError {
-    #[error("An invalid parameter was supplied")]
-    InvalidParameter,
-    #[error("The disk image is not a valid format for visualization")]
+    #[error("An invalid parameter was supplied: {0}")]
+    InvalidParameter(String),
+    #[error("No compatible tracks were found to visualize")]
     NoTracks,
+    #[error("The disk image is not a valid format for visualization")]
+    InvalidImage,
+    #[error("The supplied parameters do not produce a visible visualization")]
+    NotVisible,
 }
 
 // Re-export tiny_skia for convenience

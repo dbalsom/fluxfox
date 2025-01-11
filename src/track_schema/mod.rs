@@ -183,6 +183,50 @@ impl TrackMetadata {
         }
     }
 
+    /// Attempt a fast hit test via binary search that returns the smallest element containing
+    /// the specified bit index.
+    pub(crate) fn hit_test(&self, bit_index: usize) -> Option<(&TrackElementInstance, usize)> {
+        if self.items.is_empty() {
+            //og::warn!("hit_test() called on empty metadata collection");
+            return None;
+        }
+
+        // Find the first element where `start` is greater than `bit_index` using binary search
+        let pos = self
+            .items
+            .binary_search_by_key(&bit_index, |e| e.start)
+            .unwrap_or_else(|x| x);
+
+        log::warn!("pos: {}", pos);
+
+        // Search backward and forward from `pos` for candidates containing `bit_index`
+        let mut result: Option<(&TrackElementInstance, usize)> = None;
+        let mut smallest_length = usize::MAX;
+
+        // Check elements before and including `pos`
+        for i in (0..=pos.min(self.items.len() - 1)).rev() {
+            let elem = &self.items[i];
+            if elem.contains(bit_index) && elem.len() < smallest_length {
+                smallest_length = elem.len();
+                result = Some((elem, i));
+            }
+        }
+
+        // Check elements after `pos`
+        for i in pos..self.items.len() {
+            let elem = &self.items[i];
+            if elem.start > bit_index {
+                break; // Later elements can't contain `bit_index`
+            }
+            if elem.contains(bit_index) && elem.len() < smallest_length {
+                smallest_length = elem.len();
+                result = Some((elem, i));
+            }
+        }
+
+        result
+    }
+
     /// Return the number of sectors represented in the metadata collection.
     /// To be counted, a sector must have a corresponding, valid sector header.
     pub fn sector_ct(&self) -> u8 {
@@ -363,6 +407,16 @@ pub struct TrackElementInstance {
     pub(crate) start: usize,
     pub(crate) end: usize,
     pub(crate) chsn: Option<DiskChsn>,
+}
+
+impl TrackElementInstance {
+    pub fn contains(&self, bit_index: usize) -> bool {
+        self.start <= bit_index && self.end >= bit_index
+    }
+
+    pub fn len(&self) -> usize {
+        self.end - self.start
+    }
 }
 
 /// A [TrackMarker] represents an encoding marker found in a track, such as an address marker or

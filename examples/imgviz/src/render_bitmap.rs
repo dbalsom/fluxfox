@@ -180,6 +180,7 @@ pub fn render_bitmap(
             sector_mask: true,
             resolution: Default::default(),
             slices: opts.data_slices,
+            ..RenderTrackDataParams::default()
         };
 
         let rasterization_params = RenderRasterizationParams {

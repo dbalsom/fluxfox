@@ -23,18 +23,60 @@
     DEALINGS IN THE SOFTWARE.
 
     --------------------------------------------------------------------------
-
-    src/visualization/mod.rs
-
-    Visualization module for fluxfox. Contains code for rendering disk images
-    to images. Requires the 'vis' feature to be enabled.
 */
 
+//! # FluxFox Visualization
 //! The `visualization` module provides rendering functions for disk images.
-//! This module requires the `viz` feature to be enabled. Graphics support is provided by the
-//! `tiny-skia` crate, which will be re-exported.
+//! This module requires the `viz` feature to be enabled.
 //!
-//! The `imgviz` example in the repository demonstrates how to use the visualization functions.
+//! The general principle is that a disk image is rendered on the unit circle, where angle
+//! 0 in radians corresponds to the index position of the disk. The angle increases either
+//! clockwise or counter-clockwise from 0 to 2π, depending on the [TurningDirection] specified.
+//!
+//! [TurningDirection] specifies the way the data is mapped to the unit circle, and is the inverse
+//! of the actual physical rotation of the disk. The default turning is clockwise for side 0,
+//! and counter-clockwise for side 1. This gives an accurate depiction of how the data would appear
+//! looking top-down at each side of a standard PC floppy disk.
+//!
+//! ## Visualization layers
+//! Visualizations can be constructed of several different layers.
+//!
+//! - The `data layer` is a visualization of the data on the disk, and can be optionally decoded
+//!   for MFM tracks in rasterization mode.
+//! - The `metadata layer` is a visualization of track elements such as markers, sector headers,
+//!   and sector data.
+//! - `Mask layers` are visualizations of bit masks, including weak bit masks and error maps.
+//!   The mask type may be specified by [RenderMaskType].
+//!
+//! Layers are typically rendered in order with some sort of blend operation, with mask layers on
+//! top.
+//!
+//! ## Visualization types
+//!
+//! Two primary rendering modes are supported, `rasterization` and `vectorization`.
+//!
+//! - `Rasterization` is much slower but can resolve much higher levels of detail for the data
+//!    layer. It is subject to moiré patterns and aliasing artifacts, but good results can be
+//!    achieved by supersampling.
+//!
+//! - `Vectorization` can be much faster, especially for rendering the data layer of a disk image.
+//!    Vectorization methods return display lists, which may either be rasterized directly, or
+//!    converted to SVG, or triangulated and displayed by a GPU. The main advantage of vectorization
+//!    is that rasterizing a high resolution vector image is not subject to the same quadratic time
+//!    complexity as rasterizing a high resolution raster image, and produces crisper results at
+//!    lower resolutions without supersampling.
+//!
+//! ## Helper crates
+//!
+//! - The `fluxfox_tiny_skia` crate provides a `tiny_skia` backend for fluxfox's rasterization
+//!   functions.
+//! - The `fluxfox_svg` crate provides a backend for fluxfox's vectorization functions capable of
+//!   saving display lists to SVG files with many configurable options.
+//!
+//! ## Examples
+//! See the `imgviz` example for a demonstration of how to use the visualization functions,
+//! `fluxfox_tiny_skia`, and `fluxfox_svg`.
+//!
 
 pub mod data_segmenter;
 pub mod prelude;
@@ -51,7 +93,13 @@ use crate::{
     },
     DiskCh,
     DiskImage,
+    DiskVisualizationError,
     FoxHashMap,
+    MAX_CYLINDER,
+};
+use std::{
+    cmp::min,
+    f32::consts::{PI, TAU},
 };
 
 use bit_vec::BitVec;
@@ -84,6 +132,7 @@ pub trait VizRotate {
     fn rotate(self, rotation: &VizRotation) -> Self;
 }
 
+use crate::visualization::prelude::VizElementDisplayList;
 #[cfg(feature = "tiny_skia")]
 pub use rasterize_disk::rasterize_track_data;
 #[cfg(feature = "tiny_skia")]
@@ -207,7 +256,7 @@ pub struct CommonVizParams {
 impl Default for CommonVizParams {
     fn default() -> Self {
         Self {
-            radius: None,
+            radius: Some(0.5),
             max_radius_ratio: 1.0,
             min_radius_ratio: DEFAULT_INNER_RADIUS_RATIO,
             pos_offset: Some(VizPoint2d::new(0.0, 0.0)),
@@ -216,6 +265,128 @@ impl Default for CommonVizParams {
             pin_last_standard_track: true,
             track_gap: 0.1,
             direction: TurningDirection::CounterClockwise,
+        }
+    }
+}
+
+impl CommonVizParams {
+    pub(crate) fn track_params(&self, num_tracks: usize) -> Result<InternalTrackParams, DiskVisualizationError> {
+        let mut tp = InternalTrackParams::default();
+        let track_limit = self.track_limit.unwrap_or(MAX_CYLINDER);
+
+        tp.num_tracks = min(num_tracks, track_limit);
+        if tp.num_tracks == 0 {
+            return Err(DiskVisualizationError::NoTracks);
+        }
+        tp.total_radius = self.radius.unwrap_or(0.5);
+        tp.center = VizPoint2d::new(tp.total_radius, tp.total_radius);
+        tp.min_radius = self.min_radius_ratio * tp.total_radius;
+        tp.max_radius = self.max_radius_ratio * tp.total_radius;
+
+        // If pinning has been specified, adjust the minimum radius.
+        // We subtract any over-dumped tracks from the radius, so that the minimum radius fraction
+        // is consistent with the last standard track.
+        tp.min_radius = if self.pin_last_standard_track {
+            let normalized_track_ct = match num_tracks {
+                0..50 => 40,
+                50.. => 80,
+            };
+            let track_width = (tp.total_radius - tp.min_radius) / normalized_track_ct as f32;
+            let overdump = num_tracks.saturating_sub(normalized_track_ct);
+            self.min_radius_ratio * tp.total_radius - (overdump as f32 * track_width)
+        }
+        else {
+            tp.min_radius
+        };
+
+        if tp.max_radius <= tp.min_radius {
+            return Err(DiskVisualizationError::InvalidParameter(
+                "max_radius must be greater than min_radius".to_string(),
+            ));
+        }
+
+        // Calculate the rendered width of each track, excluding the track gap.
+        tp.render_track_width = (tp.max_radius - tp.min_radius) / num_tracks as f32;
+        if self.track_gap == 0.0 {
+            // slightly increase the track width to avoid rendering sparkles between tracks if there's
+            // 0 gap specified, due to floating point errors
+            tp.vector_track_width = tp.render_track_width * 1.01;
+        }
+        else {
+            tp.vector_track_width = tp.render_track_width;
+        }
+
+        if tp.vector_track_width == 0.0 {
+            // Nothing to render!
+            return Err(DiskVisualizationError::NotVisible);
+        }
+
+        Ok(tp)
+    }
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct InternalTrackParams {
+    pub(crate) total_radius: f32,
+    pub(crate) min_radius: f32,
+    pub(crate) max_radius: f32,
+    pub(crate) num_tracks: usize,
+    pub(crate) center: VizPoint2d<f32>,
+    pub(crate) total_track_width: f32,
+    pub(crate) render_track_width: f32,
+    pub(crate) vector_track_width: f32,
+    pub(crate) track_overlap: f32,
+}
+
+impl InternalTrackParams {
+    const QUADRANT_ANGLES: [(f32, f32); 4] = [
+        (0.0, PI / 2.0),
+        (PI / 2.0, PI),
+        (PI, 3.0 * PI / 2.0),
+        (3.0 * PI / 2.0, TAU),
+    ];
+
+    // Coordinate offset factors for each quadrant, when rendering quadrant pixmaps.
+    // These offsets are scaled by the radius of the disk.
+    // For example, and offset of (1.0, 1.0) and a radius of 512 will push all coordinates
+    // to the right and down by 512 pixels (rendering the lower-right quadrant).
+    const QUADRANT_OFFSETS: [(f32, f32); 4] = [
+        // Lower-right quadrant
+        (1.0, 1.0),
+        // Lower-left quadrant
+        (0.0, 1.0),
+        // Upper-right quadrant
+        (1.0, 0.0),
+        // Upper-left quadrant
+        (0.0, 0.0),
+    ];
+
+    /// Return the center point in pixels for a given quadrant, for rendering a quadrant pixmap.
+    #[inline]
+    pub(crate) fn quadrant_center(&self, quadrant: u8) -> VizPoint2d<f32> {
+        let (x, y) = Self::QUADRANT_OFFSETS[quadrant as usize & 0x03];
+        VizPoint2d::new(x * self.total_radius, y * self.total_radius)
+    }
+
+    /// Return the start and end angles in radians for a given quadrant
+    #[inline]
+    pub(crate) fn quadrant_clip(&self, quadrant: u8) -> (f32, f32) {
+        Self::QUADRANT_ANGLES[quadrant as usize & 0x03]
+    }
+
+    // Return a tuple of (bool, (f32, f32)) where the bool is true if the start and end angles
+    // overlap the quadrant, and the tuple parameter contains the clipped start and end angles.
+    // The angles are not clipped if false is returned.
+    #[inline]
+    pub(crate) fn quadrant_hit_test(&self, quadrant: u8, angles: (f32, f32)) -> (bool, (f32, f32)) {
+        let (clip_start, clip_end) = self.quadrant_clip(quadrant);
+        if angles.1 <= clip_start || angles.0 >= clip_end {
+            // No overlap
+            (false, (angles.0, angles.1))
+        }
+        else {
+            // Overlap - clip the angles to the quadrant
+            (true, (angles.0.max(clip_start), angles.1.min(clip_end)))
         }
     }
 }
@@ -320,6 +491,33 @@ impl Default for RenderDiskSelectionParams {
     }
 }
 
+/// Parameter struct for use with disk hit test rendering functions
+pub struct RenderDiskHitTestParams {
+    pub side: u8,
+    /// The hit test selection type (Sector or Track)
+    pub selection_type: RenderDiskSelectionType,
+    /// The coordinate to hit test
+    pub point: VizPoint2d<f32>,
+}
+
+impl Default for RenderDiskHitTestParams {
+    fn default() -> Self {
+        Self {
+            side: 0,
+            selection_type: RenderDiskSelectionType::default(),
+            point: VizPoint2d::new(0.0, 0.0),
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct DiskHitTestResult {
+    pub display_list: Option<VizElementDisplayList>,
+    pub angle: f32,
+    pub bit_index: usize,
+    pub track: u16,
+}
+
 /// Determines the direction that the linear track data is mapped to the disk surface during
 /// rendering, starting from the index position, either clockwise or counter-clockwise.
 /// This is not the physical rotation of the disk, as they are essentially opposites.
@@ -345,7 +543,14 @@ impl TurningDirection {
     pub fn adjust_angle(&self, angle: f32) -> f32 {
         match self {
             TurningDirection::Clockwise => angle,
-            TurningDirection::CounterClockwise => -angle,
+            TurningDirection::CounterClockwise => TAU - angle,
+        }
+    }
+
+    pub fn adjust_angles(&self, angles: (f32, f32)) -> (f32, f32) {
+        match self {
+            TurningDirection::Clockwise => (angles.0, angles.1),
+            TurningDirection::CounterClockwise => (TAU - angles.0, TAU - angles.1),
         }
     }
 }
@@ -353,8 +558,8 @@ impl TurningDirection {
 impl From<u8> for TurningDirection {
     fn from(val: u8) -> Self {
         match val {
-            0 => TurningDirection::CounterClockwise,
-            _ => TurningDirection::Clockwise,
+            0 => TurningDirection::Clockwise,
+            _ => TurningDirection::CounterClockwise,
         }
     }
 }

@@ -372,8 +372,10 @@ pub fn render_track_mask(
     Ok(())
 }
 
-/// Render a representation of a disk's data to a `tiny_skia::Pixmap`, for a specific quadrant of the unit circle.
-/// Rendering is performed in quadrants to allow for multithreaded rendering of each quadrant.
+/// Render a representation of a disk's data to a `tiny_skia::Pixmap`, for a specific quadrant of
+/// the unit circle.
+/// Rendering is broken into quadrants to allow for multithreaded rendering of each quadrant, and
+/// to avoid rendering arcs longer than 90 degrees.
 pub fn rasterize_track_metadata_quadrant(
     disk_image: &DiskImage,
     pixmap: &mut Pixmap,
@@ -384,60 +386,16 @@ pub fn rasterize_track_metadata_quadrant(
     let r_tracks = collect_streams(r.side, disk_image);
     let r_metadata = collect_metadata(r.side, disk_image);
 
-    let track_limit = p.track_limit.unwrap_or(MAX_CYLINDER);
-    let num_tracks = min(r_tracks.len(), track_limit);
-
-    if num_tracks == 0 {
-        return Err(DiskVisualizationError::NoTracks);
+    if r_tracks.len() != r_metadata.len() {
+        return Err(DiskVisualizationError::InvalidImage);
     }
-
-    let overlap_max = (1024 + 6) * 16;
-    let image_size = pixmap.width() as f32 * 2.0;
-    let total_radius = image_size / 2.0;
-    let mut min_radius = p.min_radius_ratio * total_radius; // Scale min_radius to pixel value
-
-    // If pinning has been specified, adjust the minimum radius.
-    // We subtract any over-dumped tracks from the radius, so that the minimum radius fraction
-    // is consistent with the last standard track.
-    min_radius = if p.pin_last_standard_track {
-        let normalized_track_ct = match num_tracks {
-            0..50 => 40,
-            50.. => 80,
-        };
-        let track_width = (total_radius - min_radius) / normalized_track_ct as f32;
-        let overdump = num_tracks.saturating_sub(normalized_track_ct);
-        p.min_radius_ratio * total_radius - (overdump as f32 * track_width)
-    }
-    else {
-        min_radius
-    };
-
-    let track_width = (total_radius - min_radius) / num_tracks as f32;
 
     let quadrant = r.quadrant.unwrap_or(0);
-    let center = match quadrant {
-        0 => Point::from_xy(total_radius, total_radius),
-        1 => Point::from_xy(0.0, total_radius),
-        2 => Point::from_xy(total_radius, 0.0),
-        3 => Point::from_xy(0.0, 0.0),
-        _ => return Err(DiskVisualizationError::InvalidParameter),
-    };
+    let overlap_max = (1024 + 6) * 16;
+    let t_params = p.track_params(r_tracks.len())?;
 
     let mut path_builder = PathBuilder::new();
-    // let quadrant_angles_cw = match quadrant {
-    //     0 => (PI, PI / 2.0),
-    //     1 => (PI / 2.0, 0.0),
-    //     2 => (0.0, 3.0 * PI / 2.0),
-    //     3 => (3.0 * PI / 2.0, PI),
-    //     _ => panic!("Invalid quadrant"),
-    // };
-    let quadrant_angles_cc = match quadrant {
-        0 => (PI, 3.0 * PI / 2.0),
-        1 => (3.0 * PI / 2.0, 2.0 * PI),
-        2 => (PI / 2.0, PI),
-        3 => (0.0, PI / 2.0),
-        _ => return Err(DiskVisualizationError::InvalidParameter),
-    };
+    let center = Point::from(t_params.quadrant_center(quadrant));
 
     let draw_metadata_slice = |path_builder: &mut PathBuilder,
                                paint: &mut Paint,
@@ -498,16 +456,13 @@ pub fn rasterize_track_metadata_quadrant(
         skia_color
     };
 
-    let (clip_start, clip_end) = match p.direction {
-        TurningDirection::CounterClockwise => (quadrant_angles_cc.0, quadrant_angles_cc.1),
-        TurningDirection::Clockwise => (quadrant_angles_cc.0, quadrant_angles_cc.1),
-    };
+    let (clip_start, clip_end) = t_params.quadrant_clip(r.quadrant.unwrap_or(0));
 
     for draw_markers in [false, true].iter() {
         for (ti, track_meta) in r_metadata.iter().enumerate() {
             let mut has_elements = false;
-            let outer_radius = total_radius - (ti as f32 * track_width);
-            let inner_radius = outer_radius - (track_width * (1.0 - p.track_gap));
+            let outer_radius = t_params.total_radius - (ti as f32 * t_params.render_track_width);
+            let inner_radius = outer_radius - (t_params.render_track_width * (1.0 - p.track_gap));
             let mut paint = Paint {
                 blend_mode: BlendMode::SourceOver,
                 anti_alias: !r.draw_sector_lookup,
@@ -554,8 +509,8 @@ pub fn rasterize_track_metadata_quadrant(
                         }
 
                         (start_angle, end_angle) = match p.direction {
-                            TurningDirection::CounterClockwise => (start_angle, end_angle),
-                            TurningDirection::Clockwise => (TAU - start_angle, TAU - end_angle),
+                            TurningDirection::Clockwise => (start_angle, end_angle),
+                            TurningDirection::CounterClockwise => (TAU - start_angle, TAU - end_angle),
                         };
 
                         if start_angle > end_angle {
@@ -599,11 +554,11 @@ pub fn rasterize_track_metadata_quadrant(
                             let (start_pt, end_pt) = match p.direction {
                                 TurningDirection::CounterClockwise => (
                                     Point::from_xy(center.x, 0.0),
-                                    Point::from_xy(center.x, total_radius / 8.0),
+                                    Point::from_xy(center.x, t_params.total_radius / 8.0),
                                 ),
                                 TurningDirection::Clockwise => (
                                     Point::from_xy(center.x, center.y),
-                                    Point::from_xy(center.x, center.y - total_radius / 8.0),
+                                    Point::from_xy(center.x, center.y - t_params.total_radius / 8.0),
                                 ),
                             };
 
@@ -657,11 +612,7 @@ pub fn rasterize_track_metadata_quadrant(
                     std::mem::swap(&mut start_angle, &mut end_angle);
                 }
 
-                // Invert the angles for clockwise rotation
-                (start_angle, end_angle) = match p.direction {
-                    TurningDirection::CounterClockwise => (start_angle, end_angle),
-                    TurningDirection::Clockwise => (TAU - start_angle, TAU - end_angle),
-                };
+                (start_angle, end_angle) = p.direction.adjust_angles((start_angle, end_angle));
 
                 // Normalize the angle to the range 0..2π
                 // start_angle = (start_angle % TAU).abs();
@@ -673,17 +624,9 @@ pub fn rasterize_track_metadata_quadrant(
                 }
 
                 // Skip sectors that are outside the current quadrant
-                if end_angle <= clip_start || start_angle >= clip_end {
+                let (hit, (start_angle, end_angle)) = t_params.quadrant_hit_test(quadrant, (start_angle, end_angle));
+                if !hit {
                     continue;
-                }
-
-                // Clamp start and end angle to quadrant boundaries
-                if start_angle < clip_start {
-                    start_angle = clip_start;
-                }
-
-                if end_angle > clip_end {
-                    end_angle = clip_end;
                 }
 
                 draw_metadata_slice(
@@ -748,7 +691,7 @@ pub fn rasterize_disk_selection(
     let track_limit = p.track_limit.unwrap_or(MAX_CYLINDER);
     let num_tracks = min(disk_image.tracks(r.ch.h()) as usize, track_limit);
     if r.ch.c() >= num_tracks as u16 {
-        return Err(DiskVisualizationError::InvalidParameter);
+        return Err(DiskVisualizationError::NoTracks);
     }
 
     let image_size = pixmap.width() as f32;
@@ -850,8 +793,8 @@ pub fn rasterize_disk_selection(
             }
 
             (start_angle, end_angle) = match p.direction {
-                TurningDirection::CounterClockwise => (start_angle, end_angle),
-                TurningDirection::Clockwise => (TAU - start_angle, TAU - end_angle),
+                TurningDirection::Clockwise => (start_angle, end_angle),
+                TurningDirection::CounterClockwise => (TAU - start_angle, TAU - end_angle),
             };
 
             if start_angle > end_angle {

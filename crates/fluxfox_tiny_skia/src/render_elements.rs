@@ -27,11 +27,11 @@
 
 use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Stroke, Transform};
 
-use crate::styles::{ElementStyle, SkiaStyle};
+use crate::styles::SkiaStyle;
 use fluxfox::{
     track_schema::GenericTrackElement,
     visualization::{
-        prelude::{VizArc, VizColor, VizDataSlice, VizElement, VizQuadraticArc, VizSector},
+        prelude::{VizArc, VizDataSlice, VizElement, VizElementDisplayList, VizQuadraticArc, VizSector},
         types::shapes::{VizElementFlags, VizShape},
     },
     FoxHashMap,
@@ -89,10 +89,24 @@ pub fn skia_render_shape(path: &mut PathBuilder, shape: &VizShape) {
     }
 }
 
+pub fn skia_render_display_list(
+    pixmap: &mut Pixmap,
+    paint: &mut Paint,
+    transform: &Transform,
+    display_list: &VizElementDisplayList,
+    track_style: &SkiaStyle,
+    palette: &FoxHashMap<GenericTrackElement, SkiaStyle>,
+) {
+    for element in display_list.iter() {
+        skia_render_element(pixmap, paint, transform, track_style, palette, element);
+    }
+}
+
 pub fn skia_render_element(
     pixmap: &mut Pixmap,
     paint: &mut Paint,
     transform: &Transform,
+    track_style: &SkiaStyle,
     palette: &FoxHashMap<GenericTrackElement, SkiaStyle>,
     element: &VizElement,
 ) {
@@ -103,7 +117,16 @@ pub fn skia_render_element(
     skia_render_shape(&mut path, &element.shape);
     path.close();
     let default_style = SkiaStyle::default();
-    let style = palette.get(&element.info.element_type).unwrap_or(&default_style);
+
+    let style = if element.flags.contains(VizElementFlags::TRACK) {
+        track_style
+    }
+    else if let Some(style) = palette.get(&element.info.element_type) {
+        style
+    }
+    else {
+        &default_style
+    };
 
     paint.set_color(Color::from(style.fill));
 

@@ -25,4 +25,4 @@
     --------------------------------------------------------------------------
 */
 
-use crate::styles;
+pub use crate::styles::{default_skia_styles, SkiaStyle};

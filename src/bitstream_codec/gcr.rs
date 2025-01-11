@@ -202,8 +202,8 @@ impl TrackCodec for GcrCodec {
             .map(|(start, end)| (*start, *end))
             .collect::<Vec<(usize, usize)>>();
 
-        self.data_ranges_filtered = RangeChecker::new(filtered_ranges);
-        self.data_ranges = RangeChecker::new(ranges);
+        self.data_ranges_filtered = RangeChecker::new(&filtered_ranges);
+        self.data_ranges = RangeChecker::new(&ranges);
     }
 
     fn is_data(&self, index: usize, wrapping: bool) -> bool {

@@ -136,14 +136,14 @@ fn default_element_palette() -> FoxHashMap<GenericTrackElement, VizColor> {
     palette
 }
 
-/// Return a default mapping between [GenericTrackElement]s and [ElementStyle]s.
-pub(crate) fn default_element_styles() -> FoxHashMap<GenericTrackElement, ElementStyle> {
+/// Return a default mapping between [GenericTrackElement]s and [SkiaStyle]s.
+pub fn default_skia_styles() -> FoxHashMap<GenericTrackElement, SkiaStyle> {
     let palette = default_element_palette();
     let mut styles = FoxHashMap::new();
     for (element, color) in palette.iter() {
         styles.insert(
             *element,
-            ElementStyle {
+            SkiaStyle {
                 fill: *color,
                 stroke: VizColor::TRANSPARENT,
                 stroke_width: 0.0,
