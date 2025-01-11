@@ -496,9 +496,9 @@ impl eframe::App for App {
 
         #[cfg(feature = "devmode")]
         {
-            self.windows.viz_viewer.show(ctx);
+            self.windows.new_viz_viewer.show(ctx);
         }
-        self.windows.new_viz_viewer.show(ctx);
+        self.windows.viz_viewer.show(ctx);
         self.windows.sector_viewer.show(ctx);
         self.windows.track_viewer.show(ctx);
         self.windows.file_viewer.show(ctx);
