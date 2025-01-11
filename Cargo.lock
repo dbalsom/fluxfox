@@ -1741,21 +1741,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fftool"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bpaf",
- "crossbeam-channel",
- "env_logger",
- "fluxfox",
- "indexmap 2.7.0",
- "log 0.4.22",
- "once_cell",
- "tempfile",
-]
-
-[[package]]
 name = "filetime"
 version = "0.2.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1813,6 +1798,21 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "zip",
+]
+
+[[package]]
+name = "fluxfox_cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bpaf",
+ "crossbeam-channel",
+ "env_logger",
+ "fluxfox",
+ "indexmap 2.7.0",
+ "log 0.4.22",
+ "once_cell",
+ "tempfile",
 ]
 
 [[package]]
