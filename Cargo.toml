@@ -32,7 +32,7 @@ members = [
     "examples/imgviz",
     "crates/png2disk",
     "crates/ffedit",
-    "crates/fftool",
+    "crates/fluxfox_cli",
     "crates/ff_egui_app",
     "crates/ff_egui_lib",
     "crates/fluxfox_svg",
