@@ -40,11 +40,15 @@ use crate::{
     StandardFormat,
 };
 
-use crate::prelude::{DiskChs, DiskChsn};
+use crate::{
+    disk_lock::{DiskLock, LockContext, NonTrackingDiskLock, NullContext},
+    file_system::FileSystemError,
+    prelude::{DiskChs, DiskChsn},
+};
 use std::sync::{Arc, RwLock};
 
 pub struct StandardSectorView {
-    disk: Arc<RwLock<DiskImage>>,
+    disk: NonTrackingDiskLock<DiskImage>,
     disk_format: StandardFormat,
     track_cursor: DiskCh,
     sector_id_cursor: u8,
@@ -57,15 +61,19 @@ pub struct StandardSectorView {
 }
 
 impl StandardSectorView {
-    pub fn new(disk: Arc<RwLock<DiskImage>>, disk_format: StandardFormat) -> Result<Self, DiskImageError> {
+    pub fn new(
+        disk_lock: impl Into<NonTrackingDiskLock<DiskImage>>,
+        format: StandardFormat,
+    ) -> Result<Self, DiskImageError> {
+        let disk = disk_lock.into();
         let mut new = StandardSectorView {
             disk,
-            disk_format,
+            disk_format: format,
             track_cursor: DiskCh::new(0, 0),
             sector_id_cursor: 1,
-            spt: disk_format.layout().s(),
-            sector_buffer: vec![0; disk_format.sector_size()].into_boxed_slice(),
-            sector_size: disk_format.sector_size(),
+            spt: format.layout().s(),
+            sector_buffer: vec![0; format.sector_size()].into_boxed_slice(),
+            sector_size: format.sector_size(),
             sector_dirty: false,
             sector_byte_cursor: 0,
             eod: false,
@@ -145,7 +153,7 @@ impl StandardSectorView {
         self.sector_byte_cursor = 0;
         self.sector_buffer = self
             .disk
-            .read()
+            .read(NullContext::default())
             .unwrap()
             .read_sector_basic(self.track_cursor, SectorIdQuery::from(self.chsn()), None)?
             .into_boxed_slice();
@@ -176,7 +184,7 @@ impl StandardSectorView {
     /// This function must be called before changing the track cursor.
     fn commit_sector(&mut self) -> Result<(), DiskImageError> {
         if self.sector_dirty {
-            self.disk.write().unwrap().write_sector_basic(
+            self.disk.write(NullContext::default()).unwrap().write_sector_basic(
                 self.track_cursor,
                 SectorIdQuery::from(self.chsn()),
                 None,

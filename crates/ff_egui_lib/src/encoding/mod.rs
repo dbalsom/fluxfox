@@ -42,7 +42,7 @@ const UNPRINTABLE: char = '.';
 /// The `display` method returns a display-compatible character, substituting
 /// unprintable characters with the character specified by `UNPRINTABLE`.
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-enum Chr {
+pub enum Chr {
     P(char),
     C(char),
 }

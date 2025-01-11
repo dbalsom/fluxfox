@@ -51,6 +51,7 @@ use fluxfox::{
 use fluxfox_egui::widgets::texture::{PixelCanvas, PixelCanvasDepth};
 use fluxfox_tiny_skia::tiny_skia::{BlendMode, Color, FilterQuality, Pixmap, PixmapPaint, Transform};
 
+use crate::{app::Tool, lock::TrackingLock};
 use anyhow::{anyhow, Error};
 use eframe::emath::{Pos2, Rect, RectTransform};
 use egui::{Key::V, Vec2};
@@ -88,7 +89,7 @@ struct VisualizationContext<'a> {
 }
 
 pub struct VisualizationState {
-    pub disk: Option<Arc<RwLock<DiskImage>>>,
+    pub disk: Option<TrackingLock<DiskImage>>,
     pub resolution: u32,
     pub common_viz_params: CommonVizParams,
     pub compatible: bool,
@@ -237,8 +238,8 @@ impl VisualizationState {
         self.compatible
     }
 
-    pub fn update_disk(&mut self, disk_lock: Arc<RwLock<DiskImage>>) {
-        let disk = disk_lock.read().unwrap();
+    pub fn update_disk(&mut self, disk_lock: TrackingLock<DiskImage>) {
+        let disk = disk_lock.read(Tool::Visualization).unwrap();
         self.compatible = disk.can_visualize();
         self.sides = disk.heads() as usize;
         self.disk = Some(disk_lock.clone());
@@ -259,7 +260,7 @@ impl VisualizationState {
         let render_target = self.data_img[side].clone();
         let render_meta_display_list = self.meta_display_list[side].clone();
 
-        let disk = self.disk.as_ref().unwrap().read().unwrap();
+        let disk = self.disk.as_ref().unwrap().read(Tool::Visualization).unwrap();
         self.compatible = disk.can_visualize();
         if !self.compatible {
             return Err(anyhow!("Incompatible disk resolution"));
@@ -306,7 +307,7 @@ impl VisualizationState {
 
             let vector_params = RenderVectorizationParams::default();
 
-            let disk = render_lock.read().unwrap();
+            let disk = render_lock.read(Tool::Visualization).unwrap();
             let mut render_pixmap = render_target.lock().unwrap();
             render_pixmap.fill(Color::TRANSPARENT);
 
@@ -604,45 +605,57 @@ impl VisualizationState {
         }
     }
 
-    pub fn update_selection(&mut self, disk_lock: Arc<RwLock<DiskImage>>, c: u8, h: u8, s_idx: u8) {
-        let disk = match disk_lock.try_read() {
-            Ok(disk) => disk,
-            Err(_) => {
-                log::debug!("Disk image could not be locked for reading, deferring sector selection...");
-                return;
-            }
-        };
+    pub fn update_selection(&mut self, c: u8, h: u8, s_idx: u8) {
+        if self.disk.is_none() {
+            // No disk to render.
+            return;
+        }
+
+        self.clear_selection(h as usize);
 
         let side = h as usize;
         let mut do_composite = false;
+        match self.disk.as_ref().unwrap().read(Tool::Visualization) {
+            Ok(disk) => {
+                // If we can acquire the selection image mutex, we can composite the data and metadata layers.
+                match self.selection_img[side].try_lock() {
+                    Ok(mut data) => {
+                        let render_selection_params = RenderDiskSelectionParams {
+                            selection_type: RenderDiskSelectionType::Sector,
+                            ch: DiskCh::new(c as u16, h),
+                            sector_idx: s_idx as usize,
+                            color: VizColor::from_rgba8(255, 255, 255, 255),
+                        };
 
-        self.clear_selection(side);
+                        match rasterize_disk_selection(
+                            &disk,
+                            &mut data,
+                            &self.common_viz_params,
+                            &render_selection_params,
+                        ) {
+                            Ok(_) => {
+                                log::debug!("Sector selection rendered for side {}", side);
+                            }
+                            Err(e) => {
+                                log::error!("Error rendering sector selection: {}", e);
+                            }
+                        }
 
-        // If we can acquire the selection image mutex, we can composite the data and metadata layers.
-        match self.selection_img[side].try_lock() {
-            Ok(mut data) => {
-                let render_selection_params = RenderDiskSelectionParams {
-                    selection_type: RenderDiskSelectionType::Sector,
-                    ch: DiskCh::new(c as u16, h),
-                    sector_idx: s_idx as usize,
-                    color: VizColor::from_rgba8(255, 255, 255, 255),
-                };
-
-                match rasterize_disk_selection(&disk, &mut data, &self.common_viz_params, &render_selection_params) {
-                    Ok(_) => {
-                        log::debug!("Sector selection rendered for side {}", side);
+                        do_composite = true;
                     }
-                    Err(e) => {
-                        log::error!("Error rendering sector selection: {}", e);
+                    Err(_) => {
+                        log::debug!("Data pixmap locked, deferring selection update...");
                     }
                 }
-
-                do_composite = true;
             }
-            Err(_) => {
-                log::debug!("Data pixmap locked, deferring selection update...");
+            Err(e) => {
+                log::debug!(
+                    "Disk image could not be locked for reading! Locked by {:?}, deferring sector selection...",
+                    e
+                );
+                return;
             }
-        }
+        };
 
         if do_composite {
             self.composite(side);
@@ -847,7 +860,9 @@ impl VisualizationState {
                                                 point: VizPoint2d::new(virtual_pos.x, virtual_pos.y).rotate(&rotation),
                                             };
 
-                                            if let Some(disk) = self.disk.as_ref().and_then(|d| d.try_read().ok()) {
+                                            if let Some(disk) =
+                                                self.disk.as_ref().and_then(|d| d.read(Tool::Visualization).ok())
+                                            {
                                                 Self::perform_hit_test(&disk, ui, side, &hit_test_params, &mut context);
                                             }
                                             else {
@@ -998,12 +1013,6 @@ impl VisualizationState {
         context: &mut VisualizationContext,
     ) {
         context.common_viz_params.direction = TurningDirection::from(side as u8);
-
-        log::warn!(
-            ">>>>>> Turning direction for side {}: {:?}",
-            side,
-            context.common_viz_params.direction
-        );
         context.common_viz_params.radius = Some(VIZ_RESOLUTION as f32 / 2.0);
 
         match vectorize_disk_hit_test(&disk, context.common_viz_params, params, VizElementFlags::HIGHLIGHT) {

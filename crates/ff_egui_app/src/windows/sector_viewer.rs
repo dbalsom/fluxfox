@@ -24,6 +24,7 @@
 
     --------------------------------------------------------------------------
 */
+use crate::{app::Tool, lock::TrackingLock};
 use fluxfox::prelude::*;
 use fluxfox_egui::{
     widgets::{data_table::DataTableWidget, error_banner::ErrorBanner},
@@ -56,58 +57,53 @@ impl SectorViewer {
         }
     }
 
-    pub fn update(&mut self, disk_lock: Arc<RwLock<DiskImage>>, selection: SectorSelection) {
-        let disk = &mut disk_lock.write().unwrap();
+    pub fn update(&mut self, disk_lock: TrackingLock<DiskImage>, selection: SectorSelection) {
+        match disk_lock.write(Tool::SectorViewer) {
+            Ok(mut disk) => {
+                self.phys_ch = selection.phys_ch;
+                let query = SectorIdQuery::new(
+                    selection.sector_id.c(),
+                    selection.sector_id.h(),
+                    selection.sector_id.s(),
+                    selection.sector_id.n(),
+                );
 
-        self.phys_ch = selection.phys_ch;
-        let query = SectorIdQuery::new(
-            selection.sector_id.c(),
-            selection.sector_id.h(),
-            selection.sector_id.s(),
-            selection.sector_id.n(),
-        );
-
-        log::debug!("Reading sector: {:?}", query);
-        let rsr = match disk.read_sector(self.phys_ch, query, None, None, RwScope::DataOnly, false) {
-            Ok(rsr) => rsr,
-            Err(e) => {
-                log::error!("Error reading sector: {:?}", e);
-                self.error_string = Some(e.to_string());
-                self.valid = false;
-                return;
-            }
-        };
-
-        if rsr.not_found {
-            self.error_string = Some(format!("Sector {} not found", selection.sector_id));
-            self.table.set_data(&[0; 512]);
-            self.valid = false;
-            return;
-        }
-
-        // When is id_chsn None after a successful read?
-        if let Some(chsn) = rsr.id_chsn {
-            self.sector_id = chsn;
-            self.table.set_data(&rsr.read_buf[rsr.data_range]);
-            self.error_string = None;
-            self.valid = true;
-        }
-        else {
-            self.error_string = Some("Sector ID not returned".to_string());
-            self.table.set_data(&[0; 512]);
-            self.valid = false;
-        }
-
-        // test setting a range
-
-        /*        let range = DataRange {
-                    name: "Test".to_string(),
-                    start: 3,
-                    end: 7,
-                    fg_color: egui::Color32::from_rgb(0, 0, 255),
+                log::debug!("Reading sector: {:?}", query);
+                let rsr = match disk.read_sector(self.phys_ch, query, None, None, RwScope::DataOnly, false) {
+                    Ok(rsr) => rsr,
+                    Err(e) => {
+                        log::error!("Error reading sector: {:?}", e);
+                        self.error_string = Some(e.to_string());
+                        self.valid = false;
+                        return;
+                    }
                 };
-                self.table.add_range(range);
-        */
+
+                if rsr.not_found {
+                    self.error_string = Some(format!("Sector {} not found", selection.sector_id));
+                    self.table.set_data(&[0; 512]);
+                    self.valid = false;
+                    return;
+                }
+
+                // When is id_chsn None after a successful read?
+                if let Some(chsn) = rsr.id_chsn {
+                    self.sector_id = chsn;
+                    self.table.set_data(&rsr.read_buf[rsr.data_range]);
+                    self.error_string = None;
+                    self.valid = true;
+                }
+                else {
+                    self.error_string = Some("Sector ID not returned".to_string());
+                    self.table.set_data(&[0; 512]);
+                    self.valid = false;
+                }
+            }
+            Err(e) => {
+                self.error_string = Some("Failed to acquire disk write lock.".to_string());
+                self.valid = false;
+            }
+        }
     }
 
     pub fn set_open(&mut self, open: bool) {

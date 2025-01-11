@@ -26,12 +26,8 @@
 */
 use fluxfox::{prelude::*, track_schema::GenericTrackElement, visualization::prelude::*, FoxHashMap};
 
-use web_time::Instant;
-
 use crate::{
-    render_display_list::{render_data_display_list, render_display_list},
     styles::{default_skia_styles, BlendMode, ElementStyle, SkiaStyle},
-    DEFAULT_DATA_SLICES,
     DEFAULT_VIEW_BOX,
 };
 
@@ -285,7 +281,7 @@ impl TinySkiaRenderer {
 
     /// Override the default styles with a custom set of styles. This must be a hash map of
     /// `GenericTrackElement` to `ElementStyle`.
-    pub fn with_styles(mut self, styles: FoxHashMap<GenericTrackElement, ElementStyle>) -> Self {
+    pub fn with_styles(mut self, _styles: FoxHashMap<GenericTrackElement, ElementStyle>) -> Self {
         self
     }
 

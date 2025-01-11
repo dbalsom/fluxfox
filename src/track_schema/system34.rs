@@ -743,6 +743,7 @@ impl System34Schema {
         }
     }
 
+    #[allow(dead_code)]
     #[inline]
     pub(crate) fn encode_element(
         stream: &mut TrackDataStream,

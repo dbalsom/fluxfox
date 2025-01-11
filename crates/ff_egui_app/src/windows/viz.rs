@@ -28,6 +28,7 @@ use crate::widgets::viz::{VisualizationState, VizEvent};
 use fluxfox::DiskImage;
 use std::sync::{Arc, RwLock};
 
+use crate::lock::TrackingLock;
 use anyhow::Result;
 use fluxfox_egui::widgets::error_banner::ErrorBanner;
 
@@ -78,7 +79,7 @@ impl VizViewer {
         &mut self.open
     }
 
-    pub fn update_disk(&mut self, disk_lock: Arc<RwLock<DiskImage>>) {
+    pub fn update_disk(&mut self, disk_lock: TrackingLock<DiskImage>) {
         self.viz.update_disk(disk_lock);
         _ = self.render()
     }
@@ -89,7 +90,7 @@ impl VizViewer {
         Ok(())
     }
 
-    pub fn show(&mut self, ctx: &egui::Context, disk_lock: Arc<RwLock<DiskImage>>) {
+    pub fn show(&mut self, ctx: &egui::Context) {
         if self.open {
             egui::Window::new("Disk Visualization")
                 .open(&mut self.open)
@@ -152,7 +153,7 @@ impl VizViewer {
                                 VizEvent::NewSectorSelected { c, h, s_idx } => {
                                     log::debug!("New sector selected: c:{} h:{}, s:{}", c, h, s_idx);
 
-                                    self.viz.update_selection(disk_lock, c, h, s_idx);
+                                    self.viz.update_selection(c, h, s_idx);
                                 }
                                 _ => {}
                             }

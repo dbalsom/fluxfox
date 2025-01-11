@@ -46,31 +46,30 @@ mod bit_ring;
 pub mod bitstream_codec;
 pub mod boot_sector;
 mod containers;
+mod copy_protection;
 mod detect;
+pub mod disk_lock;
+mod disk_schema;
 pub mod diskimage;
 mod file_parsers;
-pub mod image_builder;
-pub mod io;
-mod random;
-pub mod track_schema;
-pub mod util;
-
-mod copy_protection;
 pub mod file_system;
 pub mod flux;
-mod image_writer;
-pub mod prelude;
-mod range_check;
-pub mod track;
-pub mod types;
-
-mod disk_schema;
+pub mod image_builder;
 mod image_loader;
+mod image_writer;
+pub mod io;
 mod platform;
+pub mod prelude;
+mod random;
+mod range_check;
 mod scripting;
 mod sector_view;
 pub mod source_map;
+pub mod track;
+pub mod track_schema;
 mod tree_map;
+pub mod types;
+pub mod util;
 #[cfg(feature = "viz")]
 pub mod visualization;
 

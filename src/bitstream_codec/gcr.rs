@@ -29,7 +29,8 @@
     Implements a wrapper around a BitVec to provide MFM encoding and decoding.
 
 */
-
+#![allow(dead_code)]
+#![allow(unused_variables)]
 //! A stub implementation of a GCR codec. This is a placeholder for a proper
 //! implementation in the future. The Snow mac emulator doesn't need decoding
 //! support, just raw access to GCR tracks.
