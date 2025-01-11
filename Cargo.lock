@@ -3582,8 +3582,10 @@ dependencies = [
  "bpaf",
  "env_logger",
  "fluxfox",
+ "fluxfox_tiny_skia",
  "log 0.4.22",
  "logger",
+ "tiny-skia",
 ]
 
 [[package]]

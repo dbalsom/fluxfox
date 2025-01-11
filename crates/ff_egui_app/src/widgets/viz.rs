@@ -857,6 +857,7 @@ impl VisualizationState {
                                             let hit_test_params = RenderDiskHitTestParams {
                                                 side: side as u8,
                                                 selection_type: RenderDiskSelectionType::Sector,
+                                                geometry: RenderGeometry::Arc,
                                                 point: VizPoint2d::new(virtual_pos.x, virtual_pos.y).rotate(&rotation),
                                             };
 

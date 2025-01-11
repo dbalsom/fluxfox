@@ -41,11 +41,9 @@ use crate::{
 };
 
 use crate::{
-    disk_lock::{DiskLock, LockContext, NonTrackingDiskLock, NullContext},
-    file_system::FileSystemError,
+    disk_lock::{DiskLock, NonTrackingDiskLock, NullContext},
     prelude::{DiskChs, DiskChsn},
 };
-use std::sync::{Arc, RwLock};
 
 pub struct StandardSectorView {
     disk: NonTrackingDiskLock<DiskImage>,

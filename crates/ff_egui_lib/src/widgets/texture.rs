@@ -484,7 +484,7 @@ impl PixelCanvas {
                     self.view_dimensions.1
                 );
 
-                scroll_area.show_viewport(ui, |ui, viewport| {
+                scroll_area.show_viewport(ui, |ui, _viewport| {
                     let (rect, response) = ui.allocate_exact_size(Vec2::new(img_w, img_h), Sense::click_and_drag());
 
                     if ui.is_rect_visible(rect) {
@@ -519,8 +519,8 @@ impl PixelCanvas {
 
                         // Calculate the center of the image for rotation
                         let mesh_center = rect.center();
-                        let center =
-                            Pos2::new(rect.min.x + img_w / 2.0 + offset_x, rect.min.y + img_h / 2.0 + offset_y);
+                        // let center =
+                        //     Pos2::new(rect.min.x + img_w / 2.0 + offset_x, rect.min.y + img_h / 2.0 + offset_y);
 
                         // Define corners of the image relative to its center
                         let half_size = Vec2::new(img_w / 2.0, img_h / 2.0);

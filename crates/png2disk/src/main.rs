@@ -34,15 +34,12 @@ mod disk;
 
 use std::io::Cursor;
 
+use fluxfox::{format_from_ext, prelude::*, visualization::prelude::*, DiskImage, ImageBuilder, ImageWriter};
+
 use crate::{args::opts, disk::repair_crcs};
-use fluxfox::{
-    format_from_ext,
-    prelude::*,
-    visualization::{prelude::*, types::pixmap::VizPixmap},
-    DiskImage,
-    ImageBuilder,
-    ImageWriter,
-};
+
+use fluxfox_tiny_skia::tiny_skia::Pixmap;
+use tiny_skia::{PixmapPaint, PixmapRef, Transform};
 
 fn main() {
     env_logger::init();
@@ -137,7 +134,6 @@ fn main() {
         track_limit: Some(disk.tracks(0) as usize),
         pin_last_standard_track: false,
         track_gap: 0.0,
-        absolute_gap: false,
         direction: TurningDirection::Clockwise,
     };
 
@@ -151,6 +147,7 @@ fn main() {
         resolution: Default::default(),
         // Not used
         slices: 0,
+        overlap: 0.0,
     };
 
     // let mut data_params = RenderTrackDataParams {
@@ -178,19 +175,20 @@ fn main() {
         ..Default::default()
     };
 
-    let render = |pixmap: &VizPixmap,
+    let render = |pixmap: &Pixmap,
                   disk: &mut DiskImage,
+                  common_params: &CommonVizParams,
                   pixmap_params: &PixmapToDiskParams,
                   data_params: &RenderTrackDataParams| {
         match opts.grayscale {
-            true => match render_pixmap_to_disk_grayscale(pixmap, disk, pixmap_params, data_params) {
+            true => match render_pixmap_to_disk_grayscale(pixmap, disk, common_params, data_params, pixmap_params) {
                 Ok(_) => (),
                 Err(e) => {
                     eprintln!("Error rendering pixmap to disk: {}", e);
                     std::process::exit(1);
                 }
             },
-            false => match render_pixmap_to_disk(pixmap, disk, pixmap_params, data_params) {
+            false => match render_pixmap_to_disk(pixmap, disk, common_params, data_params, pixmap_params) {
                 Ok(_) => (),
                 Err(e) => {
                     eprintln!("Error rendering pixmap to disk: {}", e);
@@ -202,7 +200,7 @@ fn main() {
 
     println!("Rendering side 0...");
     // Render the first side.
-    render(&pixmap0, &mut disk, &pixmap_params, &data_params);
+    render(&pixmap0, &mut disk, &common_params, &pixmap_params, &data_params);
 
     // Render the second side, if present.
     if let Some(pixmap1) = pixmap1_opt {
@@ -215,7 +213,13 @@ fn main() {
             data_params.side = 1;
             common_params.index_angle = common_params.direction.adjust_angle(opts.angle);
             println!("Rendering side 1...");
-            render(&pixmap1.to_owned(), &mut disk, &pixmap_params, &data_params);
+            render(
+                &pixmap1.to_owned(),
+                &mut disk,
+                &common_params,
+                &pixmap_params,
+                &data_params,
+            );
         }
     }
 

@@ -43,13 +43,16 @@ use std::{
 use crate::{
     track_schema::GenericTrackElement,
     types::DiskCh,
-    visualization::{types::color::VizColor, RenderWinding, VizRotate},
+    visualization::{RenderWinding, VizRotate},
 };
 
 use bitflags::bitflags;
 use core::fmt;
 use num_traits::Num;
 use std::ops::Mul;
+
+#[cfg(feature = "tiny_skia")]
+use crate::visualization::prelude::VizColor;
 
 #[cfg(feature = "tiny_skia")]
 impl From<VizColor> for tiny_skia::Color {

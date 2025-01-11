@@ -51,10 +51,11 @@ impl Chr {
     fn display(&self) -> char {
         match self {
             Chr::P(c) => *c,
-            Chr::C(c) => UNPRINTABLE,
+            Chr::C(_) => UNPRINTABLE,
         }
     }
 
+    #[allow(dead_code)]
     #[inline]
     fn encode(&self) -> char {
         match self {

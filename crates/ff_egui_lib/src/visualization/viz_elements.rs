@@ -27,23 +27,14 @@
 use crate::visualization::VizPalette;
 use egui::{
     emath::RectTransform,
-    epaint::{ColorMode, CubicBezierShape, PathShape, PathStroke, QuadraticBezierShape},
+    epaint::{CubicBezierShape, PathShape, PathStroke, QuadraticBezierShape},
     Color32,
     Painter,
     Pos2,
     Shape,
     Stroke,
 };
-use fluxfox::{
-    track_schema::GenericTrackElement,
-    visualization::{prelude::*, VizRotate},
-};
-
-/// Converts a fluxfox `VizPoint2d<f32>` to an egui `Pos2`
-#[inline]
-fn to_pos2(pt: &VizPoint2d<f32>) -> Pos2 {
-    Pos2::new(pt.x, pt.y)
-}
+use fluxfox::visualization::{prelude::*, VizRotate};
 
 #[inline]
 fn to_pos2_transformed(pt: &VizPoint2d<f32>, transform: &RectTransform) -> Pos2 {

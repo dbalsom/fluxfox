@@ -85,7 +85,7 @@ impl DiskVisualizerWidget {
 
     pub fn show(&mut self, ui: &mut egui::Ui) {
         let (rect, _response) = ui.allocate_exact_size(self.resolution, egui::Sense::hover());
-        let mut meta_painter = ui.painter().with_clip_rect(rect);
+        let meta_painter = ui.painter().with_clip_rect(rect);
 
         // log::debug!(
         //     "DiskVisualizerWidget::show: rect: {:?} res: {:?}",
@@ -108,7 +108,7 @@ impl DiskVisualizerWidget {
             VizPoint2d::new(self.resolution.x / 2.0, self.resolution.y / 2.0),
         );
 
-        let mut data_painter = meta_painter.with_clip_rect(rect);
+        let data_painter = meta_painter.with_clip_rect(rect);
 
         if self.show_metadata_layer {
             for track in &self.metadata_display_list.tracks {
@@ -124,7 +124,7 @@ impl DiskVisualizerWidget {
         }
 
         if self.show_data_layer {
-            for (ti, track) in self.data_display_list.tracks.iter().enumerate() {
+            for (_ti, track) in self.data_display_list.tracks.iter().enumerate() {
                 // log::debug!(
                 //     "DiskVisualizerWidget::show: painting data on track: {}, elements: {}",
                 //     ti,

@@ -935,7 +935,7 @@ pub fn vectorize_disk_hit_test(
 
     let (clip_start, clip_end) = (0.0, TAU);
 
-    let mut normalized_angle = p.direction.adjust_angle(angle);
+    let normalized_angle = p.direction.adjust_angle(angle);
 
     // Calculate the bit index from angle and track length.
     let bit_index = ((normalized_angle / TAU) * track_len as f32) as usize;
@@ -967,16 +967,20 @@ pub fn vectorize_disk_hit_test(
         // than 90 degrees. We need to break up the arc into multiple sectors if it exceeds 90 degrees
         // here.
 
-        let sector = VizSector::from_angles(
-            &VizPoint2d::new(center.x, center.y),
-            RenderWinding::Clockwise,
-            start_angle,
-            end_angle,
-            inner_radius,
-            outer_radius,
-        );
-
-        let arc = VizArc::from_angles(&VizPoint2d::new(center.x, center.y), mid_radius, start_angle, end_angle);
+        let shape = match r.geometry {
+            RenderGeometry::Sector => VizShape::Sector(VizSector::from_angles(
+                &VizPoint2d::new(center.x, center.y),
+                RenderWinding::Clockwise,
+                start_angle,
+                end_angle,
+                inner_radius,
+                outer_radius,
+            )),
+            RenderGeometry::Arc => VizShape::CubicArc(
+                VizArc::from_angles(&VizPoint2d::new(center.x, center.y), mid_radius, start_angle, end_angle),
+                outer_radius - inner_radius,
+            ),
+        };
 
         let info = VizElementInfo {
             element_type: generic_element,
@@ -986,11 +990,7 @@ pub fn vectorize_disk_hit_test(
             sector_idx: None,
         };
 
-        let element = VizElement {
-            shape: VizShape::CubicArc(arc, tp.render_track_width * (1.0 - p.track_gap)),
-            flags,
-            info,
-        };
+        let element = VizElement { shape, flags, info };
 
         display_list.push(0, element);
         return Ok(DiskHitTestResult {

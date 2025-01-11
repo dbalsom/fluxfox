@@ -100,6 +100,9 @@ impl SectorViewer {
                 }
             }
             Err(e) => {
+                for tool in e {
+                    log::warn!("Failed to acquire write lock, locked by tool: {:?}", tool);
+                }
                 self.error_string = Some("Failed to acquire disk write lock.".to_string());
                 self.valid = false;
             }

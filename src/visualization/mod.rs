@@ -79,6 +79,8 @@
 //!
 
 pub mod data_segmenter;
+#[cfg(feature = "tiny_skia")]
+pub mod pixmap_to_disk;
 pub mod prelude;
 pub mod rasterize_disk;
 pub mod types;
@@ -133,6 +135,8 @@ pub trait VizRotate {
 }
 
 use crate::visualization::prelude::VizElementDisplayList;
+#[cfg(feature = "tiny_skia")]
+pub use pixmap_to_disk::{render_pixmap_to_disk, render_pixmap_to_disk_grayscale};
 #[cfg(feature = "tiny_skia")]
 pub use rasterize_disk::rasterize_track_data;
 #[cfg(feature = "tiny_skia")]
@@ -496,6 +500,8 @@ pub struct RenderDiskHitTestParams {
     pub side: u8,
     /// The hit test selection type (Sector or Track)
     pub selection_type: RenderDiskSelectionType,
+    /// The type of geometry to generate for the selection
+    pub geometry: RenderGeometry,
     /// The coordinate to hit test
     pub point: VizPoint2d<f32>,
 }
@@ -505,6 +511,7 @@ impl Default for RenderDiskHitTestParams {
         Self {
             side: 0,
             selection_type: RenderDiskSelectionType::default(),
+            geometry: RenderGeometry::Arc,
             point: VizPoint2d::new(0.0, 0.0),
         }
     }

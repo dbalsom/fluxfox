@@ -1,21 +1,43 @@
-use crate::{
-    visualization::{RenderTrackDataParams, TurningDirection},
-    DiskImage,
-    DiskImageError,
-    MAXIMUM_SECTOR_SIZE,
-    MAX_CYLINDER,
-};
+/*
+    FluxFox
+    https://github.com/dbalsom/fluxfox
+
+    Copyright 2024 Daniel Balsom
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the “Software”),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+    DEALINGS IN THE SOFTWARE.
+
+    --------------------------------------------------------------------------
+*/
+
 use std::{
     cmp::min,
     f32::consts::{PI, TAU},
 };
 
-//use crate::visualization::{collect_metadata, collect_streams};
-use crate::visualization::{
-    types::{VizDimensions, VizPoint2d},
-    CommonVizParams,
-    RenderRasterizationParams,
+use crate::{
+    visualization::{RenderTrackDataParams, TurningDirection},
+    DiskImage,
+    DiskImageError,
+    MAX_CYLINDER,
 };
+
+use crate::visualization::{CommonVizParams, PixmapToDiskParams};
 use tiny_skia::Pixmap;
 
 const MFM_GRAYSCALE_RAMP: [u64; 16] = [
@@ -71,7 +93,7 @@ pub fn render_pixmap_to_disk(
     let total_radius = sample_width.min(sample_height) as f32 / 2.0;
     let mut min_radius = p.min_radius_ratio * total_radius; // Scale min_radius to pixel value
 
-    let track_indices = collect_stream_indices(r.head, disk_image);
+    let track_indices = collect_stream_indices(r.side, disk_image);
     let track_limit = p.track_limit.unwrap_or(MAX_CYLINDER);
     let num_tracks = min(track_indices.len(), track_limit);
 
@@ -248,7 +270,7 @@ pub fn render_pixmap_to_disk_grayscale(
     let total_radius = sample_width.min(sample_height) as f32 / 2.0;
     let mut min_radius = p.min_radius_ratio * total_radius; // Scale min_radius to pixel value
 
-    let track_indices = collect_stream_indices(r.head, disk_image);
+    let track_indices = collect_stream_indices(r.side, disk_image);
     let track_limit = p.track_limit.unwrap_or(MAX_CYLINDER);
     let num_tracks = min(track_indices.len(), track_limit);
 

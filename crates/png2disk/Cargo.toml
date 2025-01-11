@@ -8,16 +8,19 @@ description = "A novel utility to write PNG images onto PC floppy disk images."
 readme = "README.md"
 
 [dependencies]
+fluxfox = { path = "../.." }
+fluxfox_tiny_skia = { path = "../fluxfox_tiny_skia" }
 bpaf = { version = "0.9", features = ["autocomplete"] }
-fluxfox = { path = "../..", features = ["viz"] }
 logger = "0.4"
 env_logger = "0.11"
 log = "0.4.22"
 anyhow = "1.0"
 
+tiny-skia = { workspace=true, optional=true }
+
 [features]
 default = ["viz"]
-viz = ["fluxfox/viz"]
+viz = ["dep:tiny-skia", "fluxfox/viz", "fluxfox/tiny_skia"]
 
 [package.metadata.docs.rs]
 build = false
