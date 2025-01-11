@@ -85,3 +85,25 @@ pub fn style_map_to_skia(
         })
         .collect()
 }
+
+#[cfg(feature = "use_tiny_skia")]
+impl From<Style> for SkiaStyle {
+    fn from(style: Style) -> Self {
+        SkiaStyle {
+            fill: style.fill,
+            stroke: style.stroke,
+            stroke_width: style.stroke_width,
+        }
+    }
+}
+
+#[cfg(feature = "use_tiny_skia")]
+impl From<&Style> for SkiaStyle {
+    fn from(style: &Style) -> Self {
+        SkiaStyle {
+            fill: style.fill,
+            stroke: style.stroke,
+            stroke_width: style.stroke_width,
+        }
+    }
+}

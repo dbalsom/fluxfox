@@ -187,6 +187,8 @@ sha1 = "0.10"
 hex = "0.4"    # or the latest version
 
 [features]
+# core features should always be enabled first if default-features is false
+core = ["rand"]
 default = ["rand", "viz", "scripting", "rhai", "archives", "mfi", "fat", "flux", "ibmpc", "amiga", "macintosh"]
 # the rand feature enables use of the rand crate for random number generation.
 # note: it is intended to be optional but the fallback is not yet implemented

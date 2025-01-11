@@ -83,6 +83,7 @@ use anyhow::{anyhow, bail, Error};
 use crossbeam::channel;
 use fast_image_resize::{images::Image as FirImage, FilterType, PixelType, ResizeAlg, Resizer};
 use fluxfox_tiny_skia::{
+    prelude::SkiaStyle,
     render_display_list::render_data_display_list,
     render_elements::{skia_render_data_slice, skia_render_element},
 };
@@ -307,7 +308,8 @@ pub fn render_bitmap(
 
                 // Set the index angle for rasterization.
                 let angle = inner_params.index_angle;
-                rasterize_display_list(&mut metadata_pixmap, angle, &display_list, &palette);
+                let track_style = Style::default();
+                rasterize_display_list(&mut metadata_pixmap, angle, &track_style, &display_list, &palette);
 
                 if render_debug {
                     metadata_pixmap.save_png(format!("new_metadata{}.png", side)).unwrap();
@@ -567,6 +569,7 @@ pub fn rasterize_data_layer(
 pub fn rasterize_display_list(
     pixmap: &mut Pixmap,
     angle: f32,
+    track_style: &Style,
     display_list: &VizElementDisplayList,
     styles: &HashMap<GenericTrackElement, Style>,
 ) {
@@ -579,7 +582,7 @@ pub fn rasterize_display_list(
     let mut transform = Transform::identity();
 
     if angle != 0.0 {
-        log::warn!("Rotating tiny_skia Transform by {}", angle);
+        log::debug!("Rotating tiny_skia Transform by {}", angle);
         transform = Transform::from_rotate_at(
             angle.to_degrees(),
             pixmap.width() as f32 / 2.0,
@@ -588,8 +591,9 @@ pub fn rasterize_display_list(
     }
 
     let skia_styles = style_map_to_skia(styles);
+    let skia_track_style = SkiaStyle::from(track_style);
 
     for element in display_list.iter() {
-        skia_render_element(pixmap, &mut paint, &transform, &skia_styles, element);
+        skia_render_element(pixmap, &mut paint, &transform, &skia_track_style, &skia_styles, element);
     }
 }

@@ -82,6 +82,7 @@ pub mod data_segmenter;
 #[cfg(feature = "tiny_skia")]
 pub mod pixmap_to_disk;
 pub mod prelude;
+#[cfg(feature = "tiny_skia")]
 pub mod rasterize_disk;
 pub mod types;
 pub mod vectorize_disk;

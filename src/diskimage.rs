@@ -2081,10 +2081,12 @@ impl DiskImage {
         self.source_map.as_mut().unwrap()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn take_source_map(&mut self) -> Option<Box<dyn OptionalSourceMap>> {
         self.source_map.take()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn put_source_map(&mut self, source_map: Box<dyn OptionalSourceMap>) {
         self.source_map = Some(source_map);
     }
