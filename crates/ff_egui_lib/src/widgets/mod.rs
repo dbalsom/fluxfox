@@ -26,6 +26,7 @@
 */
 
 pub mod boot_sector;
+pub mod canvas;
 pub mod data_table;
 pub mod data_visualizer;
 pub mod dir_tree;
@@ -39,7 +40,6 @@ pub mod path_selection;
 pub mod sector_status;
 pub mod source_map;
 pub mod tab_group;
-pub mod canvas;
 pub mod track_list;
 #[cfg(feature = "egui_plot")]
 pub mod track_timing_chart;
