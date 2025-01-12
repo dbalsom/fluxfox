@@ -51,7 +51,7 @@ use fluxfox::{
 #[cfg(feature = "svg")]
 use fluxfox_svg::prelude::*;
 
-use fluxfox_egui::widgets::texture::{PixelCanvas, PixelCanvasDepth};
+use fluxfox_egui::widgets::canvas::{PixelCanvas, PixelCanvasDepth};
 use fluxfox_tiny_skia::tiny_skia::{BlendMode, Color, FilterQuality, Pixmap, PixmapPaint, Transform};
 
 use crate::{app::Tool, lock::TrackingLock};
