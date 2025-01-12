@@ -31,7 +31,7 @@
 use std::ops::Range;
 
 use crate::{
-    encoding::CharacterEncoding,
+    character_encoding::CharacterEncoding,
     range_check::RangeChecker,
     widgets::{data_visualizer::DataVisualizerWidget, tab_group::TabGroup},
 };

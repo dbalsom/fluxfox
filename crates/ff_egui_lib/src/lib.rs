@@ -27,7 +27,7 @@
 use fluxfox::{file_system::FileEntry, prelude::*};
 use std::fmt::{Debug, Formatter, Result};
 
-pub mod encoding;
+pub mod character_encoding;
 mod range_check;
 pub mod visualization;
 pub mod widgets;
