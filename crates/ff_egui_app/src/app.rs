@@ -797,7 +797,7 @@ impl App {
     }
 
     fn handle_image_info(&mut self, ui: &mut egui::Ui) {
-        if let Some(disk) = self.selected_disk() {
+        if self.have_disk_in_selected_slot() {
             HeaderGroup::new("Disk Info").strong().expand().show(
                 ui,
                 |ui| {
