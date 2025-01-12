@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
 
 <!-- Disable zooming: -->
@@ -16,7 +16,7 @@
 
     <link data-trunk rel="icon" href="assets/favicon.ico">
 
-    <link data-trunk rel="copy-file" href="assets/coi-serviceworker.min.js"/>
+    <link data-trunk rel="copy-file" href="assets/coi-serviceworker.js"/>
     <link data-trunk rel="copy-file" href="assets/sw.js"/>
     <link data-trunk rel="copy-file" href="assets/base_url.js"/>
     <link data-trunk rel="copy-file" href="assets/worker.js"/>
@@ -102,9 +102,9 @@
             display: block;
             width: 24px;
             height: 24px;
-            margin: 0px;
+            margin: 0;
             border-radius: 50%;
-            border: 3px solid #fff;
+            border: 3px solid;
             border-color: #fff transparent #fff transparent;
             animation: lds-dual-ring 1.2s linear infinite;
         }
@@ -135,7 +135,7 @@
 </div>
 
 <!--COI Service Worker. this will reload the page and set the appropriate COI headers -->
-<script src="coi-serviceworker.min.js"></script>
+<script src="coi-serviceworker.js"></script>
 
 <!--Register Service Worker. this will cache the wasm / js scripts for offline use (for PWA functionality). -->
 <!-- Force refresh (Ctrl + F5) to load the latest files instead of cached files  -->

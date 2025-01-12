@@ -288,6 +288,7 @@ impl DiskImage {
         callback: Option<LoadingCallback>,
     ) -> Result<Self, DiskImageError> {
         let container = DiskImage::detect_format(image_io, image_path.clone())?;
+        log::debug!("load(): Detected format: {:?}", container);
 
         // TODO: DiskImage should probably not concern itself with archives or disk sets...
         //       We should probably move most of this into an ImageLoader interface similar to
@@ -2081,10 +2082,12 @@ impl DiskImage {
         self.source_map.as_mut().unwrap()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn take_source_map(&mut self) -> Option<Box<dyn OptionalSourceMap>> {
         self.source_map.take()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn put_source_map(&mut self, source_map: Box<dyn OptionalSourceMap>) {
         self.source_map = Some(source_map);
     }

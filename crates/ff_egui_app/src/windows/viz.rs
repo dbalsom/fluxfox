@@ -28,6 +28,7 @@ use crate::widgets::viz::{VisualizationState, VizEvent};
 use fluxfox::DiskImage;
 use std::sync::{Arc, RwLock};
 
+use crate::lock::TrackingLock;
 use anyhow::Result;
 use fluxfox_egui::widgets::error_banner::ErrorBanner;
 
@@ -78,17 +79,18 @@ impl VizViewer {
         &mut self.open
     }
 
-    pub fn render(&mut self, disk_lock: Arc<RwLock<DiskImage>>) -> Result<()> {
-        {
-            let disk = disk_lock.read().unwrap();
-            self.viz.set_sides(disk.heads() as usize);
-        }
-        self.viz.render_visualization(disk_lock.clone(), 0)?;
-        self.viz.render_visualization(disk_lock.clone(), 1)?;
+    pub fn update_disk(&mut self, disk_lock: TrackingLock<DiskImage>) {
+        self.viz.update_disk(disk_lock);
+        _ = self.render()
+    }
+
+    pub fn render(&mut self) -> Result<()> {
+        self.viz.render_visualization(0)?;
+        self.viz.render_visualization(1)?;
         Ok(())
     }
 
-    pub fn show(&mut self, ctx: &egui::Context, disk_lock: Arc<RwLock<DiskImage>>) {
+    pub fn show(&mut self, ctx: &egui::Context) {
         if self.open {
             egui::Window::new("Disk Visualization")
                 .open(&mut self.open)
@@ -116,6 +118,33 @@ impl VizViewer {
                                 }
                             }
                         });
+
+                        ui.menu_button("Zoom", |ui| {
+                            for side in 0..self.viz.sides {
+                                ui.label(format!("Side {} Zoom", side));
+                                ui.group(|ui| {
+                                    egui::Grid::new(format!("side{}_zoom_grid", side)).show(ui, |ui| {
+                                        if ui.button("1").clicked() {
+                                            self.viz.set_quadrant(side, Some(1));
+                                        }
+                                        if ui.button("0").clicked() {
+                                            self.viz.set_quadrant(side, Some(0));
+                                        }
+                                        ui.end_row();
+                                        if ui.button("2").clicked() {
+                                            self.viz.set_quadrant(side, Some(2));
+                                        }
+                                        if ui.button("3").clicked() {
+                                            self.viz.set_quadrant(side, Some(3));
+                                        }
+                                        ui.end_row();
+                                    });
+                                    if ui.button("Reset").on_hover_text("Reset zoom").clicked() {
+                                        self.viz.set_quadrant(side, None);
+                                    }
+                                });
+                            }
+                        });
                     });
 
                     if self.viz.compatible {
@@ -124,7 +153,7 @@ impl VizViewer {
                                 VizEvent::NewSectorSelected { c, h, s_idx } => {
                                     log::debug!("New sector selected: c:{} h:{}, s:{}", c, h, s_idx);
 
-                                    self.viz.update_selection(disk_lock, c, h, s_idx);
+                                    self.viz.update_selection(c, h, s_idx);
                                 }
                                 _ => {}
                             }

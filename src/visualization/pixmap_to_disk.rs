@@ -1,14 +1,43 @@
-use crate::{
-    visualization::{RenderTrackDataParams, RotationDirection},
-    DiskImage,
-    DiskImageError,
-};
+/*
+    FluxFox
+    https://github.com/dbalsom/fluxfox
+
+    Copyright 2024 Daniel Balsom
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the “Software”),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+    DEALINGS IN THE SOFTWARE.
+
+    --------------------------------------------------------------------------
+*/
+
 use std::{
     cmp::min,
     f32::consts::{PI, TAU},
 };
 
-//use crate::visualization::{collect_metadata, collect_streams};
+use crate::{
+    visualization::{RenderTrackDataParams, TurningDirection},
+    DiskImage,
+    DiskImageError,
+    MAX_CYLINDER,
+};
+
+use crate::visualization::{CommonVizParams, PixmapToDiskParams};
 use tiny_skia::Pixmap;
 
 const MFM_GRAYSCALE_RAMP: [u64; 16] = [
@@ -30,26 +59,6 @@ const MFM_GRAYSCALE_RAMP: [u64; 16] = [
     0xAAAAAAAAAAAAAAAA, // popcount: 32
 ];
 
-pub struct PixmapToDiskParams {
-    pub sample_size: (u32, u32),
-    pub skip_tracks: u16,
-    pub black_byte: u8,
-    pub white_byte: u8,
-    pub mask_resolution: u8,
-}
-
-impl Default for PixmapToDiskParams {
-    fn default() -> Self {
-        Self {
-            sample_size: (4096, 4096),
-            skip_tracks: 0,
-            black_byte: 0x88,   // Represents a valid MFM pattern with low flux density (0b1000_1000)
-            white_byte: 0x66,   // Represents a valid MFM pattern with high flux density (0b1010_1010)
-            mask_resolution: 3, // 3 bits = 0b0111 or 8 bit mask
-        }
-    }
-}
-
 /// We can't collect mutable references to the track streams, so we collect the indices into the
 /// track pool instead.
 fn collect_stream_indices(head: u8, disk_image: &mut DiskImage) -> Vec<usize> {
@@ -61,14 +70,15 @@ fn collect_stream_indices(head: u8, disk_image: &mut DiskImage) -> Vec<usize> {
 pub fn render_pixmap_to_disk(
     pixmap: &Pixmap,
     disk_image: &mut DiskImage,
+    p: &CommonVizParams,
+    r: &RenderTrackDataParams,
     p2d: &PixmapToDiskParams,
-    p: &RenderTrackDataParams,
 ) -> Result<(), DiskImageError> {
     let (sample_width, sample_height) = p2d.sample_size;
-    let (img_width, img_height) = p.image_size;
+    let (img_width, img_height) = p2d.img_dimensions.to_tuple();
     let span = pixmap.width();
 
-    let (x_offset, y_offset) = p.image_pos;
+    let (x_offset, y_offset) = p2d.img_pos.to_tuple();
 
     if p2d.mask_resolution < 1 || p2d.mask_resolution > 8 {
         return Err(DiskImageError::ParameterError);
@@ -81,12 +91,11 @@ pub fn render_pixmap_to_disk(
     let center_x = sample_width as f32 / 2.0;
     let center_y = sample_height as f32 / 2.0;
     let total_radius = sample_width.min(sample_height) as f32 / 2.0;
-    let mut min_radius = p.min_radius_fraction * total_radius; // Scale min_radius to pixel value
+    let mut min_radius = p.min_radius_ratio * total_radius; // Scale min_radius to pixel value
 
-    //let rtracks = collect_streams(p.head, disk_image);
-    let track_indices = collect_stream_indices(p.head, disk_image);
-    //let rmetadata = collect_metadata(p.head, disk_image);
-    let num_tracks = min(track_indices.len(), p.track_limit);
+    let track_indices = collect_stream_indices(r.side, disk_image);
+    let track_limit = p.track_limit.unwrap_or(MAX_CYLINDER);
+    let num_tracks = min(track_indices.len(), track_limit);
 
     log::trace!("collected {} track references.", num_tracks);
 
@@ -105,7 +114,7 @@ pub fn render_pixmap_to_disk(
             normalized_track_ct
         );
         let overdump = num_tracks.saturating_sub(normalized_track_ct);
-        p.min_radius_fraction * total_radius - (overdump as f32 * track_width)
+        p.min_radius_ratio * total_radius - (overdump as f32 * track_width)
     }
     else {
         min_radius
@@ -145,8 +154,8 @@ pub fn render_pixmap_to_disk(
                 if track_index < num_tracks {
                     // Adjust angle via input angle parameter, for clockwise or counter-clockwise turning
                     let mut normalized_angle = match p.direction {
-                        RotationDirection::Clockwise => angle - p.index_angle,
-                        RotationDirection::CounterClockwise => TAU - (angle - p.index_angle),
+                        TurningDirection::Clockwise => angle - p.index_angle,
+                        TurningDirection::CounterClockwise => TAU - (angle - p.index_angle),
                     };
                     // Normalize the angle to the range 0..2π
                     while normalized_angle < 0.0 {
@@ -160,7 +169,7 @@ pub fn render_pixmap_to_disk(
                         let mut render_enable = true;
 
                         // Control rendering based on metadata if sector masking is enabled.
-                        if p.sector_mask && !track.is_data(bit_index, false) {
+                        if r.sector_mask && !track.is_data(bit_index, false) {
                             render_enable = false;
                         }
 
@@ -229,14 +238,15 @@ pub fn gen_ramp_64(value: u8) -> u64 {
 pub fn render_pixmap_to_disk_grayscale(
     pixmap: &Pixmap,
     disk_image: &mut DiskImage,
+    p: &CommonVizParams,
+    r: &RenderTrackDataParams,
     p2d: &PixmapToDiskParams,
-    p: &RenderTrackDataParams,
 ) -> Result<(), DiskImageError> {
     let (sample_width, sample_height) = p2d.sample_size;
-    let (img_width, img_height) = p.image_size;
+    let (img_width, img_height) = p2d.img_dimensions.to_tuple();
     let span = pixmap.width();
 
-    let (x_offset, y_offset) = p.image_pos;
+    let (x_offset, y_offset) = p2d.img_pos.to_tuple();
 
     // if p2d.mask_resolution < 1 || p2d.mask_resolution > 8 {
     //     return Err(DiskImageError::ParameterError);
@@ -258,12 +268,11 @@ pub fn render_pixmap_to_disk_grayscale(
     let center_x = sample_width as f32 / 2.0;
     let center_y = sample_height as f32 / 2.0;
     let total_radius = sample_width.min(sample_height) as f32 / 2.0;
-    let mut min_radius = p.min_radius_fraction * total_radius; // Scale min_radius to pixel value
+    let mut min_radius = p.min_radius_ratio * total_radius; // Scale min_radius to pixel value
 
-    //let rtracks = collect_streams(p.head, disk_image);
-    let track_indices = collect_stream_indices(p.head, disk_image);
-    //let rmetadata = collect_metadata(p.head, disk_image);
-    let num_tracks = min(track_indices.len(), p.track_limit);
+    let track_indices = collect_stream_indices(r.side, disk_image);
+    let track_limit = p.track_limit.unwrap_or(MAX_CYLINDER);
+    let num_tracks = min(track_indices.len(), track_limit);
 
     log::trace!("collected {} track references.", num_tracks);
 
@@ -282,7 +291,7 @@ pub fn render_pixmap_to_disk_grayscale(
             normalized_track_ct
         );
         let overdump = num_tracks.saturating_sub(normalized_track_ct);
-        p.min_radius_fraction * total_radius - (overdump as f32 * track_width)
+        p.min_radius_ratio * total_radius - (overdump as f32 * track_width)
     }
     else {
         min_radius
@@ -322,8 +331,8 @@ pub fn render_pixmap_to_disk_grayscale(
                 if track_index < num_tracks {
                     // Adjust angle via input angle parameter, for clockwise or counter-clockwise turning
                     let mut normalized_angle = match p.direction {
-                        RotationDirection::Clockwise => angle - p.index_angle,
-                        RotationDirection::CounterClockwise => TAU - (angle - p.index_angle),
+                        TurningDirection::Clockwise => angle - p.index_angle,
+                        TurningDirection::CounterClockwise => TAU - (angle - p.index_angle),
                     };
 
                     // Normalize the angle to the range 0..2π
@@ -343,7 +352,7 @@ pub fn render_pixmap_to_disk_grayscale(
                         let mut render_enable = true;
 
                         // Control rendering based on metadata if sector masking is enabled.
-                        if p.sector_mask && !track.is_data(bit_index, false) {
+                        if r.sector_mask && !track.is_data(bit_index, false) {
                             render_enable = false;
                         }
 
@@ -354,8 +363,8 @@ pub fn render_pixmap_to_disk_grayscale(
                             if offset < pix_buf.len() {
                                 let color = pix_buf[offset];
 
-                                // We work in monochrome so just take the red channel...
-                                let color_value = color.red();
+                                // We work in monochrome so just take the green channel...
+                                let color_value = color.green();
                                 let alpha_value = color.alpha();
 
                                 // Alpha channel controls whether we write the pixel or not

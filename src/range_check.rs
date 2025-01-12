@@ -36,11 +36,11 @@ pub(crate) struct RangeChecker {
 }
 
 impl RangeChecker {
-    pub fn new(ranges: Vec<(usize, usize)>) -> Self {
+    pub fn new(ranges: &[(usize, usize)]) -> Self {
         let mut events = Vec::new();
         for (start, end) in ranges {
-            events.push((start, 1)); // Start of range
-            events.push((end + 1, -1)); // End of range, exclusive
+            events.push((*start, 1)); // Start of range
+            events.push((*end + 1, -1)); // End of range, exclusive
         }
         events.sort_unstable();
         RangeChecker { events }

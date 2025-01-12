@@ -34,6 +34,9 @@
 //! A [DiskSchema] is not strictly required (neither is a [Platform]), but operations
 //! and information about the disk image will be limited.
 
+// This module is in progress
+#![allow(dead_code)]
+
 use crate::DiskImage;
 
 pub enum DiskSchema {

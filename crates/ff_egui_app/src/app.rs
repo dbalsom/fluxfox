@@ -26,11 +26,6 @@
 */
 
 use egui::Layout;
-use std::{
-    default::Default,
-    sync::{mpsc, Arc, RwLock},
-};
-
 use fluxfox::{
     file_system::{fat::fat_fs::FatFileSystem, FileSystemArchive},
     track::Track,
@@ -52,6 +47,14 @@ use fluxfox_egui::{
     TrackSelectionScope,
     UiEvent,
 };
+use std::{
+    collections::VecDeque,
+    default::Default,
+    fmt,
+    fmt::{Display, Formatter},
+    path::PathBuf,
+    sync::{mpsc, Arc, RwLock},
+};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub const APP_NAME: &str = "fluxfox-egui";
@@ -63,10 +66,12 @@ use crate::wasm::worker;
 pub const APP_NAME: &str = "fluxfox-web";
 
 use crate::{
+    lock::TrackingLock,
     widgets::{filename::FilenameWidget, hello::HelloWidget},
     windows::{
         element_map::ElementMapViewer,
         file_viewer::FileViewer,
+        new_viz::NewVizViewer,
         sector_viewer::SectorViewer,
         source_map::SourceMapViewer,
         track_timing_viewer::TrackTimingViewer,
@@ -77,13 +82,56 @@ use crate::{
 use fluxfox_egui::widgets::track_list::TrackListWidget;
 
 pub const DEMO_IMAGE: &[u8] = include_bytes!("../../../resources/demo.imz");
+/// The number of selection slots available for disk images.
+/// These slots will be enumerating in the UI as `A:`, `B:`, and so on. The UI design does not
+/// anticipate more than 2 slots, but could be adapted for more if you wish.
+pub const DISK_SLOTS: usize = 2;
+
+/// fluxfox-egui comprises several conceptual Tools.
+///
+/// Each tool has a unique identifier that can be used to track disk image locks for debugging.
+/// Each tool may correspond to one or more widgets or windows, but provides a shared pool of
+/// resources and communication channels.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Tool {
+    /// App is not a tool per se, but represents locks made in the main application logic.
+    /// Some Tools do not need to keep a persistent disk image lock as they display static
+    /// data that cannot change for the life of the loaded image (for example, the SourceMap)
+    /// The main application logic locks the disk image for the duration of the tool's update
+    /// cycle.
+    App,
+    /// The visualization tool renders a graphical depiction of the disk and allows track element
+    /// selection. It must own a DiskLock to support hit-testing user selections and rendering
+    /// vector display lists of the current selection.
+    Visualization,
+    NewViz,
+    SectorViewer,
+    TrackViewer,
+    TrackListViewer,
+    /// The filesystem viewer is currently the only tool that requires a write lock, due to
+    /// the use of a StandardSectorView, which requires a mutable reference to the disk image.
+    /// StandardSectorView is used as an interface for reading and writing sectors in a standard
+    /// raw-sector based order, such as what is expected by rust-fatfs.
+    FileSystemViewer,
+    /// A file system operation not necessarily tied to the filesystem viewer.
+    FileSystemOperation,
+    SourceMap,
+    TrackElementMap,
+    TrackTimingViewer,
+}
+
+impl Display for Tool {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
 
 #[derive(Default)]
 pub enum ThreadLoadStatus {
     #[default]
     Inactive,
     Loading(f64),
-    Success(DiskImage),
+    Success(DiskImage, usize),
     Error(DiskImageError),
 }
 
@@ -129,26 +177,22 @@ pub struct AppWidgets {
 }
 
 impl AppWidgets {
-    pub fn update(&mut self, disk_lock: Arc<RwLock<DiskImage>>, name: Option<String>) {
-        log::debug!(
-            "AppWidgets::update(): Attempting to lock disk image with {} references",
-            Arc::strong_count(&disk_lock)
-        );
-        let disk = disk_lock.read().unwrap();
+    pub fn update_disk(&mut self, disk_lock: TrackingLock<DiskImage>, name: Option<String>) {
+        let disk = match disk_lock.read(Tool::App) {
+            Ok(disk) => disk,
+            Err(_) => {
+                log::error!("Failed to lock disk image for reading. Cannot update widgets.");
+                return;
+            }
+        };
         self.filename.set(name);
         self.disk_info.update(&disk, None);
         self.boot_sector.update(&disk);
         self.track_list.update(&disk);
-
-        drop(disk);
-        log::debug!(
-            "AppWidgets::update(): Disk image lock released. {} references remaining",
-            Arc::strong_count(&disk_lock)
-        );
     }
 
-    pub fn update_mut(&mut self, disk_lock: Arc<RwLock<DiskImage>>) {
-        let mut fs = match FatFileSystem::mount(disk_lock, None) {
+    pub fn update_mut(&mut self, disk_lock: TrackingLock<DiskImage>) {
+        let mut fs = match FatFileSystem::mount(disk_lock, Tool::FileSystemViewer, None) {
             Ok(fs) => {
                 log::debug!("FAT filesystem mounted successfully!");
                 Some(fs)
@@ -178,6 +222,7 @@ impl AppWidgets {
 #[derive(Default)]
 pub struct AppWindows {
     viz_viewer: VizViewer,
+    new_viz_viewer: NewVizViewer,
     sector_viewer: SectorViewer,
     track_viewer: TrackViewer,
     file_viewer: FileViewer,
@@ -189,6 +234,7 @@ pub struct AppWindows {
 impl AppWindows {
     pub fn reset(&mut self) {
         self.viz_viewer.reset();
+        self.new_viz_viewer.reset();
         self.sector_viewer = SectorViewer::default();
         self.track_viewer = TrackViewer::default();
         self.file_viewer = FileViewer::default();
@@ -197,35 +243,75 @@ impl AppWindows {
         self.track_timing_viewer = TrackTimingViewer::default();
     }
 
-    pub fn update(&mut self, disk_lock: Arc<RwLock<DiskImage>>, _name: Option<String>) {
-        log::debug!(
-            "AppWindows::update(): Attempting to lock disk image with {} references",
-            Arc::strong_count(&disk_lock)
-        );
-        let disk = disk_lock.read().unwrap();
-        //self.sector_viewer.update(&disk, SectorSelection::default());
-        self.source_map.update(&disk);
+    /// Update windows that hold a disk image lock with a new lock.
+    pub fn update_disk(&mut self, disk_lock: TrackingLock<DiskImage>, _name: Option<String>) {
+        // The visualization viewer can hold a read lock in the background for rendering, so it
+        // should be updated last.
+        match disk_lock.read(Tool::App) {
+            Ok(disk) => self.source_map.update(&disk),
+            Err(_) => {
+                log::error!("Failed to lock disk image for reading. Cannot update windows.");
+                return;
+            }
+        };
 
-        drop(disk);
-        log::debug!(
-            "AppWindows::update(): Disk image lock released. {} references remaining",
-            Arc::strong_count(&disk_lock)
-        );
+        log::debug!("Updating sector viewer...");
+        self.sector_viewer.update(disk_lock.clone(), SectorSelection::default());
+
+        log::debug!("Updating visualization...");
+        self.viz_viewer.update_disk(disk_lock.clone());
     }
 }
 
+/// App events are sent from Tools to the main application state to request changes in the UI.
 pub enum AppEvent {
     #[allow(dead_code)]
     Reset,
     ResetDisk,
-    ImageLoaded,
+    /// A DiskImage has been successfully loaded into the specified slot index.
+    ImageLoaded(usize),
     SectorSelected(SectorSelection),
     TrackSelected(TrackSelection),
     TrackElementsSelected(TrackSelection),
     TrackTimingsSelected(TrackSelection),
 }
 
+/// A [DiskSlot] represents data about a specific disk image slot.
+#[derive(Default)]
+pub struct DiskSlot {
+    pub image: Option<TrackingLock<DiskImage>>,
+    pub image_name: Option<String>,
+    pub source_path: Option<PathBuf>,
+}
+
+impl DiskSlot {
+    /// Create a new [DiskSlot] with the given [DiskImage], name, and source path.
+    /// Note: Do not use `into_arc` with [DiskImage], as the [TrackingLock] will do this for you.
+    pub fn new(image: DiskImage, name: Option<String>, path: Option<PathBuf>) -> Self {
+        Self {
+            image: Some(TrackingLock::new(image)),
+            image_name: name,
+            source_path: path,
+        }
+    }
+
+    pub fn attach_image(&mut self, image: DiskImage) {
+        self.image = Some(TrackingLock::new(image));
+    }
+
+    pub fn set_name(&mut self, name: Option<String>) {
+        self.image_name = name;
+    }
+
+    pub fn set_source_path(&mut self, path: Option<PathBuf>) {
+        self.source_path = path;
+    }
+}
+
+/// The main fluxfox-gui application state.
 pub struct App {
+    /// State that should be serialized and deserialized on restart should be stored here.
+    /// Everything else will start as default.
     p_state: PersistentState,
     run_mode: RunMode,
     ctx_init: bool,
@@ -233,15 +319,20 @@ pub struct App {
     load_status: ThreadLoadStatus,
     load_sender: Option<mpsc::SyncSender<ThreadLoadStatus>>,
     load_receiver: Option<mpsc::Receiver<ThreadLoadStatus>>,
-    disk_image_name: Option<String>,
-    pub(crate) disk_image: Option<Arc<RwLock<DiskImage>>>,
+
+    /// The selected disk slot. This is used to track which disk image is currently selected for
+    /// viewing and manipulation.
+    pub(crate) selected_slot: usize,
+    pub(crate) disk_slots: [DiskSlot; DISK_SLOTS],
+    old_locks: Vec<TrackingLock<DiskImage>>,
+
     supported_extensions: Vec<String>,
 
     widgets: AppWidgets,
     viz_window_open: bool,
     windows: AppWindows,
 
-    events: Vec<AppEvent>,
+    events: VecDeque<AppEvent>,
     deferred_file_ui_event: Option<UiEvent>,
     sector_selection: Option<SectorSelection>,
     track_selection: Option<TrackSelection>,
@@ -265,8 +356,9 @@ impl Default for App {
             load_sender:   Some(load_sender),
             load_receiver: Some(load_receiver),
 
-            disk_image_name: None,
-            disk_image: None,
+            selected_slot: 0,
+            disk_slots: Default::default(),
+            old_locks: Vec::new(),
 
             supported_extensions: Vec::new(),
 
@@ -275,12 +367,83 @@ impl Default for App {
 
             windows: AppWindows::default(),
 
-            events: Vec::new(),
+            events: VecDeque::new(),
             deferred_file_ui_event: None,
             sector_selection: None,
             track_selection: None,
 
             error_msg: None,
+        }
+    }
+}
+
+impl App {
+    pub fn selected_disk(&self) -> Option<TrackingLock<DiskImage>> {
+        self.disk_slots[self.selected_slot].image.clone()
+    }
+
+    pub fn have_disk_in_slot(&self, slot: usize) -> bool {
+        if slot >= DISK_SLOTS {
+            return false;
+        }
+        self.disk_slots[slot].image.is_some()
+    }
+
+    pub fn have_disk_in_selected_slot(&self) -> bool {
+        self.have_disk_in_slot(self.selected_slot)
+    }
+
+    pub fn slot(&self, slot: usize) -> &DiskSlot {
+        &self.disk_slots[slot % DISK_SLOTS]
+    }
+
+    pub fn slot_mut(&mut self, slot: usize) -> &mut DiskSlot {
+        &mut self.disk_slots[slot % DISK_SLOTS]
+    }
+
+    pub fn selected_slot(&self) -> &DiskSlot {
+        &self.disk_slots[self.selected_slot]
+    }
+
+    pub fn selected_slot_mut(&mut self) -> &mut DiskSlot {
+        &mut self.disk_slots[self.selected_slot]
+    }
+
+    pub fn set_slot(&mut self, slot: usize, new_slot: DiskSlot) {
+        if slot >= DISK_SLOTS {
+            return;
+        }
+
+        if self.disk_slots[slot].image.is_some() {
+            log::debug!(
+                "load_slot(): Ejecting disk {:?} from slot {}",
+                self.disk_slots[slot].image_name,
+                slot
+            );
+            self.eject_slot(slot);
+        }
+        log::debug!("load_slot(): Loading disk into slot {}", slot);
+        self.disk_slots[slot] = new_slot;
+    }
+
+    /// Eject the DiskSlot from the given slot index.
+    /// The corresponding DiskLock is moved to the old_locks list so that memory leaks can be
+    /// detected and reported.
+    pub fn eject_slot(&mut self, slot: usize) {
+        if slot >= DISK_SLOTS {
+            return;
+        }
+        if let Some(disk_slot) = self.disk_slots.get_mut(slot) {
+            if let Some(disk) = disk_slot.image.take() {
+                log::debug!("eject_slot(): Ejecting disk from slot {}", slot);
+                self.old_locks.push(disk);
+            }
+            else {
+                log::trace!("eject_slot(): No disk in slot {}", slot);
+            }
+        }
+        else {
+            log::error!("eject_slot(): Invalid slot index {}", slot);
         }
     }
 }
@@ -317,6 +480,18 @@ impl App {
 
         app_state
     }
+
+    pub fn collect_garbage(&mut self) {
+        let lock_ct = self.old_locks.len();
+        self.old_locks.retain(|lock| lock.strong_count() > 0);
+        if lock_ct != self.old_locks.len() {
+            log::debug!(
+                "collect_garbage(): Collected {} locks, {} remaining",
+                lock_ct - self.old_locks.len(),
+                self.old_locks.len()
+            );
+        }
+    }
 }
 
 impl eframe::App for App {
@@ -324,6 +499,8 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Put your widgets into a `SidePanel`, `TopBottomPanel`, `CentralPanel`, `Window` or `Area`.
         // For inspiration and more examples, go to https://emilk.github.io/egui
+
+        self.collect_garbage();
 
         if !self.ctx_init {
             self.ctx_init(ctx);
@@ -334,11 +511,15 @@ impl eframe::App for App {
         }
 
         // Show windows
-        if let Some(disk_image) = &self.disk_image {
-            self.windows.viz_viewer.show(ctx, disk_image.clone());
+        if self.have_disk_in_selected_slot() {
             self.windows.source_map.show(ctx);
         }
 
+        #[cfg(feature = "devmode")]
+        {
+            self.windows.new_viz_viewer.show(ctx);
+        }
+        self.windows.viz_viewer.show(ctx);
         self.windows.sector_viewer.show(ctx);
         self.windows.track_viewer.show(ctx);
         self.windows.file_viewer.show(ctx);
@@ -422,8 +603,10 @@ impl App {
 
     pub fn reset(&mut self) {
         log::debug!("Resetting application state...");
-        self.disk_image = None;
-        self.disk_image_name = None;
+
+        for i in 0..DISK_SLOTS {
+            self.eject_slot(i);
+        }
         self.error_msg = None;
         self.load_status = ThreadLoadStatus::Inactive;
         self.run_mode = RunMode::Reactive;
@@ -477,11 +660,16 @@ impl App {
                         DiskImage::load(&mut cursor, None, None, None)
                             .map(|disk| {
                                 log::debug!("Disk image loaded successfully!");
-                                self.disk_image = Some(Arc::new(RwLock::new(disk)));
-                                self.disk_image_name = Some("demo.imz".to_string());
+
+                                let disk = DiskSlot {
+                                    image: Some(TrackingLock::new(disk)),
+                                    image_name: Some("demo.imz".to_string()),
+                                    source_path: None,
+                                };
+                                self.set_slot(0, disk);
                                 self.new_disk();
                                 ctx.request_repaint();
-                                self.events.push(AppEvent::ImageLoaded);
+                                self.events.push_back(AppEvent::ImageLoaded(self.selected_slot));
                             })
                             .unwrap_or_else(|e| {
                                 log::error!("Error loading disk image: {:?}", e);
@@ -495,6 +683,10 @@ impl App {
 
             ui.menu_button("Windows", |ui| {
                 ui.checkbox(self.windows.viz_viewer.open_mut(), "Visualization");
+                #[cfg(feature = "devmode")]
+                {
+                    ui.checkbox(self.windows.new_viz_viewer.open_mut(), "Visualization (New)");
+                }
                 ui.checkbox(self.windows.source_map.open_mut(), "Image Source Map");
             });
 
@@ -519,7 +711,7 @@ impl App {
     }
 
     fn handle_events(&mut self) {
-        while let Some(event) = self.events.pop() {
+        while let Some(event) = self.events.pop_front() {
             match event {
                 AppEvent::Reset => {
                     log::debug!("Got AppEvent::Reset");
@@ -529,81 +721,75 @@ impl App {
                     log::debug!("Got AppEvent::ResetDisk");
                     self.new_disk();
                 }
-                AppEvent::ImageLoaded => {
+                AppEvent::ImageLoaded(slot_idx) => {
                     log::debug!("Got AppEvent::ImageLoaded");
                     // Return to reactive mode
                     self.run_mode = RunMode::Reactive;
                     self.error_msg = None;
 
-                    match self
-                        .windows
-                        .viz_viewer
-                        .render(self.disk_image.as_ref().unwrap().clone())
-                    {
-                        Ok(_) => {
-                            log::info!("Visualization rendered successfully!");
-                        }
-                        Err(e) => {
-                            log::error!("Error rendering visualization: {:?}", e);
-                        }
-                    }
-
                     if self.p_state.user_opts.auto_show_viz {
                         self.windows.viz_viewer.set_open(true);
+                        #[cfg(feature = "devmode")]
+                        {
+                            self.windows.new_viz_viewer.set_open(true);
+                        }
                     }
 
-                    // Update widgets.
-                    log::debug!("Updating widgets with new disk image...");
-                    self.widgets
-                        .update(self.disk_image.as_ref().unwrap().clone(), self.disk_image_name.clone());
-                    self.widgets.update_mut(self.disk_image.as_ref().unwrap().clone());
+                    if let (Some(disk_image), image_name) = (
+                        self.slot(slot_idx).image.clone(),
+                        self.slot(slot_idx).image_name.clone(),
+                    ) {
+                        // Update widgets. Update widgets that use a mutable reference first.
+                        log::debug!("Updating widgets with new disk image...");
+                        self.widgets.update_mut(disk_image.clone());
+                        self.widgets.update_disk(disk_image.clone(), image_name.clone());
 
-                    log::debug!("Updating sector viewer...");
-                    self.windows
-                        .update(self.disk_image.as_ref().unwrap().clone(), self.disk_image_name.clone());
-                    self.windows
-                        .sector_viewer
-                        .update(self.disk_image.as_ref().unwrap().clone(), SectorSelection::default());
-                    self.sector_selection = Some(SectorSelection::default());
-                    self.widgets.hello.set_small(true);
+                        self.windows.update_disk(disk_image.clone(), image_name.clone());
+
+                        self.sector_selection = Some(SectorSelection::default());
+                        self.widgets.hello.set_small(true);
+                    }
                 }
                 AppEvent::SectorSelected(selection) => {
-                    self.windows
-                        .sector_viewer
-                        .update(self.disk_image.as_ref().unwrap().clone(), selection.clone());
-                    self.sector_selection = Some(selection);
+                    if let Some(disk) = self.selected_disk() {
+                        self.windows.sector_viewer.update(disk.clone(), selection.clone());
+                        self.sector_selection = Some(selection);
 
-                    self.windows.sector_viewer.set_open(true);
+                        self.windows.sector_viewer.set_open(true);
+                    }
                 }
                 AppEvent::TrackSelected(selection) => {
-                    self.windows
-                        .track_viewer
-                        .update(self.disk_image.as_ref().unwrap().clone(), selection.clone());
-                    self.track_selection = Some(selection);
-                    self.windows.track_viewer.set_open(true);
+                    if let Some(disk) = self.selected_disk() {
+                        self.windows.track_viewer.update(disk.clone(), selection.clone());
+                        self.track_selection = Some(selection);
+                        self.windows.track_viewer.set_open(true);
+                    }
                 }
                 AppEvent::TrackElementsSelected(selection) => {
-                    self.windows
-                        .element_map
-                        .update(self.disk_image.as_ref().unwrap().clone(), selection.clone());
-                    self.windows.element_map.set_open(true);
+                    if let Some(disk) = self.selected_disk() {
+                        self.windows.element_map.update(disk.clone(), selection.clone());
+                        self.windows.element_map.set_open(true);
+                    }
                 }
                 AppEvent::TrackTimingsSelected(selection) => {
-                    if let Some(Some(track)) = self
-                        .disk_image
-                        .as_ref()
-                        .unwrap()
-                        .read()
-                        .unwrap()
-                        .track(selection.phys_ch)
-                        .map(|t| t.as_fluxstream_track())
-                    {
-                        self.windows.track_timing_viewer.update(
-                            selection.phys_ch,
-                            track.flux_deltas(),
-                            Some(track.pll_markers()),
-                        );
-                        self.windows.track_timing_viewer.set_open(true);
+                    if let Some(disk) = self.selected_disk() {
+                        match disk.read(Tool::App) {
+                            Ok(disk) => {
+                                if let Some(track) = disk.track(selection.phys_ch) {
+                                    if let Some(track) = track.as_fluxstream_track() {
+                                        self.windows.track_timing_viewer.update(
+                                            selection.phys_ch,
+                                            track.flux_deltas(),
+                                            Some(track.pll_markers()),
+                                        );
+                                        self.windows.track_timing_viewer.set_open(true);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                log::error!("Failed to lock disk image for reading. Locked by {:?}", e);
+                            }
+                        }
                     }
                 }
             }
@@ -611,7 +797,7 @@ impl App {
     }
 
     fn handle_image_info(&mut self, ui: &mut egui::Ui) {
-        if self.disk_image.is_some() {
+        if self.have_disk_in_selected_slot() {
             HeaderGroup::new("Disk Info").strong().expand().show(
                 ui,
                 |ui| {
@@ -623,7 +809,7 @@ impl App {
     }
 
     fn handle_bootsector_info(&mut self, ui: &mut egui::Ui) {
-        if self.disk_image.is_some() {
+        if self.have_disk_in_selected_slot() {
             HeaderGroup::new("Boot Sector").strong().expand().show(
                 ui,
                 |ui| {
@@ -635,25 +821,25 @@ impl App {
     }
 
     fn handle_track_info(&mut self, ui: &mut egui::Ui) {
-        if self.disk_image.is_some() {
+        if self.have_disk_in_selected_slot() {
             ui.group(|ui| {
                 if let Some(selection) = self.widgets.track_list.show(ui) {
                     log::debug!("TrackList selection: {:?}", selection);
                     match selection {
                         TrackListSelection::Track(track) => match track.sel_scope {
                             TrackSelectionScope::DecodedDataStream => {
-                                self.events.push(AppEvent::TrackSelected(track));
+                                self.events.push_back(AppEvent::TrackSelected(track));
                             }
                             TrackSelectionScope::Elements => {
-                                self.events.push(AppEvent::TrackElementsSelected(track));
+                                self.events.push_back(AppEvent::TrackElementsSelected(track));
                             }
                             TrackSelectionScope::Timings => {
-                                self.events.push(AppEvent::TrackTimingsSelected(track));
+                                self.events.push_back(AppEvent::TrackTimingsSelected(track));
                             }
                             _ => log::warn!("Unsupported TrackSelectionScope: {:?}", track.sel_scope),
                         },
                         TrackListSelection::Sector(sector) => {
-                            self.events.push(AppEvent::SectorSelected(sector));
+                            self.events.push_back(AppEvent::SectorSelected(sector));
                         }
                     }
                 }
@@ -663,7 +849,7 @@ impl App {
 
     fn handle_fs_info(&mut self, ui: &mut egui::Ui) {
         let mut new_event = None;
-        if let Some(disk) = &mut self.disk_image {
+        if let Some(disk) = &mut self.selected_disk() {
             // egui::Window::new("Test Table").resizable(true).show(ui.ctx(), |ui| {
             //     self.widgets.file_list.show(ui);
             // });
@@ -672,12 +858,16 @@ impl App {
                 new_event = self.widgets.file_system.show(ui);
             });
 
-            if Arc::strong_count(disk) > 1 {
-                log::debug!("handle_fs_info(): Disk image is locked, deferring event...");
-                self.deferred_file_ui_event = new_event.take();
-            }
-            else if new_event.is_none() && self.deferred_file_ui_event.is_some() {
-                log::debug!("handle_fs_info(): Disk image is unlocked, processing deferred event...");
+            // if Arc::strong_count(disk) > 1 {
+            //     log::debug!("handle_fs_info(): Disk image is locked, deferring event...");
+            //     self.deferred_file_ui_event = new_event.take();
+            // }
+            // else if new_event.is_none() && self.deferred_file_ui_event.is_some() {
+            //     log::debug!("handle_fs_info(): Disk image is unlocked, processing deferred event...");
+            //     new_event = self.deferred_file_ui_event.take();
+            // }
+
+            if new_event.is_none() && self.deferred_file_ui_event.is_some() {
                 new_event = self.deferred_file_ui_event.take();
             }
 
@@ -686,7 +876,7 @@ impl App {
                     UiEvent::ExportFile(path) => {
                         log::debug!("Exporting file: {:?}", path);
 
-                        let mut fs = FatFileSystem::mount(disk.clone(), None).unwrap();
+                        let mut fs = FatFileSystem::mount(disk.clone(), Tool::FileSystemOperation, None).unwrap();
                         let file_data = match fs.read_file(&path) {
                             Ok(data) => data,
                             Err(e) => {
@@ -708,7 +898,7 @@ impl App {
                     UiEvent::SelectFile(file) => {
                         let selected_file = file.path().to_string();
                         log::debug!("Selected file: {:?}", selected_file);
-                        match FatFileSystem::mount(disk.clone(), None) {
+                        match FatFileSystem::mount(disk.clone(), Tool::FileSystemOperation, None) {
                             Ok(mut fs) => {
                                 log::debug!("FAT filesystem mounted successfully!");
                                 self.windows.file_viewer.update(&fs, selected_file);
@@ -723,7 +913,7 @@ impl App {
                     }
                     UiEvent::ExportDirAsArchive(path) => {
                         log::debug!("Exporting directory as archive: {:?}", path);
-                        let mut fs = FatFileSystem::mount(disk.clone(), None).unwrap();
+                        let mut fs = FatFileSystem::mount(disk.clone(), Tool::FileSystemOperation, None).unwrap();
 
                         let archive_data = match fs.root_as_archive(self.p_state.user_opts.archive_format) {
                             Ok(data) => data,
@@ -734,7 +924,8 @@ impl App {
                         };
                         fs.unmount();
 
-                        let mut zip_name = self.disk_image_name.clone().unwrap_or("disk".to_string());
+                        let slot = self.selected_slot();
+                        let mut zip_name = slot.image_name.clone().unwrap_or("disk".to_string());
                         zip_name.push_str(self.p_state.user_opts.archive_format.ext());
 
                         match App::save_file_as(&zip_name, &archive_data) {
@@ -772,25 +963,24 @@ impl App {
 
                                 match self.load_status {
                                     ThreadLoadStatus::Inactive => {
-                                        //log::debug!("Inactive->Loading. Sending AppEvent::ResetDisk");
-                                        self.events.push(AppEvent::ResetDisk);
+                                        log::debug!("ThreadLoadStatus::Inactive->Loading. Sending AppEvent::ResetDisk");
+                                        self.events.push_back(AppEvent::ResetDisk);
                                     }
                                     _ => {}
                                 };
 
                                 self.load_status = ThreadLoadStatus::Loading(progress);
                             }
-                            ThreadLoadStatus::Success(disk) => {
+                            ThreadLoadStatus::Success(disk, slot_idx) => {
                                 log::info!("Disk image loaded successfully!");
-
-                                self.disk_image = Some(Arc::new(RwLock::new(disk)));
+                                self.disk_slots[slot_idx].attach_image(disk);
                                 //log::debug!("ThreadLoadStatus -> Inactive");
                                 if let ThreadLoadStatus::Inactive = self.load_status {
                                     new_disk = true;
                                 }
                                 self.load_status = ThreadLoadStatus::Inactive;
                                 ctx.request_repaint();
-                                self.events.push(AppEvent::ImageLoaded);
+                                self.events.push_back(AppEvent::ImageLoaded(slot_idx));
                             }
                             ThreadLoadStatus::Error(e) => {
                                 log::error!("Error loading disk image: {:?}", e);
@@ -900,6 +1090,7 @@ impl App {
 
         // Wait for bytes to be available, then process
         if let Some(file) = self.dropped_files.first() {
+            let file = file.clone();
             if let Some(bytes) = &file.bytes {
                 // Only process if bytes are now available
                 log::info!("Processing file: {} ({} bytes)", file.name, bytes.len());
@@ -912,11 +1103,12 @@ impl App {
                 let sender2 = self.load_sender.as_mut().unwrap().clone();
 
                 // Remove the old disk image
-                self.disk_image = None;
+                self.eject_slot(self.selected_slot);
                 // Set the name of the new disk image
-                self.disk_image_name = Some(dropped_filename(file));
+                self.selected_slot_mut().image_name = Some(dropped_filename(&file));
 
                 log::debug!("Spawning thread to load disk image");
+                let loading_slot = self.selected_slot;
                 match worker::spawn_closure_worker(move || {
                     log::debug!("Hello from worker thread!");
 
@@ -928,11 +1120,10 @@ impl App {
                         }
                         _ => {}
                     });
-
                     DiskImage::load(&mut cursor, None, None, Some(callback))
                         .map(|disk| {
                             log::debug!("Disk image loaded successfully!");
-                            sender1.send(ThreadLoadStatus::Success(disk)).unwrap();
+                            sender1.send(ThreadLoadStatus::Success(disk, loading_slot)).unwrap();
                         })
                         .unwrap_or_else(|e| {
                             log::error!("Error loading disk image: {:?}", e);

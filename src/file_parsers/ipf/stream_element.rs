@@ -46,12 +46,13 @@ pub enum DataType {
     Invalid1,
 }
 
-#[bitfield]
 #[allow(dead_code)]
+#[bitfield]
 #[derive(Copy, Clone, Debug)]
 pub(crate) struct DataHead {
     #[bits = 3]
     pub(crate) data_type: DataType,
+    #[skip]
     pub(crate) unused: B2,
     pub(crate) data_size_width: B3,
 }
@@ -153,12 +154,13 @@ pub enum GapType {
     Invalid0,
 }
 
-#[bitfield]
 #[allow(dead_code)]
+#[bitfield]
 #[derive(Copy, Clone, Debug)]
 pub(crate) struct GapHead {
     #[bits = 2]
     pub(crate) gap_type: GapType,
+    #[skip]
     pub(crate) unused: B3,
     pub(crate) data_size_width: B3,
 }

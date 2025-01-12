@@ -689,7 +689,7 @@ impl FluxStreamTrack {
 
     pub fn pll_markers_revolution(&self, rev: usize) -> Option<&[PllMarkerEntry]> {
         if rev < self.revolutions.len() {
-            Some(self.revolutions[rev].markers.as_slice().clone())
+            Some(self.revolutions[rev].markers.as_slice())
         }
         else {
             None

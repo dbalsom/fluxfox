@@ -31,36 +31,45 @@
 
 use std::path::{Path, PathBuf};
 
+use fluxfox::visualization::prelude::*;
+
 use bpaf::{construct, long, short, OptionParser, Parser};
-use tiny_skia::Color;
+
+use crate::DEFAULT_DATA_SLICES;
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
-pub(crate) struct Out {
+pub(crate) struct VizArgs {
     pub(crate) debug: bool,
     pub(crate) in_filename: PathBuf,
     pub(crate) out_filename: PathBuf,
+    pub(crate) style_filename: Option<PathBuf>,
     pub(crate) resolution: u32,
     pub(crate) side: Option<u8>,
     pub(crate) sides: Option<u8>,
+    pub(crate) side_spacing: f32,
+    pub(crate) track_gap: Option<f32>,
     pub(crate) hole_ratio: f32,
     pub(crate) angle: f32,
     pub(crate) data: bool,
+    pub(crate) rasterize_data: bool,
+    pub(crate) data_slices: usize,
     pub(crate) weak: bool,
     pub(crate) errors: bool,
     pub(crate) metadata: bool,
     pub(crate) index_hole: bool,
     pub(crate) decode: bool,
     pub(crate) cc: bool,
+    pub(crate) dont_reverse: bool,
     pub(crate) supersample: u32,
-    pub(crate) img_bg_color: Option<Color>,
-    pub(crate) track_bg_color: Option<Color>,
+    pub(crate) img_bg_color: Option<VizColor>,
+    pub(crate) track_bg_color: Option<VizColor>,
     pub(crate) title: Option<String>,
 }
 
 /// Set up bpaf argument parsing.
-pub(crate) fn opts() -> OptionParser<Out> {
-    let debug = short('d').long("debug").help("Print debug messages").switch();
+pub(crate) fn opts() -> OptionParser<VizArgs> {
+    let debug = short('d').long("debug").help("Enable debug mode").switch();
 
     let in_filename = short('i')
         .long("in_filename")
@@ -71,6 +80,11 @@ pub(crate) fn opts() -> OptionParser<Out> {
         .long("out_filename")
         .help("Filename of image to write")
         .argument::<PathBuf>("OUT_FILE");
+
+    let style_filename = long("style_file")
+        .help("Filename of style definition to use")
+        .argument::<PathBuf>("STYLE_FILE")
+        .optional();
 
     let resolution = short('r')
         .long("resolution")
@@ -90,6 +104,16 @@ pub(crate) fn opts() -> OptionParser<Out> {
         .guard(|sides| *sides > 0 && *sides < 3, "Sides must be 1 or 2")
         .optional();
 
+    let side_spacing = long("side_spacing")
+        .help("Spacing between sides in two-sided images")
+        .argument::<f32>("SIDE_SPACING")
+        .fallback(0.0);
+
+    let track_gap = long("track_gap")
+        .help("Size of gap between tracks as a ratio of track width")
+        .argument::<f32>("TRACK_GAP")
+        .optional();
+
     let hole_ratio = short('h')
         .long("hole_ratio")
         .help("Ratio of inner radius to outer radius")
@@ -103,6 +127,15 @@ pub(crate) fn opts() -> OptionParser<Out> {
         .fallback(0.0);
 
     let data = long("data").help("Render data").switch();
+
+    let data_slices = long("data_slices")
+        .help("Number of slices to use rendering data")
+        .argument::<usize>("DATA_SLICES")
+        .fallback(DEFAULT_DATA_SLICES);
+
+    let rasterize_data = long("rasterize_data")
+        .help("Use rasterization method for data rendering.")
+        .switch();
 
     let weak = short('w').long("weak").help("Render weak bits").switch();
 
@@ -120,6 +153,8 @@ pub(crate) fn opts() -> OptionParser<Out> {
         .fallback(1);
 
     let cc = long("cc").help("Wrap data counter-clockwise").switch();
+
+    let dont_reverse = long("dont_reverse").help("Don't reverse direction of side 1").switch();
 
     let img_bg_color = long("img_bg_color")
         .help("Specify the image background color as #RRGGBBAA, #RRGGBB, or R,G,B,A")
@@ -139,13 +174,18 @@ pub(crate) fn opts() -> OptionParser<Out> {
         .argument::<String>("TITLE")
         .optional();
 
-    construct!(Out {
+    construct!(VizArgs {
         debug,
         in_filename,
         out_filename,
+        style_filename,
         resolution,
         side,
         sides,
+        data_slices,
+        rasterize_data,
+        side_spacing,
+        track_gap,
         hole_ratio,
         angle,
         data,
@@ -155,6 +195,7 @@ pub(crate) fn opts() -> OptionParser<Out> {
         index_hole,
         decode,
         cc,
+        dont_reverse,
         supersample,
         img_bg_color,
         track_bg_color,
@@ -186,7 +227,7 @@ pub(crate) fn substitute_title(title: Option<String>, in_filename: &Path) -> Opt
 }
 
 /// Parse a color from either a hex string (`#RRGGBBAA` or `#RRGGBB`) or an RGBA string (`R,G,B,A`).
-pub(crate) fn parse_color(input: &str) -> Result<Color, String> {
+pub(crate) fn parse_color(input: &str) -> Result<VizColor, String> {
     if input.starts_with('#') {
         // Parse hex color: #RRGGBBAA or #RRGGBB
         let hex = input.strip_prefix('#').ok_or("Invalid hex color")?;
@@ -195,14 +236,14 @@ pub(crate) fn parse_color(input: &str) -> Result<Color, String> {
                 let r = u8::from_str_radix(&hex[0..2], 16).map_err(|_| "Invalid hex color")?;
                 let g = u8::from_str_radix(&hex[2..4], 16).map_err(|_| "Invalid hex color")?;
                 let b = u8::from_str_radix(&hex[4..6], 16).map_err(|_| "Invalid hex color")?;
-                Ok(Color::from_rgba8(r, g, b, 255))
+                Ok(VizColor::from_rgba8(r, g, b, 255))
             }
             8 => {
                 let r = u8::from_str_radix(&hex[0..2], 16).map_err(|_| "Invalid hex color")?;
                 let g = u8::from_str_radix(&hex[2..4], 16).map_err(|_| "Invalid hex color")?;
                 let b = u8::from_str_radix(&hex[4..6], 16).map_err(|_| "Invalid hex color")?;
                 let a = u8::from_str_radix(&hex[6..8], 16).map_err(|_| "Invalid hex color")?;
-                Ok(Color::from_rgba8(r, g, b, a))
+                Ok(VizColor::from_rgba8(r, g, b, a))
             }
             _ => Err("Hex color must be in the format #RRGGBB or #RRGGBBAA".to_string()),
         }
@@ -217,6 +258,6 @@ pub(crate) fn parse_color(input: &str) -> Result<Color, String> {
         let g = parts[1].parse::<u8>().map_err(|_| "Invalid RGBA color component")?;
         let b = parts[2].parse::<u8>().map_err(|_| "Invalid RGBA color component")?;
         let a = parts[3].parse::<u8>().map_err(|_| "Invalid RGBA color component")?;
-        Ok(Color::from_rgba8(r, g, b, a))
+        Ok(VizColor::from_rgba8(r, g, b, a))
     }
 }

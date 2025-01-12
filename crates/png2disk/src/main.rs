@@ -23,33 +23,23 @@
     DEALINGS IN THE SOFTWARE.
 
     --------------------------------------------------------------------------
-
-    main.rs
-
-    An entirely useless utility that writes PNG files to disk images, mostly
-    because we can. Have fun making floppy art!
 */
+
+//! png2disk
+//! An entirely useless utility that writes PNG files to disk images, mostly
+//! because we can. Have fun making floppy art!
+
 mod args;
 mod disk;
 
 use std::io::Cursor;
 
-use crate::{args::opts, disk::repair_crcs};
-use fluxfox::{
-    format_from_ext,
-    prelude::*,
-    visualization::{
-        pixmap_to_disk::{render_pixmap_to_disk, render_pixmap_to_disk_grayscale},
-        PixmapToDiskParams,
-        RenderTrackDataParams,
-        RotationDirection,
-    },
-    DiskImage,
-    ImageBuilder,
-    ImageWriter,
-};
+use fluxfox::{format_from_ext, prelude::*, visualization::prelude::*, DiskImage, ImageBuilder, ImageWriter};
 
-use tiny_skia::{Pixmap, PixmapRef};
+use crate::{args::opts, disk::repair_crcs};
+
+use fluxfox_tiny_skia::tiny_skia::Pixmap;
+use tiny_skia::{PixmapPaint, PixmapRef, Transform};
 
 fn main() {
     env_logger::init();
@@ -132,23 +122,52 @@ fn main() {
         }
     }
 
-    let mut data_params = RenderTrackDataParams {
-        image_size: (pixmap0.width(), pixmap0.height()),
-        image_pos: (0, 0),
-        head: 0,
-        track_limit: disk.tracks(0) as usize,
-        min_radius_fraction: opts.hole_ratio.unwrap_or(match opts.applesauce {
+    let mut common_params = CommonVizParams {
+        radius: Some(pixmap0.height() as f32 / 2.0),
+        max_radius_ratio: opts.hole_ratio.unwrap_or(match opts.applesauce {
             false => 0.3, // Good hole ratio for HxC and fluxfox
             true => 0.27, // Applesauce has slightly smaller hole
         }),
+        min_radius_ratio: 1.0,
+        pos_offset: None,
         index_angle: opts.angle,
-        direction: RotationDirection::Clockwise,
-        sector_mask: opts.sectors_only,
-        ..Default::default()
+        track_limit: Some(disk.tracks(0) as usize),
+        pin_last_standard_track: false,
+        track_gap: 0.0,
+        direction: TurningDirection::Clockwise,
     };
 
+    let mut data_params = RenderTrackDataParams {
+        side: 0,
+        // Not used
+        decode: false,
+        // Whether to mask the image to sector data areas
+        sector_mask: opts.sectors_only,
+        // Not used
+        resolution: Default::default(),
+        // Not used
+        slices: 0,
+        overlap: 0.0,
+    };
+
+    // let mut data_params = RenderTrackDataParams {
+    //     image_size: (pixmap0.width(), pixmap0.height()),
+    //     image_pos: (0, 0),
+    //     side: 0,
+    //     track_limit: disk.tracks(0) as usize,
+    //     min_radius_ratio: opts.hole_ratio.unwrap_or(match opts.applesauce {
+    //         false => 0.3, // Good hole ratio for HxC and fluxfox
+    //         true => 0.27, // Applesauce has slightly smaller hole
+    //     }),
+    //     index_angle: opts.angle,
+    //     direction: TurningDirection::Clockwise,
+    //     sector_mask: opts.sectors_only,
+    //     ..Default::default()
+    // };
+
+    // If the user specified initial counter-clockwise rotation, change the direction.
     if opts.cc {
-        data_params.direction = data_params.direction.opposite();
+        common_params.direction = TurningDirection::CounterClockwise;
     }
 
     let pixmap_params = PixmapToDiskParams {
@@ -158,17 +177,18 @@ fn main() {
 
     let render = |pixmap: &Pixmap,
                   disk: &mut DiskImage,
+                  common_params: &CommonVizParams,
                   pixmap_params: &PixmapToDiskParams,
                   data_params: &RenderTrackDataParams| {
         match opts.grayscale {
-            true => match render_pixmap_to_disk_grayscale(pixmap, disk, pixmap_params, data_params) {
+            true => match render_pixmap_to_disk_grayscale(pixmap, disk, common_params, data_params, pixmap_params) {
                 Ok(_) => (),
                 Err(e) => {
                     eprintln!("Error rendering pixmap to disk: {}", e);
                     std::process::exit(1);
                 }
             },
-            false => match render_pixmap_to_disk(pixmap, disk, pixmap_params, data_params) {
+            false => match render_pixmap_to_disk(pixmap, disk, common_params, data_params, pixmap_params) {
                 Ok(_) => (),
                 Err(e) => {
                     eprintln!("Error rendering pixmap to disk: {}", e);
@@ -180,21 +200,26 @@ fn main() {
 
     println!("Rendering side 0...");
     // Render the first side.
-    render(&pixmap0, &mut disk, &pixmap_params, &data_params);
+    render(&pixmap0, &mut disk, &common_params, &pixmap_params, &data_params);
 
     // Render the second side, if present.
-
     if let Some(pixmap1) = pixmap1_opt {
         if disk.heads() > 1 {
             // Applesauce doesn't change the rotation direction for the second side.
             if !opts.applesauce {
-                data_params.direction = data_params.direction.opposite();
+                common_params.direction = common_params.direction.opposite();
             }
-            data_params.image_size = (pixmap1.width(), pixmap1.height());
-            data_params.track_limit = disk.tracks(1) as usize;
-            data_params.head = 1;
+            common_params.track_limit = Some(disk.tracks(1) as usize);
+            data_params.side = 1;
+            common_params.index_angle = common_params.direction.adjust_angle(opts.angle);
             println!("Rendering side 1...");
-            render(&pixmap1.to_owned(), &mut disk, &pixmap_params, &data_params);
+            render(
+                &pixmap1.to_owned(),
+                &mut disk,
+                &common_params,
+                &pixmap_params,
+                &data_params,
+            );
         }
     }
 
@@ -241,8 +266,8 @@ fn rotate_pixmap(pixmap: PixmapRef, angle: f32) -> Pixmap {
         0,
         0,
         pixmap,
-        &tiny_skia::PixmapPaint::default(),
-        tiny_skia::Transform::from_rotate(angle).post_translate(pixmap.height() as f32, 0.0),
+        &PixmapPaint::default(),
+        Transform::from_rotate(angle).post_translate(pixmap.height() as f32, 0.0),
         None,
     );
     new_pixmap

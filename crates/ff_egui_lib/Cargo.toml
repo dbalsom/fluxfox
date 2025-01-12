@@ -12,6 +12,8 @@ license.workspace = true
 [dependencies]
 log = "0.4"
 fluxfox = { path = "../..", default-features = false, features = ["fat", "viz"] }
+fluxfox_tiny_skia = { path = "../fluxfox_tiny_skia" }
+
 egui = {  version = "0.30.0", optional = true }
 egui_extras = { version = "0.30.0", optional = true }
 egui_plot = { version = "0.30.0", optional = true }

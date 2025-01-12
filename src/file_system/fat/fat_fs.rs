@@ -24,7 +24,6 @@
 
     --------------------------------------------------------------------------
 */
-use std::sync::{Arc, RwLock};
 
 #[cfg(feature = "zip")]
 use crate::io::Write;
@@ -33,6 +32,7 @@ use crate::io::Write;
 use crate::io::Cursor;
 
 use crate::{
+    disk_lock::{DiskLock, LockContext, NonTrackingDiskLock},
     file_system::{
         file_tree::{FileEntry, FileEntryType, FileNameType, FileTreeNode},
         FileSystemArchive,
@@ -56,16 +56,22 @@ impl FatFileSystem {
     /// - `disk_lock`: A reference-counted `RwLock` wrapping a `DiskImage` object.
     /// - `format`: An optional `StandardFormat` to use when mounting the filesystem. This can
     ///             be used to override auto-detection of the disk format.
-    pub fn mount(disk_lock: Arc<RwLock<DiskImage>>, format: Option<StandardFormat>) -> Result<Self, FileSystemError> {
+    ///
+    ///
+    pub fn mount<L, C>(disk_lock: L, lock_context: C, format: Option<StandardFormat>) -> Result<Self, FileSystemError>
+    where
+        L: DiskLock<DiskImage, C> + Into<NonTrackingDiskLock<DiskImage>>,
+        C: LockContext,
+    {
         log::debug!(
             "FatFileSystem::mount(): Attempting to lock disk image for writing with {} references...",
-            Arc::strong_count(&disk_lock)
+            disk_lock.strong_count()
         );
 
         // If a format was not provided, attempt to auto-detect the format
         let format = match format {
             Some(f) => Some(f),
-            None => disk_lock.read().unwrap().closest_format(true),
+            None => disk_lock.read(lock_context).unwrap().closest_format(true),
         };
 
         if format.is_none() {

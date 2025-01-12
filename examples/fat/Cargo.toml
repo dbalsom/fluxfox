@@ -11,7 +11,7 @@ license.workspace = true
 
 [dependencies]
 bpaf = { version = "0.9", features = ["autocomplete"] }
-fluxfox = { path = "../..", default-features = false, features = ["zip", "mfi", "fat"] }
+fluxfox = { path = "../..", default-features = false, features = ["core", "zip", "mfi", "fat"] }
 logger = "0.4"
 env_logger = "0.11"
 log = "0.4.22"

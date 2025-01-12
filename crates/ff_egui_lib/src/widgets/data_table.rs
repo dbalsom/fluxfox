@@ -338,21 +338,6 @@ impl DataTableWidget {
         row_elements
     }
 
-    fn row_string_hex(&mut self, row_index: usize) -> egui::RichText {
-        let data_index = row_index * self.num_columns;
-        if data_index >= self.data.len() {
-            return egui::RichText::new("");
-        }
-        let data_slice = &self.data[data_index..std::cmp::min(data_index + self.num_columns, self.data.len())];
-
-        let mut row_string = String::new();
-        for byte in data_slice {
-            row_string.push_str(&format!("{:02X} ", byte));
-        }
-
-        egui::RichText::new(row_string).monospace()
-    }
-
     fn row_elements_ascii(&mut self, row_index: usize, hovered: Option<usize>) -> Vec<egui::Label> {
         let data_index = row_index * self.num_columns;
         if data_index >= self.data.len() {
@@ -371,16 +356,6 @@ impl DataTableWidget {
         }
 
         row_elements
-    }
-
-    fn row_string_ascii(&mut self, row_index: usize) -> egui::RichText {
-        let data_index = row_index * self.num_columns;
-        if data_index >= self.data.len() {
-            return egui::RichText::new("");
-        }
-        let data_slice = &self.data[data_index..std::cmp::min(data_index + self.num_columns, self.data.len())];
-        let row_string = self.encoding.slice_to_string(data_slice);
-        egui::RichText::new(row_string).monospace()
     }
 
     fn calc_layout(&mut self) {
