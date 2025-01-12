@@ -139,9 +139,7 @@ impl SvgRenderer {
     /// of the rendered image. The view box should be square, unless you really want a distorted
     /// image. If radius is not set, radius will be set to half the height of the view box.
     pub fn with_side_view_box(mut self, view_box: VizRect<f32>) -> Self {
-        if self.common_params.radius.is_none() {
-            self.common_params.radius = Some(view_box.height() / 2.0);
-        }
+        self.common_params.radius = Some(view_box.height() / 2.0);
         self.side_view_box = view_box;
         self
     }
@@ -338,6 +336,11 @@ impl SvgRenderer {
             pos_offset: None,
         };
 
+        // Reverse the turning direction for side 1, if reverse turning is enabled (default true)
+        if side > 0 && self.reverse_turning {
+            self.common_params.direction = self.common_params.direction.opposite();
+        }
+
         let display_list = vectorize_disk_data(disk, &self.common_params, &data_params, &vector_params)
             .map_err(|e| format!("Failed to vectorize data for side {}: {}", side, e))?;
 
@@ -371,7 +374,7 @@ impl SvgRenderer {
         let metadata_params = RenderTrackMetadataParams {
             quadrant: None,
             side,
-            geometry: Default::default(),
+            geometry: RenderGeometry::Sector,
             winding: Default::default(),
             draw_empty_tracks: false,
             draw_sector_lookup: false,
@@ -501,7 +504,7 @@ impl SvgRenderer {
                 }
                 else if !data_sides.is_empty() {
                     // Only one side was rendered, so just return that side's group.
-                    Some(self.data_groups[0].take().unwrap())
+                    self.data_groups.into_iter().flatten().next()
                 }
                 else {
                     // No sides were rendered, so return None
@@ -532,7 +535,7 @@ impl SvgRenderer {
                 }
                 else if !metadata_sides.is_empty() {
                     // Only one side was rendered, so just return that side's group.
-                    Some(self.metadata_groups[0].take().unwrap())
+                    self.metadata_groups.into_iter().flatten().next()
                 }
                 else {
                     // No sides were rendered, so return None
