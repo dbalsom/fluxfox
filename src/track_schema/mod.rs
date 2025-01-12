@@ -197,7 +197,7 @@ impl TrackMetadata {
             .binary_search_by_key(&bit_index, |e| e.start)
             .unwrap_or_else(|x| x);
 
-        log::warn!("pos: {}", pos);
+        //log::debug!("pos: {}", pos);
 
         // Search backward and forward from `pos` for candidates containing `bit_index`
         let mut result: Option<(&TrackElementInstance, usize)> = None;
@@ -456,6 +456,21 @@ pub enum GenericTrackElement {
     SectorDeletedData,
     SectorBadData,
     SectorBadDeletedData,
+}
+
+impl Display for GenericTrackElement {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            GenericTrackElement::NullElement => write!(f, "Null"),
+            GenericTrackElement::Marker => write!(f, "Marker"),
+            GenericTrackElement::SectorHeader => write!(f, "Sector Header"),
+            GenericTrackElement::SectorBadHeader => write!(f, "Sector Header (Bad)"),
+            GenericTrackElement::SectorData => write!(f, "Sector Data"),
+            GenericTrackElement::SectorDeletedData => write!(f, "Deleted Sector Data"),
+            GenericTrackElement::SectorBadData => write!(f, "Sector Data (Bad)"),
+            GenericTrackElement::SectorBadDeletedData => write!(f, "Deleted Sector Data (Bad)"),
+        }
+    }
 }
 
 /// A [TrackElement] encompasses the concept of a track 'element', representing any notable region
