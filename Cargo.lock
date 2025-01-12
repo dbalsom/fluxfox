@@ -1698,7 +1698,7 @@ dependencies = [
 
 [[package]]
 name = "ff_egui_app"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -1817,7 +1817,7 @@ dependencies = [
 
 [[package]]
 name = "fluxfox_egui"
-version = "0.2.0"
+version = "0.3.2"
 dependencies = [
  "egui",
  "egui_extras",
