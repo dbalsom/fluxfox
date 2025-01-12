@@ -48,6 +48,9 @@ use fluxfox::{
     FoxHashMap,
 };
 
+#[cfg(feature = "svg")]
+use fluxfox_svg::prelude::*;
+
 use fluxfox_egui::widgets::texture::{PixelCanvas, PixelCanvasDepth};
 use fluxfox_tiny_skia::tiny_skia::{BlendMode, Color, FilterQuality, Pixmap, PixmapPaint, Transform};
 
@@ -775,15 +778,61 @@ impl VisualizationState {
         }
     }
 
-    pub(crate) fn save_side_as(&mut self, filename: &str, side: usize) {
+    pub(crate) fn save_side_as_png(&mut self, filename: &str, side: usize) {
         if let Some(canvas) = &mut self.canvas[side] {
             let png_data = canvas.to_png();
             _ = App::save_file_as(filename, &png_data);
         }
     }
 
+    #[cfg(feature = "svg")]
+    pub(crate) fn save_side_as_svg(&self, filename: &str, side: usize) -> Result<(), Error> {
+        if !(self.show_data_layer || self.show_metadata_layer) {
+            // Nothing to render
+            return Err(anyhow!("No layers selected for rendering"));
+        }
+
+        let mut renderer = SvgRenderer::new()
+            .with_side(side as u8)
+            .with_radius_ratios(0.3, 1.0)
+            .with_track_gap(0.1)
+            .with_data_layer(self.show_data_layer, None)
+            .with_metadata_layer(self.show_metadata_layer)
+            .with_layer_stack(true)
+            .with_initial_turning(TurningDirection::Clockwise)
+            .with_blend_mode(fluxfox_svg::prelude::BlendMode::Color)
+            .with_side_view_box(VizRect::from((
+                0.0,
+                0.0,
+                self.resolution as f32,
+                self.resolution as f32,
+            )));
+
+        if let Some(disk) = self.disk.as_ref().and_then(|d| d.read(Tool::Visualization).ok()) {
+            renderer = renderer
+                .render(&disk)
+                .map_err(|e| anyhow!("Error rendering SVG: {}", e))?;
+        }
+        else {
+            return Err(anyhow!("Couldn't lock disk for reading"));
+        }
+
+        let documents = renderer
+            .create_documents()
+            .map_err(|e| anyhow!("Error creating SVG document: {}", e))?;
+
+        if documents.is_empty() {
+            return Err(anyhow!("No SVG documents created"));
+        }
+
+        let svg_data = documents[0].document.to_string();
+
+        App::save_file_as(filename, svg_data.as_bytes()).map_err(|e| anyhow!("Error saving SVG file: {}", e))
+    }
+
     pub(crate) fn show(&mut self, ui: &mut egui::Ui) -> Option<VizEvent> {
         let mut new_event = None;
+        let mut svg_context = None;
 
         // Receive render events
         while let Ok(msg) = self.render_receiver.try_recv() {
@@ -931,6 +980,10 @@ impl VisualizationState {
                                     _ = App::save_file_as(&file_name, &png_data);
                                     ui.close_menu();
                                 }
+                                if ui.button("Save as SVG").clicked() {
+                                    svg_context = Some((format!("fluxfox_viz_side{}.svg", side), side));
+                                    ui.close_menu();
+                                }
                             });
                         };
                     }
@@ -993,6 +1046,13 @@ impl VisualizationState {
             //     0.0,
             //     egui::Color32::RED,
             // );
+        }
+
+        // Deferred SVG rendering from context menu
+        if let Some((svg_filename, side)) = svg_context {
+            if let Err(e) = self.save_side_as_svg(&svg_filename, side) {
+                log::error!("Error saving SVG: {}", e);
+            }
         }
 
         if self.last_event != new_event {

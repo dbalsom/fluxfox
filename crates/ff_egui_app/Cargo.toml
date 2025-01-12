@@ -86,7 +86,7 @@ features = [
 ]
 
 [features]
-default = ["amiga", "macintosh"]
+default = ["amiga", "macintosh", "svg"]
 amiga = ["fluxfox/amiga"]
 macintosh = ["fluxfox/macintosh"]
 svg = ["dep:fluxfox_svg"]
