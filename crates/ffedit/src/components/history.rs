@@ -2,7 +2,7 @@
     ffedit
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -24,13 +24,15 @@
 
     --------------------------------------------------------------------------
 */
-use crate::logger::LogEntry;
-use crate::widget::{FoxWidget, ScrollableWidget, TabSelectableWidget, WidgetState};
-use ratatui::prelude::*;
-use ratatui::widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, WidgetRef};
-use std::cell::RefCell;
-use std::cmp;
-use std::collections::VecDeque;
+use crate::{
+    logger::LogEntry,
+    widget::{FoxWidget, ScrollableWidget, TabSelectableWidget, WidgetState},
+};
+use ratatui::{
+    prelude::*,
+    widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, WidgetRef},
+};
+use std::{cell::RefCell, cmp, collections::VecDeque};
 
 // Define an enum for the history entries
 #[derive(Clone)]
@@ -102,7 +104,8 @@ impl HistoryWidget {
         // Render a border around the widget
         let border_style = if self.tab_selected {
             Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)
-        } else {
+        }
+        else {
             Style::default()
         };
 

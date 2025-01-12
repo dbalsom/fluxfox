@@ -2,7 +2,7 @@
     ffedit
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -24,8 +24,10 @@
 
     --------------------------------------------------------------------------
 */
-use crate::app::{AppContext, AppEvent};
-use crate::cmd_interpreter::{Command, CommandArgs, CommandResult};
+use crate::{
+    app::{AppContext, AppEvent},
+    cmd_interpreter::{Command, CommandArgs, CommandResult},
+};
 use std::path::PathBuf;
 
 pub(crate) struct OpenCommand;
@@ -47,7 +49,8 @@ impl Command for OpenCommand {
             }
 
             Ok(CommandResult::Success(format!("Opening file: {}...", filename)))
-        } else {
+        }
+        else {
             Err(format!("Usage: open {}", self.usage()))
         }
     }

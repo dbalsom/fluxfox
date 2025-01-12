@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -28,10 +28,10 @@
 // Worker code adapted from
 // https://www.tweag.io/blog/2022-11-24-wasm-threads-and-messages/
 
-use eframe::wasm_bindgen;
-use eframe::wasm_bindgen::closure::Closure;
-use eframe::wasm_bindgen::prelude::wasm_bindgen;
-use eframe::wasm_bindgen::{JsCast, JsValue};
+use eframe::{
+    wasm_bindgen,
+    wasm_bindgen::{closure::Closure, prelude::wasm_bindgen, JsCast, JsValue},
+};
 
 // Spawn a worker and communicate with it.
 #[allow(dead_code)]

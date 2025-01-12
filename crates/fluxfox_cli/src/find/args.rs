@@ -2,7 +2,7 @@
     fluxfox - fftool
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -25,8 +25,15 @@
     --------------------------------------------------------------------------
 */
 use crate::args::{
-    cylinder_parser, dump_format_parser, head_parser, in_file_parser, phys_cylinder_parser, phys_head_parser,
-    row_size_parser, sector_parser, DumpFormat,
+    cylinder_parser,
+    dump_format_parser,
+    head_parser,
+    in_file_parser,
+    phys_cylinder_parser,
+    phys_head_parser,
+    row_size_parser,
+    sector_parser,
+    DumpFormat,
 };
 
 use bpaf::{construct, long, Parser};

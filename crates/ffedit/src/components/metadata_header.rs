@@ -2,7 +2,7 @@
     ffedit
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -25,11 +25,13 @@
     --------------------------------------------------------------------------
 */
 use indexmap::IndexMap;
-use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
-use ratatui::prelude::*;
-use ratatui::style::Style;
-use ratatui::widgets::{Block, WidgetRef};
+use ratatui::{
+    buffer::Buffer,
+    layout::Rect,
+    prelude::*,
+    style::Style,
+    widgets::{Block, WidgetRef},
+};
 
 #[derive(Default)]
 pub enum MetaDataType {
@@ -50,7 +52,6 @@ pub struct MetaDataHeader {
 
 impl MetaDataHeader {
     pub fn new(dh_type: MetaDataType) -> MetaDataHeader {
-        
         match dh_type {
             MetaDataType::Sector => {
                 let mut map = IndexMap::new();
