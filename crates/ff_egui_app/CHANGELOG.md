@@ -1,3 +1,8 @@
+## 0.3.2 (2025-01-11)
+
+- Track flux timing viewer
+- New visualization pipeline
+
 ## 0.3.1 (2024-12-27)
 
 - Added Track Element map
