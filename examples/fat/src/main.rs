@@ -33,7 +33,12 @@
 use std::path::PathBuf;
 
 use bpaf::*;
-use fluxfox::{file_system::fat::fat_fs::FatFileSystem, io::Cursor, prelude::*};
+use fluxfox::{
+    disk_lock::{NonTrackingDiskLock, NullContext},
+    file_system::fat::fat_fs::FatFileSystem,
+    io::Cursor,
+    prelude::*,
+};
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -115,7 +120,7 @@ fn main() {
     let disk_arc = DiskImage::into_arc(disk);
 
     // Mount the filesystem
-    let fs = match FatFileSystem::mount(disk_arc.clone(), None) {
+    let fs = match FatFileSystem::mount(NonTrackingDiskLock::new(disk_arc.clone()), NullContext::default(), None) {
         Ok(fs) => fs,
         Err(e) => {
             eprintln!("Error mounting filesystem: {}", e);

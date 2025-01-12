@@ -1,6 +1,6 @@
 [package]
 name = "ff_egui_app"
-version = "0.3.1"
+version = "0.3.2"
 authors = ["Daniel Balsom"]
 edition = "2021"
 include = ["LICENSE-APACHE", "LICENSE-MIT", "**/*.rs", "Cargo.toml"]
@@ -18,10 +18,18 @@ eframe = { version = "0.30", default-features = false, features = [
     "persistence",   # Enable restoring app state when restarting the app.
 ]}
 egui_extras = { version = "0.30", default-features = false, features = ["http", "image"] }
+# Image crate is used for bitmap loading for GUI elements and PNG export of disk visualizations.
 image = { version = "0.25", default-features = false, features = ["png"] }
 log = "0.4"
-fluxfox = { path = "../..", default-features = false, features = ["rand", "serde", "archives", "mfi", "viz", "fat", "ibmpc", "amiga", "macintosh"] }
+
+# Fluxfox dependencies
+fluxfox = { path = "../..", default-features = false, features = ["rand", "serde", "archives", "mfi", "viz", "tiny_skia", "fat", "ibmpc", "amiga", "macintosh"] }
+# fluxfox_egui provides common egui widgets for fluxfox. This crate is intended for direct use by egui-based emulators.
 fluxfox_egui = { path = "../ff_egui_lib" }
+# fluxfox_tiny_skia provides a tiny_skia rendering backend for fluxfox visualization functions
+fluxfox_tiny_skia = { path = "../fluxfox_tiny_skia" }
+# fluxfox_svg provides SVG rendering for fluxfox visualization functions. Enable via the 'svg' feature.
+fluxfox_svg = { path = "../fluxfox_svg", optional = true }
 
 # We don't need tiny_skia's png support since egui is pulling in image anyway.
 tiny-skia = { version = "0.11", default-features = false, features = ["std", "simd"] }
@@ -55,6 +63,8 @@ eframe = { version = "0.30", default-features = false, features = [
     "glow",          # Use the glow rendering backend. Alternative: "wgpu".
     "persistence",   # Enable restoring app state when restarting the app.
 ]}
+# Use web-time for Instant and Duration
+web-time.workspace = true
 
 # We are limited to the wasm-bindgen binary version bundled with trunk
 wasm-bindgen = "=0.2.95"
@@ -76,5 +86,9 @@ features = [
 ]
 
 [features]
-default = ["amiga"]
+default = ["amiga", "macintosh"]
 amiga = ["fluxfox/amiga"]
+macintosh = ["fluxfox/macintosh"]
+svg = ["dep:fluxfox_svg"]
+# enable dev stuff - warning, may be unstable or completely broken
+devmode = []

@@ -267,7 +267,7 @@ impl DataVisualizerWidget {
 
     pub fn show(&mut self, ui: &mut egui::Ui) {
         if let Some(canvas) = &mut self.canvas {
-            ui.set_width(canvas.get_width());
+            ui.set_width(canvas.width());
         }
 
         ui.horizontal(|ui| {
@@ -416,7 +416,7 @@ impl DataVisualizerWidget {
 
         if let Some(canvas) = &mut self.canvas {
             ui.separator();
-            ui.set_width(canvas.get_width());
+            ui.set_width(canvas.width());
             canvas.show(ui, None::<HoverCallback>);
         }
     }

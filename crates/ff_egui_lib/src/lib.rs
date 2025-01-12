@@ -29,6 +29,7 @@ use std::fmt::{Debug, Formatter, Result};
 
 pub mod encoding;
 mod range_check;
+pub mod visualization;
 pub mod widgets;
 
 #[derive(Debug, Clone, Default)]

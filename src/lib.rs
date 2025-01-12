@@ -46,31 +46,30 @@ mod bit_ring;
 pub mod bitstream_codec;
 pub mod boot_sector;
 mod containers;
+mod copy_protection;
 mod detect;
+pub mod disk_lock;
+mod disk_schema;
 pub mod diskimage;
 mod file_parsers;
-pub mod image_builder;
-pub mod io;
-mod random;
-pub mod track_schema;
-pub mod util;
-
-mod copy_protection;
 pub mod file_system;
 pub mod flux;
-mod image_writer;
-pub mod prelude;
-mod range_check;
-pub mod track;
-pub mod types;
-
-mod disk_schema;
+pub mod image_builder;
 mod image_loader;
+mod image_writer;
+pub mod io;
 mod platform;
+pub mod prelude;
+mod random;
+mod range_check;
 mod scripting;
 mod sector_view;
 pub mod source_map;
+pub mod track;
+pub mod track_schema;
 mod tree_map;
+pub mod types;
+pub mod util;
 #[cfg(feature = "viz")]
 pub mod visualization;
 
@@ -80,6 +79,11 @@ use thiserror::Error;
 pub const MAXIMUM_SECTOR_SIZE: usize = 8192;
 pub const DEFAULT_SECTOR_SIZE: usize = 512;
 pub const ASCII_EOF: u8 = 0x1A;
+/// The maximum cylinder any drive can seek to or that we will ever see in an image.
+/// This is used for setting safe capacities for vectors and other data structures and track-based
+/// normalization logic.
+/// This may need to be adjusted if we ever see a disk image with more than 85 cylinders.
+pub const MAX_CYLINDER: usize = 85;
 
 #[allow(unused)]
 pub type FoxHashMap<K, V, S = RandomState> = std::collections::HashMap<K, V, S>;
@@ -173,10 +177,14 @@ impl From<binrw::Error> for DiskImageError {
 
 #[derive(Debug, Error)]
 pub enum DiskVisualizationError {
-    #[error("An invalid parameter was supplied")]
-    InvalidParameter,
-    #[error("The disk image is not a valid format for visualization")]
+    #[error("An invalid parameter was supplied: {0}")]
+    InvalidParameter(String),
+    #[error("No compatible tracks were found to visualize")]
     NoTracks,
+    #[error("The disk image is not a valid format for visualization")]
+    InvalidImage,
+    #[error("The supplied parameters do not produce a visible visualization")]
+    NotVisible,
 }
 
 // Re-export tiny_skia for convenience
@@ -187,8 +195,6 @@ pub use crate::{
     image_writer::ImageWriter,
     types::{DiskImageFileFormat, SectorMapEntry},
 };
-#[cfg(feature = "viz")]
-pub use tiny_skia;
 
 use types::{DiskCh, DiskChs, DiskChsn, DiskChsnQuery};
 // Re-export tiny_skia for convenience

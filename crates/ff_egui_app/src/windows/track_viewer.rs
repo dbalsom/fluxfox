@@ -24,6 +24,7 @@
 
     --------------------------------------------------------------------------
 */
+use crate::{app::Tool, lock::TrackingLock};
 use fluxfox::prelude::*;
 use fluxfox_egui::{
     widgets::data_table::{DataRange, DataTableWidget},
@@ -53,8 +54,8 @@ impl TrackViewer {
         }
     }
 
-    pub fn update(&mut self, disk_lock: Arc<RwLock<DiskImage>>, selection: TrackSelection) {
-        let disk = &mut disk_lock.write().unwrap();
+    pub fn update(&mut self, disk_lock: TrackingLock<DiskImage>, selection: TrackSelection) {
+        let disk = &mut disk_lock.write(Tool::TrackViewer).unwrap();
 
         self.phys_ch = selection.phys_ch;
 

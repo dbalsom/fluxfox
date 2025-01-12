@@ -1,6 +1,6 @@
 [package]
 name = "fluxfox_egui"
-version = "0.2.0"
+version = "0.3.2"
 description = "A library crate providing egui widgets that interface with fluxfox."
 edition.workspace = true
 authors.workspace = true
@@ -12,6 +12,8 @@ license.workspace = true
 [dependencies]
 log = "0.4"
 fluxfox = { path = "../..", default-features = false, features = ["fat", "viz"] }
+fluxfox_tiny_skia = { path = "../fluxfox_tiny_skia" }
+
 egui = {  version = "0.30.0", optional = true }
 egui_extras = { version = "0.30.0", optional = true }
 egui_plot = { version = "0.30.0", optional = true }

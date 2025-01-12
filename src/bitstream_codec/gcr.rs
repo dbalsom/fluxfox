@@ -29,7 +29,8 @@
     Implements a wrapper around a BitVec to provide MFM encoding and decoding.
 
 */
-
+#![allow(dead_code)]
+#![allow(unused_variables)]
 //! A stub implementation of a GCR codec. This is a placeholder for a proper
 //! implementation in the future. The Snow mac emulator doesn't need decoding
 //! support, just raw access to GCR tracks.
@@ -202,8 +203,8 @@ impl TrackCodec for GcrCodec {
             .map(|(start, end)| (*start, *end))
             .collect::<Vec<(usize, usize)>>();
 
-        self.data_ranges_filtered = RangeChecker::new(filtered_ranges);
-        self.data_ranges = RangeChecker::new(ranges);
+        self.data_ranges_filtered = RangeChecker::new(&filtered_ranges);
+        self.data_ranges = RangeChecker::new(&ranges);
     }
 
     fn is_data(&self, index: usize, wrapping: bool) -> bool {

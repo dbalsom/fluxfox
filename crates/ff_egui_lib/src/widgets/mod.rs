@@ -30,6 +30,7 @@ pub mod data_table;
 pub mod data_visualizer;
 pub mod dir_tree;
 pub mod disk_info;
+pub mod disk_visualizer;
 pub mod error_banner;
 pub mod file_list;
 pub mod filesystem;

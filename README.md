@@ -2,7 +2,7 @@
 
 # fluxfox
 
-A PC-focused floppy disk image library
+A floppy disk image library in [Rust](https://www.rust-lang.org/)
 
 [![Crate Badge]][Crate] [![Docs Badge]][Docs] [![Deps.rs Badge]][Deps.rs] [![License Badge]](./LICENSE)
 
@@ -10,18 +10,21 @@ A PC-focused floppy disk image library
 
 [![Github Pages](https://github.com/dbalsom/fluxfox/actions/workflows/deploy_ff_egui_app.yml/badge.svg)](https://github.com/dbalsom/fluxfox/actions/workflows/deploy_ff_egui_app.yml)
 
-**This library is under heavy initial development. The API is incredibly unstable, the internal disk representation
-is not final, and there are probably a million bugs. I do not recommend using this library until it reaches a more
-stable state.**
+**This library is under heavy initial development. The API in this repository is subject to change at any time.**
 
 ![image](doc/img/visualization_example.png)
 <p align="center">Arac (1988, Digital Leisure Corporation) showing the signature of MINDER copy protection</p>
 
 ## Goals
 
-* fluxfox is intended to serve the needs of a PC emulator that wishes to read various disk image formats.
+* fluxfox is intended to serve the needs of an emulator that wishes to read various disk image formats. Its primary
+  focus has been the PC platform, but has recently gained initial support for other platforms such as the Amiga,
+  Macintosh, and Atari ST.
+
   It provides an interface by which an emulator can load a disk image, then perform operations on the disk image
   consistent with typical operations supported by a common PC floppy disk controller such as the NEC μPD765A.
+
+  Low level access to the track bitstream is also available for implementing other controller types.
 
 ### Non-Goals
 
@@ -40,7 +43,7 @@ At least partial support for the following disk images is under development:
 
 ### Raw Sector Images
 
-* **Raw Sector Image** (IMG, IMA, DSK, etc.)
+* **Raw Sector Image** (IMG, IMA, DSK, ADF, ST, etc.)
     * Raw sector images are ubiquitous, easily the most common type of disk image used with PC emulators. These files
       simply contain raw sectors in order, which are all assumed to be exactly 512 bytes. No header is present, but the
       layout of the disk can generally be determined by the file size.
@@ -92,6 +95,14 @@ complex than sector images to manipulate and write back to.
 * **86Box Floppy Image** (86F)
     * A format designed around the internal representation of disks in the 86Box emulator. Bitstream based and flexible
       in terms of per-track parameters, it also allows exact encoding of bitcell length to support track wrapping.
+* **Interchangeable Preservation Format** (IPF)
+    * A format developed by the [Software Preservation Society](http://www.softpres.org/), originally designed to hold
+      Amiga disk images, but expanded to Atari ST and theoretically capable of holding a variety of disk image types.
+    * IPF files, unlike other bitstream-level images, divide a disk into elements which must be reconstructed to
+      reproduce the original track data.
+    * The SPS has curated official IPF disk image collections, although unofficial tools exist to create IPF files.
+      These
+      tools do not always create valid IPF images or properly set IPF metadata. Fluxfox will reject such images.
 
 Some Bitstream-level formats, such as MFM and HFE, do not support specifying an absolute bit length. This can cause
 problems when emulating certain copy-protection schemes that involve precise handling of reading across the index
@@ -144,6 +155,14 @@ so is a complicated process.
     * MFI images contain a single revolution, encoding "zones" of NFA's or surface damage to support various
       copy-protection methods.
 
+### Hybrid / Multi-Resolution Images
+
+Some disk image formats support both bitstream and flux-level track representation.
+
+* **Applesauce MOOF** (MOOF)
+    * A modern, chunked disk image format intended to store disk images for the Apple Macintosh. It can store either
+      MFM or GCR encoded tracks at either bitstream or resolved flux resolution.
+
 ### Disk Encodings
 
 * **MFM**
@@ -155,15 +174,34 @@ so is a complicated process.
     * Commercial disk duplicators would sometimes include an FM-encoded track at the end of an otherwise MFM-encoded
       diskette, containing duplication info. Sometimes these "duplication marks" contain useful clues as to the type
       of copy-protection used.
+* **GCR**
+    * [Group Coded Recording](https://en.wikipedia.org/wiki/Group_coded_recording) is an encoding scheme that is more
+      complex but also more efficient than either FM or MFM. It appears in several variants, 4:4, 5:3, and 6:2 being a
+      few.
 
-Other common encodings, such as Apple's [GCR encoding](https://en.wikipedia.org/wiki/Group_coded_recording) are not
-supported as this library concentrates on support for IBM PC disk images for the immediate future.
+      Fluxfox supports loading and categorizing GCR-encoded tracks, but does not currently support decoding them.
+
+## Track Schemas
+
+Fluxfox describes the layout of a track using a Track "Schema", allowing it to eventually support a variety of hardware
+platforms.
+
+Currently, two track schema types are defined:
+
+* **System 34** - This is the original IBM PC track format, including its ISO variant that omitted IAM markers.
+* **Amiga `trackdisk`** - This is the traditional layout of an Amiga floppy, typically read and written to an entire
+  track at a time. Note that many copy-protected Amiga titles used custom track formats, and these are not attempted
+  to be detected or decoded.
+
+Fluxfox can handle multiple track schemas per disk, making it possible to load double and triple-format diskettes.
 
 ## Filesystem Support
 
 fluxfox can mount FAT12 filesystems stored on floppy disk images,
 using [rust-fatfs](https://github.com/rafalh/rust-fatfs).
 I have forked this library to provide custom support for more nonconforming disk images.
+
+FAT12 support enables reading the filesystem of PC and Atari ST format diskettes.
 
 With fluxfox's `zip` feature enabled, disk images can be created from loose files contained a ZIP file.
 

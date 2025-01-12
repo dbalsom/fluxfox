@@ -30,7 +30,7 @@
 
 
 */
-
+use anyhow::Error;
 use rusttype::{point, Font, Scale};
 use tiny_skia::{BlendMode, Color, FilterQuality, Pixmap, PixmapPaint, PremultipliedColorU8, Transform};
 
@@ -51,8 +51,10 @@ pub(crate) fn calculate_scaled_font_size(base_font_size: f32, resolution: u32, b
     base_font_size * scale
 }
 
-pub(crate) fn create_font(font_data: &[u8]) -> Result<Font, String> {
-    Font::try_from_bytes(font_data).ok_or("Failed to load font".to_string())
+pub(crate) fn create_font(font_data: &[u8]) -> Option<Font<'static>> {
+    let owned_font_data: Vec<u8> = font_data.to_vec();
+    let from_owned_font: Font<'static> = Font::try_from_vec(owned_font_data)?;
+    Some(from_owned_font)
 }
 
 pub(crate) fn render_text(
@@ -107,9 +109,9 @@ pub(crate) fn render_text(
                 bounding_box.min.y + y,
                 glyph_pixmap.as_ref(),
                 &PixmapPaint {
-                    opacity: 1.0,
+                    opacity:    1.0,
                     blend_mode: BlendMode::SourceOver,
-                    quality: FilterQuality::Bilinear,
+                    quality:    FilterQuality::Bilinear,
                 },
                 Transform::identity(),
                 None,

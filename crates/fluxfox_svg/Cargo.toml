@@ -1,0 +1,21 @@
+[package]
+name = "fluxfox_svg"
+version = "0.2.0"
+edition.workspace = true
+authors.workspace = true
+keywords.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+fluxfox = { workspace = true, default-features = false }
+serde = { workspace = true, features = ["derive"], optional = true }
+svg.workspace = true
+log.workspace = true
+# Web-time is a wasm compatible polyfull for std::time::Instant and Duration. 
+# This is just used for debugging. Perhaps it should be feature-gated
+web-time.workspace = true
+
+[features]
+default = ["serde"]
+serde = ["dep:serde", "fluxfox/serde"]

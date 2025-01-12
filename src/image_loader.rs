@@ -105,6 +105,7 @@ impl ImageLoader {
         self
     }
 
+    #[allow(unused_mut)]
     pub fn load(mut self) -> Result<DiskImage, DiskImageError> {
         unimplemented!()
     }

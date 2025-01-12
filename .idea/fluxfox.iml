@@ -15,13 +15,15 @@
       <sourceFolder url="file://$MODULE_DIR$/examples/imgdump/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/examples/imgconvert/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/ffedit/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/crates/fftool/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/examples/async/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/examples/serde_demo/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/ff_egui_app/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/ff_egui_lib/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/png2disk/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/examples/fat/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/fluxfox_svg/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/fluxfox_tiny_skia/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/fluxfox_cli/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/venv" />
     </content>
