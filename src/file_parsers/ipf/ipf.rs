@@ -99,7 +99,8 @@ impl IpfParser {
         _ = image.seek(std::io::SeekFrom::Start(0));
 
         // The first chunk in an IPF file must be the CAPS chunk
-        if let Ok(file_header) = IpfChunk::read(&mut image) {
+        // Pass a data limit of 0 so we don't end up reading a huge chunk from an invalid file.
+        if let Ok(file_header) = IpfChunk::read_args(&mut image, (0,)) {
             if file_header.chunk_type == Some(IpfChunkType::Caps) {
                 detected = true;
             }

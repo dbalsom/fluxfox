@@ -288,6 +288,7 @@ impl DiskImage {
         callback: Option<LoadingCallback>,
     ) -> Result<Self, DiskImageError> {
         let container = DiskImage::detect_format(image_io, image_path.clone())?;
+        log::debug!("load(): Detected format: {:?}", container);
 
         // TODO: DiskImage should probably not concern itself with archives or disk sets...
         //       We should probably move most of this into an ImageLoader interface similar to

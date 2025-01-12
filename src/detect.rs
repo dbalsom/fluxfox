@@ -72,6 +72,8 @@ pub fn detect_container_format<T: ReadSeek>(
     image_io: &mut T,
     path: Option<&Path>,
 ) -> Result<DiskImageContainer, DiskImageError> {
+    log::debug!("Detecting container format...");
+
     #[cfg(any(feature = "zip", feature = "gzip", feature = "tar"))]
     {
         // First of all, is the input file an archive?

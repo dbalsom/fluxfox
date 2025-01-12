@@ -38,6 +38,7 @@ pub const MAXIMUM_CHUNK_SIZE: usize = 0x100000; // Set some reasonable limit for
 
 #[binrw]
 #[brw(big)]
+#[br(import(data_size_limit: u32))]
 pub(crate) struct IpfChunk {
     pub id: [u8; 4],
     #[bw(ignore)]
@@ -45,7 +46,7 @@ pub(crate) struct IpfChunk {
     pub chunk_type: Option<IpfChunkType>,
     pub size: u32,
     pub crc: u32,
-    #[br(count = size - 12)]
+    #[br(if(data_size_limit > 0), count = size.saturating_sub(12).min(data_size_limit))]
     pub data: Vec<u8>,
     #[bw(ignore)]
     #[br(calc = IpfChunk::calculate_crc(&id, size, &data))] // Calculate the CRC based on fields

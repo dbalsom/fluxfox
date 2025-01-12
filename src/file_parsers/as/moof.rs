@@ -278,7 +278,7 @@ pub struct MoofFormat;
 impl MoofFormat {
     #[allow(dead_code)]
     fn format() -> DiskImageFileFormat {
-        DiskImageFileFormat::PceBitstreamImage
+        DiskImageFileFormat::MoofImage
     }
 
     pub(crate) fn capabilities() -> FormatCaps {

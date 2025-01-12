@@ -1120,7 +1120,6 @@ impl App {
                         }
                         _ => {}
                     });
-
                     DiskImage::load(&mut cursor, None, None, Some(callback))
                         .map(|disk| {
                             log::debug!("Disk image loaded successfully!");
