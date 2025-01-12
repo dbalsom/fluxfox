@@ -526,6 +526,15 @@ pub struct VizCircle {
     pub radius: f32,
 }
 
+impl VizCircle {
+    pub fn new(center: &VizPoint2d<f32>, radius: f32) -> VizCircle {
+        VizCircle {
+            center: *center,
+            radius,
+        }
+    }
+}
+
 impl From<(VizCircle, f32)> for VizShape {
     #[inline]
     fn from(tuple: (VizCircle, f32)) -> VizShape {

@@ -24,7 +24,7 @@
 
     --------------------------------------------------------------------------
 */
-use egui::{Pos2, Rect, RichText, Rounding, Stroke, TextStyle, Vec2};
+use egui::{Pos2, Rect, Response, RichText, Rounding, Stroke, TextStyle, Ui, Vec2, Widget};
 
 pub struct HeaderGroup {
     heading: String,

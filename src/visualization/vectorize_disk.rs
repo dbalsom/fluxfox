@@ -36,12 +36,12 @@ use crate::{
         collect_streams,
         data_segmenter::DataSegmenter,
         metadata,
-        prelude::VizShape,
         stream,
         types::{
             display_list::{VizDataSliceDisplayList, *},
             shapes::{
                 VizArc,
+                VizCircle,
                 VizDataSlice,
                 VizElement,
                 VizElementFlags,
@@ -49,6 +49,7 @@ use crate::{
                 VizPoint2d,
                 VizQuadraticArc,
                 VizSector,
+                VizShape,
             },
         },
         CommonVizParams,
@@ -356,6 +357,7 @@ pub fn vectorize_disk_elements(
 /// Quadrants of the circle are defined by the unit circle as:
 /// `/1 0\`
 /// `\2 3/`
+/// Note that the order is reversed in Clockwise turning direction.
 ///
 /// Quadrants are rendered counter-clockwise, starting from the top right quadrant (0). The order
 /// of quadrant rendering is independent of the data turning direction.
@@ -501,18 +503,21 @@ pub fn vectorize_disk_elements_by_quadrants(
             display_list.push(ti, element_metadata);
 
             // Look for non-marker elements crossing the index, and emit them first.
-            // These elements will always be drawn in quadrant three, clipped at the index
+            // These elements will always be drawn in quadrant 0, clipped at the index
             // boundary, so we will have at least two display list entries for each element
             // that crosses the index.
-            if !r.draw_sector_lookup {
+            if *quadrant == 0 && !r.draw_sector_lookup {
                 for meta_item in track_meta.items.iter() {
                     let generic_element = GenericTrackElement::from(meta_item.element);
                     if matches!(generic_element, GenericTrackElement::Marker) {
-                        // Skip markers. They are too small to overlap the index.
+                        // Skip markers.
+                        continue;
                     }
 
                     if meta_item.end >= r_tracks[ti].len() {
                         let meta_length = meta_item.end - meta_item.start;
+                        let meta_overlap = meta_item.end % r_tracks[ti].len();
+
                         let overlap_long = meta_length > overlap_max;
 
                         log::trace!(
@@ -534,8 +539,9 @@ pub fn vectorize_disk_elements_by_quadrants(
                                     * TAU);
                         }
                         else {
+                            // The start angle is the index angle.
                             start_angle = p.index_angle;
-                            end_angle = p.index_angle + ((meta_item.end as f32 / r_tracks[ti].len() as f32) * TAU);
+                            end_angle = p.index_angle + ((meta_overlap as f32 / r_tracks[ti].len() as f32) * TAU);
                         }
 
                         if start_angle > end_angle {
@@ -946,6 +952,9 @@ pub fn vectorize_disk_hit_test(
         let mut start_angle = ((ei.start as f32 / track_len as f32) * TAU) + p.index_angle;
         let mut end_angle = ((ei.end as f32 / track_len as f32) * TAU) + p.index_angle;
 
+        // Set a flag if the element is larger than the track. This will switch to circle rendering.
+        let wrapping_element = (end_angle - start_angle) > TAU;
+
         // Invert the angles for clockwise rotation
         (start_angle, end_angle) = match p.direction {
             TurningDirection::Clockwise => (start_angle, end_angle),
@@ -958,7 +967,7 @@ pub fn vectorize_disk_hit_test(
         }
 
         let start_angle = start_angle.max(clip_start);
-        let end_angle = end_angle.min(clip_end);
+        //let end_angle = end_angle.min(clip_end);
         let outer_radius = tp.total_radius - (cylinder as f32 * tp.render_track_width);
         let inner_radius = outer_radius - (tp.render_track_width * (1.0 - p.track_gap));
         let mid_radius = (outer_radius + inner_radius) / 2.0;
@@ -976,10 +985,22 @@ pub fn vectorize_disk_hit_test(
                 inner_radius,
                 outer_radius,
             )),
-            RenderGeometry::Arc => VizShape::CubicArc(
-                VizArc::from_angles(&VizPoint2d::new(center.x, center.y), mid_radius, start_angle, end_angle),
-                outer_radius - inner_radius,
-            ),
+            RenderGeometry::Arc => {
+                if wrapping_element {
+                    // If the element wraps around the track, render a full circle.
+                    // A circle is stroked on the outside, by default, so give the inner radius.
+                    VizShape::Circle(
+                        VizCircle::new(&VizPoint2d::new(center.x, center.y), inner_radius),
+                        outer_radius - inner_radius,
+                    )
+                }
+                else {
+                    VizShape::CubicArc(
+                        VizArc::from_angles(&VizPoint2d::new(center.x, center.y), mid_radius, start_angle, end_angle),
+                        outer_radius - inner_radius,
+                    )
+                }
+            }
         };
 
         let info = VizElementInfo {
@@ -993,6 +1014,7 @@ pub fn vectorize_disk_hit_test(
         let element = VizElement { shape, flags, info };
 
         display_list.push(0, element);
+
         return Ok(DiskHitTestResult {
             display_list: Some(display_list),
             angle: normalized_angle,

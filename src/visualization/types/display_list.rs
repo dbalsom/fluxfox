@@ -35,6 +35,7 @@ use crate::visualization::{
 
 /// A [VizElementDisplayList] is a list of [VizElement] objects to be rendered.
 /// Operations can be implemented on this list, such as scaling and rotation.
+#[derive(Clone)]
 pub struct VizElementDisplayList {
     pub turning: TurningDirection,
     pub side:    u8,

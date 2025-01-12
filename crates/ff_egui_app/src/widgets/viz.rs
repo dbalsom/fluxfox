@@ -29,14 +29,14 @@
 use crate::native::worker;
 #[cfg(target_arch = "wasm32")]
 use crate::wasm::worker;
+use crate::{time::*, App};
 use std::{
     collections::HashMap,
     default::Default,
     f32::consts::TAU,
+    ops::Range,
     sync::{mpsc, Arc, Mutex, RwLock},
 };
-
-use crate::{time::*, App};
 
 use fluxfox::{
     prelude::*,
@@ -57,8 +57,8 @@ use fluxfox_tiny_skia::tiny_skia::{BlendMode, Color, FilterQuality, Pixmap, Pixm
 use crate::{app::Tool, lock::TrackingLock};
 use anyhow::{anyhow, Error};
 use eframe::emath::{Pos2, Rect, RectTransform};
-use egui::{Key::V, Vec2};
-use fluxfox_egui::visualization::viz_elements::paint_elements;
+use egui::{Align, Key::V, Layout, Vec2};
+use fluxfox_egui::{visualization::viz_elements::paint_elements, widgets::header_group::HeaderGroup};
 use fluxfox_tiny_skia::{
     render_display_list::render_data_display_list,
     render_elements::skia_render_display_list,
@@ -83,12 +83,27 @@ pub enum VizEvent {
 }
 
 struct VisualizationContext<'a> {
+    side_rects: [Rect; 2],
     got_hit: [bool; 2],
     context_menu_open: &'a mut bool,
-    selection_rect_opt: &'a mut Option<Rect>,
+    hover_rect_opt: &'a mut Option<Rect>,
     display_list_opt: &'a mut Option<VizElementDisplayList>,
+    hover_display_list_opt: &'a mut Option<VizElementDisplayList>,
     events: &'a mut Vec<VizEvent>,
     common_viz_params: &'a mut CommonVizParams,
+    selection: &'a mut Option<SelectionContext>,
+    hover_selection: Option<SelectionContext>,
+}
+
+#[derive(Clone)]
+struct SelectionContext {
+    mouse_pos: Pos2,
+    side: u8,
+    c: u16,
+    bitcell_idx: usize,
+    angle: f32,
+    element_type: GenericTrackElement,
+    element_range: Range<usize>,
 }
 
 pub struct VisualizationState {
@@ -119,8 +134,8 @@ pub struct VisualizationState {
     pub show_weak_layer: bool,
     #[allow(dead_code)]
     pub show_selection_layer: bool,
-    pub selection_display_list: [Arc<Mutex<Option<VizElementDisplayList>>>; 2],
-    pub selection_display_list2: Option<VizElementDisplayList>,
+    pub selection_display_list: Option<VizElementDisplayList>,
+    pub hover_display_list: Option<VizElementDisplayList>,
     last_event: Option<VizEvent>,
     context_menu_open: bool,
     /// A list of events that have occurred since the last frame.
@@ -132,6 +147,7 @@ pub struct VisualizationState {
     selection_rect_opt: Option<Rect>,
     angle: f32,
     zoom_quadrant: [Option<usize>; 2],
+    selection: Option<SelectionContext>,
 }
 
 impl Default for VisualizationState {
@@ -177,8 +193,8 @@ impl Default for VisualizationState {
             show_error_layer: false,
             show_weak_layer: false,
             show_selection_layer: true,
-            selection_display_list: [Arc::new(Mutex::new(None)), Arc::new(Mutex::new(None))],
-            selection_display_list2: None,
+            selection_display_list: None,
+            hover_display_list: None,
             last_event: None,
             context_menu_open: false,
             events: Vec::new(),
@@ -186,6 +202,7 @@ impl Default for VisualizationState {
             selection_rect_opt: None,
             angle: 0.0,
             zoom_quadrant: [None, None],
+            selection: None,
         }
     }
 }
@@ -355,55 +372,6 @@ impl VisualizationState {
             }
         };
 
-        // // Render the main data layer (old rasterization method)
-        // match worker::spawn_closure_worker(move || {
-        //     let render_params = RenderTrackDataParams {
-        //         side: head,
-        //         decode: inner_decode_data,
-        //         sector_mask: false,
-        //         resolution: ResolutionType::Byte,
-        //         ..Default::default()
-        //     };
-        //
-        //     let rasterize_params = RenderRasterizationParams {
-        //         image_size: VizDimensions::from((VIZ_RESOLUTION, VIZ_RESOLUTION)),
-        //         supersample: VIZ_DATA_SUPERSAMPLE,
-        //         image_bg_color: None,
-        //         disk_bg_color: None,
-        //         mask_color: None,
-        //         palette: None,
-        //         pos_offset: None,
-        //     };
-        //
-        //     let disk = render_lock.read().unwrap();
-        //     let mut render_pixmap = render_target.lock().unwrap();
-        //     render_pixmap.fill(Color::TRANSPARENT);
-        //
-        //     match rasterize_track_data(
-        //         &disk,
-        //         &mut render_pixmap,
-        //         &inner_common_params,
-        //         &render_params,
-        //         &rasterize_params,
-        //     ) {
-        //         Ok(_) => {
-        //             log::debug!("render worker: Data layer rendered for side {}", head);
-        //             render_sender.send(RenderMessage::DataRenderComplete(head)).unwrap();
-        //         }
-        //         Err(e) => {
-        //             log::error!("Error rendering tracks: {}", e);
-        //             std::process::exit(1);
-        //         }
-        //     };
-        // }) {
-        //     Ok(_) => {
-        //         log::debug!("Spawned rendering worker for data layer...");
-        //     }
-        //     Err(_e) => {
-        //         log::error!("Error spawning rendering worker for data layer!");
-        //     }
-        // };
-
         // Clear pixmap before rendering
         self.meta_img[side].write().unwrap().fill(Color::TRANSPARENT);
 
@@ -435,6 +403,7 @@ impl VisualizationState {
 
         let mut paint = Paint::default();
         let styles = default_skia_styles();
+
         skia_render_display_list(
             &mut self.meta_img[head as usize].write().unwrap(),
             &mut paint,
@@ -445,116 +414,6 @@ impl VisualizationState {
         );
 
         *display_list_guard = Some(display_list);
-        //
-        // // Render metadata quadrants into pixmap pool.
-        // for quadrant in 0..4 {
-        //     render_params.quadrant = Some(quadrant as u8);
-        //     let mut pixmap = self.meta_pixmap_pool[quadrant].lock().unwrap();
-        //
-        //     match rasterize_track_metadata_quadrant(
-        //         disk,
-        //         &mut pixmap,
-        //         &self.common_viz_params,
-        //         &render_params,
-        //         &rasterize_params,
-        //     ) {
-        //         Ok(_) => {
-        //             log::debug!("...Rendered quadrant {}", quadrant);
-        //         }
-        //         Err(e) => {
-        //             log::error!("Error rendering quadrant: {}", e);
-        //             return Err(anyhow!("Error rendering metadata"));
-        //         }
-        //     }
-        // }
-        //
-        // // Composite metadata quadrants into one complete metadata pixmap.
-        // for quadrant in 0..4 {
-        //     log::debug!("Received quadrant {}, compositing...", quadrant);
-        //     let (x, y) = match quadrant {
-        //         0 => (0, 0),
-        //         1 => (VIZ_RESOLUTION / 2, 0),
-        //         2 => (0, VIZ_RESOLUTION / 2),
-        //         3 => (VIZ_RESOLUTION / 2, VIZ_RESOLUTION / 2),
-        //         _ => panic!("Invalid quadrant"),
-        //     };
-        //
-        //     let paint = PixmapPaint::default();
-        //     //let mut pixmap = self.meta_pixmap_pool[quadrant].lock()?;
-        //
-        //     self.metadata_img[side].draw_pixmap(
-        //         x as i32,
-        //         y as i32,
-        //         self.meta_pixmap_pool[quadrant].lock().unwrap().as_ref(),
-        //         &paint,
-        //         Transform::identity(),
-        //         None,
-        //     );
-        //
-        //     // Clear pixmap after compositing
-        //     self.meta_pixmap_pool[quadrant]
-        //         .lock()
-        //         .unwrap()
-        //         .as_mut()
-        //         .fill(Color::TRANSPARENT);
-        // }
-
-        // // Render sector lookup quadrants into pixmap pool.
-        // render_params.draw_sector_lookup = true;
-        // // Make it easier to select sectors by removing track gap.
-        // self.common_viz_params.track_gap = 0.0;
-        //
-        // for quadrant in 0..4 {
-        //     render_params.quadrant = Some(quadrant as u8);
-        //     let mut pixmap = self.meta_pixmap_pool[quadrant].lock().unwrap();
-        //
-        //     match rasterize_track_metadata_quadrant(
-        //         disk,
-        //         &mut pixmap,
-        //         &self.common_viz_params,
-        //         &render_params,
-        //         &rasterize_params,
-        //     ) {
-        //         Ok(_) => {
-        //             log::debug!("...Rendered quadrant {}", quadrant);
-        //         }
-        //         Err(e) => {
-        //             log::error!("Error rendering quadrant: {}", e);
-        //             return Err(anyhow!("Error rendering metadata"));
-        //         }
-        //     }
-        // }
-        //
-        // // Composite sector lookup quadrants into final pixmap.
-        // for quadrant in 0..4 {
-        //     log::debug!("Received quadrant {}, compositing...", quadrant);
-        //     let (x, y) = match quadrant {
-        //         0 => (0, 0),
-        //         1 => (VIZ_RESOLUTION / 2, 0),
-        //         2 => (0, VIZ_RESOLUTION / 2),
-        //         3 => (VIZ_RESOLUTION / 2, VIZ_RESOLUTION / 2),
-        //         _ => panic!("Invalid quadrant"),
-        //     };
-        //
-        //     let paint = PixmapPaint::default();
-        //     //let mut pixmap = self.meta_pixmap_pool[quadrant].lock()?;
-        //
-        //     self.sector_lookup_img[side].draw_pixmap(
-        //         x as i32,
-        //         y as i32,
-        //         self.meta_pixmap_pool[quadrant].lock().unwrap().as_ref(),
-        //         &paint,
-        //         Transform::identity(),
-        //         None,
-        //     );
-        //
-        //     // Clear pixmap after compositing
-        //     self.meta_pixmap_pool[quadrant]
-        //         .lock()
-        //         .unwrap()
-        //         .as_mut()
-        //         .fill(Color::TRANSPARENT);
-        // }
 
         if let Some(canvas) = &mut self.canvas[side] {
             if canvas.has_texture() {
@@ -849,24 +708,25 @@ impl VisualizationState {
 
         // Clear the hover selection display list every frame. This avoids "sticky" ghost selections
         // if the mouse cursor rapidly leaves the window
-        self.selection_display_list2 = None;
+        self.hover_display_list = None;
 
         let mut context = VisualizationContext {
+            side_rects: [Rect::ZERO, Rect::ZERO],
             got_hit: [false, false],
             context_menu_open: &mut self.context_menu_open,
-            selection_rect_opt: &mut self.selection_rect_opt,
-            display_list_opt: &mut self.selection_display_list2,
+            hover_rect_opt: &mut self.selection_rect_opt,
+            display_list_opt: &mut self.selection_display_list,
+            hover_display_list_opt: &mut self.hover_display_list,
             events: &mut self.events,
             common_viz_params: &mut self.common_viz_params,
+            selection: &mut self.selection,
+            hover_selection: None,
         };
 
         ui.horizontal(|ui| {
-            ui.set_min_width(200.0);
-            ui.add(
-                egui::Slider::new(&mut self.angle, 0.0..=TAU)
-                    .text("Index Angle:")
-                    .step_by((TAU / 360.0) as f64),
-            );
+            ui.set_min_width(400.0);
+            ui.label("Index Angle:");
+            ui.add(egui::Slider::new(&mut self.angle, 0.0..=TAU).step_by((TAU / 360.0) as f64));
         });
 
         ui.horizontal(|ui| {
@@ -881,90 +741,64 @@ impl VisualizationState {
                         let layer_id = ui.layer_id();
                         let response = canvas.show_as_mesh2(
                             ui,
-                            Some(|response: &egui::Response, screen_pos: Pos2, virtual_pos: Pos2| {
+                            Some(|response: &egui::Response, _screen_pos: Pos2, virtual_pos: Pos2| {
+                                // Create a rotation transformation for the current side, turning and angle
+                                // This really should be done for us by the canvas, I think.
+                                let rotation = VizRotation::new(
+                                    TurningDirection::from(side as u8).adjust_angle(self.angle),
+                                    VizPoint2d::new(VIZ_RESOLUTION as f32 / 2.0, VIZ_RESOLUTION as f32 / 2.0),
+                                );
+
+                                let hit_test_params = RenderDiskHitTestParams {
+                                    side: side as u8,
+                                    selection_type: RenderDiskSelectionType::Sector,
+                                    geometry: RenderGeometry::Arc,
+                                    point: VizPoint2d::new(virtual_pos.x, virtual_pos.y).rotate(&rotation),
+                                };
+
+                                if let Some(disk) = self.disk.as_ref().and_then(|d| d.read(Tool::Visualization).ok()) {
+                                    Self::perform_hit_test(&disk, side, &hit_test_params, &mut context);
+                                }
+                                else {
+                                    log::warn!("Couldn't lock disk for reading.");
+                                }
+
                                 if !*context.context_menu_open {
-                                    egui::popup::show_tooltip(
-                                        &response.ctx,
-                                        layer_id,
-                                        response.id.with("render_hover_tooltip"),
-                                        |ui| {
-                                            ui.label(format!(
-                                                "Hovering at: ({:.2}, {:.2})",
-                                                virtual_pos.x, virtual_pos.y
-                                            ));
-
-                                            // Create a rotation transformation for the current side, turning and angle
-                                            // This really should be done for us by the canvas, I think.
-                                            let rotation = VizRotation::new(
-                                                TurningDirection::from(side as u8).adjust_angle(self.angle),
-                                                VizPoint2d::new(
-                                                    VIZ_RESOLUTION as f32 / 2.0,
-                                                    VIZ_RESOLUTION as f32 / 2.0,
-                                                ),
-                                            );
-
-                                            let hit_test_params = RenderDiskHitTestParams {
-                                                side: side as u8,
-                                                selection_type: RenderDiskSelectionType::Sector,
-                                                geometry: RenderGeometry::Arc,
-                                                point: VizPoint2d::new(virtual_pos.x, virtual_pos.y).rotate(&rotation),
-                                            };
-
-                                            if let Some(disk) =
-                                                self.disk.as_ref().and_then(|d| d.read(Tool::Visualization).ok())
-                                            {
-                                                Self::perform_hit_test(&disk, ui, side, &hit_test_params, &mut context);
-                                            }
-                                            else {
-                                                log::warn!("Couldn't lock disk for reading.");
-                                            }
-                                            // match self.disk.as_ref().unwrap().try_read() {
-                                            //     Ok(disk) => {
-                                            //         self.common_viz_params.radius = Some(VIZ_RESOLUTION as f32 / 2.0);
-                                            //         match vectorize_disk_hit_test(
-                                            //             &disk,
-                                            //             &self.common_viz_params,
-                                            //             &hit_test_params,
-                                            //             VizElementFlags::HIGHLIGHT,
-                                            //         ) {
-                                            //             Ok(hit) => {
-                                            //                 ui.label(format!("angle: {:.3}", hit.angle));
-                                            //                 ui.label(format!("Cylinder: {}", hit.track));
-                                            //                 ui.label(format!("bit index: {}", hit.bit_index));
-                                            //                 if let Some(display_list) = hit.display_list {
-                                            //                     ui.label(format!(
-                                            //                         "Got display list of {} elements.",
-                                            //                         display_list.iter().count()
-                                            //                     ));
-                                            //
-                                            //                     got_hit = true;
-                                            //                     display_list_opt = Some(display_list);
-                                            //                 }
-                                            //                 else {
-                                            //                     new_event = Some(VizEvent::SectorDeselected);
-                                            //                     ui.label("No sector");
-                                            //                 }
-                                            //             }
-                                            //             Err(e) => {
-                                            //                 log::error!("Error hit testing disk: {}", e);
-                                            //             }
-                                            //         }
-                                            //     }
-                                            //     Err(_) => log::warn!("Couldn't lock disk for reading."),
-                                            // }
-                                        },
-                                    );
+                                    if let Some(selection) = &context.hover_selection {
+                                        egui::popup::show_tooltip(
+                                            &response.ctx,
+                                            layer_id,
+                                            response.id.with("render_hover_tooltip"),
+                                            |ui| {
+                                                ui.horizontal(|ui| {
+                                                    ui.label(format!("{}", selection.element_type));
+                                                });
+                                            },
+                                        );
+                                    }
                                 }
                             }),
                         );
 
                         if let Some(response) = response {
+                            //log::debug!("setting side {} rect: {:?}", side, response.rect);
+                            context.side_rects[side] = response.rect;
+
+                            if response.clicked() {
+                                if let Some(selection) = &context.hover_selection {
+                                    *context.selection = Some(selection.clone());
+                                    *context.display_list_opt = context.hover_display_list_opt.clone();
+                                }
+                                else {
+                                    // Clicked off of disk, clear selection
+                                    *context.selection = None;
+                                    *context.display_list_opt = None;
+                                }
+                            }
+
                             if context.got_hit[side] {
                                 //log::warn!("got hit! rect: {:?}", response.rect);
-                                *context.selection_rect_opt = Some(response.rect);
-                            }
-                            else {
-                                //*context.selection_rect_opt = None;
+                                *context.hover_rect_opt = Some(response.rect);
                             }
 
                             if response.clicked_elsewhere() {
@@ -991,62 +825,86 @@ impl VisualizationState {
             }
         });
 
-        if let (Some(display_list), Some(rect)) = (context.display_list_opt, context.selection_rect_opt) {
-            // Only draw the hover-selection if the mouse is over the canvas
-            if ui.ctx().pointer_hover_pos().is_some() {
-                let resolution = Vec2::new(VIZ_RESOLUTION as f32, VIZ_RESOLUTION as f32);
-                let viz_rect = if let Some(quadrant) = self.zoom_quadrant[display_list.side as usize] {
-                    match quadrant & 0x03 {
-                        0 => Rect::from_min_size(Pos2::ZERO, resolution / 2.0),
-                        1 => Rect::from_min_size(Pos2::new(resolution.x / 2.0, 0.0), resolution / 2.0),
-                        2 => Rect::from_min_size(Pos2::new(0.0, resolution.y / 2.0), resolution / 2.0),
-                        3 => Rect::from_min_size(Pos2::new(resolution.x / 2.0, resolution.y / 2.0), resolution / 2.0),
-                        _ => unreachable!(),
-                    }
-                }
-                else {
-                    Rect::from_min_size(Pos2::ZERO, resolution)
-                };
+        // Draw sticky selection
+        if let Some(display_list) = &context.display_list_opt {
+            if let Some(canvas) = &self.canvas[display_list.side as usize] {
+                let virtual_rect = canvas.virtual_rect();
+                let rect = context.side_rects[display_list.side as usize];
+                let from_virtual = RectTransform::from_to(*virtual_rect, rect);
 
-                if let Some(canvas) = &self.canvas[display_list.side as usize] {
-                    let canvas_transform = canvas.virtual_transform().inverse();
-                    let virtual_rect = canvas.virtual_rect();
-                    let to_screen = RectTransform::from_to(
-                        viz_rect, // Local space
-                        *rect,    // Screen space
-                    );
+                //log::debug!("have sticky display list: side {} rect: {:?}", display_list.side, rect);
+                let rotation = VizRotation::new(
+                    TurningDirection::from(display_list.side)
+                        .opposite()
+                        .adjust_angle(self.angle),
+                    VizPoint2d::new(VIZ_RESOLUTION as f32 / 2.0, VIZ_RESOLUTION as f32 / 2.0),
+                );
 
-                    let from_virtual = RectTransform::from_to(*virtual_rect, *rect);
+                let selection_painter = ui.painter().with_clip_rect(rect);
 
-                    let combined_transform = Self::combine_transforms(&canvas_transform, &to_screen);
+                paint_elements(
+                    &selection_painter,
+                    &from_virtual,
+                    &rotation,
+                    &Default::default(),
+                    display_list.items(0).unwrap(),
+                    false,
+                );
+            }
+        }
 
-                    let rotation = VizRotation::new(
-                        TurningDirection::from(display_list.side)
-                            .opposite()
-                            .adjust_angle(self.angle),
-                        VizPoint2d::new(VIZ_RESOLUTION as f32 / 2.0, VIZ_RESOLUTION as f32 / 2.0),
-                    );
+        // Draw hover selection
+        if let (Some(hover_display_list), Some(rect)) =
+            (context.hover_display_list_opt.take(), context.hover_rect_opt.clone())
+        {
+            //let resolution = Vec2::new(VIZ_RESOLUTION as f32, VIZ_RESOLUTION as f32);
+            // let viz_rect = if let Some(quadrant) = self.zoom_quadrant[hover_display_list.side as usize] {
+            //     match quadrant & 0x03 {
+            //         0 => Rect::from_min_size(Pos2::ZERO, resolution / 2.0),
+            //         1 => Rect::from_min_size(Pos2::new(resolution.x / 2.0, 0.0), resolution / 2.0),
+            //         2 => Rect::from_min_size(Pos2::new(0.0, resolution.y / 2.0), resolution / 2.0),
+            //         3 => Rect::from_min_size(Pos2::new(resolution.x / 2.0, resolution.y / 2.0), resolution / 2.0),
+            //         _ => unreachable!(),
+            //     }
+            // }
+            // else {
+            //     Rect::from_min_size(Pos2::ZERO, resolution)
+            // };
 
-                    let selection_painter = ui.painter().with_clip_rect(*rect);
+            if let Some(canvas) = &self.canvas[hover_display_list.side as usize] {
+                //let canvas_transform = canvas.virtual_transform().inverse();
+                let virtual_rect = canvas.virtual_rect();
+                // let to_screen = RectTransform::from_to(
+                //     viz_rect, // Local space
+                //     *rect,    // Screen space
+                // );
 
+                let from_virtual = RectTransform::from_to(*virtual_rect, rect);
+
+                let rotation = VizRotation::new(
+                    TurningDirection::from(hover_display_list.side)
+                        .opposite()
+                        .adjust_angle(self.angle),
+                    VizPoint2d::new(VIZ_RESOLUTION as f32 / 2.0, VIZ_RESOLUTION as f32 / 2.0),
+                );
+
+                let selection_painter = ui.painter().with_clip_rect(rect);
+
+                // Draw the hover-selection if the mouse is over the canvas
+                if ui.ctx().pointer_hover_pos().is_some() {
                     paint_elements(
                         &selection_painter,
                         &from_virtual,
                         &rotation,
                         &Default::default(),
-                        &display_list.items(0).unwrap(),
+                        hover_display_list.items(0).unwrap(),
                         false,
                     );
                 }
             }
-
-            // log::warn!("Drawing debug rect...");
-            // selection_painter.rect_filled(
-            //     Rect::from_min_size(Pos2::ZERO, Vec2::new(500.0, 500.0)),
-            //     0.0,
-            //     egui::Color32::RED,
-            // );
         }
+
+        Self::show_info_pane(ui, &context);
 
         // Deferred SVG rendering from context menu
         if let Some((svg_filename, side)) = svg_context {
@@ -1061,6 +919,74 @@ impl VisualizationState {
         new_event
     }
 
+    fn show_info_pane(ui: &mut egui::Ui, context: &VisualizationContext<'_>) {
+        ui.allocate_ui_with_layout(ui.available_size(), Layout::top_down(Align::Min), |ui| {
+            HeaderGroup::new("Element Info").expand().show(
+                ui,
+                |ui| {
+                    ui.allocate_ui_with_layout(ui.available_size(), Layout::left_to_right(Align::Min), |ui| {
+                        if let Some(selection) = &context.selection {
+                            HeaderGroup::new("Selected").show(
+                                ui,
+                                |ui| {
+                                    Self::show_selection(ui, selection, false);
+                                    //ui.set_min_height(200.0);
+                                },
+                                |_| {},
+                            );
+                        }
+                        if let Some(selection) = &context.hover_selection {
+                            HeaderGroup::new("Hovered").show(
+                                ui,
+                                |ui| {
+                                    Self::show_selection(ui, selection, true);
+                                    //ui.set_min_height(200.0);
+                                },
+                                |_| {},
+                            );
+                        }
+                    });
+                    ui.set_min_height(200.0);
+                },
+                |_| {},
+            );
+        });
+    }
+
+    fn show_selection(ui: &mut egui::Ui, selection: &SelectionContext, hover: bool) {
+        egui::Grid::new(format!("viz_selection_info_grid_h:{}", hover))
+            .striped(true)
+            .show(ui, |ui| {
+                ui.label("Side:");
+                ui.label(format!("{}", selection.side));
+                if hover {
+                    ui.label("x, y:");
+                    ui.label(format!("{:?}", selection.mouse_pos));
+                }
+                ui.end_row();
+                ui.label("Cylinder:");
+                ui.label(format!("{}", selection.c));
+
+                if hover {
+                    ui.label("Bitcell:");
+                    ui.label(format!("{}", selection.bitcell_idx));
+                }
+                ui.end_row();
+
+                ui.label("Element:");
+                ui.label(format!("{}", selection.element_type));
+                if hover {
+                    ui.label("Angle:");
+                    ui.label(format!("{:.3} ({:.2}°)", selection.angle, selection.angle.to_degrees()));
+                }
+                ui.end_row();
+
+                ui.label("Element Range:");
+                ui.label(format!("{:?}", selection.element_range));
+                ui.end_row();
+            });
+    }
+
     fn combine_transforms(transform_a: &RectTransform, transform_b: &RectTransform) -> RectTransform {
         // Combine transformations by chaining their mappings
         RectTransform::from_to(*transform_a.from(), transform_b.transform_rect(*transform_a.to()))
@@ -1068,52 +994,48 @@ impl VisualizationState {
 
     fn perform_hit_test(
         disk: &DiskImage,
-        ui: &mut egui::Ui,
         side: usize,
         params: &RenderDiskHitTestParams,
-        context: &mut VisualizationContext,
+        context: &mut VisualizationContext<'_>,
     ) {
         context.common_viz_params.direction = TurningDirection::from(side as u8);
         context.common_viz_params.radius = Some(VIZ_RESOLUTION as f32 / 2.0);
 
-        match vectorize_disk_hit_test(&disk, context.common_viz_params, params, VizElementFlags::HIGHLIGHT) {
+        match vectorize_disk_hit_test(disk, context.common_viz_params, params, VizElementFlags::HIGHLIGHT) {
             Ok(hit) => {
-                ui.label(format!("angle: {:.3}", hit.angle));
-                ui.label(format!("Cylinder: {}", hit.track));
-                ui.label(format!("bit index: {}", hit.bit_index));
+                // ui.label(format!("angle: {:.3}", hit.angle));
+                // ui.label(format!("Cylinder: {}", hit.track));
+                // ui.label(format!("bit index: {}", hit.bit_index));
                 if let Some(display_list) = hit.display_list {
-                    ui.label(format!("Got display list of {} elements.", display_list.len()));
+                    //ui.label(format!("Got display list of {} elements.", display_list.len()));
                     context.got_hit[side] = true;
-                    *context.display_list_opt = Some(display_list);
+
+                    // The first item of the display list should have our element metadata.
+                    // The selection will always be at track index 0.
+                    if let Some(item) = display_list.items(0).and_then(|items| items.first()) {
+                        context.hover_selection = Some(SelectionContext {
+                            mouse_pos: params.point.to_tuple().into(),
+                            side: side as u8,
+                            c: hit.track,
+                            bitcell_idx: hit.bit_index,
+                            angle: hit.angle,
+                            element_type: item.info.element_type,
+                            element_range: item.info.bit_range.clone().unwrap_or(Range {
+                                start: 0usize,
+                                end:   0usize,
+                            }),
+                        });
+                    }
+
+                    *context.hover_display_list_opt = Some(display_list);
                 }
                 else {
                     context.got_hit[side] = false;
-                    *context.display_list_opt = None;
+                    *context.hover_display_list_opt = None;
                     context.events.push(VizEvent::SectorDeselected);
-                    ui.label("No sector");
                 }
             }
             Err(e) => log::error!("Error hit testing disk: {}", e),
         }
     }
-
-    // fn show_context_menu(
-    //     &self,
-    //     ui: &mut egui::Ui,
-    //     side: usize,
-    //     canvas: &mut PixelCanvas,
-    //     context: &mut VisualizationContext,
-    // ) {
-    //     ui.context_menu(|ui| {
-    //         *context.context_menu_open = true;
-    //         if ui.button("Save as PNG").clicked() {
-    //             let png_data = canvas.to_png();
-    //             let file_name = format!("fluxfox_viz_side{}.png", side);
-    //             _ = App::save_file_as(&file_name, &png_data);
-    //             ui.close_menu();
-    //         }
-    //     });
-    // }
 }
-
-impl App {}

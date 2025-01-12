@@ -478,6 +478,7 @@ pub fn rasterize_track_metadata_quadrant(
                 for meta_item in track_meta.items.iter() {
                     if meta_item.end >= r_tracks[ti].len() {
                         let meta_length = meta_item.end - meta_item.start;
+                        let meta_overlap = meta_item.end % r_tracks[ti].len();
                         let overlap_long = meta_length > overlap_max;
 
                         log::trace!(
@@ -502,7 +503,7 @@ pub fn rasterize_track_metadata_quadrant(
                         }
                         else {
                             start_angle = p.index_angle;
-                            end_angle = p.index_angle + ((meta_item.end as f32 / r_tracks[ti].len() as f32) * TAU);
+                            end_angle = p.index_angle + ((meta_overlap as f32 / r_tracks[ti].len() as f32) * TAU);
                         }
 
                         if start_angle > end_angle {

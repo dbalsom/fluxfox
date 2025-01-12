@@ -94,6 +94,7 @@ impl VizViewer {
         if self.open {
             egui::Window::new("Disk Visualization")
                 .open(&mut self.open)
+                .resizable([false, false])
                 .show(ctx, |ui| {
                     egui::menu::bar(ui, |ui| {
                         ui.menu_button("Layers", |ui| {

@@ -24,6 +24,14 @@
 
     --------------------------------------------------------------------------
 */
+
+//! The PixelCanvas is a bit of an experiment in creating a pixel-based canvas
+//! that supports multiple bit depths and palettes. It's a bit of a work in
+//! progress, and perhaps it should be split out into different widgets.
+//!
+//! Not everything requires multi-bit depth support, and the things that do
+//! almost certainly don't need rotation support...
+
 #![allow(dead_code)]
 
 use egui::{
