@@ -113,9 +113,33 @@ impl VizViewer {
 
                         ui.menu_button("Save", |ui| {
                             for side in 0..self.viz.sides {
+                                #[cfg(not(feature = "svg"))]
                                 if ui.button(format!("Save Side {} as PNG", side).as_str()).clicked() {
-                                    self.viz.save_side_as(&format!("fluxfox_viz_side{}.png", side), side);
+                                    self.viz
+                                        .save_side_as_svg(&format!("fluxfox_viz_side{}.png", side), side);
                                 }
+                                #[cfg(feature = "svg")]
+                                ui.menu_button(format!("Save Side {} as...", side).as_str(), |ui| {
+                                    if ui.button("PNG").clicked() {
+                                        self.viz
+                                            .save_side_as_png(&format!("fluxfox_viz_side{}.png", side), side);
+                                        ui.close_menu();
+                                    }
+                                    if ui.button("SVG").clicked() {
+                                        match self
+                                            .viz
+                                            .save_side_as_svg(&format!("fluxfox_viz_side{}.svg", side), side)
+                                        {
+                                            Ok(_) => {
+                                                log::info!("SVG saved successfully");
+                                            }
+                                            Err(e) => {
+                                                log::error!("Error saving SVG: {}", e);
+                                            }
+                                        }
+                                        ui.close_menu();
+                                    }
+                                });
                             }
                         });
 

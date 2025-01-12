@@ -535,8 +535,8 @@ pub struct DiskHitTestResult {
 /// the opposite of the physical rotation.
 #[derive(Copy, Clone, Debug, Default)]
 pub enum TurningDirection {
-    Clockwise,
     #[default]
+    Clockwise,
     CounterClockwise,
 }
 
