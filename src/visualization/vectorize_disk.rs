@@ -969,8 +969,8 @@ pub fn vectorize_disk_hit_test(
         let start_angle = start_angle.max(clip_start);
         //let end_angle = end_angle.min(clip_end);
         let outer_radius = tp.total_radius - (cylinder as f32 * tp.render_track_width);
-        let inner_radius = outer_radius - (tp.render_track_width * (1.0 - p.track_gap));
-        let mid_radius = (outer_radius + inner_radius) / 2.0;
+        let inner_radius = outer_radius - tp.render_track_width;
+        let mid_radius = outer_radius - tp.render_track_width / 2.0;
 
         // Start and end angles are now in the range 0..2π, but we can't emit cubic arcs longer
         // than 90 degrees. We need to break up the arc into multiple sectors if it exceeds 90 degrees
@@ -1103,7 +1103,7 @@ pub fn vectorize_disk_data(
     let track_width = (max_radius - min_radius) / num_tracks as f32;
     let stroke_width = if p.track_gap == 0.0 {
         // If 0 gap specified, slightly increase the track width to avoid rendering sparkles between tracks
-        track_width * (1.0 - p.track_gap) * 1.01
+        track_width * 1.01
     }
     else {
         track_width * (1.0 - p.track_gap)
