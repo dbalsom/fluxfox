@@ -25,7 +25,7 @@
     --------------------------------------------------------------------------
 */
 use crate::{
-    widgets::{dir_tree::DirTreeWidget, file_list::FileListWidget, path_selection::PathSelectionWidget},
+    controls::{dir_tree::DirTreeWidget, file_list::FileListWidget, path_selection::PathSelectionWidget},
     UiEvent,
 };
 use fluxfox::file_system::{fat::fat_fs::FatFileSystem, FileTreeNode};

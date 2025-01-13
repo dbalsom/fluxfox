@@ -28,18 +28,17 @@
 use egui::Layout;
 use fluxfox::{
     file_system::{fat::fat_fs::FatFileSystem, FileSystemArchive},
-    track::Track,
     DiskImage,
     DiskImageError,
     LoadingStatus,
 };
 use fluxfox_egui::{
-    widgets::{
+    controls::{
         boot_sector::BootSectorWidget,
         disk_info::DiskInfoWidget,
         error_banner::ErrorBanner,
         filesystem::FileSystemWidget,
-        header_group::HeaderGroup,
+        header_group::{HeaderFn, HeaderGroup},
     },
     SectorSelection,
     TrackListSelection,
@@ -53,7 +52,7 @@ use std::{
     fmt,
     fmt::{Display, Formatter},
     path::PathBuf,
-    sync::{mpsc, Arc, RwLock},
+    sync::{mpsc, Arc},
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -79,7 +78,7 @@ use crate::{
         viz::VizViewer,
     },
 };
-use fluxfox_egui::widgets::track_list::TrackListWidget;
+use fluxfox_egui::controls::track_list::TrackListWidget;
 
 pub const DEMO_IMAGE: &[u8] = include_bytes!("../../../resources/demo.imz");
 /// The number of selection slots available for disk images.
@@ -803,7 +802,7 @@ impl App {
                 |ui| {
                     self.widgets.disk_info.show(ui);
                 },
-                |_| {},
+                None::<HeaderFn>,
             );
         }
     }
@@ -815,7 +814,7 @@ impl App {
                 |ui| {
                     self.widgets.boot_sector.show(ui);
                 },
-                |_| {},
+                None::<HeaderFn>,
             );
         }
     }

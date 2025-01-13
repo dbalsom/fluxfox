@@ -25,41 +25,21 @@
     --------------------------------------------------------------------------
 */
 
-use fluxfox::DiskImage;
-use fluxfox_egui::controls::source_map::SourceMapWidget;
-
-#[derive(Default)]
-pub struct SourceMapViewer {
-    pub open:   bool,
-    pub widget: SourceMapWidget,
-}
-
-impl SourceMapViewer {
-    #[allow(dead_code)]
-    pub fn new() -> Self {
-        Self {
-            open:   false,
-            widget: SourceMapWidget::new(),
-        }
-    }
-
-    pub fn update(&mut self, disk: &DiskImage) {
-        self.widget.update(disk);
-    }
-
-    #[allow(dead_code)]
-    pub fn set_open(&mut self, open: bool) {
-        self.open = open;
-    }
-
-    pub fn open_mut(&mut self) -> &mut bool {
-        &mut self.open
-    }
-
-    pub fn show(&mut self, ctx: &egui::Context) {
-        egui::Window::new("Source Map")
-            .open(&mut self.open)
-            .resizable(egui::Vec2b::new(true, true))
-            .show(ctx, |ui| self.widget.show(ui));
-    }
-}
+pub mod boot_sector;
+pub mod canvas;
+pub mod data_table;
+pub mod data_visualizer;
+pub mod dir_tree;
+pub mod disk_info;
+pub mod disk_visualizer;
+pub mod error_banner;
+pub mod file_list;
+pub mod filesystem;
+pub mod header_group;
+pub mod path_selection;
+pub mod sector_status;
+pub mod source_map;
+pub mod tab_group;
+pub mod track_list;
+#[cfg(feature = "egui_plot")]
+pub mod track_timing_chart;

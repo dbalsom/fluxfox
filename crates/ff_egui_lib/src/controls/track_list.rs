@@ -25,7 +25,8 @@
     --------------------------------------------------------------------------
 */
 use crate::{
-    widgets::{header_group::HeaderGroup, sector_status::sector_status},
+    controls::{header_group::HeaderGroup, sector_status::sector_status},
+    widgets::chs::ChsWidget,
     SectorSelection,
     TrackListSelection,
     TrackSelection,
@@ -34,7 +35,7 @@ use crate::{
 use egui::{ScrollArea, TextStyle};
 use fluxfox::{prelude::*, track::TrackInfo};
 
-pub const TRACK_ENTRY_WIDTH: f32 = 420.0;
+pub const TRACK_ENTRY_WIDTH: f32 = 480.0;
 pub const SECTOR_STATUS_WRAP: usize = 18;
 
 #[derive(PartialEq, Default)]
@@ -140,13 +141,13 @@ impl TrackListWidget {
                         .filter(|tli| self.head_filter.predicate(tli.ch))
                         .enumerate()
                     {
-                        HeaderGroup::new(&format!("{} Track {}", track.info.encoding, track.ch))
+                        HeaderGroup::new(&format!("{} Track", track.info.encoding))
                             .strong()
                             .show(
                                 ui,
                                 |ui| {
                                     ui.vertical(|ui| {
-                                        ui.set_min_width(TRACK_ENTRY_WIDTH);
+                                        ui.set_width(TRACK_ENTRY_WIDTH);
                                         egui::Grid::new(format!("track_list_grid_{}", ti)).striped(true).show(
                                             ui,
                                             |ui| match track.info.resolution {
@@ -274,51 +275,113 @@ impl TrackListWidget {
                                             });
                                     });
                                 },
-                                |ui: &mut egui::Ui| {
-                                    ui.menu_button("⏷", |ui| match track.info.resolution {
-                                        TrackDataResolution::FluxStream => {
-                                            if ui.button("View Track Elements").clicked() {
-                                                new_selection2 = Some(TrackListSelection::Track(TrackSelection {
-                                                    sel_scope: TrackSelectionScope::Elements,
-                                                    phys_ch:   track.ch,
-                                                }));
-                                                ui.close_menu();
-                                            }
+                                Some(|ui: &mut egui::Ui, text| {
+                                    ui.horizontal(|ui| {
+                                        ui.set_width(TRACK_ENTRY_WIDTH);
+                                        ui.heading(text);
+                                        ui.add(ChsWidget::from_ch(track.ch));
+                                        ui.menu_button("⏷", |ui| match track.info.resolution {
+                                            TrackDataResolution::FluxStream => {
+                                                if ui.button("View Track Elements").clicked() {
+                                                    new_selection2 = Some(TrackListSelection::Track(TrackSelection {
+                                                        sel_scope: TrackSelectionScope::Elements,
+                                                        phys_ch:   track.ch,
+                                                    }));
+                                                    ui.close_menu();
+                                                }
 
-                                            if ui.button("View Track Data Stream").clicked() {
-                                                new_selection2 = Some(TrackListSelection::Track(TrackSelection {
-                                                    sel_scope: TrackSelectionScope::DecodedDataStream,
-                                                    phys_ch:   track.ch,
-                                                }));
-                                                ui.close_menu();
-                                            }
+                                                if ui.button("View Track Data Stream").clicked() {
+                                                    new_selection2 = Some(TrackListSelection::Track(TrackSelection {
+                                                        sel_scope: TrackSelectionScope::DecodedDataStream,
+                                                        phys_ch:   track.ch,
+                                                    }));
+                                                    ui.close_menu();
+                                                }
 
-                                            if ui.button("View Track Flux Timings").clicked() {
-                                                new_selection2 = Some(TrackListSelection::Track(TrackSelection {
-                                                    sel_scope: TrackSelectionScope::Timings,
-                                                    phys_ch:   track.ch,
-                                                }));
-                                                ui.close_menu();
+                                                if ui.button("View Track Flux Timings").clicked() {
+                                                    new_selection2 = Some(TrackListSelection::Track(TrackSelection {
+                                                        sel_scope: TrackSelectionScope::Timings,
+                                                        phys_ch:   track.ch,
+                                                    }));
+                                                    ui.close_menu();
+                                                }
                                             }
-                                        }
-                                        TrackDataResolution::BitStream => {
-                                            if ui.button("View Track Elements").clicked() {
-                                                new_selection2 = Some(TrackListSelection::Track(TrackSelection {
-                                                    sel_scope: TrackSelectionScope::Elements,
-                                                    phys_ch:   track.ch,
-                                                }));
-                                            }
+                                            TrackDataResolution::BitStream => {
+                                                if ui.button("View Track Elements").clicked() {
+                                                    new_selection2 = Some(TrackListSelection::Track(TrackSelection {
+                                                        sel_scope: TrackSelectionScope::Elements,
+                                                        phys_ch:   track.ch,
+                                                    }));
+                                                }
 
-                                            if ui.button("View Track Data Stream").clicked() {
-                                                new_selection2 = Some(TrackListSelection::Track(TrackSelection {
-                                                    sel_scope: TrackSelectionScope::DecodedDataStream,
-                                                    phys_ch:   track.ch,
-                                                }));
+                                                if ui.button("View Track Data Stream").clicked() {
+                                                    new_selection2 = Some(TrackListSelection::Track(TrackSelection {
+                                                        sel_scope: TrackSelectionScope::DecodedDataStream,
+                                                        phys_ch:   track.ch,
+                                                    }));
+                                                }
                                             }
-                                        }
-                                        TrackDataResolution::MetaSector => {}
+                                            TrackDataResolution::MetaSector => {}
+                                        });
                                     });
-                                },
+
+                                    // ui.set_max_width(TRACK_ENTRY_WIDTH - 8.0);
+                                    // ui.allocate_ui_with_layout(
+                                    //     egui::Vec2::new(ui.available_width(), ui.available_height()),
+                                    //     egui::Layout::right_to_left(egui::Align::TOP),
+                                    //     |ui| {
+                                    //         ui.add(ChsWidget::from_ch(track.ch));
+                                    //         ui.menu_button("⏷", |ui| match track.info.resolution {
+                                    //             TrackDataResolution::FluxStream => {
+                                    //                 if ui.button("View Track Elements").clicked() {
+                                    //                     new_selection2 =
+                                    //                         Some(TrackListSelection::Track(TrackSelection {
+                                    //                             sel_scope: TrackSelectionScope::Elements,
+                                    //                             phys_ch:   track.ch,
+                                    //                         }));
+                                    //                     ui.close_menu();
+                                    //                 }
+                                    //
+                                    //                 if ui.button("View Track Data Stream").clicked() {
+                                    //                     new_selection2 =
+                                    //                         Some(TrackListSelection::Track(TrackSelection {
+                                    //                             sel_scope: TrackSelectionScope::DecodedDataStream,
+                                    //                             phys_ch:   track.ch,
+                                    //                         }));
+                                    //                     ui.close_menu();
+                                    //                 }
+                                    //
+                                    //                 if ui.button("View Track Flux Timings").clicked() {
+                                    //                     new_selection2 =
+                                    //                         Some(TrackListSelection::Track(TrackSelection {
+                                    //                             sel_scope: TrackSelectionScope::Timings,
+                                    //                             phys_ch:   track.ch,
+                                    //                         }));
+                                    //                     ui.close_menu();
+                                    //                 }
+                                    //             }
+                                    //             TrackDataResolution::BitStream => {
+                                    //                 if ui.button("View Track Elements").clicked() {
+                                    //                     new_selection2 =
+                                    //                         Some(TrackListSelection::Track(TrackSelection {
+                                    //                             sel_scope: TrackSelectionScope::Elements,
+                                    //                             phys_ch:   track.ch,
+                                    //                         }));
+                                    //                 }
+                                    //
+                                    //                 if ui.button("View Track Data Stream").clicked() {
+                                    //                     new_selection2 =
+                                    //                         Some(TrackListSelection::Track(TrackSelection {
+                                    //                             sel_scope: TrackSelectionScope::DecodedDataStream,
+                                    //                             phys_ch:   track.ch,
+                                    //                         }));
+                                    //                 }
+                                    //             }
+                                    //             TrackDataResolution::MetaSector => {}
+                                    //         });
+                                    //     },
+                                    // );
+                                }),
                             );
                         ui.add_space(8.0);
                     }

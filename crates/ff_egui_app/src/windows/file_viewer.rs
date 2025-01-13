@@ -26,7 +26,7 @@
 */
 use egui::Grid;
 use fluxfox::file_system::fat::fat_fs::FatFileSystem;
-use fluxfox_egui::widgets::data_table::DataTableWidget;
+use fluxfox_egui::controls::data_table::DataTableWidget;
 
 #[derive(Default)]
 pub struct FileViewer {

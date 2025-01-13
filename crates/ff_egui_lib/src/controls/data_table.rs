@@ -32,8 +32,8 @@ use std::ops::Range;
 
 use crate::{
     character_encoding::CharacterEncoding,
+    controls::{data_visualizer::DataVisualizerWidget, tab_group::TabGroup},
     range_check::RangeChecker,
-    widgets::{data_visualizer::DataVisualizerWidget, tab_group::TabGroup},
 };
 use egui_extras::{Column, TableBuilder};
 use strum::IntoEnumIterator;

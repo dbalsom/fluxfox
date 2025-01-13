@@ -25,9 +25,8 @@
     --------------------------------------------------------------------------
 */
 use crate::{app::Tool, lock::TrackingLock};
-use fluxfox::{source_map::SourceMap, DiskImage};
-use fluxfox_egui::{widgets::source_map::SourceMapWidget, TrackSelection};
-use std::sync::{Arc, RwLock};
+use fluxfox::DiskImage;
+use fluxfox_egui::{controls::source_map::SourceMapWidget, TrackSelection};
 
 #[derive(Default)]
 pub struct ElementMapViewer {
@@ -62,6 +61,7 @@ impl ElementMapViewer {
         self.open = open;
     }
 
+    #[allow(dead_code)]
     pub fn open_mut(&mut self) -> &mut bool {
         &mut self.open
     }

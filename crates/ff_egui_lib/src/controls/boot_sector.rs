@@ -29,7 +29,7 @@
     Disk Info widget for displaying boot sector information, including the
     BIOS Parameter Block and the boot sector marker.
 */
-use crate::{widgets::error_banner::ErrorBanner, UiEvent};
+use crate::{controls::error_banner::ErrorBanner, UiEvent};
 use fluxfox::{
     boot_sector::{BiosParameterBlock2, BiosParameterBlock3, BootSignature},
     prelude::*,

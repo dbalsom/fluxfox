@@ -27,10 +27,9 @@
 use crate::{app::Tool, lock::TrackingLock};
 use fluxfox::prelude::*;
 use fluxfox_egui::{
-    widgets::data_table::{DataRange, DataTableWidget},
+    controls::data_table::{DataRange, DataTableWidget},
     TrackSelection,
 };
-use std::sync::{Arc, RwLock};
 
 #[derive(Default)]
 pub struct TrackViewer {

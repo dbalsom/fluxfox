@@ -26,11 +26,10 @@
 */
 use crate::widgets::viz::{VisualizationState, VizEvent};
 use fluxfox::DiskImage;
-use std::sync::{Arc, RwLock};
 
 use crate::lock::TrackingLock;
 use anyhow::Result;
-use fluxfox_egui::widgets::error_banner::ErrorBanner;
+use fluxfox_egui::controls::error_banner::ErrorBanner;
 
 pub struct VizViewer {
     viz: VisualizationState,

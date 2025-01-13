@@ -24,19 +24,13 @@
 
     --------------------------------------------------------------------------
 */
-use crate::{
-    app::Tool,
-    lock::TrackingLock,
-    widgets::viz::{VisualizationState, VizEvent},
-};
+#![allow(dead_code)]
+
+use crate::{app::Tool, lock::TrackingLock};
 use anyhow::Result;
 use fluxfox::{prelude::TrackDataResolution, visualization::prelude::*, DiskImage};
-use fluxfox_egui::widgets::{disk_visualizer::DiskVisualizerWidget, error_banner::ErrorBanner};
-use std::{
-    collections::HashMap,
-    f32::consts::TAU,
-    sync::{Arc, RwLock},
-};
+use fluxfox_egui::controls::{disk_visualizer::DiskVisualizerWidget, error_banner::ErrorBanner};
+use std::f32::consts::TAU;
 
 pub const VIZ_RESOLUTION: u32 = 768;
 
@@ -77,10 +71,6 @@ impl NewVizViewer {
     /// Reset, but don't destroy the visualization state
     pub fn reset(&mut self) {
         self.open = false;
-    }
-
-    pub fn init(&mut self, ctx: egui::Context, resolution: u32) {
-        //self.viz = VisualizationState::new(ctx, resolution);
     }
 
     pub fn set_open(&mut self, state: bool) {

@@ -30,7 +30,7 @@
     Utilizes the pixel_canvas widget to display the data as a bitmap.
 
 */
-use crate::widgets::canvas::{HoverCallback, PixelCanvas, PixelCanvasDepth};
+use crate::controls::canvas::{HoverCallback, PixelCanvas, PixelCanvasDepth};
 use std::fmt::Display;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;

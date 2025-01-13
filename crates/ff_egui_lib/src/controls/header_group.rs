@@ -24,7 +24,9 @@
 
     --------------------------------------------------------------------------
 */
-use egui::{Pos2, Rect, Response, RichText, Rounding, Stroke, TextStyle, Ui, Vec2, Widget};
+use egui::{Pos2, Rect, RichText, Rounding, Stroke, TextStyle, Vec2};
+
+pub type HeaderFn = fn(&mut egui::Ui, default_text: RichText);
 
 pub struct HeaderGroup {
     heading: String,
@@ -51,11 +53,14 @@ impl HeaderGroup {
         self
     }
 
+    // pub fn show<F>(&self, ui: &mut egui::Ui, body_content: F, header_content: Option<F>)
+    // where
+    //     F: FnOnce(&mut egui::Ui),
     pub fn show(
         &self,
         ui: &mut egui::Ui,
         body_content: impl FnOnce(&mut egui::Ui),
-        header_content: impl FnOnce(&mut egui::Ui),
+        header_content: Option<impl FnOnce(&mut egui::Ui, RichText)>,
     ) {
         // Add some margin space for the group
         let margin = ui.style().spacing.window_margin;
@@ -72,14 +77,22 @@ impl HeaderGroup {
                     // Paint the heading
                     ui.add_space(margin.top); // Top margin
 
-                    ui.horizontal(|ui| {
-                        let mut text = RichText::new(&self.heading);
-                        if self.strong {
-                            text = text.strong();
-                        }
+                    let mut text = RichText::new(&self.heading);
+                    if self.strong {
+                        text = text.strong();
+                    }
 
-                        ui.heading(text);
-                        header_content(ui);
+                    ui.horizontal(|ui| {
+                        // Let the header callback fully control drawing the header content in its
+                        // own scope.
+                        if let Some(header_content) = header_content {
+                            ui.scope(|ui| {
+                                header_content(ui, text);
+                            });
+                        }
+                        else {
+                            ui.heading(text);
+                        }
                     });
 
                     ui.add_space(margin.top); // Top margin

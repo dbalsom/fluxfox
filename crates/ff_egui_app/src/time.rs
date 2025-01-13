@@ -24,6 +24,7 @@
 
     --------------------------------------------------------------------------
 */
+#![allow(unused_imports)]
 
 //! Module providing time utilities for the application, resolving to either
 //! `std::time` or `web_time` depending on the target platform.

@@ -27,10 +27,10 @@
 use crate::{app::Tool, lock::TrackingLock};
 use fluxfox::prelude::*;
 use fluxfox_egui::{
-    widgets::{data_table::DataTableWidget, error_banner::ErrorBanner},
+    controls::{data_table::DataTableWidget, error_banner::ErrorBanner},
+    widgets::chs::ChsWidget,
     SectorSelection,
 };
-use std::sync::{Arc, RwLock};
 
 #[derive(Default)]
 pub struct SectorViewer {
@@ -119,9 +119,17 @@ impl SectorViewer {
                 if let Some(error_string) = &self.error_string {
                     ErrorBanner::new(error_string).small().show(ui);
                 }
-                ui.label(format!("Physical Track: {}", self.phys_ch));
-                ui.label(format!("Sector ID: {}", self.sector_id));
+                egui::Grid::new("sector_viewer_grid").show(ui, |ui| {
+                    ui.label("Physical Track:");
+                    ui.add(ChsWidget::from_ch(self.phys_ch));
+                    ui.end_row();
 
+                    ui.label("Sector ID:");
+                    ui.add(ChsWidget::from_chs(DiskChs::from(self.sector_id)));
+                    ui.end_row();
+                });
+
+                ui.separator();
                 self.table.show(ui);
             });
         });

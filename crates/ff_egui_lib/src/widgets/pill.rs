@@ -25,41 +25,60 @@
     --------------------------------------------------------------------------
 */
 
-use fluxfox::DiskImage;
-use fluxfox_egui::controls::source_map::SourceMapWidget;
+//! A [Pill] widget for egui. This creates a label with a rounded background.
 
-#[derive(Default)]
-pub struct SourceMapViewer {
-    pub open:   bool,
-    pub widget: SourceMapWidget,
+use crate::WidgetSize;
+use egui::{Color32, Response, Ui, Widget};
+
+pub struct PillWidget {
+    label: String,
+    size:  WidgetSize,
+    color: Color32,
+    fill:  Color32,
 }
 
-impl SourceMapViewer {
-    #[allow(dead_code)]
-    pub fn new() -> Self {
+impl PillWidget {
+    pub fn new(label: &str) -> Self {
         Self {
-            open:   false,
-            widget: SourceMapWidget::new(),
+            label: label.to_string(),
+            size:  WidgetSize::default(),
+            color: Color32::WHITE,
+            fill:  Color32::TRANSPARENT,
         }
     }
 
-    pub fn update(&mut self, disk: &DiskImage) {
-        self.widget.update(disk);
+    pub fn with_size(mut self, size: WidgetSize) -> Self {
+        self.size = size;
+        self
     }
 
-    #[allow(dead_code)]
-    pub fn set_open(&mut self, open: bool) {
-        self.open = open;
+    pub fn with_color(mut self, color: Color32) -> Self {
+        self.color = color;
+        self
     }
 
-    pub fn open_mut(&mut self) -> &mut bool {
-        &mut self.open
+    pub fn with_fill(mut self, color: Color32) -> Self {
+        self.fill = color;
+        self
     }
 
-    pub fn show(&mut self, ctx: &egui::Context) {
-        egui::Window::new("Source Map")
-            .open(&mut self.open)
-            .resizable(egui::Vec2b::new(true, true))
-            .show(ctx, |ui| self.widget.show(ui));
+    pub fn show(&self, ui: &mut Ui) -> Response {
+        let frame = egui::Frame::none()
+            .fill(self.fill)
+            .rounding(self.size.rounding())
+            .inner_margin(self.size.padding())
+            .outer_margin(egui::Margin::from(0.0));
+
+        frame
+            .show(ui, |ui| {
+                ui.label(egui::RichText::new(&self.label).color(self.color));
+            })
+            .response
+    }
+}
+
+impl Widget for PillWidget {
+    fn ui(self, ui: &mut Ui) -> Response {
+        self.show(ui)
     }
 }

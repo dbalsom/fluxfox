@@ -33,9 +33,6 @@ use fluxfox::{
 };
 use std::{
     collections::HashMap,
-    fmt::Debug,
-    hash::Hash,
-    marker::PhantomData,
     ops::{Deref, DerefMut},
     sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
@@ -71,11 +68,11 @@ impl DiskLock<DiskImage, Tool> for TrackingLock<DiskImage> {
     type ReadGuard<'a> = TrackingReadGuard<'a, DiskImage>;
     type WriteGuard<'a> = TrackingWriteGuard<'a, DiskImage>;
 
-    fn read(&self, tool: Tool) -> Result<TrackingReadGuard<DiskImage>, Tool> {
+    fn read(&self, tool: Tool) -> Result<TrackingReadGuard<'_, DiskImage>, Tool> {
         self.read(tool)
     }
 
-    fn write(&self, tool: Tool) -> Result<TrackingWriteGuard<DiskImage>, Vec<Tool>> {
+    fn write(&self, tool: Tool) -> Result<TrackingWriteGuard<'_, DiskImage>, Vec<Tool>> {
         self.write(tool)
     }
 
@@ -107,7 +104,7 @@ impl<T> TrackingLock<T> {
     }
 
     /// Attempts to acquire a read lock for the given tool.
-    pub fn read(&self, tool: Tool) -> Result<TrackingReadGuard<T>, Tool> {
+    pub fn read(&self, tool: Tool) -> Result<TrackingReadGuard<'_, T>, Tool> {
         let mut tracking = self.tracking.lock().unwrap();
 
         if tracking.write_lock.is_some() {
@@ -138,7 +135,7 @@ impl<T> TrackingLock<T> {
     }
 
     /// Attempts to acquire a write lock for the given tool.
-    pub fn write(&self, tool: Tool) -> Result<TrackingWriteGuard<T>, Vec<Tool>> {
+    pub fn write(&self, tool: Tool) -> Result<TrackingWriteGuard<'_, T>, Vec<Tool>> {
         let mut tracking = self.tracking.lock().unwrap();
 
         if !tracking.read_locks.is_empty() {

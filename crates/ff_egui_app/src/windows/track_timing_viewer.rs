@@ -24,9 +24,9 @@
 
     --------------------------------------------------------------------------
 */
-use crate::windows::track_viewer::TrackViewer;
+
 use fluxfox::{flux::pll::PllMarkerEntry, prelude::DiskCh};
-use fluxfox_egui::widgets::{data_table::DataTableWidget, track_timing_chart::TrackTimingChart};
+use fluxfox_egui::controls::track_timing_chart::TrackTimingChart;
 
 #[derive(Default)]
 pub struct TrackTimingViewer {

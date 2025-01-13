@@ -25,11 +25,6 @@
     --------------------------------------------------------------------------
 */
 
-#[cfg(not(target_arch = "wasm32"))]
-use crate::native::worker;
-#[cfg(target_arch = "wasm32")]
-use crate::wasm::worker;
-use crate::{time::*, App};
 use std::{
     collections::HashMap,
     default::Default,
@@ -38,31 +33,36 @@ use std::{
     sync::{mpsc, Arc, Mutex, RwLock},
 };
 
+use crate::{app::Tool, lock::TrackingLock};
+
+#[cfg(not(target_arch = "wasm32"))]
+use crate::native::worker;
+#[cfg(target_arch = "wasm32")]
+use crate::wasm::worker;
+use crate::{time::*, App};
+use anyhow::{anyhow, Error};
+use eframe::emath::{Pos2, Rect, RectTransform};
+use egui::{Align, Layout, Vec2};
 use fluxfox::{
     prelude::*,
     track_schema::GenericTrackElement,
-    visualization::{
-        prelude::*,
-        rasterize_disk::{rasterize_disk_selection, rasterize_track_metadata_quadrant},
-    },
+    visualization::{prelude::*, rasterize_disk::rasterize_disk_selection},
     FoxHashMap,
 };
-
+use fluxfox_egui::{
+    controls::{
+        canvas::{PixelCanvas, PixelCanvasDepth},
+        header_group::{HeaderFn, HeaderGroup},
+    },
+    visualization::viz_elements::paint_elements,
+};
 #[cfg(feature = "svg")]
 use fluxfox_svg::prelude::*;
-
-use fluxfox_egui::widgets::canvas::{PixelCanvas, PixelCanvasDepth};
-use fluxfox_tiny_skia::tiny_skia::{BlendMode, Color, FilterQuality, Pixmap, PixmapPaint, Transform};
-
-use crate::{app::Tool, lock::TrackingLock};
-use anyhow::{anyhow, Error};
-use eframe::emath::{Pos2, Rect, RectTransform};
-use egui::{Align, Key::V, Layout, Vec2};
-use fluxfox_egui::{visualization::viz_elements::paint_elements, widgets::header_group::HeaderGroup};
 use fluxfox_tiny_skia::{
     render_display_list::render_data_display_list,
     render_elements::skia_render_display_list,
     styles::{default_skia_styles, SkiaStyle},
+    tiny_skia::{BlendMode, Color, FilterQuality, Pixmap, PixmapPaint, Transform},
 };
 use tiny_skia::Paint;
 
@@ -117,7 +117,6 @@ pub struct VisualizationState {
     pub selection_img: [Arc<Mutex<Pixmap>>; 2],
 
     pub composite_img: [Pixmap; 2],
-    pub sector_lookup_img: [Pixmap; 2],
     pub meta_palette: HashMap<GenericTrackElement, VizColor>,
     pub meta_display_list: [Arc<Mutex<Option<VizElementDisplayList>>>; 2],
     pub have_render: [bool; 2],
@@ -173,10 +172,6 @@ impl Default for VisualizationState {
                 Arc::new(Mutex::new(Pixmap::new(VIZ_RESOLUTION, VIZ_RESOLUTION).unwrap())),
             ],
             composite_img: [
-                Pixmap::new(VIZ_RESOLUTION, VIZ_RESOLUTION).unwrap(),
-                Pixmap::new(VIZ_RESOLUTION, VIZ_RESOLUTION).unwrap(),
-            ],
-            sector_lookup_img: [
                 Pixmap::new(VIZ_RESOLUTION, VIZ_RESOLUTION).unwrap(),
                 Pixmap::new(VIZ_RESOLUTION, VIZ_RESOLUTION).unwrap(),
             ],
@@ -932,7 +927,7 @@ impl VisualizationState {
                                     Self::show_selection(ui, selection, false);
                                     //ui.set_min_height(200.0);
                                 },
-                                |_| {},
+                                None::<HeaderFn>,
                             );
                         }
                         if let Some(selection) = &context.hover_selection {
@@ -942,13 +937,13 @@ impl VisualizationState {
                                     Self::show_selection(ui, selection, true);
                                     //ui.set_min_height(200.0);
                                 },
-                                |_| {},
+                                None::<HeaderFn>,
                             );
                         }
                     });
                     ui.set_min_height(200.0);
                 },
-                |_| {},
+                None::<HeaderFn>,
             );
         });
     }

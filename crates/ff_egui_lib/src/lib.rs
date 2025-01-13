@@ -28,9 +28,36 @@ use fluxfox::{file_system::FileEntry, prelude::*};
 use std::fmt::{Debug, Formatter, Result};
 
 pub mod character_encoding;
+pub mod controls;
 mod range_check;
 pub mod visualization;
 pub mod widgets;
+
+#[derive(Debug, Copy, Clone, Default)]
+pub enum WidgetSize {
+    Small,
+    #[default]
+    Normal,
+    Large,
+}
+
+impl WidgetSize {
+    pub fn rounding(&self) -> f32 {
+        match self {
+            WidgetSize::Small => 4.0,
+            WidgetSize::Normal => 6.0,
+            WidgetSize::Large => 8.0,
+        }
+    }
+
+    pub fn padding(&self) -> f32 {
+        match self {
+            WidgetSize::Small => 2.0,
+            WidgetSize::Normal => 4.0,
+            WidgetSize::Large => 6.0,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct SectorSelection {
