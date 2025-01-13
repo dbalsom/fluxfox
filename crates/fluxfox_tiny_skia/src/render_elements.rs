@@ -137,7 +137,7 @@ pub fn skia_render_element(
     }
 }
 
-/// Render a single data slice as an SVG path. Unlike a sector element, a data slice is a single
+/// Render a single data slice as a tiny_skia path. Unlike a sector element, a data slice is a single
 /// arc with a stroke rendered at the track width.
 pub fn skia_render_data_slice(
     pixmap: &mut Pixmap,
