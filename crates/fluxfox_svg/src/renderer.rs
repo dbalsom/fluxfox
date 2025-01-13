@@ -307,7 +307,7 @@ impl SvgRenderer {
 
     /// Override the default styles with a custom set of styles. This must be a hash map of
     /// `GenericTrackElement` to `ElementStyle`.
-    pub fn with_styles(mut self, styles: FoxHashMap<GenericTrackElement, ElementStyle>) -> Self {
+    pub fn with_styles(mut self, _styles: FoxHashMap<GenericTrackElement, ElementStyle>) -> Self {
         self
     }
 
@@ -356,8 +356,8 @@ impl SvgRenderer {
             &display_list,
         );
 
-        /// Move this side's group over if we're rendering side-by-side, this the second side, and
-        /// we are rendering two sides.
+        // Move this side's group over if we're rendering side-by-side, this the second side, and
+        // we are rendering two sides.
         if (side > 0) && (self.total_sides_to_render > 1) && self.render_side_by_side {
             group = group.set(
                 "transform",
@@ -404,8 +404,8 @@ impl SvgRenderer {
             group = group.set("style", format!("mix-blend-mode: {};", mode));
         }
 
-        /// Move this side's group over if we're rendering side-by-side, this the second side, and
-        /// we are rendering two sides.
+        // Move this side's group over if we're rendering side-by-side, this the second side, and
+        // we are rendering two sides.
         if (side > 0) && (self.total_sides_to_render > 1) && self.render_side_by_side {
             group = group.set(
                 "transform",
