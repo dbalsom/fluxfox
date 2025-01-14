@@ -1062,7 +1062,7 @@ impl DiskImage {
         let ti = self.track_map[ch.h() as usize][ch.c() as usize];
         let track = &mut self.track_pool[ti];
 
-        track.read(overdump)
+        track.read(None, overdump)
     }
 
     /// Read the track specified by `ch`, without decoding. The data is returned within a

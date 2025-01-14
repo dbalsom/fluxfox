@@ -599,7 +599,7 @@ impl Track for MetaSectorTrack {
         }
     }
 
-    fn read(&mut self, _overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
+    fn read(&self, _offset: Option<isize>, _overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 

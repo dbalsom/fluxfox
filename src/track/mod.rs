@@ -70,7 +70,7 @@ use std::any::Any;
 
 /// A struct containing information about a track's encoding, data rate, density, RPM, bit length,
 /// and sector count.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct TrackInfo {
     /// The resolution of the track as a `TrackDataResolution` enum.
     pub resolution: TrackDataResolution,
@@ -362,7 +362,7 @@ pub trait Track: DynClone + Any + Send + Sync {
     /// # Returns
     /// - `Ok(ReadTrackResult)` if the track was successfully read.
     /// - `Err(DiskImageError)` if an error occurred while reading the track.
-    fn read(&mut self, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError>;
+    fn read(&self, offset: Option<isize>, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError>;
 
     /// Read the entire track without decoding.
     /// Not valid for MetaSector resolution tracks, which will return `DiskImageError::UnsupportedFormat`.

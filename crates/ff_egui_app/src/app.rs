@@ -254,6 +254,9 @@ impl AppWindows {
             }
         };
 
+        log::debug!("Updating track data viewer...");
+        self.track_viewer.update_disk(disk_lock.clone());
+
         log::debug!("Updating sector viewer...");
         self.sector_viewer.update(disk_lock.clone(), SectorSelection::default());
 
@@ -759,7 +762,7 @@ impl App {
                 }
                 AppEvent::TrackSelected(selection) => {
                     if let Some(disk) = self.selected_disk() {
-                        self.windows.track_viewer.update(disk.clone(), selection.clone());
+                        self.windows.track_viewer.update_selection(selection.clone());
                         self.track_selection = Some(selection);
                         self.windows.track_viewer.set_open(true);
                     }

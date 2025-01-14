@@ -35,7 +35,7 @@
 //! implementation in the future. The Snow mac emulator doesn't need decoding
 //! support, just raw access to GCR tracks.
 
-use std::ops::Index;
+use std::ops::{Index, Range};
 
 use crate::{
     bit_ring::BitRing,
@@ -194,14 +194,14 @@ impl TrackCodec for GcrCodec {
         None
     }
 
-    fn set_data_ranges(&mut self, ranges: Vec<(usize, usize)>) {
+    fn set_data_ranges(&mut self, ranges: Vec<Range<usize>>) {
         // Don't set ranges for overlapping sectors. This avoids visual discontinuities during
         // visualization.
         let filtered_ranges = ranges
-            .iter()
-            .filter(|(start, end)| !(*start >= self.bits.len() || *end >= self.bits.len()))
-            .map(|(start, end)| (*start, *end))
-            .collect::<Vec<(usize, usize)>>();
+            .clone()
+            .into_iter()
+            .filter(|range| !(range.start >= self.bits.len() || range.end >= self.bits.len()))
+            .collect::<Vec<Range<usize>>>();
 
         self.data_ranges_filtered = RangeChecker::new(&filtered_ranges);
         self.data_ranges = RangeChecker::new(&ranges);

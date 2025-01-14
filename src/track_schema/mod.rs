@@ -239,6 +239,17 @@ impl TrackMetadata {
         sector_ct
     }
 
+    pub fn markers(&self) -> Vec<TrackElementInstance> {
+        let mut markers = Vec::new();
+        for item in &self.items {
+            if item.element.is_sector_data_marker() {
+                markers.push(*item);
+            }
+        }
+        markers
+    }
+
+    /// Return a vector of [SectorMapEntry]s representing the sectors contained in the metadata
     pub fn sector_list(&self) -> Vec<SectorMapEntry> {
         let mut sector_list = Vec::new();
 
@@ -357,7 +368,7 @@ impl TrackMetadata {
     /// Primarily used as helper for disk visualization.
     /// # Returns
     /// A vector of tuples containing the start and end bit indices of sector data.
-    pub fn data_ranges(&self) -> Vec<(usize, usize)> {
+    pub fn data_ranges(&self) -> Vec<Range<usize>> {
         let mut data_ranges = Vec::new();
 
         for instance in &self.items {
@@ -365,11 +376,11 @@ impl TrackMetadata {
                 TrackElement::System34(System34Element::SectorData { .. }) => {
                     // Should the data range for a sector include the address mark?
                     // For now we will exclude it.
-                    data_ranges.push((instance.start + (4 * MFM_BYTE_LEN), instance.end));
+                    data_ranges.push(Range::from(instance.start + (4 * MFM_BYTE_LEN)..instance.end));
                 }
                 #[cfg(feature = "amiga")]
                 TrackElement::Amiga(AmigaElement::SectorData { .. }) => {
-                    data_ranges.push((instance.start, instance.end));
+                    data_ranges.push(Range::from(instance.start..instance.end));
                 }
                 _ => {}
             }
@@ -378,12 +389,24 @@ impl TrackMetadata {
         data_ranges
     }
 
-    pub fn marker_ranges(&self) -> Vec<(usize, usize)> {
-        let mut marker_ranges = Vec::new();
+    pub fn header_ranges(&self) -> Vec<Range<usize>> {
+        let mut header_ranges: Vec<Range<usize>> = Vec::new();
+
+        for item in &self.items {
+            if item.element.is_sector_header() {
+                header_ranges.push(Range::from(item.start..item.end));
+            }
+        }
+
+        header_ranges
+    }
+
+    pub fn marker_ranges(&self) -> Vec<Range<usize>> {
+        let mut marker_ranges: Vec<Range<usize>> = Vec::new();
 
         for item in &self.items {
             if let TrackElement::System34(System34Element::Marker { .. }) = item.element {
-                marker_ranges.push((item.start, item.end));
+                marker_ranges.push(Range::from(item.start..item.end));
             }
         }
 
@@ -412,6 +435,10 @@ pub struct TrackElementInstance {
 impl TrackElementInstance {
     pub fn contains(&self, bit_index: usize) -> bool {
         self.start <= bit_index && self.end >= bit_index
+    }
+
+    pub fn range(&self) -> Range<usize> {
+        self.start..self.end
     }
 
     pub fn len(&self) -> usize {
@@ -460,15 +487,16 @@ pub enum GenericTrackElement {
 
 impl Display for GenericTrackElement {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        use GenericTrackElement::*;
         match self {
-            GenericTrackElement::NullElement => write!(f, "Null"),
-            GenericTrackElement::Marker => write!(f, "Marker"),
-            GenericTrackElement::SectorHeader => write!(f, "Sector Header"),
-            GenericTrackElement::SectorBadHeader => write!(f, "Sector Header (Bad)"),
-            GenericTrackElement::SectorData => write!(f, "Sector Data"),
-            GenericTrackElement::SectorDeletedData => write!(f, "Deleted Sector Data"),
-            GenericTrackElement::SectorBadData => write!(f, "Sector Data (Bad)"),
-            GenericTrackElement::SectorBadDeletedData => write!(f, "Deleted Sector Data (Bad)"),
+            NullElement => write!(f, "Null"),
+            Marker => write!(f, "Marker"),
+            SectorHeader => write!(f, "Sector Header"),
+            SectorBadHeader => write!(f, "Sector Header (Bad)"),
+            SectorData => write!(f, "Sector Data"),
+            SectorDeletedData => write!(f, "Deleted Sector Data"),
+            SectorBadData => write!(f, "Sector Data (Bad)"),
+            SectorBadDeletedData => write!(f, "Deleted Sector Data (Bad)"),
         }
     }
 }
@@ -502,6 +530,15 @@ impl From<TrackElement> for GenericTrackElement {
 }
 
 impl TrackElement {
+    pub fn is_marker(&self) -> bool {
+        match self {
+            TrackElement::System34(System34Element::Marker { .. }) => true,
+            #[cfg(feature = "amiga")]
+            TrackElement::Amiga(AmigaElement::Marker { .. }) => true,
+            _ => false,
+        }
+    }
+
     pub fn is_sector_header(&self) -> bool {
         matches!(self, TrackElement::System34(System34Element::SectorHeader { .. }))
     }

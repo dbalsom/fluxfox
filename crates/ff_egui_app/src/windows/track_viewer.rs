@@ -25,16 +25,26 @@
     --------------------------------------------------------------------------
 */
 use crate::{app::Tool, lock::TrackingLock};
-use fluxfox::prelude::*;
+use fluxfox::{
+    prelude::*,
+    track::{DiskTrack, TrackInfo},
+    track_schema::{TrackElementInstance, TrackSchema},
+};
 use fluxfox_egui::{
     controls::data_table::{DataRange, DataTableWidget},
+    widgets::chs::ChsWidget,
     TrackSelection,
 };
+use std::ops::Range;
 
 #[derive(Default)]
 pub struct TrackViewer {
+    disk: Option<TrackingLock<DiskImage>>,
     phys_ch: DiskCh,
-
+    track: Option<DiskTrack>,
+    track_info: TrackInfo,
+    markers: Vec<TrackElementInstance>,
+    marker_sync: usize,
     table: DataTableWidget,
     open: bool,
     valid: bool,
@@ -45,7 +55,13 @@ impl TrackViewer {
     #[allow(dead_code)]
     pub fn new(phys_ch: DiskCh) -> Self {
         Self {
+            disk: None,
             phys_ch,
+            track: None,
+            track_info: TrackInfo::default(),
+            // Capacity of 37 markers (18 sectors * 2 (IDAM + DAM) + IAM)
+            markers: Vec::with_capacity(38),
+            marker_sync: 0,
             table: DataTableWidget::default(),
             open: false,
             valid: false,
@@ -53,72 +69,174 @@ impl TrackViewer {
         }
     }
 
-    pub fn update(&mut self, disk_lock: TrackingLock<DiskImage>, selection: TrackSelection) {
-        let disk = &mut disk_lock.write(Tool::TrackViewer).unwrap();
+    pub fn update_disk(&mut self, disk: TrackingLock<DiskImage>) {
+        self.disk = Some(disk);
+        self.phys_ch = DiskCh::default();
+        self.track = None;
+        self.markers = Vec::new();
+        self.track_info = TrackInfo::default();
+    }
 
-        self.phys_ch = selection.phys_ch;
+    pub fn update_selection(&mut self, selection: TrackSelection) {
+        self.marker_sync = 0;
+        self.error_string = None;
 
-        let track_ref = match disk.track_mut(selection.phys_ch) {
-            Some(tr) => tr,
-            None => {
-                self.error_string = Some("Invalid track index".to_string());
-                self.valid = false;
-                return;
-            }
-        };
+        if let Some(disk_lock) = &self.disk {
+            let disk = disk_lock.read(Tool::TrackViewer).unwrap();
 
-        let rtr = match track_ref.read(None) {
-            Ok(rtr) => rtr,
-            Err(e) => {
-                log::error!("Error reading sector: {:?}", e);
-                self.error_string = Some(e.to_string());
-                self.valid = false;
-                return;
-            }
-        };
+            self.phys_ch = selection.phys_ch;
 
-        if rtr.not_found {
-            self.error_string = Some("Track not found".to_string());
-            self.valid = false;
-            return;
+            let track_ref = match disk.track(selection.phys_ch) {
+                Some(tr) => tr,
+                None => {
+                    self.error_string = Some("Invalid track index".to_string());
+                    self.valid = false;
+                    return;
+                }
+            };
+
+            self.track_info = track_ref.info();
+            // Take a clone of the track reference so we can re-read the track at different offsets
+            // without having to re-acquire the lock.
+            self.track = Some(track_ref.clone());
         }
 
-        self.table.set_data(&rtr.read_buf);
-        self.valid = true;
+        self.scan_track();
+        self.read_track(0);
+    }
 
-        if let Some(metadata) = track_ref.metadata() {
-            for item in metadata.marker_ranges() {
-                let range = DataRange {
-                    name: "Marker".to_string(),
-                    range: (item.0 / 16)..(item.1 / 16).saturating_sub(1),
-                    fg_color: egui::Color32::from_rgb(0x53, 0xdd, 0xff),
-                };
-                self.table.add_range(range);
+    // Scan the track for markers.
+    fn scan_track(&mut self) {
+        if let Some(track) = &self.track {
+            if let Some(metadata) = track.metadata() {
+                self.markers = metadata.markers();
+                log::debug!("scan_track(): Found {} markers", self.markers.len());
             }
-        };
+        }
+    }
 
-        // test setting a range
-        // let range = DataRange {
-        //     name: "Test".to_string(),
-        //     start: 3,
-        //     end: 7,
-        //     fg_color: egui::Color32::from_rgb(0, 0, 255),
-        // };
+    fn read_track(&mut self, offset: isize) {
+        if let Some(track) = &self.track {
+            let rtr = match track.read(Some(offset), None) {
+                Ok(rtr) => rtr,
+                Err(e) => {
+                    log::error!("Error reading sector: {:?}", e);
+                    self.error_string = Some(e.to_string());
+                    self.valid = false;
+                    return;
+                }
+            };
 
-        //self.table.add_range(range);
+            if rtr.not_found {
+                self.error_string = Some("Unexpected error: Track not found(?)".to_string());
+                self.valid = false;
+                return;
+            }
+
+            self.table.set_data(&rtr.read_buf);
+            self.valid = true;
+
+            if let Some(metadata) = track.metadata() {
+                for item in metadata.header_ranges() {
+                    //let offset_range = (item.start + offset as usize)..(item.end + offset as usize);
+
+                    let range = DataRange {
+                        name: "Sector Header".to_string(),
+                        range: (item.start / 16)..(item.end / 16).saturating_sub(1),
+                        fg_color: egui::Color32::from_rgb(0xff, 0x53, 0x53),
+                    };
+                    self.table.add_range(range);
+                }
+
+                for item in metadata.marker_ranges() {
+                    //let offset_range = (item.start + offset as usize)..(item.end + offset as usize);
+
+                    let range = DataRange {
+                        name: "Marker".to_string(),
+                        range: (item.start / 16)..(item.end / 16).saturating_sub(1),
+                        fg_color: egui::Color32::from_rgb(0x53, 0xdd, 0xff),
+                    };
+                    self.table.add_range(range);
+                }
+            };
+        }
+    }
+
+    fn decompose_header_range(&self, range: Range<usize>) {}
+
+    fn sync_to(&mut self, marker_start: usize) {
+        // Marker offset is modulo 16 for FM and MFM.
+        match self.track_info.encoding {
+            TrackDataEncoding::Fm | TrackDataEncoding::Mfm => {
+                let offset = marker_start % 16;
+                self.read_track(offset as isize);
+            }
+            _ => {
+                self.error_string = Some("Unsupported encoding".to_string());
+                self.valid = false;
+            }
+        }
+    }
+
+    pub fn open_mut(&mut self) -> &mut bool {
+        &mut self.open
     }
 
     pub fn set_open(&mut self, open: bool) {
         self.open = open;
     }
 
+    // Show the window
     pub fn show(&mut self, ctx: &egui::Context) {
-        egui::Window::new("Track Viewer").open(&mut self.open).show(ctx, |ui| {
-            ui.vertical(|ui| {
-                ui.label(format!("Physical Track: {}", self.phys_ch));
+        // Separate open state to avoid borrowing self
+        let mut open = self.open;
+        // Show the window
+        egui::Window::new("Track Viewer").open(&mut open).show(ctx, |ui| {
+            self.ui(ui);
+        });
+        // Sync open state
+        self.set_open(open);
+    }
 
-                self.table.show(ui);
+    fn ui(&mut self, ui: &mut egui::Ui) {
+        ui.vertical(|ui| {
+            egui::Grid::new("track_viewer_grid").num_columns(4).show(ui, |ui| {
+                ui.label("Physical Track:");
+                ui.add(ChsWidget::from_ch(self.phys_ch));
+                ui.end_row();
+
+                ui.label("Sync to bitcell:");
+                egui::ComboBox::new("track_viewer_combo", "")
+                    .selected_text(format!("{}", self.marker_sync))
+                    .show_ui(ui, |ui| {
+                        let mut sync_to_opt = None;
+                        if ui.selectable_value(&mut self.marker_sync, 0, "Track Start").clicked() {
+                            sync_to_opt = Some(0);
+                        }
+                        for marker in &self.markers {
+                            if ui
+                                .selectable_value(
+                                    &mut self.marker_sync,
+                                    marker.range().start,
+                                    format!("Marker @ {}", marker.range().start),
+                                )
+                                .clicked()
+                            {
+                                sync_to_opt = Some(marker.range().start);
+                            }
+                        }
+
+                        if let Some(marker_start) = sync_to_opt {
+                            self.sync_to(marker_start);
+                        }
+                    });
+
+                ui.label("Offset:");
+                ui.label(format!("{}", self.marker_sync % 16));
+                ui.end_row();
             });
+
+            self.table.show(ui);
         });
     }
 }

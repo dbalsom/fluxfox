@@ -28,6 +28,7 @@
 
     Implement an O(log n) range checker for detecting if a value is within a range.
 */
+use std::ops::Range;
 
 #[derive(Clone, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -36,11 +37,11 @@ pub(crate) struct RangeChecker {
 }
 
 impl RangeChecker {
-    pub fn new(ranges: &[(usize, usize)]) -> Self {
+    pub fn new(ranges: &[Range<usize>]) -> Self {
         let mut events = Vec::new();
-        for (start, end) in ranges {
-            events.push((*start, 1)); // Start of range
-            events.push((*end + 1, -1)); // End of range, exclusive
+        for range in ranges {
+            events.push((range.start, 1)); // Start of range
+            events.push((range.end + 1, -1)); // End of range, exclusive
         }
         events.sort_unstable();
         RangeChecker { events }

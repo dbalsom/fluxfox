@@ -35,7 +35,7 @@ use crate::{
 };
 use bit_vec::BitVec;
 use dyn_clone::{clone_trait_object, DynClone};
-use std::ops::Index;
+use std::ops::{Index, Range};
 // fn find_marker(&self, marker: u64, mask: Option<u64>, start: usize, limit: Option<usize>) -> Option<(usize, u16)>;
 
 /// Defines the bit pattern and mask for an FM or MFM track marker.
@@ -127,7 +127,7 @@ pub trait TrackCodec: DynClone + Read + Seek + Index<usize, Output = bool> + Sen
     /// Find the next marker in the track starting at the specified bit index, searching up to
     /// `limit` bit index if provided.
     fn find_marker(&self, marker: &MarkerEncoding, start: usize, limit: Option<usize>) -> Option<(usize, u16)>;
-    fn set_data_ranges(&mut self, ranges: Vec<(usize, usize)>);
+    fn set_data_ranges(&mut self, ranges: Vec<Range<usize>>);
     /// Return a bool indicating if the bit at the specified index is inside sector data.
     /// Requires the track to have data ranges set with set_data_ranges().
     fn is_data(&self, index: usize, wrapping: bool) -> bool;

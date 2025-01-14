@@ -732,7 +732,7 @@ impl Track for BitStreamTrack {
         }
     }
 
-    fn read(&mut self, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
+    fn read(&self, offset: Option<isize>, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
         let extra_bytes = overdump.unwrap_or(0);
 
         let data_size = self.data.len() / 16 + if self.data.len() % 16 > 0 { 1 } else { 0 };
@@ -740,12 +740,27 @@ impl Track for BitStreamTrack {
 
         let mut track_read_vec = vec![0u8; dump_size];
 
-        self.data
-            .seek(SeekFrom::Start(0))
-            .map_err(|_| DiskImageError::SeekError)?;
-        self.data
-            .read_exact(&mut track_read_vec)
-            .map_err(|_| DiskImageError::BitstreamError)?;
+        let mut track_read_index = 0;
+        if let Some(offset) = offset {
+            track_read_index = if offset < 0 {
+                let (read_index, overflow) = self.data.len().overflowing_add_signed(offset);
+                if overflow {
+                    log::error!("read(): Offset underflow.");
+                    return Err(DiskImageError::ParameterError);
+                }
+                read_index
+            }
+            else {
+                let read_index = offset as usize;
+                if read_index >= self.data.len() {
+                    log::error!("read(): Offset out of bounds.");
+                    return Err(DiskImageError::ParameterError);
+                }
+                read_index
+            }
+        };
+
+        self.data.read_decoded_buf(&mut track_read_vec, track_read_index);
 
         Ok(ReadTrackResult {
             not_found: false,

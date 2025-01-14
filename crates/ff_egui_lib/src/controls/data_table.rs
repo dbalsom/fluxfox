@@ -268,9 +268,13 @@ impl DataTableWidget {
                             for (ei, element) in self.row_elements_hex(row_index).into_iter().enumerate() {
                                 let element_address = row_index * self.num_columns + ei;
 
+                                let mut hit_range = false;
+                                let mut range_text = String::new();
                                 let mut fg_color = ui.visuals().text_color();
                                 if let Some(idx) = range_checker.contains(element_address) {
                                     if let Some(range) = self.ranges.get(idx) {
+                                        hit_range = true;
+                                        range_text = range.name.clone();
                                         fg_color = range.fg_color;
                                     }
                                 }
@@ -278,6 +282,20 @@ impl DataTableWidget {
                                 ui.visuals_mut().override_text_color = Some(fg_color);
                                 if ui.add(element).hovered() {
                                     self.hover_address = Some(element_address);
+
+                                    if hit_range {
+                                        egui::popup::show_tooltip(
+                                            ui.ctx(),
+                                            ui.layer_id(),
+                                            egui::Id::new("data_table_range_popup"),
+                                            |ui| {
+                                                ui.horizontal(|ui| {
+                                                    ui.label(range_text);
+                                                });
+                                            },
+                                        );
+                                    }
+
                                     row_hovered_idx = Some(ei);
                                     any_row_hovered_idx = Some(ei);
                                 }

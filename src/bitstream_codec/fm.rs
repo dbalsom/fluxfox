@@ -36,7 +36,7 @@ use crate::{
     types::{TrackDataEncoding, TrackRegion},
 };
 use bit_vec::BitVec;
-use std::ops::Index;
+use std::ops::{Index, Range};
 
 pub const FM_BYTE_LEN: usize = 16;
 pub const FM_MARKER_LEN: usize = 64;
@@ -429,14 +429,14 @@ impl TrackCodec for FmCodec {
         None
     }
 
-    fn set_data_ranges(&mut self, ranges: Vec<(usize, usize)>) {
+    fn set_data_ranges(&mut self, ranges: Vec<Range<usize>>) {
         // Don't set ranges for overlapping sectors. This avoids visual discontinuities during
         // visualization.
         let filtered_ranges = ranges
-            .iter()
-            .filter(|(start, end)| !(*start >= self.bit_vec.len() || *end >= self.bit_vec.len()))
-            .map(|(start, end)| (*start, *end))
-            .collect::<Vec<(usize, usize)>>();
+            .clone()
+            .into_iter()
+            .filter(|range| !(range.start >= self.bit_vec.len() || range.end >= self.bit_vec.len()))
+            .collect::<Vec<Range<usize>>>();
 
         self.data_ranges_filtered = RangeChecker::new(&filtered_ranges);
         self.data_ranges = RangeChecker::new(&ranges);
