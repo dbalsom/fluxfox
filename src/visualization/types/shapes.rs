@@ -46,13 +46,13 @@ use crate::{
     visualization::{RenderWinding, VizRotate},
 };
 
+use crate::types::DiskChsn;
+#[cfg(feature = "tiny_skia")]
+use crate::visualization::prelude::VizColor;
 use bitflags::bitflags;
 use core::fmt;
 use num_traits::Num;
 use std::ops::Mul;
-
-#[cfg(feature = "tiny_skia")]
-use crate::visualization::prelude::VizColor;
 
 #[cfg(feature = "tiny_skia")]
 impl From<VizColor> for tiny_skia::Color {
@@ -608,6 +608,8 @@ pub struct VizElementInfo {
     pub element_type: GenericTrackElement,
     /// The physical track containing the element
     pub ch: DiskCh,
+    /// The optional DiskChsn of the element, if it corresponds to a sector
+    pub chsn: Option<DiskChsn>,
     /// The bit index of the element within the track.
     pub bit_range: Option<Range<usize>>,
     /// The index of the element within the track's element list.
@@ -620,6 +622,7 @@ impl VizElementInfo {
     pub fn new(
         element_type: GenericTrackElement,
         ch: DiskCh,
+        chsn: Option<DiskChsn>,
         bit_range: Option<Range<usize>>,
         element_idx: Option<usize>,
         sector_idx: Option<usize>,
@@ -627,6 +630,7 @@ impl VizElementInfo {
         VizElementInfo {
             element_type,
             ch,
+            chsn,
             bit_range,
             element_idx,
             sector_idx,
@@ -639,6 +643,7 @@ impl Default for VizElementInfo {
         VizElementInfo {
             element_type: GenericTrackElement::NullElement,
             ch: DiskCh::default(),
+            chsn: None,
             bit_range: None,
             element_idx: None,
             sector_idx: None,
@@ -709,7 +714,7 @@ impl From<tiny_skia::Point> for VizPoint2d<f32> {
 #[derive(Clone, Debug)]
 pub struct VizDataSlice {
     pub density: f32,         // The ratio of 1 bits set to the total number of bits in the slice
-    pub decoded_density: f32, // The ratio of 1 bits set to the total number of bits in the slice after decoding
+    pub mapped_density: u8,   // The density mapped to a u8 display value by the codec
     pub arc: VizQuadraticArc, // The slice arc
 }
 
@@ -718,7 +723,7 @@ impl VizRotate for VizDataSlice {
     fn rotate(self, rot: &VizRotation) -> VizDataSlice {
         VizDataSlice {
             density: self.density,
-            decoded_density: self.decoded_density,
+            mapped_density: self.mapped_density,
             arc: self.arc.rotate(rot),
         }
     }

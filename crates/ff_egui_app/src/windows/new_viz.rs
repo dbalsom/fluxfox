@@ -103,6 +103,7 @@ impl NewVizViewer {
             pin_last_standard_track: true,
             track_gap: 0.0,
             direction: TurningDirection::Clockwise,
+            ..CommonVizParams::default()
         };
 
         let metadata_params = RenderTrackMetadataParams {

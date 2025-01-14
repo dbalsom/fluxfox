@@ -1,3 +1,8 @@
+## 0.3.3 (2025-01-XX)
+
+- Add marker offset sync to track viewer
+- Initial selection support in disk visualization window
+
 ## 0.3.2 (2025-01-11)
 
 - Track flux timing viewer

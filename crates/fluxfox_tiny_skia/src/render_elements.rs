@@ -149,7 +149,8 @@ pub fn skia_render_data_slice(
     let mut path = PathBuilder::new();
     skia_render_quadratic_arc(&mut path, &slice.arc, false);
 
-    let v = ((slice.density * 1.5).clamp(0.0, 1.0) * 255.0) as u8;
+    //let v = ((slice.density * 1.5).clamp(0.0, 1.0) * 255.0) as u8;
+    let v = slice.mapped_density;
     paint.set_color(Color::from_rgba8(v, v, v, 255));
 
     if let Some(path) = path.finish() {

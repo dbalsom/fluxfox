@@ -165,7 +165,6 @@ pub struct PersistentState {
     user_opts: AppUserOptions,
 }
 
-#[derive(Default)]
 pub struct AppWidgets {
     hello: HelloWidget,
     disk_info: DiskInfoWidget,
@@ -176,6 +175,17 @@ pub struct AppWidgets {
 }
 
 impl AppWidgets {
+    pub fn new(_ui_sender: mpsc::SyncSender<UiEvent>) -> Self {
+        Self {
+            hello: HelloWidget::default(),
+            disk_info: DiskInfoWidget::default(),
+            boot_sector: BootSectorWidget::default(),
+            track_list: TrackListWidget::default(),
+            file_system: FileSystemWidget::default(),
+            filename: FilenameWidget::default(),
+        }
+    }
+
     pub fn update_disk(&mut self, disk_lock: TrackingLock<DiskImage>, name: Option<String>) {
         let disk = match disk_lock.read(Tool::App) {
             Ok(disk) => disk,
@@ -218,7 +228,6 @@ impl AppWidgets {
     }
 }
 
-#[derive(Default)]
 pub struct AppWindows {
     viz_viewer: VizViewer,
     new_viz_viewer: NewVizViewer,
@@ -231,6 +240,19 @@ pub struct AppWindows {
 }
 
 impl AppWindows {
+    pub fn new(ui_sender: mpsc::SyncSender<UiEvent>) -> Self {
+        Self {
+            viz_viewer: VizViewer::new(),
+            new_viz_viewer: NewVizViewer::default(),
+            sector_viewer: SectorViewer::default(),
+            track_viewer: TrackViewer::default(),
+            file_viewer: FileViewer::default(),
+            source_map: SourceMapViewer::default(),
+            element_map: ElementMapViewer::default(),
+            track_timing_viewer: TrackTimingViewer::default(),
+        }
+    }
+
     pub fn reset(&mut self) {
         self.viz_viewer.reset();
         self.new_viz_viewer.reset();
@@ -322,6 +344,9 @@ pub struct App {
     load_sender: Option<mpsc::SyncSender<ThreadLoadStatus>>,
     load_receiver: Option<mpsc::Receiver<ThreadLoadStatus>>,
 
+    tool_sender:   mpsc::SyncSender<UiEvent>,
+    tool_receiver: mpsc::Receiver<UiEvent>,
+
     /// The selected disk slot. This is used to track which disk image is currently selected for
     /// viewing and manipulation.
     pub(crate) selected_slot: usize,
@@ -331,7 +356,6 @@ pub struct App {
     supported_extensions: Vec<String>,
 
     widgets: AppWidgets,
-    viz_window_open: bool,
     windows: AppWindows,
 
     events: VecDeque<AppEvent>,
@@ -345,6 +369,7 @@ pub struct App {
 impl Default for App {
     fn default() -> Self {
         let (load_sender, load_receiver) = mpsc::sync_channel(128);
+        let (tool_sender, tool_receiver) = mpsc::sync_channel(16);
         Self {
             // Example stuff:
             p_state: PersistentState {
@@ -354,20 +379,20 @@ impl Default for App {
             ctx_init: false,
             dropped_files: Vec::new(),
 
-            load_status:   ThreadLoadStatus::Inactive,
-            load_sender:   Some(load_sender),
+            load_status: ThreadLoadStatus::Inactive,
+            load_sender: Some(load_sender),
             load_receiver: Some(load_receiver),
+
+            widgets: AppWidgets::new(tool_sender.clone()),
+            windows: AppWindows::new(tool_sender.clone()),
+            tool_sender,
+            tool_receiver,
 
             selected_slot: 0,
             disk_slots: Default::default(),
             old_locks: Vec::new(),
 
             supported_extensions: Vec::new(),
-
-            widgets: AppWidgets::default(),
-            viz_window_open: false,
-
-            windows: AppWindows::default(),
 
             events: VecDeque::new(),
             deferred_file_ui_event: None,
@@ -464,7 +489,12 @@ impl App {
             app_state.p_state = eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
         }
 
-        app_state.windows.viz_viewer.init(cc.egui_ctx.clone(), 512);
+        // Initialize the visualization viewer
+        app_state
+            .windows
+            .viz_viewer
+            .init(cc.egui_ctx.clone(), 512, app_state.tool_sender.clone());
+
         egui_extras::install_image_loaders(&cc.egui_ctx);
         // Set dark mode. This doesn't seem to work for some reason.
         // So we'll use a flag in state and do it on the first update().
@@ -577,7 +607,8 @@ impl eframe::App for App {
             });
         });
 
-        self.handle_events();
+        self.handle_ui_events();
+        self.handle_app_events();
     }
 
     /// Called by the framework to save persistent state before shutdown.
@@ -598,7 +629,6 @@ impl App {
         log::debug!("Resetting application state for new disk...");
         //self.disk_image_name = None;
         self.error_msg = None;
-        self.viz_window_open = false;
         self.widgets.reset();
         self.windows.reset();
     }
@@ -612,7 +642,6 @@ impl App {
         self.error_msg = None;
         self.load_status = ThreadLoadStatus::Inactive;
         self.run_mode = RunMode::Reactive;
-        self.viz_window_open = false;
         self.widgets.reset();
         self.windows.reset();
     }
@@ -712,7 +741,7 @@ impl App {
         });
     }
 
-    fn handle_events(&mut self) {
+    fn handle_app_events(&mut self) {
         while let Some(event) = self.events.pop_front() {
             match event {
                 AppEvent::Reset => {
@@ -819,6 +848,32 @@ impl App {
                 },
                 None::<HeaderFn>,
             );
+        }
+    }
+
+    /// Handle UI events - events sent from tools to the application.
+    fn handle_ui_events(&mut self) {
+        let mut keep_polling = true;
+        while keep_polling {
+            match self.tool_receiver.try_recv() {
+                Ok(event) => match event {
+                    UiEvent::SelectionChange(selection) => match selection {
+                        TrackListSelection::Track(track) => {
+                            self.events.push_back(AppEvent::TrackSelected(track));
+                        }
+                        TrackListSelection::Sector(sector) => {
+                            log::warn!("handle_ui_events(): Sector selected: {:?}", sector);
+                            self.events.push_back(AppEvent::SectorSelected(sector));
+                        }
+                    },
+                    _ => {
+                        log::warn!("Unhandled UiEvent: {:?}", event);
+                    }
+                },
+                Err(_) => {
+                    keep_polling = false;
+                }
+            }
         }
     }
 
@@ -959,8 +1014,8 @@ impl App {
                             ThreadLoadStatus::Loading(progress) => {
                                 log::debug!("Loading progress: {:.1}%", progress * 100.0);
 
-                                self.widgets = AppWidgets::default();
-                                self.viz_window_open = false;
+                                self.widgets = AppWidgets::new(self.tool_sender.clone());
+                                *self.windows.viz_viewer.open_mut() = false;
                                 ctx.request_repaint();
 
                                 match self.load_status {

@@ -55,6 +55,10 @@ use fluxfox_egui::{
         header_group::{HeaderFn, HeaderGroup},
     },
     visualization::viz_elements::paint_elements,
+    widgets::chs::ChsWidget,
+    SectorSelection,
+    TrackListSelection,
+    UiEvent,
 };
 #[cfg(feature = "svg")]
 use fluxfox_svg::prelude::*;
@@ -89,6 +93,7 @@ struct VisualizationContext<'a> {
     hover_rect_opt: &'a mut Option<Rect>,
     display_list_opt: &'a mut Option<VizElementDisplayList>,
     hover_display_list_opt: &'a mut Option<VizElementDisplayList>,
+    ui_sender: &'a mut Option<mpsc::SyncSender<UiEvent>>,
     events: &'a mut Vec<VizEvent>,
     common_viz_params: &'a mut CommonVizParams,
     selection: &'a mut Option<SelectionContext>,
@@ -104,10 +109,13 @@ struct SelectionContext {
     angle: f32,
     element_type: GenericTrackElement,
     element_range: Range<usize>,
+    element_idx: usize,
+    element_chsn: Option<DiskChsn>,
 }
 
 pub struct VisualizationState {
     pub disk: Option<TrackingLock<DiskImage>>,
+    pub ui_sender: Option<mpsc::SyncSender<UiEvent>>,
     pub resolution: u32,
     pub common_viz_params: CommonVizParams,
     pub compatible: bool,
@@ -155,6 +163,7 @@ impl Default for VisualizationState {
         let (render_sender, render_receiver) = mpsc::sync_channel(2);
         Self {
             disk: None,
+            ui_sender: None,
             resolution: VIZ_RESOLUTION,
             common_viz_params: CommonVizParams::default(),
             compatible: false,
@@ -233,6 +242,7 @@ impl VisualizationState {
         let mut canvas1 = PixelCanvas::new((resolution, resolution), ctx.clone(), "head1_canvas");
         canvas1.set_bpp(PixelCanvasDepth::Rgba);
 
+        log::warn!("Creating visualization state...");
         Self {
             meta_palette: FoxHashMap::from([
                 (GenericTrackElement::SectorData, pal_medium_green),
@@ -246,6 +256,11 @@ impl VisualizationState {
             canvas: [Some(canvas0), Some(canvas1)],
             ..VisualizationState::default()
         }
+    }
+
+    pub fn set_event_sender(&mut self, sender: mpsc::SyncSender<UiEvent>) {
+        log::warn!("Setting event sender...");
+        self.ui_sender = Some(sender);
     }
 
     #[allow(dead_code)]
@@ -305,6 +320,7 @@ impl VisualizationState {
             pin_last_standard_track: true,
             track_gap: render_track_gap,
             direction,
+            ..CommonVizParams::default()
         };
 
         let inner_common_params = self.common_viz_params.clone();
@@ -712,6 +728,7 @@ impl VisualizationState {
             hover_rect_opt: &mut self.selection_rect_opt,
             display_list_opt: &mut self.selection_display_list,
             hover_display_list_opt: &mut self.hover_display_list,
+            ui_sender: &mut self.ui_sender,
             events: &mut self.events,
             common_viz_params: &mut self.common_viz_params,
             selection: &mut self.selection,
@@ -781,6 +798,23 @@ impl VisualizationState {
 
                             if response.clicked() {
                                 if let Some(selection) = &context.hover_selection {
+                                    // Send the selection event to the main app
+                                    if let Some(sender) = context.ui_sender {
+                                        if let Some(chsn) = selection.element_chsn {
+                                            let event =
+                                                UiEvent::SelectionChange(TrackListSelection::Sector(SectorSelection {
+                                                    phys_ch:    DiskCh::new(selection.c, selection.side),
+                                                    sector_id:  chsn,
+                                                    bit_offset: Some(selection.bitcell_idx),
+                                                }));
+
+                                            _ = sender.send(event);
+                                        }
+                                    }
+                                    else {
+                                        log::warn!("No UI sender available!");
+                                    }
+
                                     *context.selection = Some(selection.clone());
                                     *context.display_list_opt = context.hover_display_list_opt.clone();
                                 }
@@ -979,6 +1013,16 @@ impl VisualizationState {
                 ui.label("Element Range:");
                 ui.label(format!("{:?}", selection.element_range));
                 ui.end_row();
+
+                if let Some(chsn) = selection.element_chsn {
+                    ui.label("Sector ID:");
+                    ui.add(ChsWidget::from_chs(chsn.into()));
+                    ui.end_row();
+
+                    ui.label("Sector size:");
+                    ui.label(format!("{}", chsn.n_size()));
+                    ui.end_row();
+                }
             });
     }
 
@@ -1019,6 +1063,8 @@ impl VisualizationState {
                                 start: 0usize,
                                 end:   0usize,
                             }),
+                            element_idx: item.info.element_idx.unwrap_or(0),
+                            element_chsn: item.info.chsn,
                         });
                     }
 

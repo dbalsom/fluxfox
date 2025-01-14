@@ -157,9 +157,8 @@ pub fn svg_render_data_slice(slice: &VizDataSlice, stroke: f32) -> Path {
     let mut data = Data::new();
     data = svg_render_quadratic_arc(data, &slice.arc, false);
 
-    // Boost contrast by increasing density by 50%
-    let adjusted_density = (slice.density * 1.5).clamp(0.0, 1.0);
-    let value_u8 = (adjusted_density * 255.0) as u8;
+    //let adjusted_density = (slice.density * 1.5).clamp(0.0, 1.0);
+    let value_u8 = slice.mapped_density;
     let fill_color = VizColor::from_value(value_u8, 255);
     Path::new()
         .set("d", data)

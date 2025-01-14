@@ -864,7 +864,7 @@ impl System34Schema {
                         // such as XELOK v1.
 
                         // Push a Sector Header metadata item spanning from last IDAM to this IDAM.
-                        let data_metadata = TrackElementInstance {
+                        let metadata = TrackElementInstance {
                             element: TrackElement::System34(System34Element::SectorHeader {
                                 chsn: DiskChsn::from((
                                     last_sector_id.c as u16,
@@ -879,7 +879,7 @@ impl System34Schema {
                             end: element_offset,
                             chsn: None,
                         };
-                        elements.push(data_metadata)
+                        elements.push(metadata)
                     }
                     (_, System34Marker::Idam) => {
                         // Encountered a sector ID address mark (sector header), after any element.

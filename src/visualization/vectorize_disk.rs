@@ -229,8 +229,14 @@ pub fn vectorize_disk_elements(
                         flags.set(VizElementFlags::OVERLAP_LONG, overlap_long);
 
                         let generic_element = GenericTrackElement::from(meta_item.element);
-                        let element_info =
-                            VizElementInfo::new(generic_element, DiskCh::new(ti as u16, r.side), None, None, None);
+                        let element_info = VizElementInfo::new(
+                            generic_element,
+                            DiskCh::new(ti as u16, r.side),
+                            meta_item.chsn,
+                            None,
+                            None,
+                            None,
+                        );
                         let overlap_metadata = VizElement::new(overlap_sector, flags, element_info);
 
                         display_list.push(ti, overlap_metadata);
@@ -312,7 +318,7 @@ pub fn vectorize_disk_elements(
 
                 let element_flags = VizElementFlags::default();
                 let element_info =
-                    VizElementInfo::new(generic_element, DiskCh::new(ti as u16, r.side), None, None, None);
+                    VizElementInfo::new(generic_element, DiskCh::new(ti as u16, r.side), None, None, None, None);
                 let element_metadata = VizElement::new(element_sector, element_flags, element_info);
 
                 log::debug!("vectorize_disk_elements(): Pushing element to display list");
@@ -335,6 +341,7 @@ pub fn vectorize_disk_elements(
                 let element_info = VizElementInfo::new(
                     GenericTrackElement::NullElement,
                     DiskCh::new(ti as u16, r.side),
+                    None,
                     None,
                     None,
                     None,
@@ -374,7 +381,7 @@ pub fn vectorize_disk_elements(
 /// A [VizElementDisplayList] containing the elements to render, or a [DiskVisualizationError] if
 /// an error occurred, such as no tracks being found.
 pub fn vectorize_disk_elements_by_quadrants(
-    disk_image: &DiskImage,
+    disk: &DiskImage,
     p: &CommonVizParams,
     r: &RenderTrackMetadataParams,
 ) -> Result<VizElementDisplayList, DiskVisualizationError> {
@@ -385,26 +392,18 @@ pub fn vectorize_disk_elements_by_quadrants(
     // from rendering. Large sectors (8192 bytes) will fill the entire disk surface, so are not
     // particularly useful to render.
     let overlap_max = (1024 + 6) * 16;
-    let total_radius = p.radius.unwrap_or(0.5);
-    let max_radius = p.max_radius_ratio * total_radius;
-    let mut min_radius = p.min_radius_ratio * total_radius;
-    if max_radius <= min_radius {
-        return Err(DiskVisualizationError::InvalidParameter(
-            "max_radius must be greater than min_radius".to_string(),
-        ));
-    }
-
-    let center = VizPoint2d::from((total_radius, total_radius));
 
     // Collect streams.
-    let r_tracks = collect_streams(r.side, disk_image);
-    let r_metadata = collect_metadata(r.side, disk_image);
+    let r_tracks = collect_streams(r.side, disk);
+    let r_metadata = collect_metadata(r.side, disk);
 
     if r_tracks.len() != r_metadata.len() {
         return Err(DiskVisualizationError::InvalidParameter(
             "Mismatched track and metadata lengths".to_string(),
         ));
     }
+
+    let tp = p.track_params(disk.track_ct(r.side as usize))?;
 
     let num_tracks = min(r_tracks.len(), p.track_limit.unwrap_or(MAX_CYLINDER));
     if num_tracks == 0 {
@@ -418,46 +417,9 @@ pub fn vectorize_disk_elements_by_quadrants(
         quadrant_list
     );
 
-    // If pinning has been specified, adjust the minimum radius.
-    // We subtract any over-dumped tracks from the radius, so that the minimum radius fraction
-    // is consistent with the last standard track.
-    min_radius = if p.pin_last_standard_track {
-        let normalized_track_ct = match num_tracks {
-            0..50 => 40,
-            50.. => 80,
-        };
-        let track_width = (max_radius - min_radius) / normalized_track_ct as f32;
-        let overdump = num_tracks.saturating_sub(normalized_track_ct);
-        p.min_radius_ratio * total_radius - (overdump as f32 * track_width)
-    }
-    else {
-        min_radius
-    };
-
-    // Calculate the rendered width of each track, excluding the track gap.
-    let mut track_width = (max_radius - min_radius) / num_tracks as f32;
-    if p.track_gap == 0.0 {
-        // slightly increase the track width to avoid rendering sparkles between tracks if there's
-        // 0 gap specified, due to floating point errors
-        track_width *= 1.01;
-    }
-
-    // let (clip_start, clip_end) = match p.direction {
-    //     TurningDirection::Clockwise => (0.0, TAU),
-    //     TurningDirection::CounterClockwise => (0.0, TAU),
-    // };
-
     // Loop through each track and the track element metadata for each track.
     for (ti, track_meta) in r_metadata.iter().enumerate() {
-        let mut outer_radius = max_radius - (ti as f32 * track_width);
-        let mut inner_radius = outer_radius - track_width;
-        let middle_radius = (outer_radius + inner_radius) / 2.0;
-
-        // Radius adjustment is half of the track gap, since we adjust both
-        // inner and outer radius inwards.
-        let radius_adjust = track_width * (p.track_gap / 2.0);
-        outer_radius -= radius_adjust;
-        inner_radius += radius_adjust;
+        let (outer, middle, inner) = tp.radii(ti, true);
 
         // Loop through each quadrant and render the elements for that quadrant.
         for quadrant in &quadrant_list {
@@ -474,12 +436,7 @@ pub fn vectorize_disk_elements_by_quadrants(
 
             // Emit a NullElement arc for this quadrant to represent the track background.
             // Note: must be a cubic arc due to 90-degree angle.
-            let track_quadrant_arc = VizArc::from_angles(
-                &VizPoint2d::new(center.x, center.y),
-                middle_radius,
-                clip_start,
-                clip_end,
-            );
+            let track_quadrant_arc = VizArc::from_angles(&tp.center, middle, clip_start, clip_end);
 
             let mut track_quadrant_flags = VizElementFlags::default();
             track_quadrant_flags.set(VizElementFlags::TRACK, true);
@@ -493,9 +450,10 @@ pub fn vectorize_disk_elements_by_quadrants(
                 None,
                 None,
                 None,
+                None,
             );
             let element_metadata = VizElement::new(
-                (track_quadrant_arc, track_width * (1.0 - p.track_gap)),
+                (track_quadrant_arc, tp.render_track_width),
                 track_quadrant_flags,
                 element_info,
             );
@@ -573,14 +531,8 @@ pub fn vectorize_disk_elements_by_quadrants(
 
                         match r.geometry {
                             RenderGeometry::Sector => {
-                                let overlap_sector = VizSector::from_angles(
-                                    &VizPoint2d::new(center.x, center.y),
-                                    r.winding,
-                                    start_angle,
-                                    end_angle,
-                                    inner_radius,
-                                    outer_radius,
-                                );
+                                let overlap_sector =
+                                    VizSector::from_angles(&tp.center, r.winding, start_angle, end_angle, inner, outer);
 
                                 let mut flags = VizElementFlags::default();
                                 flags.set(VizElementFlags::OVERLAP_LONG, overlap_long);
@@ -589,6 +541,7 @@ pub fn vectorize_disk_elements_by_quadrants(
                                 let element_info = VizElementInfo::new(
                                     generic_element,
                                     DiskCh::new(ti as u16, r.side),
+                                    meta_item.chsn,
                                     None,
                                     None,
                                     None,
@@ -598,12 +551,7 @@ pub fn vectorize_disk_elements_by_quadrants(
                                 display_list.push(ti, overlap_metadata);
                             }
                             RenderGeometry::Arc => {
-                                let overlap_arc = VizArc::from_angles(
-                                    &VizPoint2d::new(center.x, center.y),
-                                    middle_radius,
-                                    start_angle,
-                                    end_angle,
-                                );
+                                let overlap_arc = VizArc::from_angles(&tp.center, middle, start_angle, end_angle);
 
                                 let mut flags = VizElementFlags::default();
                                 flags.set(VizElementFlags::OVERLAP_LONG, overlap_long);
@@ -612,15 +560,13 @@ pub fn vectorize_disk_elements_by_quadrants(
                                 let element_info = VizElementInfo::new(
                                     generic_element,
                                     DiskCh::new(ti as u16, r.side),
+                                    meta_item.chsn,
                                     None,
                                     None,
                                     None,
                                 );
-                                let overlap_metadata = VizElement::new(
-                                    (overlap_arc, track_width * (1.0 - p.track_gap)),
-                                    flags,
-                                    element_info,
-                                );
+                                let overlap_metadata =
+                                    VizElement::new((overlap_arc, tp.render_track_width), flags, element_info);
 
                                 display_list.push(ti, overlap_metadata);
                             }
@@ -690,37 +636,38 @@ pub fn vectorize_disk_elements_by_quadrants(
 
                     match r.geometry {
                         RenderGeometry::Sector => {
-                            let element_sector = VizSector::from_angles(
-                                &VizPoint2d::new(center.x, center.y),
-                                r.winding,
-                                start_angle,
-                                end_angle,
-                                inner_radius,
-                                outer_radius,
-                            );
+                            let element_sector =
+                                VizSector::from_angles(&tp.center, r.winding, start_angle, end_angle, inner, outer);
 
                             let flags = VizElementFlags::default();
                             let generic_element = GenericTrackElement::from(meta_item.element);
-                            let element_info =
-                                VizElementInfo::new(generic_element, DiskCh::new(ti as u16, r.side), None, None, None);
+                            let element_info = VizElementInfo::new(
+                                generic_element,
+                                DiskCh::new(ti as u16, r.side),
+                                meta_item.chsn,
+                                None,
+                                None,
+                                None,
+                            );
                             let element_metadata = VizElement::new(element_sector, flags, element_info);
 
                             display_list.push(ti, element_metadata);
                         }
                         RenderGeometry::Arc => {
-                            let overlap_arc = VizArc::from_angles(
-                                &VizPoint2d::new(center.x, center.y),
-                                middle_radius,
-                                start_angle,
-                                end_angle,
-                            );
+                            let overlap_arc = VizArc::from_angles(&tp.center, middle, start_angle, end_angle);
 
                             let flags = VizElementFlags::default();
                             let generic_element = GenericTrackElement::from(meta_item.element);
-                            let element_info =
-                                VizElementInfo::new(generic_element, DiskCh::new(ti as u16, r.side), None, None, None);
+                            let element_info = VizElementInfo::new(
+                                generic_element,
+                                DiskCh::new(ti as u16, r.side),
+                                meta_item.chsn,
+                                None,
+                                None,
+                                None,
+                            );
                             let overlap_metadata =
-                                VizElement::new((overlap_arc, track_width * (1.0 - p.track_gap)), flags, element_info);
+                                VizElement::new((overlap_arc, tp.render_track_width), flags, element_info);
 
                             display_list.push(ti, overlap_metadata);
                         }
@@ -868,7 +815,14 @@ pub fn vectorize_disk_selection(
             );
 
             let element_flags = VizElementFlags::default();
-            let element_info = VizElementInfo::new(generic_element, DiskCh::new(ti as u16, r.ch.h()), None, None, None);
+            let element_info = VizElementInfo::new(
+                generic_element,
+                DiskCh::new(ti as u16, r.ch.h()),
+                meta_item.chsn,
+                None,
+                None,
+                None,
+            );
             let element_metadata = VizElement::new(element_sector, element_flags, element_info);
 
             display_list.push(ti, element_metadata);
@@ -901,7 +855,11 @@ pub fn vectorize_disk_hit_test(
     let distance = (dx.powi(2) + dy.powi(2)).sqrt();
     let angle = (dy.atan2(dx) + TAU) % TAU;
 
-    if distance > tp.max_radius || distance < tp.min_radius {
+    // Allow for a small increment to the maximum radius to make it easier to select elements
+    // on the outer edge of the disk. I call this 'coyote radius' as a reference to 'coyote time'
+    // in platformer games - the amount of time you can spend in midair after running off a cliff.
+    let coyote_radius = tp.render_track_width * 0.5;
+    if distance > (tp.max_radius + coyote_radius) || distance < tp.min_radius {
         // Hit test coordinate is outside of data area.
         //log::trace!("Hit test at ({}, {}) is outside of data area", dx, dy);
         return Ok(DiskHitTestResult::default());
@@ -919,7 +877,13 @@ pub fn vectorize_disk_hit_test(
 
     // Use the full render with for hit-testing - ignore track gap
     let track_offset = (distance - tp.min_radius) / tp.render_track_width;
-    let cylinder = (tp.num_tracks - 1).saturating_sub(track_offset.floor() as usize);
+    let cylinder = if distance > tp.max_radius {
+        // In coyote radius - return cylinder 0
+        0
+    }
+    else {
+        (tp.num_tracks - 1).saturating_sub(track_offset.floor() as usize)
+    };
     // Get the track metadata for this track.
     let track_opt = disk.track(DiskCh::new(cylinder as u16, r.side));
     if track_opt.is_none() {
@@ -967,10 +931,8 @@ pub fn vectorize_disk_hit_test(
         }
 
         let start_angle = start_angle.max(clip_start);
-        //let end_angle = end_angle.min(clip_end);
-        let outer_radius = tp.total_radius - (cylinder as f32 * tp.render_track_width);
-        let inner_radius = outer_radius - tp.render_track_width;
-        let mid_radius = outer_radius - tp.render_track_width / 2.0;
+
+        let (outer_radius, mid_radius, inner_radius) = tp.radii(cylinder, true);
 
         // Start and end angles are now in the range 0..2π, but we can't emit cubic arcs longer
         // than 90 degrees. We need to break up the arc into multiple sectors if it exceeds 90 degrees
@@ -1006,6 +968,7 @@ pub fn vectorize_disk_hit_test(
         let info = VizElementInfo {
             element_type: generic_element,
             ch: DiskCh::new(cylinder as u16, r.side),
+            chsn: ei.chsn,
             bit_range: Some(Range::from(ei.start..ei.end)),
             element_idx: Some(idx),
             sector_idx: None,
@@ -1176,7 +1139,7 @@ pub fn vectorize_disk_data(
             // control points than cubic Béziers. The savings are about 15% in file size.
             let data_slice = VizDataSlice {
                 density,
-                decoded_density: 0.0,
+                mapped_density: track.map_density(density),
                 arc: VizQuadraticArc::from_angles(&center, mid_radius, start_angle, end_angle),
             };
 

@@ -699,6 +699,10 @@ impl MfmCodec {
 
         error_bitvec
     }
+
+    fn map_density(&self, density: f32) -> u8 {
+        ((density * 1.5).clamp(0.0, 1.0) * 255.0) as u8
+    }
 }
 
 impl Iterator for MfmCodec {

@@ -89,6 +89,7 @@ pub enum TrackListSelection {
 
 #[derive(Clone)]
 pub enum UiEvent {
+    SelectionChange(TrackListSelection),
     ExportFile(String),
     SelectPath(String),
     SelectFile(FileEntry),
@@ -100,6 +101,7 @@ impl Debug for UiEvent {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         // Match on the enum to display only the variant name
         let variant_name = match self {
+            UiEvent::SelectionChange(_) => "SelectionChange",
             UiEvent::ExportFile(_) => "ExportFile",
             UiEvent::SelectPath(_) => "SelectPath",
             UiEvent::SelectFile(_) => "SelectFile",

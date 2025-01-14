@@ -155,6 +155,12 @@ impl TrackMetadata {
         self.items.push(item);
     }
 
+    /// Get the `TrackElementInstance` at the specified element index, or `None` if the index is
+    /// out of bounds.
+    pub fn item(&self, index: usize) -> Option<&TrackElementInstance> {
+        self.items.get(index)
+    }
+
     /// Return a reference to the innermost metadata item that contains the specified index,
     /// along with a count of the total number of matching items (to handle overlapping items).
     /// # Arguments
@@ -561,6 +567,10 @@ impl TrackElement {
         match self {
             TrackElement::System34(System34Element::SectorHeader { chsn, .. }) => Some(*chsn),
             TrackElement::System34(System34Element::SectorData { chsn, .. }) => Some(*chsn),
+            #[cfg(feature = "amiga")]
+            TrackElement::Amiga(AmigaElement::SectorHeader { chsn, .. }) => Some(*chsn),
+            #[cfg(feature = "amiga")]
+            TrackElement::Amiga(AmigaElement::SectorData { chsn, .. }) => Some(*chsn),
             _ => None,
         }
     }

@@ -133,6 +133,12 @@ pub trait TrackCodec: DynClone + Read + Seek + Index<usize, Output = bool> + Sen
     fn is_data(&self, index: usize, wrapping: bool) -> bool;
     fn debug_marker(&self, index: usize) -> String;
     fn debug_decode(&self, index: usize) -> String;
+
+    /// Map a density ratio (0-1.0) to a visual density value in u8 (0-255).
+    /// Used for visualization functions.
+    fn map_density(&self, density: f32) -> u8 {
+        (density.clamp(0.0, 1.0) * 255.0) as u8
+    }
 }
 
 clone_trait_object!(TrackCodec);

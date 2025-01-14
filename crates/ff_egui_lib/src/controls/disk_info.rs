@@ -99,11 +99,12 @@ impl DiskInfoWidget {
                     ui.end_row();
                 }
 
-                ui.label("Geometry:");
-                ui.horizontal(|ui| {
-                    ui.label(format!("Heads: {}", self.geometry.h()));
-                    ui.label(format!("Cylinders: {}", self.geometry.c()));
-                });
+                ui.label("Sides:");
+                ui.label(format!("{}", self.geometry.h()));
+                ui.end_row();
+
+                ui.label("Cylinders:");
+                ui.label(format!("{}", self.geometry.c()));
                 ui.end_row();
 
                 ui.label("Data Rate:");

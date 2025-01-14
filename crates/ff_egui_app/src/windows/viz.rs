@@ -26,11 +26,13 @@
 */
 use crate::widgets::viz::{VisualizationState, VizEvent};
 use fluxfox::DiskImage;
+use std::sync::mpsc;
 
 use crate::lock::TrackingLock;
 use anyhow::Result;
-use fluxfox_egui::controls::error_banner::ErrorBanner;
+use fluxfox_egui::{controls::error_banner::ErrorBanner, UiEvent};
 
+#[derive(Default)]
 pub struct VizViewer {
     viz: VisualizationState,
 
@@ -41,16 +43,11 @@ pub struct VizViewer {
     open: bool,
 }
 
-impl Default for VizViewer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl VizViewer {
     pub fn new() -> Self {
+        let mut viz = VisualizationState::default();
         Self {
-            viz: VisualizationState::default(),
+            viz,
             open: false,
             show_data_layer: true,
             show_metadata_layer: true,
@@ -66,8 +63,9 @@ impl VizViewer {
         self.open = false;
     }
 
-    pub fn init(&mut self, ctx: egui::Context, resolution: u32) {
+    pub fn init(&mut self, ctx: egui::Context, resolution: u32, sender: mpsc::SyncSender<UiEvent>) {
         self.viz = VisualizationState::new(ctx, resolution);
+        self.viz.set_event_sender(sender);
     }
 
     pub fn set_open(&mut self, state: bool) {

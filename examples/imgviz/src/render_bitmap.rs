@@ -173,6 +173,7 @@ pub fn render_bitmap(
             pin_last_standard_track: true,
             track_gap: opts.track_gap.unwrap_or(0.0),
             direction,
+            ..CommonVizParams::default()
         };
 
         let render_params = RenderTrackDataParams {

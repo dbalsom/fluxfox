@@ -1,6 +1,6 @@
 [package]
 name = "ff_egui_app"
-version = "0.3.2"
+version = "0.3.3"
 authors = ["Daniel Balsom"]
 edition = "2021"
 include = ["LICENSE-APACHE", "LICENSE-MIT", "**/*.rs", "Cargo.toml"]

@@ -135,6 +135,7 @@ fn main() {
         pin_last_standard_track: false,
         track_gap: 0.0,
         direction: TurningDirection::Clockwise,
+        ..CommonVizParams::default()
     };
 
     let mut data_params = RenderTrackDataParams {
