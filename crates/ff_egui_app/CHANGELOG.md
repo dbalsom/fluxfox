@@ -1,10 +1,14 @@
 ## 0.3.3 (2025-01-XX)
 
+- Added source map for MFI
+- Add WOZ support
 - Add marker offset sync to track viewer
 - Initial selection support in disk visualization window
 
 ## 0.3.2 (2025-01-11)
 
+- Add SVG visualization output
+- Add MOOF support
 - Track flux timing viewer
 - New visualization pipeline
 

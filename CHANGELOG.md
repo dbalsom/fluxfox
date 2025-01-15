@@ -1,13 +1,16 @@
-## 0.2.0 (2024-11-XX)
+## 0.2.0 (2025-01-15)
 
 ### New Features:
 
-- Extensively refactored. Not all new features may be listed as I may have lost track!
+#### Extensively refactored. Not all new features may be listed as I have lost track!
+
+- Track read() no longer requires mutable reference
+- Revamped visualization functions to add vectorization
 - Added the "Source Map" - a tree/hash table that captures the structure of a source disk image file format.
     - This is useful for research or debugging of file formats.
 - Added an `ImageLoader` which is the preferred interface for loading a disk image from a disk image file.
 - Added a `Platform` enumeration that defines the computing platform a disk image is intended for
-    - Added Amiga and Atari ST platforms
+    - Added Amiga, Atari ST, Macintosh and Apple II platforms
 - Added a `TrackSchema` enumeration that defines the specific format of a disk track
 - Added `ParserReadOptions` and `ParserWriteOptions` parameters to `ImageFileParser` to eventually better control
   disk image reading and writing.
@@ -26,7 +29,7 @@
 
 ### Disk Image Format updates:
 
-- Added a parser for the IPF disk image format
+- New disk image file parsers - IPF, MOOF, WOZ
 - Added progress reporting for MFI loader.
 - Added support for high density MFI images.
 - Added support for WEAK chunk in PRI images.
