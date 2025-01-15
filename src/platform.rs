@@ -51,6 +51,8 @@ pub enum Platform {
     Macintosh,
     /// Atari ST
     AtariSt,
+    /// Apple II
+    AppleII,
 }
 
 impl Display for Platform {
@@ -60,6 +62,7 @@ impl Display for Platform {
             Platform::Amiga => write!(f, "Commodore Amiga"),
             Platform::Macintosh => write!(f, "Apple Macintosh"),
             Platform::AtariSt => write!(f, "Atari ST"),
+            Platform::AppleII => write!(f, "Apple II"),
         }
     }
 }

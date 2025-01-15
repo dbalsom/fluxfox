@@ -107,8 +107,18 @@ impl TryFrom<Platform> for TrackSchema {
             Platform::Amiga => Ok(TrackSchema::Amiga),
             #[cfg(not(feature = "amiga"))]
             Platform::Amiga => Err(()),
-            Platform::Macintosh => Ok(TrackSchema::System34),
+            #[cfg(feature = "macintosh")]
+            Platform::Macintosh => Err(()),
+            #[cfg(not(feature = "macintosh"))]
+            Platform::Macintosh => Err(()),
+            #[cfg(feature = "atari_st")]
             Platform::AtariSt => Ok(TrackSchema::System34),
+            #[cfg(not(feature = "atari_st"))]
+            Platform::AtariSt => Err(()),
+            #[cfg(feature = "apple_ii")]
+            Platform::AppleII => Err(()),
+            #[cfg(not(feature = "apple_ii"))]
+            Platform::AppleII => Err(()),
         }
     }
 }

@@ -189,7 +189,8 @@ hex = "0.4"    # or the latest version
 [features]
 # core features should always be enabled first if default-features is false
 core = ["rand"]
-default = ["rand", "viz", "scripting", "rhai", "archives", "mfi", "fat", "flux", "ibmpc", "amiga", "macintosh"]
+all_platforms = ["ibm_pc", "atari_st", "amiga", "macintosh", "apple_ii"]
+default = ["core", "viz", "scripting", "rhai", "archives", "mfi", "fat", "flux", "all_platforms"]
 # the rand feature enables use of the rand crate for random number generation.
 # note: it is intended to be optional but the fallback is not yet implemented
 rand = ["dep:rand"]
@@ -197,16 +198,18 @@ wasm = ["async", "wasm-bindgen", "wasm-bindgen-futures"]
 serde = ["dep:serde", "dep:typetag", "bit-vec/serde_std", "bitflags/serde"]
 tokio-async = ["async", "tokio"]
 async = []
-# ibmpc feature enables IBM PC-specific disk image support (not fully factored out at the moment)
-ibmpc = ["td0"]
+# ibm_pc feature enables IBM PC-specific disk image support (not fully factored out at the moment)
+ibm_pc = ["td0"]
 # amiga feature enables Amiga-specific disk image support. It will enable IPF and enable Amiga platform support
 # in the IPF parser. Note - at least one of the 'atarist' or 'amiga' features must be enabled to enable IPF support!
 amiga = ["adf", "ipf"]
 # atarist feature enables Atari ST-specific disk image support. It will enable IPF and enable Atari platform support
 # in the IPF parser.
-atarist = ["ipf", "st"]
+atari_st = ["ipf", "st"]
 # macintosh feature enables Macintosh-specific disk image support (primarily MOOF).
 macintosh = ["moof"]
+# appleii feature enables Apple II-specific disk image support (primarily WOZ).
+apple_ii = ["woz"]
 # viz feature enables visualization functions
 viz = []
 # tiny_skia feature enables direct rendering of visualizations with tiny-skia.
@@ -242,6 +245,8 @@ tar = ["dep:tar"]
 mfi = ["dep:flate2", "flux"]
 # moof feature enables reading MOOF images. No extra dependencies, but experimental.
 moof = []
+# woz feature enables reading WOZ images. No extra dependencies, but experimental.
+woz = []
 # td0 feature enables reading TD0 images. This will pull in num-traits and num-derive dependencies and LZW/LZHUF
 # routines for compression/decompression
 td0 = ["dep:num-traits", "dep:num-derive"]

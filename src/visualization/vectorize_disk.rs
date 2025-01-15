@@ -126,7 +126,8 @@ pub fn vectorize_disk_elements(
     min_radius = if p.pin_last_standard_track {
         let normalized_track_ct = match num_tracks {
             0..50 => 40,
-            50.. => 80,
+            50..90 => 80,
+            90.. => 160,
         };
         let track_width = (outer_radius - min_radius) / normalized_track_ct as f32;
         let overdump = num_tracks.saturating_sub(normalized_track_ct);
@@ -723,7 +724,8 @@ pub fn vectorize_disk_selection(
     min_radius = if p.pin_last_standard_track {
         let normalized_track_ct = match num_tracks {
             0..50 => 40,
-            50.. => 80,
+            50..90 => 80,
+            90.. => 160,
         };
         let track_width = (total_radius - min_radius) / normalized_track_ct as f32;
         let overdump = num_tracks.saturating_sub(normalized_track_ct);
@@ -1047,7 +1049,8 @@ pub fn vectorize_disk_data(
     min_radius = if p.pin_last_standard_track {
         let normalized_track_ct = match num_tracks {
             0..50 => 40,
-            50.. => 80,
+            50..90 => 80,
+            90.. => 160,
         };
         let track_width = (max_radius - min_radius) / normalized_track_ct as f32;
         let overdump = num_tracks.saturating_sub(normalized_track_ct);

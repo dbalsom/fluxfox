@@ -39,3 +39,5 @@ pub(crate) mod crc;
 pub(crate) mod flux;
 #[cfg(feature = "moof")]
 pub(crate) mod moof;
+#[cfg(feature = "woz")]
+pub(crate) mod woz;

@@ -358,6 +358,9 @@ pub enum DiskImageFileFormat {
     /// MOOF - Applesauce Macintosh Disk Image
     #[cfg(feature = "moof")]
     MoofImage,
+    /// WOZ - Applesauce Macintosh Disk Image
+    #[cfg(feature = "woz")]
+    WozImage,
 }
 
 impl DiskImageFileFormat {
@@ -390,6 +393,8 @@ impl DiskImageFileFormat {
             IpfImage => 0,
             #[cfg(feature = "moof")]
             MoofImage => 0,
+            #[cfg(feature = "woz")]
+            WozImage => 0,
         }
     }
 
@@ -415,6 +420,8 @@ impl DiskImageFileFormat {
             IpfImage => TrackDataResolution::BitStream,
             #[cfg(feature = "moof")]
             MoofImage => TrackDataResolution::BitStream,
+            #[cfg(feature = "woz")]
+            WozImage => TrackDataResolution::BitStream,
         }
     }
 }
@@ -442,6 +449,8 @@ impl Display for DiskImageFileFormat {
             IpfImage => "IPF Disk".to_string(),
             #[cfg(feature = "moof")]
             MoofImage => "MOOF Disk".to_string(),
+            #[cfg(feature = "woz")]
+            WozImage => "WOZ Disk".to_string(),
         };
         write!(f, "{}", str)
     }

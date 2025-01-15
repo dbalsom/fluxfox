@@ -35,7 +35,7 @@
 use crate::{bitstream_codec::mfm::MfmCodec, track::bitstream::BitStreamTrack, DiskImageFileFormat, SectorMapEntry};
 
 use crate::{
-    bitstream_codec::{fm::FmCodec, TrackCodec},
+    bitstream_codec::{fm::FmCodec, gcr::GcrCodec, TrackCodec},
     boot_sector::BootSector,
     containers::DiskImageContainer,
     detect::detect_container_format,
@@ -1162,7 +1162,9 @@ impl DiskImage {
                             Box::new(MfmCodec::new(BitVec::from_elem(bitcells, false), None, None))
                         }
                         TrackDataEncoding::Fm => Box::new(FmCodec::new(BitVec::from_elem(bitcells, false), None, None)),
-                        _ => return Err(DiskImageError::UnsupportedFormat),
+                        TrackDataEncoding::Gcr => {
+                            Box::new(GcrCodec::new(BitVec::from_elem(bitcells, false), None, None))
+                        }
                     }
                 };
 
