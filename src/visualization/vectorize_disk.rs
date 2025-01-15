@@ -905,7 +905,7 @@ pub fn vectorize_disk_hit_test(
 
     let center = tp.center;
 
-    let (clip_start, clip_end) = (0.0, TAU);
+    let (clip_start, _clip_end) = (0.0, TAU);
 
     let normalized_angle = p.direction.adjust_angle(angle);
 
