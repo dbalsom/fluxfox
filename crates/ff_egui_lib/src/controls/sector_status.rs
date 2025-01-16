@@ -28,8 +28,10 @@
 
 */
 
+use crate::widgets::{chs::ChsWidget, pill::PillWidget};
 use egui::*;
 use fluxfox::SectorMapEntry;
+
 //let pal_medium_green = Color::from_rgba8(0x38, 0xb7, 0x64, 0xff);
 const COLOR_SECTOR_OK: Color32 = Color32::from_rgb(0x38, 0xb7, 0x64);
 const COLOR_BAD_CRC: Color32 = Color32::from_rgb(0xef, 0x7d, 0x57);
@@ -90,38 +92,51 @@ pub fn sector_status(ui: &mut Ui, entry: &SectorMapEntry, open: bool) -> Respons
         ui.painter().rect_stroke(rect, rounding, (2.0, visuals.bg_fill)); // fill is intentional, because default style has no border
     }
 
-    // Add hover UI
-    response.on_hover_ui(|ui| {
-        Grid::new("popup_sector_attributes_grid").show(ui, |ui| {
-            ui.label("ID:");
-            ui.label(entry.chsn.to_string());
-            ui.end_row();
+    // We don't use hovered_ui as it implements a delay.
+    if response.hovered() {
+        show_tooltip(
+            &response.ctx,
+            ui.layer_id(),
+            response.id.with("sector_attributes_tooltip"),
+            |ui| {
+                ui.vertical(|ui| {
+                    ui.label(RichText::new("Click square to view sector").italics());
+                    Grid::new("popup_sector_attributes_grid").show(ui, |ui| {
+                        ui.label("ID");
+                        ui.add(ChsWidget::from_chsn(entry.chsn));
+                        ui.end_row();
 
-            ui.label("Size:");
-            ui.label(entry.chsn.n_size().to_string());
-            ui.end_row();
+                        ui.label("Size");
+                        ui.label(entry.chsn.n_size().to_string());
+                        ui.end_row();
 
-            let good_color = ui.visuals().text_color();
-            let bad_color = ui.visuals().warn_fg_color;
+                        let good_color = Color32::DARK_GREEN;
+                        let bad_color = Color32::DARK_RED;
 
-            match entry.attributes.address_error {
-                true => ui.colored_label(bad_color, "Address integrity: Bad"),
-                false => ui.colored_label(good_color, "Address integrity: Good"),
-            };
-            ui.end_row();
+                        ui.label("Address integrity");
+                        match entry.attributes.address_error {
+                            true => ui.add(PillWidget::new("Bad").with_fill(bad_color)),
+                            false => ui.add(PillWidget::new("Good").with_fill(good_color)),
+                        };
+                        ui.end_row();
 
-            match entry.attributes.data_error {
-                true => ui.colored_label(bad_color, "Data integrity: Bad"),
-                false => ui.colored_label(good_color, "Data integrity: Good"),
-            };
-            ui.end_row();
+                        ui.label("Data integrity");
+                        match entry.attributes.data_error {
+                            true => ui.add(PillWidget::new("Bad").with_fill(bad_color)),
+                            false => ui.add(PillWidget::new("Good").with_fill(good_color)),
+                        };
+                        ui.end_row();
 
-            match (entry.attributes.no_dam, entry.attributes.deleted_mark) {
-                (true, _) => ui.colored_label(bad_color, "Sector has no data!"),
-                (false, true) => ui.colored_label(bad_color, "'Deleted' data sector"),
-                (false, false) => ui.colored_label(good_color, "Normal data sector"),
-            };
-            ui.end_row();
-        });
-    })
+                        ui.label("Sector type");
+                        match entry.attributes.deleted_mark {
+                            true => ui.add(PillWidget::new("Deleted data").with_fill(bad_color)),
+                            false => ui.label("Normal data"),
+                        };
+                        ui.end_row();
+                    });
+                });
+            },
+        );
+    }
+    response
 }

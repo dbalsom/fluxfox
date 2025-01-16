@@ -29,15 +29,17 @@
 
 use crate::{widgets::pill::PillWidget, WidgetSize};
 
-use fluxfox::prelude::{DiskCh, DiskChs};
+use fluxfox::prelude::{DiskCh, DiskChs, DiskChsn};
 
-use egui::{Align, Layout, Response, Widget};
+use egui::{Response, Widget};
 
 #[derive(Clone, Default)]
 pub struct ChsWidget {
     pub size: WidgetSize,
     pub head: u8,
     pub cylinder: u16,
+    pub size_n: Option<u8>,
+    pub size_bytes: Option<usize>,
     pub sector: Option<u8>,
 }
 
@@ -46,7 +48,6 @@ impl ChsWidget {
         Self {
             head: ch.h(),
             cylinder: ch.c(),
-            sector: None,
             ..Self::default()
         }
     }
@@ -60,6 +61,17 @@ impl ChsWidget {
         }
     }
 
+    pub fn from_chsn(chsn: DiskChsn) -> Self {
+        Self {
+            head: chsn.h(),
+            cylinder: chsn.c(),
+            sector: Some(chsn.s()),
+            size_n: Some(chsn.n()),
+            size_bytes: Some(chsn.n_size()),
+            ..Self::default()
+        }
+    }
+
     pub fn with_size(mut self, size: WidgetSize) -> Self {
         self.size = size;
         self
@@ -67,6 +79,12 @@ impl ChsWidget {
 
     pub fn with_sector(mut self, sector: u8) -> Self {
         self.sector = Some(sector);
+        self
+    }
+
+    pub fn with_n(mut self, n: u8) -> Self {
+        self.size_n = Some(n);
+        self.size_bytes = Some(DiskChsn::n_to_bytes(n));
         self
     }
 
@@ -105,7 +123,15 @@ impl ChsWidget {
                 );
             }
 
-            //})
+            // Size pill (if present)
+            if let Some(sector) = self.size_n {
+                ui.add(
+                    PillWidget::new(&format!("n: {}", sector))
+                        .with_size(self.size)
+                        .with_color(text_color)
+                        .with_fill(fill_color),
+                );
+            }
         })
         .response
     }
