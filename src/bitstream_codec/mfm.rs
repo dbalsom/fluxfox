@@ -241,9 +241,14 @@ impl TrackCodec for MfmCodec {
         let mut byte = 0;
         let mut cursor = index;
 
-        // If we are not pointing to a clock bit, advance to the next clock bit.
-        cursor += !self.clock_map[cursor] as usize;
-        // Now that we are aligned to a clock bit, point to the next data bit
+        // If we are not pointing to a clock bit, advance to the next data bit.
+        // If the next bit is not a clock bit either, we are in an unsynchronized region, so don't
+        // bother adjusting the index
+        if !self.clock_map[cursor] && self.clock_map[cursor + 1] {
+            cursor += 1;
+        }
+
+        // Advance to the data bit.
         cursor += 1;
 
         for _ in 0..8 {
@@ -506,9 +511,13 @@ impl MfmCodec {
         }
         let error_map = BitRing::from(error_bits);
 
+        let mut clock_map = BitRing::from(clock_map);
+        // Set the wrap value for the clock map to false, this disables the clock map when reading
+        // across the track index, as we should follow the clock phase from the last marker.
+        clock_map.set_wrap_value(false);
         MfmCodec {
             bits: BitRing::from(bits),
-            clock_map: BitRing::from(clock_map),
+            clock_map,
             error_map,
             weak_enabled: true,
             weak_mask: BitRing::from(weak_mask),
