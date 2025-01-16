@@ -91,6 +91,7 @@ impl Repr {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Scalar {
     U8(u8),
+    U16(u16),
     U32(u32),
     String(String),
 }
@@ -100,6 +101,7 @@ impl Scalar {
         use Scalar::*;
         match self {
             U8(v) => *v as u64,
+            U16(v) => *v as u64,
             U32(v) => *v as u64,
             String(_) => 0,
         }
@@ -195,27 +197,6 @@ impl SourceValue {
     }
     // Generators
 
-    /// Create a u32 value with the defaults.
-    #[inline]
-    pub fn u32(value: u32) -> Self {
-        Self::u32_base(value, Repr::default(), ValueState::Good, "")
-    }
-    /// Create a u32 with hexadecimal representation.
-    #[inline]
-    pub fn hex_u32(value: u32) -> Self {
-        Self::u32_base(value, Repr::Hex(8), ValueState::Good, "")
-    }
-    /// Base function for creating a u32 value with different parameters. Usually not called
-    /// directly.
-    pub fn u32_base(value: u32, repr: Repr, state: ValueState, tip: &str) -> Self {
-        SourceValue {
-            scalar: Some(Scalar::U32(value)),
-            repr,
-            tip: (!tip.is_empty()).then_some(tip.to_string()),
-            state,
-            comment: None,
-        }
-    }
     /// Create a u8 value with the defaults.
     #[inline]
     pub fn u8(value: u8) -> Self {
@@ -237,6 +218,51 @@ impl SourceValue {
             comment: None,
         }
     }
+
+    /// Create a u16 value with the defaults.
+    #[inline]
+    pub fn u16(value: u16) -> Self {
+        Self::u16_base(value, Repr::default(), ValueState::Good, "")
+    }
+    /// Create a u16 with hexadecimal representation.
+    #[inline]
+    pub fn hex_u16(value: u16) -> Self {
+        Self::u16_base(value, Repr::Hex(8), ValueState::Good, "")
+    }
+    /// Base function for creating a u16 value with different parameters. Usually not called
+    /// directly.
+    pub fn u16_base(value: u16, repr: Repr, state: ValueState, tip: &str) -> Self {
+        SourceValue {
+            scalar: Some(Scalar::U16(value)),
+            repr,
+            tip: (!tip.is_empty()).then_some(tip.to_string()),
+            state,
+            comment: None,
+        }
+    }
+
+    /// Create a u32 value with the defaults.
+    #[inline]
+    pub fn u32(value: u32) -> Self {
+        Self::u32_base(value, Repr::default(), ValueState::Good, "")
+    }
+    /// Create a u32 with hexadecimal representation.
+    #[inline]
+    pub fn hex_u32(value: u32) -> Self {
+        Self::u32_base(value, Repr::Hex(8), ValueState::Good, "")
+    }
+    /// Base function for creating a u32 value with different parameters. Usually not called
+    /// directly.
+    pub fn u32_base(value: u32, repr: Repr, state: ValueState, tip: &str) -> Self {
+        SourceValue {
+            scalar: Some(Scalar::U32(value)),
+            repr,
+            tip: (!tip.is_empty()).then_some(tip.to_string()),
+            state,
+            comment: None,
+        }
+    }
+
     /// Create a String scalar value with the defaults.
     pub fn string(value: &str) -> Self {
         SourceValue {
