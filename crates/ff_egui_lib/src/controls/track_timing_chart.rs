@@ -82,6 +82,7 @@ impl TrackTimingChart {
             .allow_scroll(Vec2b::new(false, false))
             .allow_zoom(Vec2b::new(true, false))
             .allow_drag(Vec2b::new(true, false))
+            .allow_boxed_zoom(false)
             .auto_bounds(Vec2b::new(true, false))
             .show(ui, |plot_ui| {
                 if self.draw_markers {
