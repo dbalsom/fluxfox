@@ -76,7 +76,6 @@ use crate::{
 };
 
 use crate::{
-    file_parsers::ipf::info_record::InfoRecord,
     source_map::{MapDump, OptionalSourceMap, SourceValue},
     types::TrackDataResolution,
 };
