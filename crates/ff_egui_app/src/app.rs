@@ -970,27 +970,32 @@ impl App {
                     }
                     UiEvent::ExportDirAsArchive(path) => {
                         log::debug!("Exporting directory as archive: {:?}", path);
-                        let mut fs = FatFileSystem::mount(disk.clone(), Tool::FileSystemOperation, None).unwrap();
+                        match FatFileSystem::mount(disk.clone(), Tool::FileSystemOperation, None) {
+                            Ok(mut fs) => {
+                                let archive_data = match fs.root_as_archive(self.p_state.user_opts.archive_format) {
+                                    Ok(data) => data,
+                                    Err(e) => {
+                                        log::error!("Error exporting directory as archive: {:?}", e);
+                                        return;
+                                    }
+                                };
+                                fs.unmount();
 
-                        let archive_data = match fs.root_as_archive(self.p_state.user_opts.archive_format) {
-                            Ok(data) => data,
-                            Err(e) => {
-                                log::error!("Error exporting directory as archive: {:?}", e);
-                                return;
+                                let slot = self.selected_slot();
+                                let mut zip_name = slot.image_name.clone().unwrap_or("disk".to_string());
+                                zip_name.push_str(self.p_state.user_opts.archive_format.ext());
+
+                                match App::save_file_as(&zip_name, &archive_data) {
+                                    Ok(_) => {
+                                        log::info!("Archive {} saved successfully!", zip_name);
+                                    }
+                                    Err(e) => {
+                                        log::error!("Error saving archive: {:?}", e);
+                                    }
+                                }
                             }
-                        };
-                        fs.unmount();
-
-                        let slot = self.selected_slot();
-                        let mut zip_name = slot.image_name.clone().unwrap_or("disk".to_string());
-                        zip_name.push_str(self.p_state.user_opts.archive_format.ext());
-
-                        match App::save_file_as(&zip_name, &archive_data) {
-                            Ok(_) => {
-                                log::info!("Archive {} saved successfully!", zip_name);
-                            }
                             Err(e) => {
-                                log::error!("Error saving archive: {:?}", e);
+                                log::error!("Error mounting FAT filesystem: {:?}", e);
                             }
                         }
                     }
