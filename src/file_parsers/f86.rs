@@ -33,27 +33,66 @@
 
 */
 
-use crate::{
-    file_parsers::{bitstream_flags, FormatCaps, ParserWriteCompatibility},
-    io::{ReadSeek, ReadWriteSeek},
-    types::{BitStreamTrackParams, DiskDescriptor, DiskImageFlags},
-};
+use std::mem::size_of;
 
 use crate::{
-    file_parsers::{ParserReadOptions, ParserWriteOptions},
+    file_parsers::{bitstream_flags, FormatCaps, ParserReadOptions, ParserWriteCompatibility, ParserWriteOptions},
+    io::{ReadSeek, ReadWriteSeek},
+    source_map::{MapDump, OptionalSourceMap, SourceValue},
     track::bitstream::BitStreamTrack,
     track_schema::TrackSchema,
-    types::{DiskCh, DiskRpm, Platform, TrackDataEncoding, TrackDataRate, TrackDataResolution, TrackDensity},
+    types::{
+        BitStreamTrackParams,
+        DiskCh,
+        DiskDescriptor,
+        DiskImageFlags,
+        DiskRpm,
+        Platform,
+        TrackDataEncoding,
+        TrackDataRate,
+        TrackDataResolution,
+        TrackDensity,
+    },
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,
     LoadingCallback,
 };
 use binrw::{binrw, BinRead, BinWrite};
-use std::mem::size_of;
+use bitflags::bitflags;
 
 pub const F86_TRACK_TABLE_LEN_PER_HEAD: usize = 256;
 pub const F86_TRACK_SIZE_BYTES: usize = 25000;
+
+bitflags! {
+    #[derive (Default, Debug)]
+    pub struct F86DiskFlags: u16 {
+        const HAS_SURFACE_DESC = 0b0000_0001;
+        const HOLE_MASK = 0b0000_0110;
+        const TWO_SIDES = 0b0000_1000;
+        const WRITE_PROTECT = 0b0001_0000;
+        const RPM_SLOWDOWN = 0b0110_0000;
+        const BITCELL_MODE = 0b1000_0000;
+        const TYPE = 0b0000_0001_0000_0000;
+        const REVERSE_ENDIAN = 0b0000_1000_0000_0000;
+        const SPEEDUP_FLAG = 0b0001_0000_0000_0000;
+    }
+}
+
+impl F86DiskFlags {
+    /// Returns an iterator over the names of the set flags.
+    fn iter_set_flags(&self) -> Vec<String> {
+        format!("{:?}", self)
+            .split_once('(') // Split at the first '('
+            .and_then(|(_, rest)| rest.split_once(')')) // Split at the first ')'
+            .map(|(inside, _)| inside) // Take the part inside the parentheses
+            .unwrap_or("") // Fallback to an empty string
+            .split('|') // Split by '|'
+            .map(str::trim) // Trim each flag name
+            .map(String::from) // Convert to String
+            .collect()
+    }
+}
 
 pub const F86_DISK_HAS_SURFACE_DESC: u16 = 0b0000_0001;
 pub const F86_DISK_HOLE_MASK: u16 = 0b0000_0110;
@@ -72,7 +111,34 @@ struct FileHeader {
     id: [u8; 4],       // “86BF”
     minor_version: u8, // 0C (12)
     major_version: u8, // 02 (2) -> 2.12
-    flags: u16,
+    #[br(map = |flags: u16| F86DiskFlags::from_bits_truncate(flags))]
+    #[bw(map = |flags: &F86DiskFlags| flags.bits())]
+    flags: F86DiskFlags,
+}
+
+impl MapDump for FileHeader {
+    fn write_to_map(&self, map: &mut Box<dyn OptionalSourceMap>, parent: usize) -> usize {
+        let header_str = String::from_utf8_lossy(&self.id).to_string();
+        #[rustfmt::skip]
+        let mut flags = map
+            .add_child(parent, "File Header", SourceValue::default())
+            .add_child("id", SourceValue::string(&header_str))
+            .add_sibling("minor_version", SourceValue::u8(self.minor_version))
+            .add_sibling("major_version", SourceValue::u8(self.major_version))
+            .add_sibling("flags", SourceValue::hex_u16(self.flags.bits()))
+            .add_sibling("flags set", SourceValue::default());
+
+        for (i, flag) in self.flags.iter_set_flags().iter().enumerate() {
+            if i == 0 {
+                flags = flags.add_child(flag, SourceValue::default());
+            }
+            else {
+                flags = flags.add_sibling(flag, SourceValue::default());
+            }
+        }
+
+        parent
+    }
 }
 
 impl Default for FileHeader {
@@ -81,26 +147,63 @@ impl Default for FileHeader {
             id: *b"86BF",
             minor_version: 0x0C,
             major_version: 0x02,
-            flags: 0,
+            flags: F86DiskFlags::default(),
         }
     }
 }
 
 #[derive(Debug)]
 #[binrw]
+#[br(import(index: usize))]
 #[brw(little)]
 struct TrackHeader {
+    #[bw(ignore)]
+    #[br(calc = index)]
+    index: usize,
     flags: u16,
     index_hole: u32,
 }
 
+impl MapDump for TrackHeader {
+    fn write_to_map(&self, map: &mut Box<dyn OptionalSourceMap>, parent: usize) -> usize {
+        map.add_child(
+            parent,
+            &format!("[{}] Track Header", self.index),
+            SourceValue::default(),
+        )
+        .add_child("flags", SourceValue::hex_u16(self.flags))
+        .add_sibling("index_hole", SourceValue::u32(self.index_hole));
+
+        parent
+    }
+}
+
 #[derive(Debug)]
 #[binrw]
+#[br(import(index: usize))]
 #[brw(little)]
 struct TrackHeaderBitCells {
+    #[bw(ignore)]
+    #[br(calc = index)]
+    index: usize,
     flags: u16,
     bit_cells: i32,
     index_hole: u32,
+}
+
+impl MapDump for TrackHeaderBitCells {
+    fn write_to_map(&self, map: &mut Box<dyn OptionalSourceMap>, parent: usize) -> usize {
+        map.add_child(
+            parent,
+            &format!("[{}] Track Header (Bitcells)", self.index),
+            SourceValue::default(),
+        )
+        .add_child("flags", SourceValue::hex_u16(self.flags))
+        .add_sibling("bit_cells", SourceValue::u32(self.bit_cells as u32))
+        .add_sibling("index_hole", SourceValue::u32(self.index_hole));
+
+        parent
+    }
 }
 
 #[allow(clippy::enum_variant_names)]
@@ -314,26 +417,34 @@ impl F86Format {
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFileFormat::F86Image);
+        disk_image.assign_source_map(true);
 
+        // Seek to the start of the image and read the 86F header.
         read_buf.seek(std::io::SeekFrom::Start(0))?;
-
         let header = FileHeader::read(&mut read_buf)?;
 
-        let has_surface_desc = header.flags & F86_DISK_HAS_SURFACE_DESC != 0;
+        let has_surface_desc = header.flags.contains(F86DiskFlags::HAS_SURFACE_DESC);
         if has_surface_desc {
             log::trace!("Image has surface description.");
         }
+        // Write the header to the source map.
+        header.write_to_map(disk_image.source_map_mut(), 0);
 
         log::debug!(
             "bitcell flags: {},{},{},{}",
-            header.flags >> 12 & 0x01,
-            header.flags >> 7 & 0x01,
-            header.flags >> 6 & 0x01,
-            header.flags >> 5 & 0x01
+            header.flags.bits() >> 12 & 0x01,
+            header.flags.bits() >> 7 & 0x01,
+            header.flags.bits() >> 6 & 0x01,
+            header.flags.bits() >> 5 & 0x01
         );
 
-        let hole = f86_disk_density(header.flags);
-        let heads = if header.flags & F86_DISK_SIDES != 0 { 2 } else { 1 };
+        let hole = f86_disk_density(header.flags.bits());
+        let disk_sides = if header.flags.contains(F86DiskFlags::TWO_SIDES) {
+            2
+        }
+        else {
+            1
+        };
         let (image_data_rate, image_density) = match hole {
             F86Density::Double => (TrackDataRate::Rate250Kbps(1.0), TrackDensity::Double),
             F86Density::High => (TrackDataRate::Rate500Kbps(1.0), TrackDensity::High),
@@ -344,13 +455,12 @@ impl F86Format {
         };
         log::trace!("Image data rate: {:?} density: {:?}", image_data_rate, image_density);
 
-        if header.flags & F86_DISK_TYPE != 0 {
+        if header.flags.contains(F86DiskFlags::TYPE) {
             log::error!("Images with Zoned RPM unsupported.");
             return Err(DiskImageError::UnsupportedFormat);
         }
-        let extra_bitcell_mode = header.flags & F86_DISK_BITCELL_MODE != 0;
-        let disk_sides = if header.flags & F86_DISK_SIDES != 0 { 2 } else { 1 };
-        let disk_data_endian = if header.flags & F86_DISK_REVERSE_ENDIAN != 0 {
+        let extra_bitcell_mode = header.flags.contains(F86DiskFlags::BITCELL_MODE);
+        let disk_data_endian = if header.flags.contains(F86DiskFlags::REVERSE_ENDIAN) {
             F86Endian::Big
         }
         else {
@@ -367,10 +477,10 @@ impl F86Format {
             return Err(DiskImageError::UnsupportedFormat);
         }*/
 
-        let time_shift = f86_disk_time_shift(header.flags);
+        let time_shift = f86_disk_time_shift(header.flags.bits());
         log::debug!("Time shift: {:?}", time_shift);
         let absolute_bitcell_count = if matches!(time_shift, F86TimeShift::ZeroPercent)
-            && (header.flags & F86_DISK_SPEEDUP_FLAG) != 0
+            && (header.flags.contains(F86DiskFlags::SPEEDUP_FLAG))
             && extra_bitcell_mode
         {
             log::trace!("Extra bitcell count is an absolute count.");
@@ -392,13 +502,20 @@ impl F86Format {
         let num_tracks = (first_offset as usize - size_of::<FileHeader>()) / 4;
         log::trace!("Track offset table has {} entries", num_tracks);
 
+        let mut cursor = disk_image
+            .source_map_mut()
+            .add_child(0, "Track Offsets", SourceValue::default())
+            .add_child("[0] Track Offset", SourceValue::u32(first_offset));
+
         track_offsets.push((first_offset, 0));
 
         // Read the rest of the track offsets now that we know how many there are
-        for _ in 1..num_tracks {
+        for i in 1..num_tracks {
             let mut offset_buf = [0u8; 4];
             read_buf.read_exact(&mut offset_buf)?;
             let offset = u32::from_le_bytes(offset_buf);
+
+            cursor = cursor.add_sibling(&format!("[{}] Track Offset", i), SourceValue::u32(offset));
 
             if offset == 0 {
                 break;
@@ -426,12 +543,14 @@ impl F86Format {
 
         let mut disk_rpm: Option<DiskRpm> = None;
 
-        for (track_offset, track_entry_len) in track_offsets {
+        for (ti, (track_offset, track_entry_len)) in track_offsets.into_iter().enumerate() {
             read_buf.seek(std::io::SeekFrom::Start(track_offset as u64))?;
 
             let (track_flags, extra_bitcells, index_pos) = match extra_bitcell_mode {
                 true => {
-                    let track_header = TrackHeaderBitCells::read(&mut read_buf)?;
+                    let track_header = TrackHeaderBitCells::read_args(&mut read_buf, (ti,))?;
+                    track_header.write_to_map(disk_image.source_map_mut(), 0);
+
                     log::trace!("Read track header with extra bitcells: {:?}", track_header);
                     (
                         track_header.flags,
@@ -440,7 +559,9 @@ impl F86Format {
                     )
                 }
                 false => {
-                    let track_header = TrackHeader::read(&mut read_buf)?;
+                    let track_header = TrackHeader::read_args(&mut read_buf, (ti,))?;
+                    track_header.write_to_map(disk_image.source_map_mut(), 0);
+
                     log::trace!("Read track header: {:?}", track_header);
                     (track_header.flags, None, track_header.index_hole)
                 }
@@ -695,12 +816,12 @@ impl F86Format {
             // 86box is mostly a PC emulator, although it does support other formats...
             // We'll stick with PC for now.
             platforms: Some(vec![Platform::IbmPc]),
-            geometry: DiskCh::from((cylinder_n, heads as u8)),
+            geometry: DiskCh::from((cylinder_n, disk_sides)),
             data_rate: Default::default(),
             data_encoding: TrackDataEncoding::Mfm,
             density: image_density,
             rpm: disk_rpm,
-            write_protect: Some(header.flags & F86_DISK_WRITE_PROTECT != 0),
+            write_protect: Some(header.flags.contains(F86DiskFlags::WRITE_PROTECT)),
         };
 
         Ok(())
@@ -769,7 +890,7 @@ impl F86Format {
         }
 
         let f86_header = FileHeader {
-            flags: disk_flags,
+            flags: F86DiskFlags::from_bits(disk_flags).unwrap(),
             ..Default::default()
         };
 
@@ -903,6 +1024,7 @@ impl F86Format {
                 );
 
                 let track_header = TrackHeaderBitCells {
+                    index: 0, // Binw ignores this field
                     flags: track_flags,
                     bit_cells: absolute_bit_count as i32,
                     index_hole: 0,
