@@ -34,6 +34,7 @@
 use crate::{
     file_parsers::{FormatCaps, ParserReadOptions, ParserWriteCompatibility, ParserWriteOptions},
     io::{ReadSeek, ReadWriteSeek},
+    source_map::{MapDump, OptionalSourceMap, SourceValue},
     types::{BitStreamTrackParams, DiskCh, DiskDescriptor, Platform, TrackDataEncoding, TrackDataRate, TrackDensity},
     DiskImage,
     DiskImageError,
@@ -205,26 +206,67 @@ struct HfeFileHeader {
     // (Used for the write support - Please see the list above)
     bit_rate: u16, // Bitrate in Kbit/s. Ex : 250=250000bits/s
     // Max value : 500
-    rpm: u16,              // Rotation per minute (Not used by the emulator)
-    interface_mode: u8,    // Floppy interface mode. (Please see the list above.)
-    unused: u8,            // Reserved
-    rack_list_offset: u16, // Offset of the track list LUT in block of 512 bytes
+    rpm: u16,               // Rotation per minute (Not used by the emulator)
+    interface_mode: u8,     // Floppy interface mode. (Please see the list above.)
+    unused: u8,             // Reserved
+    track_list_offset: u16, // Offset of the track list LUT in block of 512 bytes
     // (Ex: 1=0x200)
     write_allowed: u8, // The Floppy image is write protected ?
     // v1.1 addition – Set them to 0xFF if unused.
-    single_step: u8,          // 0xFF : Single Step – 0x00 Double Step mode
-    track0s0_altencoding: u8, // 0x00 : Use an alternate track_encoding for track 0 Side 0
-    track0s0_encoding: u8,    // alternate track_encoding for track 0 Side 0
-    track0s1_altencoding: u8, // 0x00 : Use an alternate track_encoding for track 0 Side 1
-    track0s1_encoding: u8,    // alternate track_encoding for track 0 Side 1
+    single_step: u8,           // 0xFF : Single Step – 0x00 Double Step mode
+    track0s0_alt_encoding: u8, // 0x00 : Use an alternate track_encoding for track 0 Side 0
+    track0s0_encoding: u8,     // alternate track_encoding for track 0 Side 0
+    track0s1_alt_encoding: u8, // 0x00 : Use an alternate track_encoding for track 0 Side 1
+    track0s1_encoding: u8,     // alternate track_encoding for track 0 Side 1
+}
+
+impl MapDump for HfeFileHeader {
+    fn write_to_map(&self, map: &mut Box<dyn OptionalSourceMap>, parent: usize) -> usize {
+        let signature_str = String::from_utf8_lossy(&self.signature).to_string();
+        #[rustfmt::skip]
+        map.add_child(parent, "HFE File Header", SourceValue::default())
+            .add_child("signature", SourceValue::string(&signature_str))
+            .add_sibling("format_revision", SourceValue::u8(self.format_revision))
+            .add_sibling("number_of_tracks", SourceValue::u8(self.number_of_tracks))
+            .add_sibling("number_of_sides", SourceValue::u8(self.number_of_sides))
+            .add_sibling("track_encoding", SourceValue::u8(self.track_encoding))
+            .add_sibling("bit_rate", SourceValue::u16(self.bit_rate))
+            .add_sibling("rpm", SourceValue::u16(self.rpm))
+            .add_sibling("interface_mode", SourceValue::u8(self.interface_mode))
+            .add_sibling("unused", SourceValue::u8(self.unused))
+            .add_sibling("track_list_offset", SourceValue::u16(self.track_list_offset))
+            .add_sibling("write_allowed", SourceValue::u8(self.write_allowed))
+            .add_sibling("single_step", SourceValue::u8(self.single_step))
+            .add_sibling("track0s0_alt_encoding", SourceValue::u8(self.track0s0_alt_encoding))
+            .add_sibling("track0s0_encoding", SourceValue::u8(self.track0s0_encoding))
+            .add_sibling("track0s1_alt_encoding", SourceValue::u8(self.track0s1_alt_encoding))
+            .add_sibling("track0s1_encoding", SourceValue::u8(self.track0s1_encoding));
+
+        parent
+    }
 }
 
 #[derive(Debug)]
 #[binrw]
+#[br(import(index: usize))]
 #[brw(little)]
 struct HfeTrackIndexEntry {
+    #[bw(ignore)]
+    #[br(calc = index)]
+    index:  usize,
     offset: u16,
     len:    u16,
+}
+
+impl MapDump for HfeTrackIndexEntry {
+    fn write_to_map(&self, map: &mut Box<dyn OptionalSourceMap>, parent: usize) -> usize {
+        #[rustfmt::skip]
+        map.add_child(parent,&format!("[{}] Track Index Entry", self.index), SourceValue::default())
+            .add_child("offset", SourceValue::u16(self.offset))
+            .add_sibling("len", SourceValue::u16(self.len));
+
+        parent
+    }
 }
 
 impl HfeFormat {
@@ -270,6 +312,7 @@ impl HfeFormat {
         _callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
         disk_image.set_source_format(DiskImageFileFormat::HfeImage);
+        disk_image.assign_source_map(true);
 
         let image_len = read_buf.seek(std::io::SeekFrom::End(0))?;
 
@@ -277,11 +320,12 @@ impl HfeFormat {
 
         let file_header = HfeFileHeader::read(&mut read_buf)?;
         if file_header.signature != "HXCPICFE".as_bytes() {
+            log::error!("Invalid HFE signature");
             return Err(DiskImageError::UnknownFormat);
         }
+        file_header.write_to_map(disk_image.source_map_mut(), 0);
 
         let hfe_floppy_interface = HfeFloppyInterface::from(file_header.interface_mode);
-
         let hfe_track_encoding = HfeFloppyEncoding::from(file_header.track_encoding);
         log::trace!(
             "Got HXE header. Cylinders: {} Heads: {} Encoding: {:?}",
@@ -289,18 +333,18 @@ impl HfeFormat {
             file_header.number_of_sides,
             hfe_track_encoding
         );
-        let track_list_offset = file_header.rack_list_offset as u64 * HFE_TRACK_OFFSET_BLOCK;
+        let track_list_offset = file_header.track_list_offset as u64 * HFE_TRACK_OFFSET_BLOCK;
         read_buf.seek(std::io::SeekFrom::Start(track_list_offset))?;
 
         let mut track_index_vec = Vec::new();
         for ti in 0..file_header.number_of_tracks {
-            let track_index = HfeTrackIndexEntry::read(&mut read_buf)?;
-            log::trace!("Track index: {:?}", track_index);
-            if track_index.len & 1 != 0 {
+            let track_index_entry = HfeTrackIndexEntry::read_args(&mut read_buf, (ti as usize,))?;
+            track_index_entry.write_to_map(disk_image.source_map_mut(), 0);
+            if track_index_entry.len & 1 != 0 {
                 log::error!("Track {} length cannot be odd, due to head interleave.", ti);
                 return Err(DiskImageError::FormatParseError);
             }
-            track_index_vec.push(track_index);
+            track_index_vec.push(track_index_entry);
         }
 
         for (ti, track) in track_index_vec.iter().enumerate() {
@@ -409,28 +453,30 @@ impl HfeFormat {
 
             disk_image.add_track_bitstream(&params)?;
 
-            // And the track data for head 1.
-            log::trace!(
-                "Adding bitstream track: C:{} H:{} Bitcells: {}",
-                ti,
-                0,
-                track_data[0].len() * 8
-            );
+            // And the track data for head 1, if sides > 1
+            if file_header.number_of_sides > 1 {
+                log::trace!(
+                    "Adding bitstream track: C:{} H:{} Bitcells: {}",
+                    ti,
+                    1,
+                    track_data[1].len() * 8
+                );
 
-            let params = BitStreamTrackParams {
-                schema: None,
-                encoding: TrackDataEncoding::Mfm,
-                data_rate: TrackDataRate::from(file_header.bit_rate as u32 * 100),
-                rpm: None,
-                ch: DiskCh::from((ti as u16, 1)),
-                bitcell_ct: None,
-                data: &track_data[1],
-                weak: None,
-                hole: None,
-                detect_weak: false,
-            };
+                let params = BitStreamTrackParams {
+                    schema: None,
+                    encoding: TrackDataEncoding::Mfm,
+                    data_rate: TrackDataRate::from(file_header.bit_rate as u32 * 100),
+                    rpm: None,
+                    ch: DiskCh::from((ti as u16, 1)),
+                    bitcell_ct: None,
+                    data: &track_data[1],
+                    weak: None,
+                    hole: None,
+                    detect_weak: false,
+                };
 
-            disk_image.add_track_bitstream(&params)?;
+                disk_image.add_track_bitstream(&params)?;
+            }
         }
 
         disk_image.descriptor = DiskDescriptor {
