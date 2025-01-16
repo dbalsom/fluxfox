@@ -273,6 +273,11 @@ impl VisualizationState {
         self.compatible = disk.can_visualize();
         self.sides = disk.heads() as usize;
         self.disk = Some(disk_lock.clone());
+
+        // Reset selections
+        self.selection = None;
+        self.selection_display_list = None;
+        self.hover_display_list = None;
     }
 
     pub fn render_visualization(&mut self, side: usize) -> Result<(), Error> {
