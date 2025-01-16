@@ -25,10 +25,13 @@
     --------------------------------------------------------------------------
 */
 use crate::{app::Tool, lock::TrackingLock};
-use fluxfox::prelude::*;
+use fluxfox::{
+    prelude::*,
+    types::{IntegrityCheck, IntegrityField, ReadSectorResult},
+};
 use fluxfox_egui::{
     controls::{data_table::DataTableWidget, error_banner::ErrorBanner},
-    widgets::chs::ChsWidget,
+    widgets::{chs::ChsWidget, pill::PillWidget},
     SectorSelection,
 };
 
@@ -41,6 +44,7 @@ pub struct SectorViewer {
     open: bool,
     valid: bool,
     error_string: Option<String>,
+    read_result: Option<ReadSectorResult>,
 }
 
 impl SectorViewer {
@@ -54,6 +58,7 @@ impl SectorViewer {
             open: false,
             valid: false,
             error_string: None,
+            read_result: None,
         }
     }
 
@@ -78,6 +83,8 @@ impl SectorViewer {
                         return;
                     }
                 };
+
+                self.read_result = Some(rsr.clone());
 
                 if rsr.not_found {
                     self.error_string = Some(format!("Sector {} not found", selection.sector_id));
@@ -127,6 +134,59 @@ impl SectorViewer {
                     ui.label("Sector ID:");
                     ui.add(ChsWidget::from_chs(DiskChs::from(self.sector_id)));
                     ui.end_row();
+
+                    if let Some(rsr) = &self.read_result {
+                        ui.label("Sector Size:");
+                        ui.label(format!("{} bytes", rsr.data_range.len()));
+                        ui.end_row();
+
+                        if let Some(check) = rsr.data_crc {
+                            let (valid, recorded, calculated) = match check {
+                                IntegrityCheck::Crc16(IntegrityField {
+                                    valid,
+                                    recorded,
+                                    calculated,
+                                }) => {
+                                    ui.label("CRC16:");
+                                    (valid, recorded, calculated)
+                                }
+                                IntegrityCheck::Checksum16(IntegrityField {
+                                    valid,
+                                    recorded,
+                                    calculated,
+                                }) => {
+                                    ui.label("Checksum16:");
+                                    (valid, recorded, calculated)
+                                }
+                            };
+
+                            if let Some(recorded_val) = recorded {
+                                ui.label("Recorded:");
+                                ui.add(PillWidget::new(&format!("{:04X}", recorded_val)).with_fill(if valid {
+                                    egui::Color32::DARK_GREEN
+                                }
+                                else {
+                                    egui::Color32::DARK_RED
+                                }));
+                            }
+                            else {
+                                ui.add(
+                                    PillWidget::new(if valid { "Valid" } else { "Invalid" }).with_fill(if valid {
+                                        egui::Color32::DARK_GREEN
+                                    }
+                                    else {
+                                        egui::Color32::DARK_RED
+                                    }),
+                                );
+                            }
+
+                            ui.end_row();
+                            ui.label("");
+                            ui.label("Calculated:");
+                            ui.label(format!("{:04X}", calculated));
+                            ui.end_row();
+                        }
+                    }
                 });
 
                 ui.separator();

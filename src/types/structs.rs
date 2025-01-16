@@ -189,9 +189,9 @@ impl Default for ScanSectorResult {
 /// check performed.
 #[derive(Copy, Clone, Debug)]
 pub struct IntegrityField<T> {
-    valid: bool,
-    recorded: Option<T>,
-    calculated: T,
+    pub valid: bool,
+    pub recorded: Option<T>,
+    pub calculated: T,
 }
 
 impl<T: PartialEq> From<(T, T)> for IntegrityField<T> {
