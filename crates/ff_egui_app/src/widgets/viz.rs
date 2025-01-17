@@ -544,10 +544,12 @@ impl VisualizationState {
         // If we can acquire the data mutex, we can composite the data and metadata layers.
         match self.data_img[side].try_lock() {
             Ok(data) => {
-                let mut paint = PixmapPaint::default();
-                // Scale the data pixmap down to the composite size with bilinear filtering.
-                paint.quality = FilterQuality::Bilinear;
+                let mut paint = PixmapPaint {
+                    quality: FilterQuality::Bilinear,
+                    ..Default::default()
+                };
 
+                // Scale the data pixmap down to the composite size with bilinear filtering.
                 if self.show_data_layer {
                     log::debug!(">>>> Compositing data layer for side {}", side);
                     let scale = 1.0 / self.supersample as f32;
@@ -707,6 +709,7 @@ impl VisualizationState {
 
     pub(crate) fn show(&mut self, ui: &mut egui::Ui) -> Option<VizEvent> {
         let mut new_event = None;
+        #[cfg(feature = "svg")]
         let mut svg_context = None;
 
         // Receive render events
@@ -848,6 +851,8 @@ impl VisualizationState {
                                     _ = App::save_file_as(&file_name, &png_data);
                                     ui.close_menu();
                                 }
+
+                                #[cfg(feature = "svg")]
                                 if ui.button("Save as SVG").clicked() {
                                     svg_context = Some((format!("fluxfox_viz_side{}.svg", side), side));
                                     ui.close_menu();
@@ -941,6 +946,7 @@ impl VisualizationState {
         Self::show_info_pane(ui, &context);
 
         // Deferred SVG rendering from context menu
+        #[cfg(feature = "svg")]
         if let Some((svg_filename, side)) = svg_context {
             if let Err(e) = self.save_side_as_svg(&svg_filename, side) {
                 log::error!("Error saving SVG: {}", e);
