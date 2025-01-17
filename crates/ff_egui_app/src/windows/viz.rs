@@ -114,7 +114,7 @@ impl VizViewer {
                                 #[cfg(not(feature = "svg"))]
                                 if ui.button(format!("Save Side {} as PNG", side).as_str()).clicked() {
                                     self.viz
-                                        .save_side_as_svg(&format!("fluxfox_viz_side{}.png", side), side);
+                                        .save_side_as_png(&format!("fluxfox_viz_side{}.png", side), side);
                                 }
                                 #[cfg(feature = "svg")]
                                 ui.menu_button(format!("Save Side {} as...", side).as_str(), |ui| {
