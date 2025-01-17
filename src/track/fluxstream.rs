@@ -69,7 +69,10 @@ use crate::{
     SectorMapEntry,
 };
 
-use crate::{flux::pll::PllMarkerEntry, source_map::SourceMap};
+use crate::{
+    flux::{pll::PllMarkerEntry, FluxRevolutionType},
+    source_map::SourceMap,
+};
 use sha1_smol::Digest;
 
 #[derive(Debug, Clone)]
@@ -81,6 +84,55 @@ pub struct FluxTrackInfo {
     pub density: TrackDensity,
     pub rpm: DiskRpm,
     pub encoding: TrackDataEncoding,
+}
+
+/// An iterator over the raw flux values for every revolution of a [FluxStreamTrack]. When consuming
+/// this iterator you are responsible for calculating where on the track you are as there is no
+/// index signal provided.
+pub struct RawFluxIterator<'a> {
+    current_revolution: usize,
+    current_delta: usize,
+    revolutions: &'a [FluxRevolution],
+}
+
+impl<'a> RawFluxIterator<'a> {
+    pub fn new(revolutions: &'a [FluxRevolution]) -> Self {
+        Self {
+            current_revolution: 0,
+            current_delta: 0,
+            revolutions,
+        }
+    }
+}
+
+impl<'a> Iterator for RawFluxIterator<'a> {
+    type Item = f64;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.current_revolution < self.revolutions.len() {
+            let deltas = &self.revolutions[self.current_revolution].flux_deltas;
+            if self.current_delta < deltas.len() {
+                let value = deltas[self.current_delta];
+                self.current_delta += 1;
+                return Some(value);
+            }
+            else {
+                self.current_revolution += 1;
+                self.current_delta = 0;
+
+                if self.current_revolution < self.revolutions.len()
+                    && matches!(
+                        self.revolutions[self.current_revolution].rev_type,
+                        FluxRevolutionType::Synthetic
+                    )
+                {
+                    // Skip synthetic revolutions
+                    break;
+                }
+            }
+        }
+        None
+    }
 }
 
 #[derive(Clone)]
@@ -734,5 +786,52 @@ impl FluxStreamTrack {
 
     pub(crate) fn set_shared(&mut self, shared: Arc<Mutex<SharedDiskContext>>) {
         self.shared = Some(shared);
+    }
+
+    pub fn raw_flux_iter(&self) -> RawFluxIterator {
+        RawFluxIterator::new(&self.revolutions)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bit_vec::BitVec;
+
+    #[test]
+    fn test_raw_flux_iterator() {
+        let flux_revolutions = vec![
+            FluxRevolution {
+                rev_type: FluxRevolutionType::Source,
+                ch: DiskCh::new(0, 0),
+                data_rate: None,
+                index_time: 0.200,
+                flux_deltas: vec![0.002, 0.004, 0.006],
+                transitions: vec![],
+                bitstream: BitVec::new(),
+                biterrors: BitVec::new(),
+                encoding: TrackDataEncoding::Mfm,
+                markers: vec![],
+                pll_stats: vec![],
+            },
+            FluxRevolution {
+                rev_type: FluxRevolutionType::Source,
+                ch: DiskCh::new(0, 0),
+                data_rate: None,
+                index_time: 0.200,
+                flux_deltas: vec![0.004, 0.006, 0.002],
+                transitions: vec![],
+                bitstream: BitVec::new(),
+                biterrors: BitVec::new(),
+                encoding: TrackDataEncoding::Mfm,
+                markers: vec![],
+                pll_stats: vec![],
+            },
+        ];
+
+        let iter = RawFluxIterator::new(&flux_revolutions);
+
+        let collected: Vec<f64> = iter.collect();
+        assert_eq!(collected, vec![0.002, 0.004, 0.006, 0.004, 0.006, 0.002]);
     }
 }
