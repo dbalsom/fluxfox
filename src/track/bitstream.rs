@@ -774,7 +774,7 @@ impl Track for BitStreamTrack {
         })
     }
 
-    fn read_raw(&mut self, _overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
+    fn read_raw(&self, _overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
         //let extra_bytes = overdump.unwrap_or(0);
 
         let data_size = self.data.len() / 8 + if self.data.len() % 8 > 0 { 1 } else { 0 };

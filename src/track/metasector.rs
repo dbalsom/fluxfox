@@ -603,7 +603,7 @@ impl Track for MetaSectorTrack {
         Err(DiskImageError::UnsupportedFormat)
     }
 
-    fn read_raw(&mut self, _overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
+    fn read_raw(&self, _overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 

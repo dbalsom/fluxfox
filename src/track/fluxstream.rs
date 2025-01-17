@@ -290,8 +290,8 @@ impl Track for FluxStreamTrack {
         Err(DiskImageError::ResolveError)
     }
 
-    fn read_raw(&mut self, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
-        if let Some(resolved) = self.get_bitstream_mut() {
+    fn read_raw(&self, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
+        if let Some(resolved) = self.get_bitstream() {
             return resolved.read_raw(overdump);
         }
         Err(DiskImageError::ResolveError)

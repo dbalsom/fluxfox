@@ -374,7 +374,7 @@ pub trait Track: DynClone + Any + Send + Sync {
     /// # Returns
     /// - `Ok(ReadTrackResult)` if the track was successfully read.
     /// - `Err(DiskImageError)` if an error occurred while reading the track.
-    fn read_raw(&mut self, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError>;
+    fn read_raw(&self, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError>;
 
     /// Return a boolean value indicating whether the track has bits set in its weak bit mask.
     fn has_weak_bits(&self) -> bool;
