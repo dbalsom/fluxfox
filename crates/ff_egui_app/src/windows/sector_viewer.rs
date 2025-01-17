@@ -74,7 +74,7 @@ impl SectorViewer {
                 );
 
                 log::debug!("Reading sector: {:?}", query);
-                let rsr = match disk.read_sector(self.phys_ch, query, None, None, RwScope::DataOnly, false) {
+                let rsr = match disk.read_sector(self.phys_ch, query, None, None, RwScope::DataOnly, true) {
                     Ok(rsr) => rsr,
                     Err(e) => {
                         log::error!("Error reading sector: {:?}", e);
@@ -132,7 +132,7 @@ impl SectorViewer {
                     ui.end_row();
 
                     ui.label("Sector ID:");
-                    ui.add(ChsWidget::from_chs(DiskChs::from(self.sector_id)));
+                    ui.add(ChsWidget::from_chsn(self.sector_id));
                     ui.end_row();
 
                     if let Some(rsr) = &self.read_result {
