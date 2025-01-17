@@ -928,7 +928,7 @@ impl System34Schema {
                         let log_prefix = match sys34_marker {
                             System34Marker::Dam => "",
                             System34Marker::Ddam => "Deleted ",
-                            _ => "UNKNOWN",
+                            _ => "UNKNOWN ",
                         };
 
                         log::trace!(
@@ -1156,7 +1156,9 @@ impl System34Schema {
                                 "Matching DAM"
                             },
                             SourceValue::default(),
-                        );
+                        )
+                        .add_sibling("Start", SourceValue::u32(ei.start as u32))
+                        .add_sibling("End", SourceValue::u32(ei.end as u32));
                 }
                 TrackElement::System34(System34Element::SectorData {
                     chsn,
@@ -1179,7 +1181,9 @@ impl System34Schema {
                         .add_sibling(
                             if data_error { "Data Error" } else { "Data OK" },
                             SourceValue::default(),
-                        );
+                        )
+                        .add_sibling("Start", SourceValue::u32(ei.start as u32))
+                        .add_sibling("End", SourceValue::u32(ei.end as u32));
                 }
                 _ => {}
             }
