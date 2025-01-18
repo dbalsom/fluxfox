@@ -321,6 +321,12 @@ impl DiskImage {
                 Err(DiskImageError::UnknownFormat)
             }
             DiskImageContainer::ZippedKryofluxSet(disks) => {
+                #[cfg(not(feature = "zip"))]
+                {
+                    log::error!("Cannot load zipped KryoFlux set: zip feature not enabled!");
+                    return Err(DiskImageError::UnknownFormat);
+                }
+
                 let disk_opt = match disk_selection {
                     Some(DiskSelection::Index(idx)) => disks.get(idx),
                     Some(DiskSelection::Path(ref path)) => disks.iter().find(|disk| disk.base_path == *path),
@@ -1162,7 +1168,7 @@ impl DiskImage {
                             Box::new(MfmCodec::new(BitVec::from_elem(bitcells, false), None, None))
                         }
                         TrackDataEncoding::Fm => Box::new(FmCodec::new(BitVec::from_elem(bitcells, false), None, None)),
-                        TrackDataEncoding::Gcr => {
+                        TrackDataEncoding::Gcr62 => {
                             Box::new(GcrCodec::new(BitVec::from_elem(bitcells, false), None, None))
                         }
                     }

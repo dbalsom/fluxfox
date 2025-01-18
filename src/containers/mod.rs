@@ -80,18 +80,20 @@
 //! be three nested containers: A Kryoflux `FileSet` inside a `tar` archive inside
 //! a `Gzip` archive.  
 
-use std::{
-    fmt::{Display, Formatter, Result},
-    path::PathBuf,
-};
-
-use crate::{containers::archive::FileArchiveType, DiskCh, DiskImageFileFormat};
-
 pub mod archive;
 #[cfg(feature = "gzip")]
 pub mod gzip;
 #[cfg(feature = "zip")]
 pub mod zip;
+
+use std::{
+    fmt::{Display, Formatter, Result},
+    path::PathBuf,
+};
+
+use crate::containers::archive::FileArchiveType;
+
+use crate::{DiskCh, DiskImageFileFormat};
 
 #[derive(Clone, Debug)]
 pub struct KryoFluxSet {

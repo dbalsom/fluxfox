@@ -25,8 +25,6 @@
     --------------------------------------------------------------------------
 */
 
-#![cfg(any(feature = "zip", feature = "tar", feature = "gzip"))]
-
 #[cfg(feature = "zip")]
 use super::zip;
 use std::path::{Path, PathBuf};

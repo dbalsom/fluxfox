@@ -23,7 +23,7 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 log = "0.4"
 
 # Fluxfox dependencies
-fluxfox = { path = "../..", default-features = false, features = ["core", "serde", "archives", "mfi", "viz", "tiny_skia", "fat", "all_platforms"] }
+fluxfox = { path = "../..", default-features = false, features = ["core", "serde", "zip", "gzip", "mfi", "viz", "tiny_skia", "fat", "all_platforms"] }
 # fluxfox_egui provides common egui widgets for fluxfox. This crate is intended for direct use by egui-based emulators.
 fluxfox_egui = { path = "../ff_egui_lib" }
 # fluxfox_tiny_skia provides a tiny_skia rendering backend for fluxfox visualization functions
@@ -86,7 +86,9 @@ features = [
 ]
 
 [features]
-default = ["amiga", "macintosh", "svg"]
+default = ["amiga", "macintosh", "svg", "archives", "gzip"]
+archives = ["fluxfox/zip", "fluxfox/tar"]
+gzip = ["fluxfox/gzip"]
 amiga = ["fluxfox/amiga"]
 macintosh = ["fluxfox/macintosh"]
 svg = ["dep:fluxfox_svg"]
