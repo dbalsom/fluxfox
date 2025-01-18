@@ -240,7 +240,7 @@ pub struct AppWindows {
 }
 
 impl AppWindows {
-    pub fn new(ui_sender: mpsc::SyncSender<UiEvent>) -> Self {
+    pub fn new(_ui_sender: mpsc::SyncSender<UiEvent>) -> Self {
         Self {
             viz_viewer: VizViewer::new(),
             new_viz_viewer: NewVizViewer::default(),
@@ -790,7 +790,7 @@ impl App {
                     }
                 }
                 AppEvent::TrackSelected(selection) => {
-                    if let Some(disk) = self.selected_disk() {
+                    if let Some(_disk) = self.selected_disk() {
                         self.windows.track_viewer.update_selection(selection.clone());
                         self.track_selection = Some(selection);
                         self.windows.track_viewer.set_open(true);
@@ -968,6 +968,7 @@ impl App {
                             }
                         };
                     }
+                    #[cfg(feature = "archives")]
                     UiEvent::ExportDirAsArchive(path) => {
                         log::debug!("Exporting directory as archive: {:?}", path);
                         match FatFileSystem::mount(disk.clone(), Tool::FileSystemOperation, None) {
