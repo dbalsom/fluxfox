@@ -1168,7 +1168,7 @@ impl DiskImage {
                             Box::new(MfmCodec::new(BitVec::from_elem(bitcells, false), None, None))
                         }
                         TrackDataEncoding::Fm => Box::new(FmCodec::new(BitVec::from_elem(bitcells, false), None, None)),
-                        TrackDataEncoding::Gcr62 => {
+                        TrackDataEncoding::Gcr => {
                             Box::new(GcrCodec::new(BitVec::from_elem(bitcells, false), None, None))
                         }
                     }
