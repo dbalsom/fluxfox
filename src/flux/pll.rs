@@ -37,6 +37,7 @@ use crate::{
 };
 
 const BASE_CLOCK: f64 = 2e-6; // Represents the default clock for a 300RPM, 250Kbps disk.
+const MAX_CLOCK_ADJUST: f64 = 0.20; // % Maximum clock adjustment in either direction
 
 const SHORT_TRANSITION: f64 = 4.0e-6; // 4 µs
 const MEDIUM_TRANSITION: f64 = 6.0e-6; // 6 µs
@@ -109,7 +110,7 @@ impl Pll {
             pll_period: BASE_CLOCK, // 2 µs
             working_period: BASE_CLOCK,
             period_factor: 1.0,
-            max_adjust: 0.15, // 15%
+            max_adjust: MAX_CLOCK_ADJUST,
             density_factor: 2.0,
             clock_gain: 0.05,
             phase_gain: 0.65,
