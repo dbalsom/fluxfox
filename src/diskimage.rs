@@ -501,7 +501,7 @@ impl DiskImage {
                 image.post_load_process();
                 Ok(image)
             }
-            DiskImageContainer::Archive(archive, items, _) => {
+            DiskImageContainer::Archive(_archive, _items, _) => {
                 // We should have received any single-file archives as ResolvedFiles, so this
                 // archive contains multiple files (but wasn't detected as a FileSet).
                 //
