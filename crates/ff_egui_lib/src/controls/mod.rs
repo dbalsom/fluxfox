@@ -31,7 +31,7 @@ pub mod data_table;
 pub mod data_visualizer;
 pub mod dir_tree;
 pub mod disk_info;
-pub mod disk_visualizer;
+pub mod disk_visualization;
 pub mod error_banner;
 pub mod file_list;
 pub mod filesystem;
@@ -43,3 +43,4 @@ pub mod tab_group;
 pub mod track_list;
 #[cfg(feature = "egui_plot")]
 pub mod track_timing_chart;
+pub mod vector_disk_visualizer;

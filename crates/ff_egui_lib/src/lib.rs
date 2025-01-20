@@ -24,14 +24,22 @@
 
     --------------------------------------------------------------------------
 */
-use fluxfox::{file_system::FileEntry, prelude::*};
-use std::fmt::{Debug, Formatter, Result};
 
 pub mod character_encoding;
 pub mod controls;
 mod range_check;
+pub mod tracking_lock;
 pub mod visualization;
 pub mod widgets;
+
+use fluxfox::{file_system::FileEntry, prelude::*};
+use std::{
+    fmt,
+    fmt::{Debug, Display, Formatter, Result},
+    sync::Arc,
+};
+
+use thiserror::Error;
 
 #[derive(Debug, Copy, Clone, Default)]
 pub enum WidgetSize {
@@ -111,3 +119,48 @@ impl Debug for UiEvent {
         write!(f, "{}", variant_name)
     }
 }
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum UiLockContext {
+    /// App is not a tool per se, but represents locks made in the main application logic.
+    /// Some Tools do not need to keep a persistent disk image lock as they display static
+    /// data that cannot change for the life of the loaded image (for example, the SourceMap)
+    /// The main application logic locks the disk image for the duration of the tool's update
+    /// cycle.
+    App,
+    /// This context represents a lock held by an emulator consuming the fluxfox_egui library.
+    /// Ideally an emulator releases its lock before calling into the library, but in cases where
+    /// the core runs in a separate thread, this may be unavoidable.
+    Emulator,
+    /// The visualization tool renders a graphical depiction of the disk and allows track element
+    /// selection. It must own a DiskLock to support hit-testing user selections and rendering
+    /// vector display lists of the current selection.
+    DiskVisualization,
+    SectorViewer,
+    TrackViewer,
+    TrackListViewer,
+    /// The filesystem viewer is currently the only tool that requires a write lock, due to
+    /// the use of a StandardSectorView, which requires a mutable reference to the disk image.
+    /// StandardSectorView is used as an interface for reading and writing sectors in a standard
+    /// raw-sector based order, such as what is expected by rust-fatfs.
+    FileSystemViewer,
+    /// A file system operation not necessarily tied to the filesystem viewer.
+    FileSystemOperation,
+    SourceMap,
+    TrackElementMap,
+    TrackTimingViewer,
+}
+
+impl Display for UiLockContext {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+#[derive(Clone, Debug, Error)]
+pub enum UiError {
+    #[error("An error occurred rendering the disk visualization: {0}")]
+    VisualizationError(String),
+}
+
+type SaveFileCallbackFn = Arc<dyn Fn(&str, &[u8]) + Send + Sync>;

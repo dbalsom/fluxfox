@@ -24,17 +24,25 @@
 
     --------------------------------------------------------------------------
 */
-use crate::widgets::viz::{VisualizationState, VizEvent};
-use fluxfox::DiskImage;
-use std::sync::mpsc;
 
-use crate::lock::TrackingLock;
+use std::sync::{mpsc, Arc};
+
+use fluxfox::DiskImage;
+use fluxfox_egui::{
+    controls::{
+        disk_visualization::{DiskVisualization, VizEvent},
+        error_banner::ErrorBanner,
+    },
+    tracking_lock::TrackingLock,
+    UiEvent,
+};
+
+use crate::App;
 use anyhow::Result;
-use fluxfox_egui::{controls::error_banner::ErrorBanner, UiEvent};
 
 #[derive(Default)]
-pub struct VizViewer {
-    viz: VisualizationState,
+pub struct VisualizationViewer {
+    viz: DiskVisualization,
 
     show_data_layer: bool,
     show_metadata_layer: bool,
@@ -43,9 +51,14 @@ pub struct VizViewer {
     open: bool,
 }
 
-impl VizViewer {
+impl VisualizationViewer {
     pub fn new() -> Self {
-        let mut viz = VisualizationState::default();
+        let mut viz = DiskVisualization::default();
+
+        viz.set_save_file_callback(Arc::new(|filename, data| {
+            _ = App::save_file_as(filename, data);
+        }));
+
         Self {
             viz,
             open: false,
@@ -64,7 +77,7 @@ impl VizViewer {
     }
 
     pub fn init(&mut self, ctx: egui::Context, resolution: u32, sender: mpsc::SyncSender<UiEvent>) {
-        self.viz = VisualizationState::new(ctx, resolution);
+        self.viz = DiskVisualization::new(ctx, resolution);
         self.viz.set_event_sender(sender);
     }
 

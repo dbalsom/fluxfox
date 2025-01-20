@@ -24,15 +24,17 @@
 
     --------------------------------------------------------------------------
 */
-use crate::{app::Tool, lock::TrackingLock};
+use crate::app::Tool;
 use fluxfox::{
     prelude::*,
     types::{IntegrityCheck, IntegrityField, ReadSectorResult},
 };
 use fluxfox_egui::{
     controls::{data_table::DataTableWidget, error_banner::ErrorBanner},
+    tracking_lock::TrackingLock,
     widgets::{chs::ChsWidget, pill::PillWidget},
     SectorSelection,
+    UiLockContext,
 };
 
 #[derive(Default)]
@@ -63,7 +65,7 @@ impl SectorViewer {
     }
 
     pub fn update(&mut self, disk_lock: TrackingLock<DiskImage>, selection: SectorSelection) {
-        match disk_lock.write(Tool::SectorViewer) {
+        match disk_lock.write(UiLockContext::SectorViewer) {
             Ok(mut disk) => {
                 self.phys_ch = selection.phys_ch;
                 let query = SectorIdQuery::new(

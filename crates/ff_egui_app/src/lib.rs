@@ -28,7 +28,6 @@
 #![warn(clippy::all, rust_2018_idioms)]
 
 pub(crate) mod app;
-pub(crate) mod lock;
 pub(crate) mod time;
 pub(crate) mod widgets;
 

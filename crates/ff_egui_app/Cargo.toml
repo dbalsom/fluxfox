@@ -25,7 +25,7 @@ log = "0.4"
 # Fluxfox dependencies
 fluxfox = { path = "../..", default-features = false, features = ["core", "serde", "zip", "gzip", "mfi", "viz", "tiny_skia", "fat", "all_platforms"] }
 # fluxfox_egui provides common egui widgets for fluxfox. This crate is intended for direct use by egui-based emulators.
-fluxfox_egui = { path = "../ff_egui_lib" }
+fluxfox_egui = { path = "../ff_egui_lib", features = ["svg"] }
 # fluxfox_tiny_skia provides a tiny_skia rendering backend for fluxfox visualization functions
 fluxfox_tiny_skia = { path = "../fluxfox_tiny_skia" }
 # fluxfox_svg provides SVG rendering for fluxfox visualization functions. Enable via the 'svg' feature.
@@ -35,13 +35,12 @@ fluxfox_svg = { path = "../fluxfox_svg", optional = true }
 tiny-skia = { version = "0.11", default-features = false, features = ["std", "simd"] }
 # You only need serde if you want app persistence:
 serde = { version = "1", features = ["derive"] }
-rayon = "1.8"
-futures = "0.3"
-bytemuck = { version = "1.7", features = ["derive"] }
+#bytemuck = { version = "1.7", features = ["derive"] }
 anyhow = { version = "1.0", features = ["std"] }
 strum = "0.26.3"
 
-# native:
+# Native dependencies:
+# ---------------------------------------------------------------------------------------------------------------------
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 egui_extras = { version = "0.30", default-features = false, features = ["file", "image"] }
 env_logger = "0.11"
@@ -53,7 +52,8 @@ eframe = { version = "0.30", default-features = false, features = [
     "persistence",   # Enable restoring app state when restarting the app.
 ]}
 
-# web:
+# Wasm dependencies:
+# ---------------------------------------------------------------------------------------------------------------------
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # Add wasm features to fluxfox
 fluxfox = { path = "../..", default-features = false, features = ["wasm"] }
@@ -67,9 +67,10 @@ eframe = { version = "0.30", default-features = false, features = [
 web-time.workspace = true
 
 # We are limited to the wasm-bindgen binary version bundled with trunk
-wasm-bindgen = "=0.2.95"
-wasm-bindgen-futures = "0.4"
-wasm-bindgen-rayon = "1.2"
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+wasm-bindgen-rayon = "1.3"
+rayon = "1.8"
 
 [dependencies.web-sys]
 version = "=0.3.70"

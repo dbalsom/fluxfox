@@ -25,6 +25,7 @@
     --------------------------------------------------------------------------
 */
 
+pub mod disk_visualization;
 pub mod element_map;
 pub mod file_viewer;
 pub mod new_viz;
@@ -32,4 +33,3 @@ pub mod sector_viewer;
 pub mod source_map;
 pub mod track_timing_viewer;
 pub mod track_viewer;
-pub mod viz;

@@ -26,10 +26,14 @@
 */
 #![allow(dead_code)]
 
-use crate::{app::Tool, lock::TrackingLock};
+use crate::app::Tool;
 use anyhow::Result;
 use fluxfox::{prelude::TrackDataResolution, visualization::prelude::*, DiskImage};
-use fluxfox_egui::controls::{disk_visualizer::DiskVisualizerWidget, error_banner::ErrorBanner};
+use fluxfox_egui::{
+    controls::{error_banner::ErrorBanner, vector_disk_visualizer::DiskVisualizerWidget},
+    tracking_lock::TrackingLock,
+    UiLockContext,
+};
 use std::f32::consts::TAU;
 
 pub const VIZ_RESOLUTION: u32 = 768;
@@ -89,7 +93,12 @@ impl NewVizViewer {
         if self.disk.is_none() {
             return Ok(());
         }
-        let disk = self.disk.as_ref().unwrap().read(Tool::NewViz).unwrap();
+        let disk = self
+            .disk
+            .as_ref()
+            .unwrap()
+            .read(UiLockContext::DiskVisualization)
+            .unwrap();
 
         self.compatible = !disk.resolution().contains(&TrackDataResolution::MetaSector);
 

@@ -25,8 +25,10 @@
     --------------------------------------------------------------------------
 */
 
-//! The lock module defines a [TrackingLock] that tracks lock usage by [Tool].
+//! The tracking_lock module defines a [TrackingLock] that tracks lock usage by [Tool].
 
+use crate::UiLockContext;
+use egui::Ui;
 use fluxfox::{
     disk_lock::{DiskLock, LockContext, NonTrackingDiskLock},
     DiskImage,
@@ -36,10 +38,8 @@ use std::{
     ops::{Deref, DerefMut},
     sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
-// To lock a TrackingLock we must provide a defined [Tool].
-use crate::app::Tool;
 
-impl LockContext for Tool {}
+impl LockContext for UiLockContext {}
 
 /// The [TrackingLock] is a wrapper around `Arc<RwLock<T>>` that tracks lock usage by [Tool].
 pub struct TrackingLock<T> {
@@ -49,8 +49,8 @@ pub struct TrackingLock<T> {
 }
 
 struct TrackingData {
-    read_locks: HashMap<Tool, usize>, // Tool -> count of read locks
-    write_lock: Option<Tool>,         // Currently held write lock
+    read_locks: HashMap<UiLockContext, usize>, // Tool -> count of read locks
+    write_lock: Option<UiLockContext>,         // Currently held write lock
 }
 
 impl<T> Clone for TrackingLock<T> {
@@ -62,18 +62,18 @@ impl<T> Clone for TrackingLock<T> {
     }
 }
 
-impl DiskLock<DiskImage, Tool> for TrackingLock<DiskImage> {
+impl DiskLock<DiskImage, UiLockContext> for TrackingLock<DiskImage> {
     type T = DiskImage;
-    type C = Tool;
+    type C = UiLockContext;
     type ReadGuard<'a> = TrackingReadGuard<'a, DiskImage>;
     type WriteGuard<'a> = TrackingWriteGuard<'a, DiskImage>;
 
-    fn read(&self, tool: Tool) -> Result<TrackingReadGuard<'_, DiskImage>, Tool> {
-        self.read(tool)
+    fn read(&self, context: UiLockContext) -> Result<TrackingReadGuard<'_, DiskImage>, UiLockContext> {
+        self.read(context)
     }
 
-    fn write(&self, tool: Tool) -> Result<TrackingWriteGuard<'_, DiskImage>, Vec<Tool>> {
-        self.write(tool)
+    fn write(&self, context: UiLockContext) -> Result<TrackingWriteGuard<'_, DiskImage>, Vec<UiLockContext>> {
+        self.write(context)
     }
 
     fn strong_count(&self) -> usize {
@@ -104,13 +104,13 @@ impl<T> TrackingLock<T> {
     }
 
     /// Attempts to acquire a read lock for the given tool.
-    pub fn read(&self, tool: Tool) -> Result<TrackingReadGuard<'_, T>, Tool> {
+    pub fn read(&self, context: UiLockContext) -> Result<TrackingReadGuard<'_, T>, UiLockContext> {
         let mut tracking = self.tracking.lock().unwrap();
 
         if tracking.write_lock.is_some() {
             log::error!(
                 "Tool {:?} attempted to acquire a read lock while a write lock is held by {:?}",
-                tool,
+                context,
                 tracking.write_lock
             );
             return Err(tracking.write_lock.unwrap());
@@ -120,11 +120,11 @@ impl<T> TrackingLock<T> {
         match self.inner.try_read() {
             Ok(guard) => {
                 // Increment the read lock count for the tool
-                *tracking.read_locks.entry(tool).or_insert(0) += 1;
+                *tracking.read_locks.entry(context).or_insert(0) += 1;
                 Ok(TrackingReadGuard {
                     guard,
                     tracking: Arc::clone(&self.tracking),
-                    tool,
+                    context,
                 })
             }
             Err(_) => {
@@ -135,13 +135,13 @@ impl<T> TrackingLock<T> {
     }
 
     /// Attempts to acquire a write lock for the given tool.
-    pub fn write(&self, tool: Tool) -> Result<TrackingWriteGuard<'_, T>, Vec<Tool>> {
+    pub fn write(&self, context: UiLockContext) -> Result<TrackingWriteGuard<'_, T>, Vec<UiLockContext>> {
         let mut tracking = self.tracking.lock().unwrap();
 
         if !tracking.read_locks.is_empty() {
             log::error!(
                 "Tool {:?} attempted to acquire a write lock while read locks are held by {:?}",
-                tool,
+                context,
                 tracking.read_locks.iter().map(|(t, _)| *t).collect::<Vec<_>>()
             );
             return Err(tracking.read_locks.keys().cloned().collect());
@@ -150,21 +150,21 @@ impl<T> TrackingLock<T> {
         if tracking.write_lock.is_some() {
             log::error!(
                 "Tool {:?} attempted to acquire a write lock while write lock is held by {:?}",
-                tool,
+                context,
                 tracking.write_lock
             );
             return Err(vec![tracking.write_lock.unwrap()]);
         }
 
         // Set the write lock
-        tracking.write_lock = Some(tool);
+        tracking.write_lock = Some(context);
 
         // Acquire the actual write lock
         match self.inner.try_write() {
             Ok(guard) => Ok(TrackingWriteGuard {
                 guard,
                 tracking: Arc::clone(&self.tracking),
-                tool,
+                context,
             }),
             Err(_) => {
                 // Failed to acquire the write lock. We should have detected this above, so panic.
@@ -184,9 +184,9 @@ impl<T> TrackingLock<T> {
 
 /// Guard that removes the read lock tracking when dropped.
 pub struct TrackingReadGuard<'a, T> {
-    guard: RwLockReadGuard<'a, T>,
+    guard:    RwLockReadGuard<'a, T>,
     tracking: Arc<Mutex<TrackingData>>,
-    tool: Tool,
+    context:  UiLockContext,
 }
 
 impl<'a, T> Deref for TrackingReadGuard<'a, T> {
@@ -200,23 +200,26 @@ impl<'a, T> Deref for TrackingReadGuard<'a, T> {
 impl<'a, T> Drop for TrackingReadGuard<'a, T> {
     fn drop(&mut self) {
         let mut tracking = self.tracking.lock().unwrap();
-        if let Some(count) = tracking.read_locks.get_mut(&self.tool) {
+        if let Some(count) = tracking.read_locks.get_mut(&self.context) {
             *count -= 1;
             if *count == 0 {
-                tracking.read_locks.remove(&self.tool);
+                tracking.read_locks.remove(&self.context);
             }
         }
         else {
-            log::error!("Tool {:?} is dropping a read lock but it was not registered", self.tool);
+            log::error!(
+                "Context {:?} is dropping a read lock but it was not registered",
+                self.context
+            );
         }
     }
 }
 
 /// Guard that removes the write lock tracking when dropped.
 pub struct TrackingWriteGuard<'a, T> {
-    guard: RwLockWriteGuard<'a, T>,
+    guard:    RwLockWriteGuard<'a, T>,
     tracking: Arc<Mutex<TrackingData>>,
-    tool: Tool,
+    context:  UiLockContext,
 }
 
 impl<'a, T> Deref for TrackingWriteGuard<'a, T> {
@@ -237,10 +240,10 @@ impl<'a, T> Drop for TrackingWriteGuard<'a, T> {
     fn drop(&mut self) {
         let mut tracking = self.tracking.lock().unwrap();
         if let Some(current_tool) = tracking.write_lock {
-            if current_tool != self.tool {
+            if current_tool != self.context {
                 log::error!(
                     "Tool {:?} is dropping a write lock but the current write lock is held by {:?}",
-                    self.tool,
+                    self.context,
                     current_tool
                 );
             }
@@ -248,7 +251,7 @@ impl<'a, T> Drop for TrackingWriteGuard<'a, T> {
                 tracking.write_lock = None;
                 log::debug!(
                     "Tool {:?} dropped write lock. Strong references left: {}",
-                    self.tool,
+                    self.context,
                     Arc::strong_count(&self.tracking)
                 );
             }
@@ -256,7 +259,7 @@ impl<'a, T> Drop for TrackingWriteGuard<'a, T> {
         else {
             log::error!(
                 "Tool {:?} is dropping a write lock but no write lock was registered",
-                self.tool
+                self.context
             );
         }
     }

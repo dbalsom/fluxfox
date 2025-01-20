@@ -6,5 +6,5 @@
 
 [toolchain]
 channel = "nightly"  # Avoid specifying a patch version here; see https://github.com/emilk/eframe_template/issues/145
-components = [ "rust-src" ]
+components = [ "rust-src", "rustfmt", "clippy" ]
 targets = [ "wasm32-unknown-unknown" ]

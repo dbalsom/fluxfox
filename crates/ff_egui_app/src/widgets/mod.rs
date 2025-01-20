@@ -27,4 +27,3 @@
 
 pub mod filename;
 pub mod hello;
-pub mod viz;

@@ -24,7 +24,7 @@
 
     --------------------------------------------------------------------------
 */
-use crate::{app::Tool, lock::TrackingLock};
+use crate::app::Tool;
 use fluxfox::{
     prelude::*,
     track::{DiskTrack, TrackInfo},
@@ -32,8 +32,10 @@ use fluxfox::{
 };
 use fluxfox_egui::{
     controls::data_table::{DataRange, DataTableWidget},
+    tracking_lock::TrackingLock,
     widgets::chs::ChsWidget,
     TrackSelection,
+    UiLockContext,
 };
 use std::ops::Range;
 
@@ -82,7 +84,7 @@ impl TrackViewer {
         self.error_string = None;
 
         if let Some(disk_lock) = &self.disk {
-            let disk = disk_lock.read(Tool::TrackViewer).unwrap();
+            let disk = disk_lock.read(UiLockContext::TrackViewer).unwrap();
 
             self.phys_ch = selection.phys_ch;
 

@@ -33,42 +33,45 @@ use std::{
     sync::{mpsc, Arc, Mutex, RwLock},
 };
 
-use crate::{app::Tool, lock::TrackingLock};
-
-#[cfg(not(target_arch = "wasm32"))]
-use crate::native::worker;
-#[cfg(target_arch = "wasm32")]
-use crate::wasm::worker;
-use crate::{time::*, App};
-use anyhow::{anyhow, Error};
-use eframe::emath::{Pos2, Rect, RectTransform};
-use egui::{Align, Layout, Vec2};
-use fluxfox::{
-    prelude::*,
-    track_schema::GenericTrackElement,
-    visualization::{prelude::*, rasterize_disk::rasterize_disk_selection},
-    FoxHashMap,
-};
-use fluxfox_egui::{
+use crate::{
     controls::{
         canvas::{PixelCanvas, PixelCanvasDepth},
         header_group::{HeaderFn, HeaderGroup},
     },
     visualization::viz_elements::paint_elements,
     widgets::chs::ChsWidget,
+    SaveFileCallbackFn,
     SectorSelection,
     TrackListSelection,
+    UiError,
     UiEvent,
+    UiLockContext,
 };
+
+use fluxfox::{
+    prelude::*,
+    track_schema::GenericTrackElement,
+    visualization::{prelude::*, rasterize_disk::rasterize_disk_selection},
+    FoxHashMap,
+};
+
 #[cfg(feature = "svg")]
 use fluxfox_svg::prelude::*;
 use fluxfox_tiny_skia::{
     render_display_list::render_data_display_list,
     render_elements::skia_render_display_list,
     styles::{default_skia_styles, SkiaStyle},
-    tiny_skia::{BlendMode, Color, FilterQuality, Pixmap, PixmapPaint, Transform},
+    tiny_skia::{BlendMode, Color, FilterQuality, Paint, Pixmap, PixmapPaint, Transform},
 };
-use tiny_skia::Paint;
+
+use egui::{emath::RectTransform, Align, Layout, Pos2, Rect, Vec2};
+
+// Conditional thread stuff
+use crate::tracking_lock::TrackingLock;
+#[cfg(target_arch = "wasm32")]
+use rayon::spawn;
+#[cfg(not(target_arch = "wasm32"))]
+use std::thread::spawn;
 
 pub const VIZ_DATA_SUPERSAMPLE: u32 = 2;
 pub const VIZ_RESOLUTION: u32 = 512;
@@ -113,7 +116,7 @@ struct SelectionContext {
     element_chsn: Option<DiskChsn>,
 }
 
-pub struct VisualizationState {
+pub struct DiskVisualization {
     pub disk: Option<TrackingLock<DiskImage>>,
     pub ui_sender: Option<mpsc::SyncSender<UiEvent>>,
     pub resolution: u32,
@@ -155,9 +158,10 @@ pub struct VisualizationState {
     angle: f32,
     zoom_quadrant: [Option<usize>; 2],
     selection: Option<SelectionContext>,
+    save_file_callback: Option<SaveFileCallbackFn>,
 }
 
-impl Default for VisualizationState {
+impl Default for DiskVisualization {
     #[rustfmt::skip]
     fn default() -> Self {
         let (render_sender, render_receiver) = mpsc::sync_channel(2);
@@ -207,11 +211,12 @@ impl Default for VisualizationState {
             angle: 0.0,
             zoom_quadrant: [None, None],
             selection: None,
+            save_file_callback: None,
         }
     }
 }
 
-impl VisualizationState {
+impl DiskVisualization {
     pub fn new(ctx: egui::Context, resolution: u32) -> Self {
         assert_eq!(resolution % 2, 0);
 
@@ -254,8 +259,12 @@ impl VisualizationState {
                 (GenericTrackElement::Marker, vis_purple),
             ]),
             canvas: [Some(canvas0), Some(canvas1)],
-            ..VisualizationState::default()
+            ..DiskVisualization::default()
         }
+    }
+
+    pub fn set_save_file_callback(&mut self, callback: SaveFileCallbackFn) {
+        self.save_file_callback = Some(callback);
     }
 
     pub fn set_event_sender(&mut self, sender: mpsc::SyncSender<UiEvent>) {
@@ -269,7 +278,7 @@ impl VisualizationState {
     }
 
     pub fn update_disk(&mut self, disk_lock: TrackingLock<DiskImage>) {
-        let disk = disk_lock.read(Tool::Visualization).unwrap();
+        let disk = disk_lock.read(UiLockContext::DiskVisualization).unwrap();
         self.compatible = disk.can_visualize();
         self.sides = disk.heads() as usize;
         self.disk = Some(disk_lock.clone());
@@ -280,7 +289,7 @@ impl VisualizationState {
         self.hover_display_list = None;
     }
 
-    pub fn render_visualization(&mut self, side: usize) -> Result<(), Error> {
+    pub fn render_visualization(&mut self, side: usize) -> Result<(), UiError> {
         // if self.meta_pixmap_pool.len() < 4 {
         //     return Err(anyhow!("Pixmap pool not initialized"));
         // }
@@ -295,10 +304,15 @@ impl VisualizationState {
         let render_target = self.data_img[side].clone();
         let render_meta_display_list = self.meta_display_list[side].clone();
 
-        let disk = self.disk.as_ref().unwrap().read(Tool::Visualization).unwrap();
+        let disk = self
+            .disk
+            .as_ref()
+            .unwrap()
+            .read(UiLockContext::DiskVisualization)
+            .unwrap();
         self.compatible = disk.can_visualize();
         if !self.compatible {
-            return Err(anyhow!("Incompatible disk resolution"));
+            return Err(UiError::VisualizationError("Incompatible disk resolution".to_string()));
         }
 
         let head = side as u8;
@@ -333,7 +347,7 @@ impl VisualizationState {
         let inner_angle = self.common_viz_params.index_angle;
 
         // Render the main data layer.
-        match worker::spawn_closure_worker(move || {
+        spawn(move || {
             let data_params = RenderTrackDataParams {
                 side: head,
                 decode: inner_decode_data,
@@ -343,17 +357,15 @@ impl VisualizationState {
 
             let vector_params = RenderVectorizationParams::default();
 
-            let disk = render_lock.read(Tool::Visualization).unwrap();
+            let disk = render_lock.read(UiLockContext::DiskVisualization).unwrap();
             let mut render_pixmap = render_target.lock().unwrap();
             render_pixmap.fill(Color::TRANSPARENT);
 
-            let vectorize_data_timer = Instant::now();
             match vectorize_disk_data(&disk, &inner_common_params, &data_params, &vector_params) {
                 Ok(display_list) => {
                     log::debug!(
-                        "render worker: Data layer vectorized for side {} in {:.2}ms, created display list of {} elements",
+                        "render worker: Data layer vectorized for side {}, created display list of {} elements",
                         head,
-                        vectorize_data_timer.elapsed().as_millis(),
                         display_list.len()
                     );
 
@@ -370,23 +382,14 @@ impl VisualizationState {
                         }
                         Err(e) => {
                             log::error!("Error rendering display list: {}", e);
-                            //std::process::exit(1);
                         }
                     }
                 }
                 Err(e) => {
                     log::error!("Error rendering tracks: {}", e);
-                    //std::process::exit(1);
                 }
             };
-        }) {
-            Ok(_) => {
-                log::debug!("Spawned rendering worker for data layer...");
-            }
-            Err(_e) => {
-                log::error!("Error spawning rendering worker for data layer!");
-            }
-        };
+        });
 
         // Clear pixmap before rendering
         self.meta_img[side].write().unwrap().fill(Color::TRANSPARENT);
@@ -415,7 +418,11 @@ impl VisualizationState {
         self.common_viz_params.radius = Some(VIZ_RESOLUTION as f32 / 2.0);
 
         let mut display_list_guard = render_meta_display_list.lock().unwrap();
-        let display_list = vectorize_disk_elements_by_quadrants(&disk, &self.common_viz_params, &render_params)?;
+        let display_list = vectorize_disk_elements_by_quadrants(&disk, &self.common_viz_params, &render_params)
+            .map_err(|e| {
+                log::error!("Error vectorizing disk elements: {}", e);
+                UiError::VisualizationError(format!("Error vectorizing disk elements: {}", e))
+            })?;
 
         let mut paint = Paint::default();
         let styles = default_skia_styles();
@@ -493,7 +500,7 @@ impl VisualizationState {
 
         let side = h as usize;
         let mut do_composite = false;
-        match self.disk.as_ref().unwrap().read(Tool::Visualization) {
+        match self.disk.as_ref().unwrap().read(UiLockContext::DiskVisualization) {
             Ok(disk) => {
                 // If we can acquire the selection image mutex, we can composite the data and metadata layers.
                 match self.selection_img[side].try_lock() {
@@ -625,14 +632,14 @@ impl VisualizationState {
         self.have_render[0]
     }
 
-    pub(crate) fn enable_data_layer(&mut self, state: bool) {
+    pub fn enable_data_layer(&mut self, state: bool) {
         self.show_data_layer = state;
         for side in 0..self.sides {
             self.composite(side);
         }
     }
 
-    pub(crate) fn enable_metadata_layer(&mut self, state: bool) {
+    pub fn enable_metadata_layer(&mut self, state: bool) {
         self.show_metadata_layer = state;
         for side in 0..self.sides {
             self.composite(side);
@@ -655,18 +662,18 @@ impl VisualizationState {
         }
     }
 
-    pub(crate) fn save_side_as_png(&mut self, filename: &str, side: usize) {
-        if let Some(canvas) = &mut self.canvas[side] {
+    pub fn save_side_as_png(&mut self, filename: &str, side: usize) {
+        if let (Some(canvas), Some(callback)) = (&mut self.canvas[side], self.save_file_callback.as_ref()) {
             let png_data = canvas.to_png();
-            _ = App::save_file_as(filename, &png_data);
+            _ = callback(filename, &png_data);
         }
     }
 
     #[cfg(feature = "svg")]
-    pub(crate) fn save_side_as_svg(&self, filename: &str, side: usize) -> Result<(), Error> {
+    pub fn save_side_as_svg(&self, filename: &str, side: usize) -> Result<(), UiError> {
         if !(self.show_data_layer || self.show_metadata_layer) {
             // Nothing to render
-            return Err(anyhow!("No layers selected for rendering"));
+            return Err(UiError::VisualizationError("No layers enabled".to_string()));
         }
 
         let mut renderer = SvgRenderer::new()
@@ -685,29 +692,39 @@ impl VisualizationState {
                 self.resolution as f32,
             )));
 
-        if let Some(disk) = self.disk.as_ref().and_then(|d| d.read(Tool::Visualization).ok()) {
+        if let Some(disk) = self
+            .disk
+            .as_ref()
+            .and_then(|d| d.read(UiLockContext::DiskVisualization).ok())
+        {
             renderer = renderer
                 .render(&disk)
-                .map_err(|e| anyhow!("Error rendering SVG: {}", e))?;
+                .map_err(|e| UiError::VisualizationError(format!("Error rendering SVG: {}", e)))?;
         }
         else {
-            return Err(anyhow!("Couldn't lock disk for reading"));
+            return Err(UiError::VisualizationError(
+                "Couldn't lock disk for reading".to_string(),
+            ));
         }
 
         let documents = renderer
             .create_documents()
-            .map_err(|e| anyhow!("Error creating SVG document: {}", e))?;
+            .map_err(|e| UiError::VisualizationError(format!("Error creating SVG document: {}", e)))?;
 
         if documents.is_empty() {
-            return Err(anyhow!("No SVG documents created"));
+            return Err(UiError::VisualizationError("No SVG documents created".to_string()));
         }
 
         let svg_data = documents[0].document.to_string();
 
-        App::save_file_as(filename, svg_data.as_bytes()).map_err(|e| anyhow!("Error saving SVG file: {}", e))
+        if let Some(callback) = self.save_file_callback.as_ref() {
+            _ = callback(filename, svg_data.as_bytes());
+        }
+
+        Ok(())
     }
 
-    pub(crate) fn show(&mut self, ui: &mut egui::Ui) -> Option<VizEvent> {
+    pub fn show(&mut self, ui: &mut egui::Ui) -> Option<VizEvent> {
         let mut new_event = None;
         #[cfg(feature = "svg")]
         let mut svg_context = None;
@@ -776,7 +793,11 @@ impl VisualizationState {
                                     point: VizPoint2d::new(virtual_pos.x, virtual_pos.y).rotate(&rotation),
                                 };
 
-                                if let Some(disk) = self.disk.as_ref().and_then(|d| d.read(Tool::Visualization).ok()) {
+                                if let Some(disk) = self
+                                    .disk
+                                    .as_ref()
+                                    .and_then(|d| d.read(UiLockContext::DiskVisualization).ok())
+                                {
                                     Self::perform_hit_test(&disk, side, &hit_test_params, &mut context);
                                 }
                                 else {
@@ -848,7 +869,9 @@ impl VisualizationState {
                                     let png_data = canvas.to_png();
                                     let file_name = format!("fluxfox_viz_side{}.png", side);
 
-                                    _ = App::save_file_as(&file_name, &png_data);
+                                    if let Some(callback) = self.save_file_callback.as_ref() {
+                                        _ = callback(&file_name, &png_data);
+                                    };
                                     ui.close_menu();
                                 }
 

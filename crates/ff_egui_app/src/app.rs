@@ -45,6 +45,7 @@ use fluxfox_egui::{
     TrackSelection,
     TrackSelectionScope,
     UiEvent,
+    UiLockContext,
 };
 use std::{
     collections::VecDeque,
@@ -65,9 +66,9 @@ use crate::wasm::worker;
 pub const APP_NAME: &str = "fluxfox-web";
 
 use crate::{
-    lock::TrackingLock,
     widgets::{filename::FilenameWidget, hello::HelloWidget},
     windows::{
+        disk_visualization::VisualizationViewer,
         element_map::ElementMapViewer,
         file_viewer::FileViewer,
         new_viz::NewVizViewer,
@@ -75,10 +76,9 @@ use crate::{
         source_map::SourceMapViewer,
         track_timing_viewer::TrackTimingViewer,
         track_viewer::TrackViewer,
-        viz::VizViewer,
     },
 };
-use fluxfox_egui::controls::track_list::TrackListWidget;
+use fluxfox_egui::{controls::track_list::TrackListWidget, tracking_lock::TrackingLock};
 
 pub const DEMO_IMAGE: &[u8] = include_bytes!("../../../resources/demo.imz");
 /// The number of selection slots available for disk images.
@@ -187,7 +187,7 @@ impl AppWidgets {
     }
 
     pub fn update_disk(&mut self, disk_lock: TrackingLock<DiskImage>, name: Option<String>) {
-        let disk = match disk_lock.read(Tool::App) {
+        let disk = match disk_lock.read(UiLockContext::App) {
             Ok(disk) => disk,
             Err(_) => {
                 log::error!("Failed to lock disk image for reading. Cannot update widgets.");
@@ -201,7 +201,7 @@ impl AppWidgets {
     }
 
     pub fn update_mut(&mut self, disk_lock: TrackingLock<DiskImage>) {
-        let mut fs = match FatFileSystem::mount(disk_lock, Tool::FileSystemViewer, None) {
+        let mut fs = match FatFileSystem::mount(disk_lock, UiLockContext::FileSystemViewer, None) {
             Ok(fs) => {
                 log::debug!("FAT filesystem mounted successfully!");
                 Some(fs)
@@ -229,7 +229,7 @@ impl AppWidgets {
 }
 
 pub struct AppWindows {
-    viz_viewer: VizViewer,
+    viz_viewer: VisualizationViewer,
     new_viz_viewer: NewVizViewer,
     sector_viewer: SectorViewer,
     track_viewer: TrackViewer,
@@ -242,7 +242,7 @@ pub struct AppWindows {
 impl AppWindows {
     pub fn new(_ui_sender: mpsc::SyncSender<UiEvent>) -> Self {
         Self {
-            viz_viewer: VizViewer::new(),
+            viz_viewer: VisualizationViewer::new(),
             new_viz_viewer: NewVizViewer::default(),
             sector_viewer: SectorViewer::default(),
             track_viewer: TrackViewer::default(),
@@ -268,7 +268,7 @@ impl AppWindows {
     pub fn update_disk(&mut self, disk_lock: TrackingLock<DiskImage>, _name: Option<String>) {
         // The visualization viewer can hold a read lock in the background for rendering, so it
         // should be updated last.
-        match disk_lock.read(Tool::App) {
+        match disk_lock.read(UiLockContext::App) {
             Ok(disk) => self.source_map.update(&disk),
             Err(_) => {
                 log::error!("Failed to lock disk image for reading. Cannot update windows.");
@@ -804,7 +804,7 @@ impl App {
                 }
                 AppEvent::TrackTimingsSelected(selection) => {
                     if let Some(disk) = self.selected_disk() {
-                        match disk.read(Tool::App) {
+                        match disk.read(UiLockContext::App) {
                             Ok(disk) => {
                                 if let Some(track) = disk.track(selection.phys_ch) {
                                     if let Some(track) = track.as_fluxstream_track() {
@@ -933,7 +933,8 @@ impl App {
                     UiEvent::ExportFile(path) => {
                         log::debug!("Exporting file: {:?}", path);
 
-                        let mut fs = FatFileSystem::mount(disk.clone(), Tool::FileSystemOperation, None).unwrap();
+                        let mut fs =
+                            FatFileSystem::mount(disk.clone(), UiLockContext::FileSystemOperation, None).unwrap();
                         let file_data = match fs.read_file(&path) {
                             Ok(data) => data,
                             Err(e) => {
@@ -955,7 +956,7 @@ impl App {
                     UiEvent::SelectFile(file) => {
                         let selected_file = file.path().to_string();
                         log::debug!("Selected file: {:?}", selected_file);
-                        match FatFileSystem::mount(disk.clone(), Tool::FileSystemOperation, None) {
+                        match FatFileSystem::mount(disk.clone(), UiLockContext::FileSystemOperation, None) {
                             Ok(mut fs) => {
                                 log::debug!("FAT filesystem mounted successfully!");
                                 self.windows.file_viewer.update(&fs, selected_file);
@@ -971,7 +972,7 @@ impl App {
                     #[cfg(feature = "archives")]
                     UiEvent::ExportDirAsArchive(path) => {
                         log::debug!("Exporting directory as archive: {:?}", path);
-                        match FatFileSystem::mount(disk.clone(), Tool::FileSystemOperation, None) {
+                        match FatFileSystem::mount(disk.clone(), UiLockContext::FileSystemOperation, None) {
                             Ok(mut fs) => {
                                 let archive_data = match fs.root_as_archive(self.p_state.user_opts.archive_format) {
                                     Ok(data) => data,

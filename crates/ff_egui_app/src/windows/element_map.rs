@@ -24,9 +24,9 @@
 
     --------------------------------------------------------------------------
 */
-use crate::{app::Tool, lock::TrackingLock};
+use crate::app::Tool;
 use fluxfox::DiskImage;
-use fluxfox_egui::{controls::source_map::SourceMapWidget, TrackSelection};
+use fluxfox_egui::{controls::source_map::SourceMapWidget, tracking_lock::TrackingLock, TrackSelection, UiLockContext};
 
 #[derive(Default)]
 pub struct ElementMapViewer {
@@ -44,7 +44,7 @@ impl ElementMapViewer {
     }
 
     pub fn update(&mut self, disk_lock: TrackingLock<DiskImage>, selection: TrackSelection) {
-        match disk_lock.read(Tool::TrackElementMap) {
+        match disk_lock.read(UiLockContext::TrackElementMap) {
             Ok(disk) => {
                 if let Some(map) = disk.track(selection.phys_ch).and_then(|track| track.element_map()) {
                     self.widget.update_direct(map, None);
