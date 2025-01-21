@@ -349,6 +349,7 @@ impl DiskVisualization {
         let inner_decode_data = self.decode_data_layer;
         let inner_angle = self.common_viz_params.index_angle;
 
+        log::debug!("Spawning rendering thread...");
         // Render the main data layer.
         spawn(move || {
             let data_params = RenderTrackDataParams {
