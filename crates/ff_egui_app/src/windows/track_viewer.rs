@@ -24,7 +24,7 @@
 
     --------------------------------------------------------------------------
 */
-use crate::app::Tool;
+
 use fluxfox::{
     prelude::*,
     track::{DiskTrack, TrackInfo},
