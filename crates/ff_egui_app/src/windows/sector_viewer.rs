@@ -24,7 +24,7 @@
 
     --------------------------------------------------------------------------
 */
-use crate::app::Tool;
+
 use fluxfox::{
     prelude::*,
     types::{IntegrityCheck, IntegrityField, ReadSectorResult},
