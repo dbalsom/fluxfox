@@ -281,7 +281,7 @@ impl DiskVisualization {
         let disk_lock = disk_lock.into();
         self.disk = Some(disk_lock.clone());
 
-        let disk = disk_lock.into().read(UiLockContext::DiskVisualization).unwrap();
+        let disk = disk_lock.read(UiLockContext::DiskVisualization).unwrap();
         self.compatible = disk.can_visualize();
         self.sides = disk.heads() as usize;
 
