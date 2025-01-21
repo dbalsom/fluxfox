@@ -81,6 +81,12 @@ impl DiskLock<DiskImage, UiLockContext> for TrackingLock<DiskImage> {
     }
 }
 
+impl From<Arc<RwLock<DiskImage>>> for TrackingLock<DiskImage> {
+    fn from(lock: Arc<RwLock<DiskImage>>) -> Self {
+        TrackingLock::from_arc(lock)
+    }
+}
+
 impl From<TrackingLock<DiskImage>> for NonTrackingDiskLock<DiskImage> {
     fn from(lock: TrackingLock<DiskImage>) -> Self {
         NonTrackingDiskLock::new(lock.inner)
@@ -88,10 +94,21 @@ impl From<TrackingLock<DiskImage>> for NonTrackingDiskLock<DiskImage> {
 }
 
 impl<T> TrackingLock<T> {
-    /// Creates a new TrackingLock.
+    /// Creates a new TrackingLock from base T.
     pub fn new(data: T) -> Self {
         TrackingLock {
             inner:    Arc::new(RwLock::new(data)),
+            tracking: Arc::new(Mutex::new(TrackingData {
+                read_locks: HashMap::new(),
+                write_lock: None,
+            })),
+        }
+    }
+
+    /// Creates a new TrackingLock from Arc<RwLock<T>>.
+    pub fn from_arc(lock: Arc<RwLock<T>>) -> Self {
+        TrackingLock {
+            inner:    lock,
             tracking: Arc::new(Mutex::new(TrackingData {
                 read_locks: HashMap::new(),
                 write_lock: None,
