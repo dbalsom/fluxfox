@@ -277,11 +277,13 @@ impl DiskVisualization {
         self.compatible
     }
 
-    pub fn update_disk(&mut self, disk_lock: TrackingLock<DiskImage>) {
-        let disk = disk_lock.read(UiLockContext::DiskVisualization).unwrap();
+    pub fn update_disk(&mut self, disk_lock: impl Into<TrackingLock<DiskImage>>) {
+        let disk_lock = disk_lock.into();
+        self.disk = Some(disk_lock.clone());
+
+        let disk = disk_lock.into().read(UiLockContext::DiskVisualization).unwrap();
         self.compatible = disk.can_visualize();
         self.sides = disk.heads() as usize;
-        self.disk = Some(disk_lock.clone());
 
         // Reset selections
         self.selection = None;
