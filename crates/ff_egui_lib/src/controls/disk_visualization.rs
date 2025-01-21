@@ -283,6 +283,7 @@ impl DiskVisualization {
 
         let disk = disk_lock.read(UiLockContext::DiskVisualization).unwrap();
         self.compatible = disk.can_visualize();
+        log::debug!("update_disk(): setting compatible flag to {}".self.compatible);
         self.sides = disk.heads() as usize;
 
         // Reset selections
