@@ -28,6 +28,10 @@
 use fluxfox::{track_schema::GenericTrackElement, visualization::prelude::VizColor, FoxHashMap};
 use std::fmt::{self, Display, Formatter};
 
+pub fn vizcolor_to_color(color: VizColor) -> tiny_skia::Color {
+    tiny_skia::Color::from_rgba8(color.r(), color.g(), color.b(), color.a())
+}
+
 #[derive(Copy, Clone, Debug, Default)]
 pub struct SkiaStyle {
     pub fill: VizColor,

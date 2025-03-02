@@ -36,3 +36,5 @@ pub use tiny_skia;
 
 pub const DEFAULT_DATA_SLICES: usize = 1440;
 pub const DEFAULT_VIEW_BOX: f32 = 512.0;
+
+pub use styles::vizcolor_to_color;
