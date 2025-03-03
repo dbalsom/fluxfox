@@ -636,7 +636,9 @@ impl System34Schema {
                 continue;
             }
 
-            let TrackElementInstance { element, .. } = instance;
+            let TrackElementInstance {
+                element, last_sector, ..
+            } = instance;
             match element {
                 TrackElement::System34(System34Element::SectorHeader {
                     chsn,
@@ -670,6 +672,7 @@ impl System34Schema {
                                 data_error: false,
                                 deleted_mark: false,
                                 no_dam: *data_missing,
+                                last_sector: *last_sector,
                             };
                         }
                     }
@@ -698,6 +701,7 @@ impl System34Schema {
                             data_error: *data_error,
                             deleted_mark: *deleted,
                             no_dam: false,
+                            last_sector: *last_sector,
                         };
                     }
                 }
@@ -878,6 +882,7 @@ impl System34Schema {
                             start: last_element_offset,
                             end: element_offset,
                             chsn: None,
+                            last_sector: false,
                         };
                         elements.push(metadata)
                     }
@@ -971,6 +976,7 @@ impl System34Schema {
                             start: last_element_offset,
                             end: element_offset,
                             chsn: None,
+                            last_sector: false,
                         };
                         elements.push(data_metadata);
 
@@ -1010,6 +1016,7 @@ impl System34Schema {
                                 last_sector_id.s,
                                 last_sector_id.b,
                             )),
+                            last_sector: false,
                         };
                         elements.push(data_metadata);
                     }
@@ -1027,6 +1034,7 @@ impl System34Schema {
                         last_sector_id.s,
                         last_sector_id.b,
                     )),
+                    last_sector: false,
                 };
                 elements.push(marker_metadata);
 
@@ -1039,7 +1047,6 @@ impl System34Schema {
         if let Some(System34Marker::Idam) = last_marker_opt {
             // Track ends with an IDAM marker. Push a Sector Header metadata item spanning from last
             // IDAM to some point after (range is not important except for viz)
-
             let data_metadata = TrackElementInstance {
                 element: TrackElement::System34(System34Element::SectorHeader {
                     chsn: DiskChsn::from((
@@ -1054,12 +1061,19 @@ impl System34Schema {
                 start: last_element_offset,
                 end: last_element_offset + 256,
                 chsn: None,
+                last_sector: false,
             };
             elements.push(data_metadata)
         }
 
         // Sort elements by start offset.
         elements.sort_by(|a, b| a.start.cmp(&b.start));
+
+        // Mark the last elements as the last sector.
+        if let Some(last) = elements.last_mut() {
+            last.last_sector = true;
+        }
+
         elements
     }
 

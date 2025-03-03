@@ -109,6 +109,9 @@ pub(crate) enum TrackSectorScanResult {
         deleted_mark: bool,
         /// A boolean flag indicating whether the sector ID was matched, but no sector data was found.
         no_dam: bool,
+        /// A boolean flag indicating whether the matched sector ID represents the last sector on
+        /// the track.
+        last_sector: bool,
     },
     /// A variant indicating the specified sector ID was not found on the track.
     NotFound {

@@ -446,6 +446,8 @@ pub struct TrackElementInstance {
     pub(crate) start: usize,
     pub(crate) end: usize,
     pub(crate) chsn: Option<DiskChsn>,
+    // A flag indicating that this element belongs to the last sector on the track
+    pub(crate) last_sector: bool,
 }
 
 impl TrackElementInstance {
