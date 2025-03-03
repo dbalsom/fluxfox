@@ -228,6 +228,7 @@ impl Track for BitStreamTrack {
         let mut bad_cylinder = false;
         let mut wrong_head = false;
         let mut data_crc = None;
+        let mut last_sector_result = false;
 
         let schema = self.schema.ok_or(DiskImageError::SchemaError)?;
 
@@ -240,9 +241,12 @@ impl Track for BitStreamTrack {
                 address_error,
                 no_dam,
                 sector_chsn,
+                last_sector,
                 ..
             } if no_dam => {
                 // Sector id was matched, but has no associated data.
+                last_sector_result = last_sector;
+
                 // Return an empty buffer with the `no_dam` flag set.
                 return Ok(ReadSectorResult {
                     id_chsn: Some(sector_chsn),
@@ -257,8 +261,10 @@ impl Track for BitStreamTrack {
                 address_error,
                 data_error,
                 deleted_mark,
+                last_sector,
                 ..
             } => {
+                last_sector_result = last_sector;
                 result_chsn = Some(sector_chsn);
                 // If there is a bad address mark, we do not read the sector data, unless the debug
                 // flag is set.
@@ -359,11 +365,9 @@ impl Track for BitStreamTrack {
 
         Ok(ReadSectorResult {
             id_chsn: result_chsn,
-            read_buf: read_vec,
-            data_range: result_data_range,
-            deleted_mark: result_deleted_mark,
             not_found: false,
             no_dam: false,
+            deleted_mark: result_deleted_mark,
             address_crc_error: result_address_error,
             address_crc: None,
             data_crc_error: result_data_error,
@@ -371,6 +375,9 @@ impl Track for BitStreamTrack {
             wrong_cylinder,
             bad_cylinder,
             wrong_head,
+            last_sector: last_sector_result,
+            data_range: result_data_range,
+            read_buf: read_vec,
         })
     }
 
@@ -1224,6 +1231,7 @@ impl BitStreamTrack {
                             deleted,
                             ..
                         }),
+                    last_sector,
                     ..
                 } => {
                     if let Some(sector_chsn) = idam_chsn {
@@ -1234,6 +1242,7 @@ impl BitStreamTrack {
                             data_error: *data_error,
                             deleted_mark: *deleted,
                             no_dam: false,
+                            last_sector: *last_sector,
                         };
                     }
                 }

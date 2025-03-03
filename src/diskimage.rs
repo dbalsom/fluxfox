@@ -32,7 +32,13 @@
 //! A [DiskImage] should not be created directly. Instead, use an [ImageBuilder] to create a new
 //! disk image with specified parameters.
 
-use crate::{bitstream_codec::mfm::MfmCodec, track::bitstream::BitStreamTrack, DiskImageFileFormat, SectorMapEntry};
+use crate::{
+    bitstream_codec::mfm::MfmCodec,
+    track::bitstream::BitStreamTrack,
+    DiskImageFileFormat,
+    SectorIdQuery,
+    SectorMapEntry,
+};
 
 use crate::{
     bitstream_codec::{fm::FmCodec, gcr::GcrCodec, TrackCodec},
@@ -934,17 +940,31 @@ impl DiskImage {
     //     }
     // }
 
-    /// Read the sector data from the sector at the physical location 'phys_ch' with the sector ID
-    /// values specified by 'id_chs'.
-    /// The data is returned within a ReadSectorResult struct which also sets some convenience
-    /// metadata flags which are needed when handling MetaSector images.
-    /// When reading a BitStream image, the sector data includes the address mark and crc.
-    /// Offsets are provided within ReadSectorResult so these can be skipped when processing the
-    /// read operation.
+    /// Attempts to read the sector data from the sector identified by `id`.
+    ///
+    /// # Arguments
+    /// - `phys_ch`: The physical cylinder and head to read the sector from as a `DiskCh`.
+    /// - `id`: The sector ID to read as a `SectorIdQuery`.
+    /// - `n`: An optional override value for the sector's size parameter. If provided, the sector
+    ///        will be read as a sector of this size.
+    /// - `offset`: An optional bit offset to start reading the sector data from. If a track
+    ///             contains multiple sectors with the same ID, the offset can be used to specify
+    ///             which sector to read.
+    /// - `scope`: The scope of the read operation as a `RwSectorScope` enum. This can be used to
+    ///            specify whether to include the sector's address mark and CRC in the read data.
+    /// - `debug`: A boolean flag controlling debug mode. When set to `true`, the read operation
+    ///            return data even if the sector has an invalid address CRC or would otherwise
+    ///            normally not be read.
+    ///
+    /// # Returns
+    /// A Result containing either
+    /// - [ReadSectorResult] struct which provides various result flags and the resulting data if
+    ///   the sector was successfully read.
+    /// - [DiskImageError] if an error occurred while reading the sector.
     pub fn read_sector(
         &mut self,
         phys_ch: DiskCh,
-        id: DiskChsnQuery,
+        id: SectorIdQuery,
         n: Option<u8>,
         offset: Option<usize>,
         scope: RwScope,
@@ -961,12 +981,12 @@ impl DiskImage {
         track.read_sector(id, n, offset, scope, debug)
     }
 
-    /// A simplified version of read_sector() which only returns the sector data as a Vec<u8>,
+    /// A simplified version of `read_sector` which only returns the sector data as a Vec<u8>,
     /// or an `DiskImageError` if the sector could not be read.
     pub fn read_sector_basic(
         &self,
         phys_ch: DiskCh,
-        id: DiskChsnQuery,
+        id: SectorIdQuery,
         offset: Option<usize>,
     ) -> Result<Vec<u8>, DiskImageError> {
         // Check that the head and cylinder are within the bounds of the track map.
