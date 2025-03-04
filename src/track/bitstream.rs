@@ -218,6 +218,7 @@ impl Track for BitStreamTrack {
         debug: bool,
     ) -> Result<ReadSectorResult, DiskImageError> {
         let mut read_vec = Vec::new();
+        let mut result_not_found = false;
         let mut result_data_error = false;
         let mut result_address_error = false;
         let mut result_deleted_mark = false;
@@ -247,11 +248,12 @@ impl Track for BitStreamTrack {
                 // Sector id was matched, but has no associated data.
                 last_sector_result = last_sector;
 
-                // Return an empty buffer with the `no_dam` flag set.
+                // Return an empty buffer with the `no_dam` flag set.fs
                 return Ok(ReadSectorResult {
                     id_chsn: Some(sector_chsn),
                     no_dam,
                     address_crc_error: address_error,
+                    last_sector: last_sector_result,
                     ..ReadSectorResult::default()
                 });
             }
@@ -353,7 +355,7 @@ impl Track for BitStreamTrack {
                     bc,
                     wh
                 );
-
+                result_not_found = true;
                 wrong_cylinder = wc;
                 bad_cylinder = bc;
                 wrong_head = wh;
@@ -365,7 +367,7 @@ impl Track for BitStreamTrack {
 
         Ok(ReadSectorResult {
             id_chsn: result_chsn,
-            not_found: false,
+            not_found: result_not_found,
             no_dam: false,
             deleted_mark: result_deleted_mark,
             address_crc_error: result_address_error,
