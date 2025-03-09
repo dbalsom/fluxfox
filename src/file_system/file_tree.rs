@@ -185,6 +185,20 @@ impl FileTreeNode {
         }
     }
 
+    pub fn path(&self) -> &str {
+        match self {
+            FileTreeNode::File(entry) => &entry.path,
+            FileTreeNode::Directory { dfe, .. } => &dfe.path,
+        }
+    }
+
+    pub fn children(&self) -> Vec<&FileTreeNode> {
+        match self {
+            FileTreeNode::Directory { children, .. } => children.iter().collect(),
+            _ => Vec::new(),
+        }
+    }
+
     /// Returns `true` if the current node represents a file.
     pub fn is_file(&self) -> bool {
         matches!(self, FileTreeNode::File(_))

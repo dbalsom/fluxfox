@@ -303,7 +303,13 @@ impl RawFormat {
         _opts: &ParserWriteOptions,
         output: &mut RWS,
     ) -> Result<(), DiskImageError> {
-        let format = disk.closest_format(true).ok_or(DiskImageError::UnsupportedFormat)?;
+        let format = match disk.closest_format(true) {
+            Some(format) => format,
+            None => {
+                log::error!("Raw::save_image(): Unable to detect a StandardFormat for disk image");
+                return Err(DiskImageError::UnsupportedFormat);
+            }
+        };
         log::debug!("Raw::save_image(): Using format: {}", format);
         // An IMG file basically represents DOS's view of a disk. Non-standard sectors may as well not
         // exist. The same basically applies for ADF files as well.

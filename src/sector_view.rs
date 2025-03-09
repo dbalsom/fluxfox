@@ -300,7 +300,7 @@ impl Seek for StandardSectorView {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prelude::*;
+    use crate::{file_system::FileSystemType, prelude::*};
     use std::sync::{Arc, RwLock};
 
     fn create_view() -> StandardSectorView {
@@ -313,7 +313,7 @@ mod tests {
         // Create a mock DiskImage for testing purposes
         let disk = ImageBuilder::new()
             .with_standard_format(StandardFormat::PcFloppy360)
-            .with_formatted(true)
+            .with_filesystem(FileSystemType::Fat12)
             .with_resolution(TrackDataResolution::BitStream)
             .build()
             .unwrap();

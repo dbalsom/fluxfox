@@ -127,6 +127,12 @@ pub(crate) fn out_file_parser() -> impl Parser<PathBuf> {
         .help("Path to output file")
 }
 
+pub(crate) fn from_dir_parser() -> impl Parser<PathBuf> {
+    long("from_dir")
+        .argument::<PathBuf>("FROM_DIR")
+        .help("Path to source directory")
+}
+
 pub(crate) fn command_parser() -> impl Parser<AppParams> {
     let global = global_options_parser();
 
