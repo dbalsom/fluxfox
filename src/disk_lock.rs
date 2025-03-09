@@ -35,9 +35,11 @@
 
 use crate::DiskImage;
 use std::{
+    cell::{Ref, RefCell, RefMut},
     fmt::{Debug, Display},
     hash::Hash,
     ops::{Deref, DerefMut},
+    rc::Rc,
     sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
@@ -74,6 +76,50 @@ pub trait DiskLock<T, C: LockContext> {
 
     /// Return the number of strong references to the inner lock.
     fn strong_count(&self) -> usize;
+}
+
+#[derive(Clone)]
+pub struct RefLock<T> {
+    inner: Rc<RefCell<T>>,
+}
+
+impl<T> RefLock<T> {
+    pub fn new(inner: T) -> Self {
+        Self {
+            inner: Rc::new(RefCell::new(inner)),
+        }
+    }
+
+    pub fn into_inner(self) -> Result<T, Self> {
+        Rc::try_unwrap(self.inner)
+            .map(|cell| cell.into_inner())
+            .map_err(|rc| Self { inner: rc })
+    }
+}
+
+impl<T> DiskLock<T, NullContext> for RefLock<T> {
+    type T = DiskImage;
+    type C = NullContext;
+    type ReadGuard<'a>
+        = Ref<'a, T>
+    where
+        T: 'a;
+    type WriteGuard<'a>
+        = RefMut<'a, T>
+    where
+        T: 'a;
+
+    fn read(&self, _tool: NullContext) -> Result<Self::ReadGuard<'_>, NullContext> {
+        Ok(self.inner.borrow())
+    }
+
+    fn write(&self, _tool: NullContext) -> Result<Self::WriteGuard<'_>, Vec<NullContext>> {
+        Ok(self.inner.borrow_mut())
+    }
+
+    fn strong_count(&self) -> usize {
+        0
+    }
 }
 
 /// A newtype wrapper around Arc<RwLock<T>> without tracking.

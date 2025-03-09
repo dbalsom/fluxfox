@@ -75,6 +75,7 @@ impl BootSignature {
 /// This allows flexibility in creating and interpreting a boot sector from other sources, such
 /// as in external .bin file.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone)]
 pub struct BootSector {
     pub(crate) bpb2: BiosParameterBlock2,
     pub(crate) bpb3: BiosParameterBlock3,

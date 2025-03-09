@@ -34,32 +34,37 @@ use std::path::PathBuf;
 
 use crate::{
     file_parsers::{ImageFormatParser, ParserWriteOptions},
-    io::Cursor,
+    io::{Cursor, ReadWriteSeek},
     DiskImage,
     DiskImageError,
     DiskImageFileFormat,
 };
 
-pub struct ImageWriter<'img> {
+pub struct ImageWriter<'img, RWS: ReadWriteSeek> {
     pub image:  &'img mut DiskImage,
+    pub writer: Option<RWS>,
     pub path:   Option<PathBuf>,
     pub format: Option<DiskImageFileFormat>,
 }
 
-impl<'img> ImageWriter<'img> {
+impl<'img, RWS: ReadWriteSeek> ImageWriter<'img, RWS> {
     pub fn new(img: &'img mut DiskImage) -> Self {
         Self {
             image:  img,
+            writer: None,
             path:   None,
             format: None,
         }
     }
 
-    pub fn with_format(self, format: DiskImageFileFormat) -> Self {
-        Self {
-            format: Some(format),
-            ..self
-        }
+    pub fn with_format(mut self, format: DiskImageFileFormat) -> Self {
+        self.format = Some(format);
+        self
+    }
+
+    pub fn with_writer(mut self, writer: RWS) -> Self {
+        self.writer = Some(writer);
+        self
     }
 
     pub fn with_path(self, path: PathBuf) -> Self {
@@ -70,22 +75,36 @@ impl<'img> ImageWriter<'img> {
     }
 
     pub fn write(self) -> Result<(), DiskImageError> {
-        if self.path.is_none() {
+        if self.path.is_none() && self.writer.is_none() {
+            log::error!("ImageWriter::write(): No output path or writer provided");
             return Err(DiskImageError::ParameterError);
         }
         if self.format.is_none() {
+            log::error!("ImageWriter::write(): No format provided");
             return Err(DiskImageError::ParameterError);
         }
 
-        let path = self.path.unwrap();
         let format = self.format.unwrap();
 
-        let mut buf = Cursor::new(Vec::with_capacity(1_000_000));
+        if let Some(mut writer) = self.writer {
+            log::debug!("ImageWriter::write(): Saving image to writer...");
+            format.save_image(self.image, &ParserWriteOptions::default(), &mut writer)?;
+            return Ok(());
+        }
 
-        format.save_image(self.image, &ParserWriteOptions::default(), &mut buf)?;
+        // This is a bit inefficient if both a writer and a path were specified, as we export
+        // the image twice - but it's not intended for both a writer and path to be specified,
+        // so I'm not terribly concerned about it.
+        if let Some(path) = self.path {
+            log::debug!("ImageWriter::write(): Saving image to file: {:?}", path);
+            let mut buf = Cursor::new(Vec::with_capacity(3_000_000));
+            format.save_image(self.image, &ParserWriteOptions::default(), &mut buf)?;
 
-        let data = buf.into_inner();
-        std::fs::write(path, data)?;
+            let data = buf.into_inner();
+            std::fs::write(path, data)?;
+
+            return Ok(());
+        }
 
         Ok(())
     }
