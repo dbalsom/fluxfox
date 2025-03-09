@@ -147,7 +147,8 @@ impl TrackSchemaParser for TrackSchema {
     fn encode_element(
         &self,
         track: &mut TrackDataStream,
-        element: &TrackElementInstance,
+        element: &mut TrackElementInstance,
+        offset: usize,
         scope: RwScope,
         buf: &[u8],
     ) -> usize {

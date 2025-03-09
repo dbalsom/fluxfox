@@ -751,12 +751,43 @@ impl System34Schema {
     #[inline]
     pub(crate) fn encode_element(
         stream: &mut TrackDataStream,
-        element: &TrackElementInstance,
+        element: &mut TrackElementInstance,
         _scope: RwScope,
         buf: &[u8],
     ) -> usize {
         // TODO: Detect and properly encode markers
-        stream.write_encoded_buf(buf, element.start)
+
+        match &mut element.element {
+            TrackElement::System34(System34Element::SectorHeader { .. }) => {
+                // TODO: Implement marker writes
+                0
+            }
+            TrackElement::System34(System34Element::SectorData {
+                data_error, deleted, ..
+            }) => {
+                let marker_bytes = match deleted {
+                    true => &IDAM_MARKER_BYTES,
+                    false => &DAM_MARKER_BYTES,
+                };
+                let marker_crc = crc_ibm_3740(marker_bytes, None);
+
+                // Calculate the CRC16 of the data.
+                let crc = crc_ibm_3740(buf, Some(marker_crc));
+                log::debug!(
+                    "encode_element(): Calculated CRC16 over {} bytes: {:04X}",
+                    buf.len(),
+                    crc
+                );
+
+                let mut bytes = stream.write_encoded_buf(buf, element.start + mfm_offset!(4));
+                let crc_bytes = crc.to_be_bytes();
+
+                bytes += stream.write_encoded_buf(&crc_bytes, element.start + mfm_offset!(4 + buf.len()));
+                *data_error = false;
+                bytes
+            }
+            _ => stream.write_encoded_buf(buf, element.start),
+        }
     }
 
     #[allow(dead_code)]

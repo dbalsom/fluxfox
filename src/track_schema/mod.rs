@@ -725,7 +725,8 @@ pub(crate) trait TrackSchemaParser: Send + Sync {
     fn encode_element(
         &self,
         stream: &mut TrackDataStream,
-        item: &TrackElementInstance,
+        item: &mut TrackElementInstance,
+        offset: usize,
         scope: RwScope,
         buf: &[u8],
     ) -> usize;
