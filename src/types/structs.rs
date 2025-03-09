@@ -85,7 +85,7 @@ pub struct SectorMapEntry {
 }
 
 /// A DiskConsistency structure maintains information about the consistency of a disk image.
-#[derive(Default)]
+#[derive(Default, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DiskAnalysis {
     // A field to hold image format capability flags that this image requires in order to be represented.

@@ -53,6 +53,7 @@ use crate::{
         ImageFormatParser,
         ParserReadOptions,
     },
+    file_system::FileSystemType,
     io::ReadSeek,
     source_map::{NullSourceMap, OptionalSourceMap, SourceMap, SourceValue},
     track::{fluxstream::FluxStreamTrack, metasector::MetaSectorTrack, DiskTrack, Track, TrackAnalysis},
@@ -105,6 +106,7 @@ pub(crate) const DEFAULT_BOOT_SECTOR: &[u8] = include_bytes!("../resources/boots
 /// * `FluxStream`: These images are sourced from flux-based formats such as `Kryoflux`, `SCP`, or
 ///                 `MFI`.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone)]
 pub struct DiskImage {
     /// Flags that can be applied to a disk image.
     pub(crate) flags: DiskImageFlags,
@@ -1290,6 +1292,7 @@ impl DiskImage {
         &mut self,
         format: StandardFormat,
         resolution: TrackDataResolution,
+        filesystem: FileSystemType,
         boot_sector: Option<&[u8]>,
         creator: Option<&[u8; 8]>,
     ) -> Result<(), DiskImageError> {
@@ -1297,6 +1300,11 @@ impl DiskImage {
         let encoding = format.encoding();
         let data_rate = format.data_rate();
         let bitcell_size = format.bitcell_ct();
+
+        if filesystem != FileSystemType::Fat12 {
+            log::error!("format(): Unsupported filesystem type: {:?}", filesystem);
+            return Err(DiskImageError::UnsupportedFilesystem);
+        }
 
         // Drop all previous data as we will be overwriting the entire disk.
         self.reset_image();
@@ -1307,9 +1315,14 @@ impl DiskImage {
         // Create a BootSector object from the buffer
         let mut bs_cursor = Cursor::new(boot_sector_buf);
         let mut bootsector = BootSector::new(&mut bs_cursor)?;
-
         // Update the boot sector with the disk format
         bootsector.update_bpb_from_format(format)?;
+        log::debug!(
+            "format(): Boot sector created using format: {:?}, BPB: {:#?}",
+            format,
+            bootsector.bpb2()
+        );
+
         if let Some(creator) = creator {
             bootsector.set_creator(creator)?;
         }
@@ -1422,7 +1435,17 @@ impl DiskImage {
         // format disk image (but do not rely on this as the sole method of determining the disk
         // format)
         match self.read_boot_sector() {
-            Ok(buf) => _ = self.parse_boot_sector(&buf),
+            Ok(buf) => {
+                //log::debug!("post_load_process(): raw boot sector: {:X?}", buf);
+                match self.parse_boot_sector(&buf) {
+                    Ok(_) => {
+                        log::debug!("post_load_process(): Boot sector read successfully",);
+                    }
+                    Err(e) => {
+                        log::warn!("post_load_process(): Failed to parse boot sector: {:?}", e);
+                    }
+                }
+            }
             Err(e) => {
                 log::warn!("post_load_process(): Failed to read boot sector: {:?}", e);
             }
@@ -1441,6 +1464,9 @@ impl DiskImage {
                 else if self.standard_format != Some(format) {
                     log::warn!("post_load_process(): Boot sector format does not match image format.");
                 }
+            }
+            else {
+                log::warn!("post_load_process(): Unable to determine StandardFormat from boot sector.");
             }
         }
     }
@@ -2016,8 +2042,15 @@ impl DiskImage {
         // Get the format from the boot sector if present.
         if let Some(boot_sector) = &self.boot_sector {
             if let Some(format) = boot_sector.standard_format() {
+                log::debug!("closest_format(): Detected StandardFormat from BPB: {:?}", format);
                 bpb_format = Some(format);
             }
+            else {
+                log::debug!("closest_format(): No StandardFormat detected in BPB. Falling back to track analysis.");
+            }
+        }
+        else {
+            log::debug!("closest_format(): No boot sector found. Falling back to track analysis.");
         }
 
         let mut consistency_format = None;
