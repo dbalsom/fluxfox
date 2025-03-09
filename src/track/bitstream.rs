@@ -476,7 +476,7 @@ impl Track for BitStreamTrack {
         id: DiskChsnQuery,
         offset: Option<usize>,
         write_data: &[u8],
-        _scope: RwScope,
+        scope: RwScope,
         write_deleted: bool,
         debug: bool,
     ) -> Result<WriteSectorResult, DiskImageError> {
@@ -485,12 +485,17 @@ impl Track for BitStreamTrack {
         let bad_cylinder = false;
         let mut wrong_head = false;
 
+        let schema = self.schema.ok_or(DiskImageError::SchemaError)?;
+
         // Find the bit offset of the requested sector
         let bit_index = self.scan_sector_element(id, offset.unwrap_or(0))?;
-
+        log::debug!("write_sector(): Bit index: {:?}", bit_index);
         match bit_index {
             TrackSectorScanResult::Found {
-                address_error, no_dam, ..
+                ei,
+                address_error,
+                no_dam,
+                ..
             } if no_dam => {
                 // No DAM found. Return an empty buffer.
                 Ok(WriteSectorResult {
@@ -503,6 +508,7 @@ impl Track for BitStreamTrack {
                 })
             }
             TrackSectorScanResult::Found {
+                ei,
                 sector_chsn,
                 address_error,
                 deleted_mark,
@@ -542,6 +548,13 @@ impl Track for BitStreamTrack {
                     );
                     return Err(DiskImageError::ParameterError);
                 }
+
+                let mut instance = self.element(ei).unwrap().clone();
+                let bytes_written = schema.encode_element(&mut self.data, &mut instance, 0, scope, &write_data);
+
+                *self.element_mut(ei).unwrap() = instance;
+
+                //decode_element(&self.data, instance, scope, &mut read_vec);
 
                 /*                self.data
                     .seek(SeekFrom::Start(((ei.start >> 1) + 32) as u64))
