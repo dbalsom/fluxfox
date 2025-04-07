@@ -166,7 +166,7 @@ impl IpfParser {
         while let Ok(chunk) = Self::read_chunk(&mut reader) {
             match chunk.chunk_type {
                 Some(IpfChunkType::Info) => {
-                    let info_record: InfoRecord = chunk.into_inner::<InfoRecord>()?;
+                    let info_record: InfoRecord = chunk.into_inner()?;
                     info_record.write_to_map(disk_image.source_map_mut(), 0);
                     log::debug!("InfoRecord: {:#?}", info_record);
                     log::debug!(
