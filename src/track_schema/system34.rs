@@ -663,8 +663,8 @@ impl System34Schema {
 
                         last_idam_matched = id.matches(chsn);
 
-                        // A bad header CRC will short-circuit the search.
-                        if *address_error {
+                        // A bad header CRC or missing DAM will short-circuit the search.
+                        if *address_error || *data_missing {
                             return TrackSectorScanResult::Found {
                                 ei,
                                 sector_chsn: *chsn,
