@@ -894,30 +894,7 @@ impl System34Schema {
 
             if let TrackMarker::System34(sys34_marker) = marker.elem_type {
                 match (last_marker_opt, sys34_marker) {
-                    (Some(System34Marker::Idam), System34Marker::Idam) => {
-                        // Encountered IDAMs back to back. This is sometimes seen in copy-protection methods
-                        // such as XELOK v1.
-
-                        // Push a Sector Header metadata item spanning from last IDAM to this IDAM.
-                        let metadata = TrackElementInstance {
-                            element: TrackElement::System34(System34Element::SectorHeader {
-                                chsn: DiskChsn::from((
-                                    last_sector_id.c as u16,
-                                    last_sector_id.h,
-                                    last_sector_id.s,
-                                    last_sector_id.b,
-                                )),
-                                address_error: !last_sector_id.crc_valid,
-                                data_missing: true, // Flag data as missing.
-                            }),
-                            start: last_element_offset,
-                            end: element_offset,
-                            chsn: None,
-                            last_sector: false,
-                        };
-                        elements.push(metadata)
-                    }
-                    (_, System34Marker::Idam) => {
+                    (prev_elem, System34Marker::Idam) => {
                         // Encountered a sector ID address mark (sector header), after any element.
                         let mut sector_header = [0; 8];
 
@@ -954,6 +931,30 @@ impl System34Schema {
                             crc,
                             calculated_crc
                         );
+
+                        if let Some(System34Marker::Idam) = prev_elem {
+                            // This sector header directly follows another header.
+                            // Push a Sector Header metadata item spanning from last IDAM to this IDAM.
+
+                            let metadata = TrackElementInstance {
+                                element: TrackElement::System34(System34Element::SectorHeader {
+                                    chsn: DiskChsn::from((
+                                        last_sector_id.c as u16,
+                                        last_sector_id.h,
+                                        last_sector_id.s,
+                                        last_sector_id.b,
+                                    )),
+                                    address_error: !last_sector_id.crc_valid,
+                                    data_missing: true, // Flag data as missing.
+                                }),
+                                start: last_element_offset,
+                                end: element_offset,
+                                chsn: None,
+                                last_sector: false,
+                            };
+                            elements.push(metadata)
+                        }
+
                         last_sector_id = sector_id;
                     }
                     (Some(System34Marker::Idam), System34Marker::Dam | System34Marker::Ddam) => {
