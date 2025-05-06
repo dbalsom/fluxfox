@@ -661,6 +661,7 @@ impl SvgRenderer {
             println!("Rendering two sides in separate documents is not yet supported.");
         }
 
+        log::debug!("create_documents(): Created {} documents.", output_documents.len());
         Ok(output_documents)
     }
 }
