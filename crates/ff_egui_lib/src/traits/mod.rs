@@ -25,26 +25,4 @@
     --------------------------------------------------------------------------
 */
 
-use std::thread::JoinHandle;
-
-use anyhow::Error;
-use fluxfox_egui::RenderCallback;
-
-#[derive(Default)]
-pub struct PlatformRenderCallback {}
-
-impl RenderCallback for PlatformRenderCallback {
-    fn spawn(&self, f: Box<dyn FnOnce() + Send + 'static>) {
-        std::thread::spawn(move || {
-            f();
-        });
-    }
-}
-
-pub(crate) fn spawn_closure_worker<F, T>(f: F) -> Result<JoinHandle<T>, Error>
-where
-    F: FnOnce() -> T + Send + 'static,
-    T: Send + 'static,
-{
-    Ok(std::thread::spawn(f))
-}
+pub mod render_callback;

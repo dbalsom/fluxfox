@@ -40,6 +40,7 @@ use crate::{
     },
     visualization::viz_elements::paint_elements,
     widgets::chs::ChsWidget,
+    RenderCallback,
     SaveFileCallbackFn,
     SectorSelection,
     TrackListSelection,
@@ -68,10 +69,6 @@ use egui::{emath::RectTransform, Align, Layout, Pos2, Rect, Vec2};
 
 // Conditional thread stuff
 use crate::tracking_lock::TrackingLock;
-#[cfg(target_arch = "wasm32")]
-use rayon::spawn;
-#[cfg(not(target_arch = "wasm32"))]
-use std::thread::spawn;
 
 pub const VIZ_DATA_SUPERSAMPLE: u32 = 2;
 pub const VIZ_RESOLUTION: u32 = 512;
@@ -159,6 +156,8 @@ pub struct DiskVisualization {
     zoom_quadrant: [Option<usize>; 2],
     selection: Option<SelectionContext>,
     save_file_callback: Option<SaveFileCallbackFn>,
+
+    render_callback: Option<Arc<dyn RenderCallback>>,
 }
 
 impl Default for DiskVisualization {
@@ -212,12 +211,13 @@ impl Default for DiskVisualization {
             zoom_quadrant: [None, None],
             selection: None,
             save_file_callback: None,
+            render_callback: None,
         }
     }
 }
 
 impl DiskVisualization {
-    pub fn new(ctx: egui::Context, resolution: u32) -> Self {
+    pub fn new(ctx: egui::Context, resolution: u32, render_callback: Arc<dyn RenderCallback>) -> Self {
         assert_eq!(resolution % 2, 0);
 
         let viz_light_red: VizColor = VizColor::from_rgba8(180, 0, 0, 255);
@@ -259,6 +259,7 @@ impl DiskVisualization {
                 (GenericTrackElement::Marker, vis_purple),
             ]),
             canvas: [Some(canvas0), Some(canvas1)],
+            render_callback: Some(render_callback),
             ..DiskVisualization::default()
         }
     }
@@ -349,51 +350,53 @@ impl DiskVisualization {
         let inner_decode_data = self.decode_data_layer;
         let inner_angle = self.common_viz_params.index_angle;
 
-        log::debug!("Spawning rendering thread...");
-        // Render the main data layer.
-        spawn(move || {
-            let data_params = RenderTrackDataParams {
-                side: head,
-                decode: inner_decode_data,
-                slices: 1440,
-                ..Default::default()
-            };
+        if let Some(render_callback) = &self.render_callback {
+            log::debug!("Spawning rendering thread...");
+            // Render the main data layer.
+            render_callback.spawn(Box::new(move || {
+                let data_params = RenderTrackDataParams {
+                    side: head,
+                    decode: inner_decode_data,
+                    slices: 1440,
+                    ..Default::default()
+                };
 
-            let vector_params = RenderVectorizationParams::default();
+                let vector_params = RenderVectorizationParams::default();
 
-            let disk = render_lock.read(UiLockContext::DiskVisualization).unwrap();
-            let mut render_pixmap = render_target.lock().unwrap();
-            render_pixmap.fill(Color::TRANSPARENT);
+                let disk = render_lock.read(UiLockContext::DiskVisualization).unwrap();
+                let mut render_pixmap = render_target.lock().unwrap();
+                render_pixmap.fill(Color::TRANSPARENT);
 
-            match vectorize_disk_data(&disk, &inner_common_params, &data_params, &vector_params) {
-                Ok(display_list) => {
-                    log::debug!(
-                        "render worker: Data layer vectorized for side {}, created display list of {} elements",
-                        head,
-                        display_list.len()
-                    );
+                match vectorize_disk_data(&disk, &inner_common_params, &data_params, &vector_params) {
+                    Ok(display_list) => {
+                        log::debug!(
+                            "render worker: Data layer vectorized for side {}, created display list of {} elements",
+                            head,
+                            display_list.len()
+                        );
 
-                    // Disable antialiasing to reduce moiré. For antialiasing, use supersampling.
-                    let mut paint = Paint {
-                        anti_alias: false,
-                        ..Default::default()
-                    };
+                        // Disable antialiasing to reduce moiré. For antialiasing, use supersampling.
+                        let mut paint = Paint {
+                            anti_alias: false,
+                            ..Default::default()
+                        };
 
-                    match render_data_display_list(&mut render_pixmap, &mut paint, inner_angle, &display_list) {
-                        Ok(_) => {
-                            log::debug!("render worker: Data display list rendered for side {}", head);
-                            render_sender.send(RenderMessage::DataRenderComplete(head)).unwrap();
-                        }
-                        Err(e) => {
-                            log::error!("Error rendering display list: {}", e);
+                        match render_data_display_list(&mut render_pixmap, &mut paint, inner_angle, &display_list) {
+                            Ok(_) => {
+                                log::debug!("render worker: Data display list rendered for side {}", head);
+                                render_sender.send(RenderMessage::DataRenderComplete(head)).unwrap();
+                            }
+                            Err(e) => {
+                                log::error!("Error rendering display list: {}", e);
+                            }
                         }
                     }
-                }
-                Err(e) => {
-                    log::error!("Error rendering tracks: {}", e);
-                }
-            };
-        });
+                    Err(e) => {
+                        log::error!("Error rendering tracks: {}", e);
+                    }
+                };
+            }));
+        }
 
         // Clear pixmap before rendering
         self.meta_img[side].write().unwrap().fill(Color::TRANSPARENT);
@@ -721,8 +724,12 @@ impl DiskVisualization {
 
         let svg_data = documents[0].document.to_string();
 
+        log::debug!("Attempting to save SVG as {}", filename);
         if let Some(callback) = self.save_file_callback.as_ref() {
             _ = callback(filename, svg_data.as_bytes());
+        }
+        else {
+            log::error!("No save file callback set!");
         }
 
         Ok(())

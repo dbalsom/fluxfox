@@ -29,6 +29,7 @@ pub mod character_encoding;
 pub mod controls;
 mod range_check;
 pub mod tracking_lock;
+pub mod traits;
 pub mod visualization;
 pub mod widgets;
 
@@ -40,6 +41,8 @@ use std::{
 };
 
 use thiserror::Error;
+
+pub use traits::render_callback::RenderCallback;
 
 #[derive(Debug, Copy, Clone, Default)]
 pub enum WidgetSize {
