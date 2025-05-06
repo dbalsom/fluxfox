@@ -283,10 +283,15 @@ impl Track for BitStreamTrack {
                 // TODO: All this should be moved into TrackSchema logic - we shouldn't have to know
                 //       about the formatting details in Track
 
-                // Should be safe to the instance
+                // Should be safe to unwrap the instance
                 let instance = self.element(ei).unwrap();
                 // Get the size and range of the sector data element.
                 let element_size = instance.element.size();
+                // log::debug!(
+                //     "read_sector(): Element {:?} has size {}",
+                //     instance.element,
+                //     element_size
+                // );
                 let scope_range = instance.element.range(scope).unwrap_or(0..element_size);
                 let scope_overhead = element_size - scope_range.len();
 
@@ -294,9 +299,15 @@ impl Track for BitStreamTrack {
                 // The read operation however can override the value of N if the `n` parameter
                 // is Some.
                 let data_len = if let Some(n_value) = n {
+                    //log::debug!("read_sector(): sector size override: {}", DiskChsn::n_to_bytes(n_value));
                     DiskChsn::n_to_bytes(n_value) + scope_overhead
                 }
                 else {
+                    // log::debug!(
+                    //     "read_sector(): n of {} resolved to: {}",
+                    //     sector_chsn.n(),
+                    //     sector_chsn.n_size()
+                    // );
                     sector_chsn.n_size() + scope_overhead
                 };
                 log::debug!(
