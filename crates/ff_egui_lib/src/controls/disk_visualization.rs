@@ -109,6 +109,7 @@ struct SelectionContext {
     angle: f32,
     element_type: GenericTrackElement,
     element_range: Range<usize>,
+    #[allow(dead_code)]
     element_idx: usize,
     element_chsn: Option<DiskChsn>,
 }
@@ -148,8 +149,6 @@ pub struct DiskVisualization {
     /// A list of events that have occurred since the last frame.
     /// The main app should drain this list and process all events.
     events: Vec<VizEvent>,
-    /// A flag indicating whether we received a hit-tested selection.
-    got_hit: bool,
     /// The response rect received from the pixel canvas when we got a hit-tested selection.
     selection_rect_opt: Option<Rect>,
     angle: f32,
@@ -205,7 +204,6 @@ impl Default for DiskVisualization {
             last_event: None,
             context_menu_open: false,
             events: Vec::new(),
-            got_hit: false,
             selection_rect_opt: None,
             angle: 0.0,
             zoom_quadrant: [None, None],
@@ -736,7 +734,7 @@ impl DiskVisualization {
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui) -> Option<VizEvent> {
-        let mut new_event = None;
+        let new_event = None;
         #[cfg(feature = "svg")]
         let mut svg_context = None;
 
@@ -1071,10 +1069,10 @@ impl DiskVisualization {
             });
     }
 
-    fn combine_transforms(transform_a: &RectTransform, transform_b: &RectTransform) -> RectTransform {
-        // Combine transformations by chaining their mappings
-        RectTransform::from_to(*transform_a.from(), transform_b.transform_rect(*transform_a.to()))
-    }
+    // fn combine_transforms(transform_a: &RectTransform, transform_b: &RectTransform) -> RectTransform {
+    //     // Combine transformations by chaining their mappings
+    //     RectTransform::from_to(*transform_a.from(), transform_b.transform_rect(*transform_a.to()))
+    // }
 
     fn perform_hit_test(
         disk: &DiskImage,

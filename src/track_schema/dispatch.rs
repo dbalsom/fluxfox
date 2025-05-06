@@ -148,7 +148,7 @@ impl TrackSchemaParser for TrackSchema {
         &self,
         track: &mut TrackDataStream,
         element: &mut TrackElementInstance,
-        offset: usize,
+        _offset: usize,
         scope: RwScope,
         buf: &[u8],
     ) -> usize {

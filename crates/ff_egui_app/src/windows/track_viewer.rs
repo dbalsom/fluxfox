@@ -28,7 +28,7 @@
 use fluxfox::{
     prelude::*,
     track::{DiskTrack, TrackInfo},
-    track_schema::{TrackElementInstance, TrackSchema},
+    track_schema::TrackElementInstance,
 };
 use fluxfox_egui::{
     controls::data_table::{DataRange, DataTableWidget},
@@ -37,7 +37,6 @@ use fluxfox_egui::{
     TrackSelection,
     UiLockContext,
 };
-use std::ops::Range;
 
 #[derive(Default)]
 pub struct TrackViewer {
@@ -164,8 +163,6 @@ impl TrackViewer {
         }
     }
 
-    fn decompose_header_range(&self, range: Range<usize>) {}
-
     fn sync_to(&mut self, marker_start: usize) {
         // Marker offset is modulo 16 for FM and MFM.
         match self.track_info.encoding {
@@ -180,6 +177,7 @@ impl TrackViewer {
         }
     }
 
+    #[allow(dead_code)]
     pub fn open_mut(&mut self) -> &mut bool {
         &mut self.open
     }

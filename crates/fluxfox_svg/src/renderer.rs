@@ -307,7 +307,9 @@ impl SvgRenderer {
 
     /// Override the default styles with a custom set of styles. This must be a hash map of
     /// `GenericTrackElement` to `ElementStyle`.
+    #[allow(unused_mut)]
     pub fn with_styles(mut self, _styles: FoxHashMap<GenericTrackElement, ElementStyle>) -> Self {
+        // TODO: implement this
         self
     }
 
