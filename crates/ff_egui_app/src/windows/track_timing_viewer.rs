@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -24,9 +24,9 @@
 
     --------------------------------------------------------------------------
 */
-use crate::windows::track_viewer::TrackViewer;
+use egui::Grid;
 use fluxfox::{flux::pll::PllMarkerEntry, prelude::DiskCh};
-use fluxfox_egui::widgets::{data_table::DataTableWidget, track_timing_chart::TrackTimingChart};
+use fluxfox_egui::{controls::track_timing_chart::TrackTimingChart, widgets::chs::ChsWidget};
 
 #[derive(Default)]
 pub struct TrackTimingViewer {
@@ -57,8 +57,13 @@ impl TrackTimingViewer {
     pub fn show(&mut self, ctx: &egui::Context) {
         egui::Window::new("Track Timings").open(&mut self.open).show(ctx, |ui| {
             ui.vertical(|ui| {
-                ui.label(format!("Physical Track: {}", self.phys_ch));
-                ui.checkbox(self.chart.marker_enable_mut(), "Show Markers");
+                Grid::new("track_timings_info_grid").show(ui, |ui| {
+                    ui.label("Physical Track");
+                    ui.add(ChsWidget::from_ch(self.phys_ch));
+                    ui.end_row();
+                    ui.checkbox(self.chart.marker_enable_mut(), "Show Markers");
+                    ui.end_row();
+                });
                 ui.separator();
                 self.chart.show(ui);
             });

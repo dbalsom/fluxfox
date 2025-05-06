@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -32,7 +32,7 @@ use modular_bitfield::prelude::*;
 
 // Set a maximum sample size as sanity check. An extended density track could be 400,000+ bitcells
 // long, or around 50K.  So 100KiB feels like a reasonable limit.
-const MAX_SAMPLE_SIZE: usize = 100_000;
+//const MAX_SAMPLE_SIZE: usize = 100_000;
 
 #[derive(BitfieldSpecifier, Eq, PartialEq, Debug)]
 pub enum DataType {

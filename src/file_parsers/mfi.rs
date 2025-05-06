@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -25,7 +25,7 @@
     --------------------------------------------------------------------------
 */
 
-//! A parser for the MFI disk image format.
+//! A parser for the `MFI` disk image format.
 //!
 //! MFI format images are MAME flux images, an internal format used by the MAME emulator and
 //! designed to store normalized (resolved) flux transitions from disk images.
@@ -34,11 +34,11 @@
 //! increments of 1/200_000_000th of a track, or 1 nanosecond increments at 300RPM.
 //! This requires conversion of flux times for 360RPM images.
 //!
-//! Some older MFI images may use a slightly different format, indicated by a "MESSFLOPPYIMAGE"
+//! Some older MFI images may use a slightly different format, indicated by a `"MESSFLOPPYIMAGE"`
 //! signature in the header. These images are not currently supported.
 //!
-//! MFI track data is compressed with the 'deflate' algorithm, thus MFI support requires the 'mfi'
-//! feature which enables the 'flate2' dependency.
+//! MFI track data is compressed with the `deflate` algorithm, thus MFI support requires the `mfi`
+//! feature which enables the `flate2` dependency.
 //!
 //! Unformatted tracks are indicated by a track header with a zero offset and zero compressed size.
 //!
@@ -75,25 +75,28 @@ use crate::{
     LoadingCallback,
 };
 
-use crate::types::TrackDataResolution;
+use crate::{
+    source_map::{MapDump, OptionalSourceMap, SourceValue},
+    types::TrackDataResolution,
+};
 use binrw::{binrw, BinRead};
 use strum::IntoEnumIterator;
 
 pub const OLD_SIGNATURE: &[u8; 15] = b"MESSFLOPPYIMAGE";
 pub const NEW_SIGNATURE: &[u8; 15] = b"MAMEFLOPPYIMAGE";
 
-pub const THREE_POINT_FIVE_INCH: &[u8; 4] = b"35  ";
-pub const FIVE_POINT_TWO_FIVE_INCH: &[u8; 4] = b"525 ";
-pub const EIGHT_INCH: &[u8; 4] = b"8   ";
+pub const THREE_POINT_FIVE_INCH: &[u8] = b"35  ";
+pub const FIVE_POINT_TWO_FIVE_INCH: &[u8] = b"525 ";
+pub const EIGHT_INCH: &[u8] = b"8   ";
 
 pub const CYLINDER_MASK: u32 = 0x3FFFFFFF;
 //pub const MFI_TIME_UNIT: f64 = 1.0 / 200_000_000.0;
 
 // Disk form factors - defined in MAME src/lib/formats/flopimg.h
-impl TryFrom<&[u8; 4]> for DiskPhysicalDimensions {
+impl TryFrom<&[u8]> for DiskPhysicalDimensions {
     type Error = DiskImageError;
 
-    fn try_from(value: &[u8; 4]) -> Result<Self, Self::Error> {
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         match value {
             THREE_POINT_FIVE_INCH => Ok(DiskPhysicalDimensions::Dimension3_5),
             FIVE_POINT_TWO_FIVE_INCH => Ok(DiskPhysicalDimensions::Dimension5_25),
@@ -103,10 +106,10 @@ impl TryFrom<&[u8; 4]> for DiskPhysicalDimensions {
     }
 }
 
-impl TryFrom<(&[u8; 4], DiskPhysicalDimensions)> for StandardFormat {
+impl TryFrom<(&[u8], DiskPhysicalDimensions)> for StandardFormat {
     type Error = DiskImageError;
 
-    fn try_from(value: (&[u8; 4], DiskPhysicalDimensions)) -> Result<Self, Self::Error> {
+    fn try_from(value: (&[u8], DiskPhysicalDimensions)) -> Result<Self, Self::Error> {
         match value {
             (b"SSSD", _) => {
                 // Single sided single density (8" format)
@@ -154,18 +157,60 @@ pub struct MfiFileHeader {
     pub id: [u8; 16],
     pub cylinders: u32,
     pub heads: u32,
-    pub form_factor: u32,
-    pub variant: u32,
+    pub form_factor: [u8; 4],
+    pub variant: [u8; 4],
 }
 
+impl MapDump for MfiFileHeader {
+    fn write_to_map(&self, map: &mut Box<dyn OptionalSourceMap>, parent: usize) -> usize {
+        let id_str = std::str::from_utf8(self.id.as_slice()).ok().unwrap_or("Invalid UTF-8");
+        let form_factor_str = std::str::from_utf8(self.form_factor.as_slice())
+            .ok()
+            .unwrap_or("Invalid UTF-8");
+        let variant_str = std::str::from_utf8(self.variant.as_slice())
+            .ok()
+            .unwrap_or("Invalid UTF-8");
+
+        #[rustfmt::skip]
+        let _info_node = map
+            .add_child(parent, "MFI File Header", SourceValue::default())
+            .add_child("ID", SourceValue::string(id_str))
+            .add_sibling("Cylinders", SourceValue::u32(self.cylinders))
+            .add_sibling("Heads", SourceValue::u32(self.heads))
+            .add_sibling("Form Factor", SourceValue::string(form_factor_str))
+            .add_sibling("Variant", SourceValue::string(variant_str));
+
+        parent
+    }
+}
+
+/// A [MfiTrackHeader] defines a track entry in an MFI image.
+/// We pass `binrw` an index parameter so that an index can be prepended to the source map.
 #[derive(Debug)]
 #[binrw]
+#[br(import(index: usize))]
 #[brw(little)]
 pub struct MfiTrackHeader {
+    #[bw(ignore)]
+    #[br(calc = index)]
+    pub index: usize,
     pub offset: u32,
     pub compressed_size: u32,
     pub uncompressed_size: u32,
     pub write_splice: u32,
+}
+
+impl MapDump for MfiTrackHeader {
+    fn write_to_map(&self, map: &mut Box<dyn OptionalSourceMap>, parent: usize) -> usize {
+        #[rustfmt::skip]
+        let _info_node = map
+            .add_child(parent, &format!("[{}] MFI Track Header", self.index), SourceValue::default())
+            .add_child("Offset", SourceValue::u32(self.offset))
+            .add_sibling("Compressed Size", SourceValue::u32(self.compressed_size))
+            .add_sibling("Uncompressed Size", SourceValue::u32(self.uncompressed_size))
+            .add_sibling("Write Splice", SourceValue::u32(self.write_splice));
+        parent
+    }
 }
 
 pub struct MfiTrackData {
@@ -224,7 +269,7 @@ impl MfiFormat {
 
     pub(crate) fn load_image<RWS: ReadSeek>(
         mut read_buf: RWS,
-        disk_image: &mut DiskImage,
+        disk: &mut DiskImage,
         _opts: &ParserReadOptions,
         callback: Option<LoadingCallback>,
     ) -> Result<(), DiskImageError> {
@@ -233,41 +278,56 @@ impl MfiFormat {
             callback_fn(LoadingStatus::ProgressSupport);
         }
 
-        disk_image.set_source_format(DiskImageFileFormat::MameFloppyImage);
+        disk.set_source_format(DiskImageFileFormat::MameFloppyImage);
+        disk.assign_source_map(true);
         let disk_len = read_buf.seek(std::io::SeekFrom::End(0))?;
 
         // Seek to start of image.
         read_buf.seek(std::io::SeekFrom::Start(0))?;
 
+        // Read in the file header, and check its signature.
         let file_header = MfiFileHeader::read(&mut read_buf)?;
-
         if file_header.id[0..15] != *NEW_SIGNATURE {
-            log::error!(
-                "Old MFI format {:?} not implemented.",
-                std::str::from_utf8(&file_header.id[0..15]).unwrap()
-            );
-            return Err(DiskImageError::UnsupportedFormat);
+            return if file_header.id[0..15] == *OLD_SIGNATURE {
+                log::error!(
+                    "Old MFI format {:?} not implemented.",
+                    std::str::from_utf8(&file_header.id[0..15]).unwrap()
+                );
+                Err(DiskImageError::UnsupportedFormat)
+            }
+            else {
+                log::error!("Invalid MFI file signature.");
+                Err(DiskImageError::UnsupportedFormat)
+            };
         }
 
-        let file_form_factor = DiskPhysicalDimensions::try_from(&file_header.form_factor.to_le_bytes()).ok();
+        // Write header to source map
+        file_header.write_to_map(disk.source_map_mut(), 0);
+
+        let file_form_factor = DiskPhysicalDimensions::try_from(file_header.form_factor.as_slice()).ok();
         if let Some(form_factor) = file_form_factor {
             log::debug!("Got MFI file form factor: {:?}", form_factor);
         }
         else {
             log::error!(
-                "Unknown or unsupported disk form factor: {:08X}",
-                file_header.form_factor
+                "Unknown or unsupported disk form factor: {:08X?}",
+                file_header.form_factor.as_slice()
             );
             return Err(DiskImageError::UnsupportedFormat);
         }
 
         if let Ok(standard_format) =
-            StandardFormat::try_from((&file_header.variant.to_le_bytes(), file_form_factor.unwrap()))
+            StandardFormat::try_from((file_header.variant.as_slice(), file_form_factor.unwrap()))
         {
             log::debug!("Got MFI file standard format: {:?}", standard_format);
         }
         else {
-            log::warn!("Unknown or unsupported disk variant: {:08X}", file_header.variant);
+            log::warn!(
+                "Unknown or unsupported disk variant: {:08X?}",
+                file_header.variant.as_slice()
+            );
+            // Unfortunately some versions of Applesauce < 2.0 failed to set this properly, so we
+            // have to deal with it and can't bail.
             //return Err(DiskImageError::UnsupportedFormat);
         }
 
@@ -275,8 +335,10 @@ impl MfiFormat {
         let file_resolution = file_header.cylinders >> 30;
         log::trace!("Got MFI file: ch: {} resolution: {}", file_ch, file_resolution);
 
+        // Create a vector to hold track headers. 84 * 2 represents the maximum track and head count.
         let mut track_list: Vec<MfiTrackHeader> = Vec::with_capacity(84 * 2);
 
+        // Sanity check - we can't have 0 cylinders or heads.
         if file_ch.c() == 0 || file_ch.h() == 0 {
             log::error!("Invalid MFI file: cylinders or heads was 0");
             return Err(DiskImageError::ImageCorruptError(
@@ -284,9 +346,10 @@ impl MfiFormat {
             ));
         }
 
+        // Read track header table into our track_list vector.
         let mut last_offset: u32 = 0;
-        for ch in file_ch.iter() {
-            let track_header = MfiTrackHeader::read(&mut read_buf)?;
+        for (ti, ch) in file_ch.iter().enumerate() {
+            let track_header = MfiTrackHeader::read_args(&mut read_buf, (ti,))?;
 
             log::trace!(
                 "Track {} at offset: {} compressed: {} uncompressed: {}",
@@ -296,6 +359,7 @@ impl MfiFormat {
                 track_header.uncompressed_size
             );
 
+            // Sanity check - we assume that tracks will be stored sequentially
             if (track_header.compressed_size > 0) && (track_header.offset < last_offset) {
                 log::error!(
                     "Invalid MFI file: non-zero length track {} offset {} is less than last offset ({}).",
@@ -308,6 +372,7 @@ impl MfiFormat {
                 ));
             }
 
+            // Sanity check - track offset must be less than file length.
             if track_header.offset as u64 > disk_len {
                 log::error!(
                     "Invalid MFI file: track {} offset {} is greater than file length.",
@@ -324,6 +389,8 @@ impl MfiFormat {
                 last_offset = track_header.offset;
             }
 
+            // Write track header info to source map, then add to the track list.
+            track_header.write_to_map(disk.source_map_mut(), 0);
             track_list.push(track_header);
         }
 
@@ -417,7 +484,7 @@ impl MfiFormat {
 
                 // TODO: Change this to add a FluxStream resolution track when we support adding
                 //       unformatted fluxstream tracks.
-                disk_image.add_empty_track(
+                disk.add_empty_track(
                     track.ch,
                     TrackDataEncoding::Mfm,
                     Some(TrackDataResolution::BitStream),
@@ -435,7 +502,7 @@ impl MfiFormat {
                     rpm: None,
                 };
 
-                let new_track = disk_image.add_track_fluxstream(flux_track, &params)?;
+                let new_track = disk.add_track_fluxstream(flux_track, &params)?;
                 let info = new_track.info();
 
                 log::debug!(
@@ -467,7 +534,7 @@ impl MfiFormat {
             }
         }
 
-        disk_image.descriptor = DiskDescriptor {
+        disk.descriptor = DiskDescriptor {
             // MFI specifies disk geometry, but not platform.
             platforms: None,
             geometry: file_ch,

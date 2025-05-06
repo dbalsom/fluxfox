@@ -2,7 +2,7 @@
     FluxFox - fftool
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -28,8 +28,7 @@
 
     Implement a simple prompt that requires the user to enter 'y' or 'n'.
 */
-use std::io;
-use std::io::Write;
+use std::{io, io::Write};
 
 pub fn prompt(message: &str) -> bool {
     loop {

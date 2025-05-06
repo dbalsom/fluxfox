@@ -2,7 +2,7 @@
     fftool
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -125,6 +125,12 @@ pub(crate) fn out_file_parser() -> impl Parser<PathBuf> {
         .short('o')
         .argument::<PathBuf>("OUTPUT_FILE")
         .help("Path to output file")
+}
+
+pub(crate) fn from_dir_parser() -> impl Parser<PathBuf> {
+    long("from_dir")
+        .argument::<PathBuf>("FROM_DIR")
+        .help("Path to source directory")
 }
 
 pub(crate) fn command_parser() -> impl Parser<AppParams> {

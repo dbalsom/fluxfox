@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -27,6 +27,10 @@
 
 use fluxfox::{track_schema::GenericTrackElement, visualization::prelude::VizColor, FoxHashMap};
 use std::fmt::{self, Display, Formatter};
+
+pub fn vizcolor_to_color(color: VizColor) -> tiny_skia::Color {
+    tiny_skia::Color::from_rgba8(color.r(), color.g(), color.b(), color.a())
+}
 
 #[derive(Copy, Clone, Debug, Default)]
 pub struct SkiaStyle {

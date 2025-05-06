@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -153,6 +153,10 @@ pub enum DiskImageError {
     PlatformMismatch,
     #[error("The disk image was not compatible with the requested format")]
     FormatMismatch,
+    #[error("The specified filesystem is not currently supported for the requested operation")]
+    UnsupportedFilesystem,
+    #[error("A filesystem error occurred: {0}")]
+    FilesystemError(FileSystemError),
 }
 
 // Manually implement `From<io::Error>` for `DiskImageError`
@@ -198,7 +202,7 @@ pub use crate::{
 
 use types::{DiskCh, DiskChs, DiskChsn, DiskChsnQuery};
 // Re-export tiny_skia for convenience
-use crate::containers::archive::FileArchiveError;
+use crate::{containers::archive::FileArchiveError, file_system::FileSystemError};
 pub use types::standard_format::StandardFormat;
 
 pub type SectorId = DiskChsn;

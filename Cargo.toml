@@ -134,8 +134,8 @@ zip = { version = "2.1", default-features = false, features = ["deflate", "defla
 tar = { version = "0.4", optional = true }
 # Version of time must match time depdendency of zip
 #time = { version = "0.3", features = ["wasm-bindgen"], optional = true }
-wasm-bindgen = { version = "0.2", optional = true }
-wasm-bindgen-futures = { version = "0.4", optional = true }
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace=true
 
 # Workspace dependencies - centralize version control for all crates
 # ----------------------------------------------------------------------------------------------------------------------
@@ -179,6 +179,9 @@ modular-bitfield = "0.11"
 rand = "0.8"
 # web-time is a wasm-compatible replacement for std::time
 web-time = "1.1"
+# wasm-bindgen is used for the web buids of fluxfox_egui
+wasm-bindgen = { version = "=0.2.100" }
+wasm-bindgen-futures = { version = "0.4" }
 
 # Dev dependencies
 # ----------------------------------------------------------------------------------------------------------------------
@@ -189,24 +192,27 @@ hex = "0.4"    # or the latest version
 [features]
 # core features should always be enabled first if default-features is false
 core = ["rand"]
-default = ["rand", "viz", "scripting", "rhai", "archives", "mfi", "fat", "flux", "ibmpc", "amiga", "macintosh"]
+all_platforms = ["ibm_pc", "atari_st", "amiga", "macintosh", "apple_ii"]
+default = ["core", "viz", "scripting", "rhai", "archives", "mfi", "fat", "flux", "all_platforms"]
 # the rand feature enables use of the rand crate for random number generation.
 # note: it is intended to be optional but the fallback is not yet implemented
 rand = ["dep:rand"]
-wasm = ["async", "wasm-bindgen", "wasm-bindgen-futures"]
+wasm = ["async"]
 serde = ["dep:serde", "dep:typetag", "bit-vec/serde_std", "bitflags/serde"]
 tokio-async = ["async", "tokio"]
 async = []
-# ibmpc feature enables IBM PC-specific disk image support (not fully factored out at the moment)
-ibmpc = ["td0"]
+# ibm_pc feature enables IBM PC-specific disk image support (not fully factored out at the moment)
+ibm_pc = ["td0"]
 # amiga feature enables Amiga-specific disk image support. It will enable IPF and enable Amiga platform support
 # in the IPF parser. Note - at least one of the 'atarist' or 'amiga' features must be enabled to enable IPF support!
 amiga = ["adf", "ipf"]
 # atarist feature enables Atari ST-specific disk image support. It will enable IPF and enable Atari platform support
 # in the IPF parser.
-atarist = ["ipf", "st"]
+atari_st = ["ipf", "st"]
 # macintosh feature enables Macintosh-specific disk image support (primarily MOOF).
 macintosh = ["moof"]
+# appleii feature enables Apple II-specific disk image support (primarily WOZ).
+apple_ii = ["woz"]
 # viz feature enables visualization functions
 viz = []
 # tiny_skia feature enables direct rendering of visualizations with tiny-skia.
@@ -242,6 +248,8 @@ tar = ["dep:tar"]
 mfi = ["dep:flate2", "flux"]
 # moof feature enables reading MOOF images. No extra dependencies, but experimental.
 moof = []
+# woz feature enables reading WOZ images. No extra dependencies, but experimental.
+woz = []
 # td0 feature enables reading TD0 images. This will pull in num-traits and num-derive dependencies and LZW/LZHUF
 # routines for compression/decompression
 td0 = ["dep:num-traits", "dep:num-derive"]
@@ -272,7 +280,7 @@ lto = "thin"
 
 [profile.release.package.ff_egui_app]
 # Fast and small wasm
-opt-level = 2
+opt-level = 's'
 
 # Optimize all dependencies even in debug builds
 [profile.dev.package."*"]

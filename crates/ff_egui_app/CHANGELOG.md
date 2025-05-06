@@ -1,5 +1,19 @@
+## 0.3.3 (2025-01-XX)
+
+- Disable inadvertent box zooming in the track timing plot
+- Improve sector status indicator popup
+- Added tooltip hint for sector viewer when hovering over sector status indicators
+- Fixed importing two sides worth of tracks from single-sided HFE images
+- Fixed panic on filesystem archive export when filesystem cannot be mounted
+- Added source map for MFI, 86F and HFE
+- Add WOZ support
+- Add marker offset sync to track viewer
+- Initial selection support in disk visualization window
+
 ## 0.3.2 (2025-01-11)
 
+- Add SVG visualization output
+- Add MOOF support
 - Track flux timing viewer
 - New visualization pipeline
 

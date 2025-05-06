@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -75,6 +75,7 @@ impl BootSignature {
 /// This allows flexibility in creating and interpreting a boot sector from other sources, such
 /// as in external .bin file.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone)]
 pub struct BootSector {
     pub(crate) bpb2: BiosParameterBlock2,
     pub(crate) bpb3: BiosParameterBlock3,

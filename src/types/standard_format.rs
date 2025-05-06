@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -85,14 +85,14 @@ impl FromStr for StandardFormatParam {
             .strip_prefix("pc_")
             .unwrap_or(s.to_lowercase().as_str())
         {
-            "pc_160k" => Ok(StandardFormatParam(StandardFormat::PcFloppy160)),
-            "pc_180k" => Ok(StandardFormatParam(StandardFormat::PcFloppy180)),
-            "pc_320k" => Ok(StandardFormatParam(StandardFormat::PcFloppy320)),
-            "pc_360k" => Ok(StandardFormatParam(StandardFormat::PcFloppy360)),
-            "pc_720k" => Ok(StandardFormatParam(StandardFormat::PcFloppy720)),
-            "pc_1200k" => Ok(StandardFormatParam(StandardFormat::PcFloppy1200)),
-            "pc_1440k" => Ok(StandardFormatParam(StandardFormat::PcFloppy1440)),
-            "pc_2880k" => Ok(StandardFormatParam(StandardFormat::PcFloppy2880)),
+            "160k" => Ok(StandardFormatParam(StandardFormat::PcFloppy160)),
+            "180k" => Ok(StandardFormatParam(StandardFormat::PcFloppy180)),
+            "320k" => Ok(StandardFormatParam(StandardFormat::PcFloppy320)),
+            "360k" => Ok(StandardFormatParam(StandardFormat::PcFloppy360)),
+            "720k" => Ok(StandardFormatParam(StandardFormat::PcFloppy720)),
+            "1200k" => Ok(StandardFormatParam(StandardFormat::PcFloppy1200)),
+            "1440k" => Ok(StandardFormatParam(StandardFormat::PcFloppy1440)),
+            "2880k" => Ok(StandardFormatParam(StandardFormat::PcFloppy2880)),
             #[cfg(feature = "amiga")]
             "amiga_880k" => Ok(StandardFormatParam(StandardFormat::AmigaFloppy880)),
             #[cfg(feature = "amiga")]

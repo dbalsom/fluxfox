@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -173,6 +173,7 @@ pub fn render_bitmap(
             pin_last_standard_track: true,
             track_gap: opts.track_gap.unwrap_or(0.0),
             direction,
+            ..CommonVizParams::default()
         };
 
         let render_params = RenderTrackDataParams {

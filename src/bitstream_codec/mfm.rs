@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -30,7 +30,7 @@
 
 */
 
-use std::ops::Index;
+use std::ops::{Index, Range};
 
 use crate::{
     bit_ring::BitRing,
@@ -241,9 +241,14 @@ impl TrackCodec for MfmCodec {
         let mut byte = 0;
         let mut cursor = index;
 
-        // If we are not pointing to a clock bit, advance to the next clock bit.
-        cursor += !self.clock_map[cursor] as usize;
-        // Now that we are aligned to a clock bit, point to the next data bit
+        // If we are not pointing to a clock bit, advance to the next data bit.
+        // If the next bit is not a clock bit either, we are in an unsynchronized region, so don't
+        // bother adjusting the index
+        if !self.clock_map[cursor] && self.clock_map[cursor + 1] {
+            cursor += 1;
+        }
+
+        // Advance to the data bit.
         cursor += 1;
 
         for _ in 0..8 {
@@ -436,14 +441,14 @@ impl TrackCodec for MfmCodec {
         None
     }
 
-    fn set_data_ranges(&mut self, ranges: Vec<(usize, usize)>) {
+    fn set_data_ranges(&mut self, ranges: Vec<Range<usize>>) {
         // Don't set ranges for overlapping sectors. This avoids visual discontinuities during
         // visualization.
         let filtered_ranges = ranges
-            .iter()
-            .filter(|(start, end)| !(*start >= self.bits.len() || *end >= self.bits.len()))
-            .map(|(start, end)| (*start, *end))
-            .collect::<Vec<(usize, usize)>>();
+            .clone()
+            .into_iter()
+            .filter(|range| !(range.start >= self.bits.len() || range.end >= self.bits.len()))
+            .collect::<Vec<Range<usize>>>();
 
         self.data_ranges_filtered = RangeChecker::new(&filtered_ranges);
         self.data_ranges = RangeChecker::new(&ranges);
@@ -473,6 +478,10 @@ impl TrackCodec for MfmCodec {
             shift_reg = (shift_reg << 1) | self.bits[self.initial_phase + bi] as u32;
         }
         format!("{:08X}/{:032b}", shift_reg, shift_reg)
+    }
+
+    fn map_density(&self, density: f32) -> u8 {
+        ((density * 1.5).clamp(0.0, 1.0) * 255.0) as u8
     }
 }
 
@@ -506,9 +515,13 @@ impl MfmCodec {
         }
         let error_map = BitRing::from(error_bits);
 
+        let mut clock_map = BitRing::from(clock_map);
+        // Set the wrap value for the clock map to false, this disables the clock map when reading
+        // across the track index, as we should follow the clock phase from the last marker.
+        clock_map.set_wrap_value(false);
         MfmCodec {
             bits: BitRing::from(bits),
-            clock_map: BitRing::from(clock_map),
+            clock_map,
             error_map,
             weak_enabled: true,
             weak_mask: BitRing::from(weak_mask),

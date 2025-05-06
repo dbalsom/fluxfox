@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -26,7 +26,7 @@
 */
 
 use fluxfox::DiskImage;
-use fluxfox_egui::widgets::source_map::SourceMapWidget;
+use fluxfox_egui::controls::source_map::SourceMapWidget;
 
 #[derive(Default)]
 pub struct SourceMapViewer {

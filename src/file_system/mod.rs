@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -35,9 +35,16 @@ pub mod date_time;
 #[cfg(feature = "fat")]
 pub mod fat;
 pub mod file_tree;
+pub mod native;
 
 pub use date_time::FsDateTime;
 pub use file_tree::{FileEntry, FileNameType, FileTreeNode};
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum FileSystemType {
+    Fat12,
+    Fat16,
+}
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -64,6 +71,7 @@ impl FileSystemArchive {
     }
 }
 
+/// [FileSystemError] is the error type for FileSystem implementations.
 #[derive(Clone, Debug, Error)]
 pub enum FileSystemError {
     #[error("An IO error occurred reading or writing the disk image: {0}")]
@@ -76,12 +84,18 @@ pub enum FileSystemError {
     MountError(String),
     #[error("An error occurred reading a file: {0}")]
     ReadError(String),
+    #[error("An error occurred writing a file: {0}")]
+    WriteError(String),
     #[error("An archive error occurred: {0}")]
     ArchiveError(String),
     #[error("The requested path was not found: {0}")]
     PathNotFound(String),
     #[error("Feature {0} option required but not compiled.")]
     FeatureError(String),
+    #[error("A cycle was detected in the file system. Cyclical symlinks are not supported.")]
+    CycleError,
+    #[error("A filesystem object was detected that was not a file or directory: {0}")]
+    UnsupportedFileObject(String),
 }
 
 impl From<crate::io::Error> for FileSystemError {

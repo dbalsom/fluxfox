@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -80,18 +80,20 @@
 //! be three nested containers: A Kryoflux `FileSet` inside a `tar` archive inside
 //! a `Gzip` archive.  
 
-use std::{
-    fmt::{Display, Formatter, Result},
-    path::PathBuf,
-};
-
-use crate::{containers::archive::FileArchiveType, DiskCh, DiskImageFileFormat};
-
 pub mod archive;
 #[cfg(feature = "gzip")]
 pub mod gzip;
 #[cfg(feature = "zip")]
 pub mod zip;
+
+use std::{
+    fmt::{Display, Formatter, Result},
+    path::PathBuf,
+};
+
+use crate::containers::archive::FileArchiveType;
+
+use crate::{DiskCh, DiskImageFileFormat};
 
 #[derive(Clone, Debug)]
 pub struct KryoFluxSet {

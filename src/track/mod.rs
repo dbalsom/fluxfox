@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -70,7 +70,7 @@ use std::any::Any;
 
 /// A struct containing information about a track's encoding, data rate, density, RPM, bit length,
 /// and sector count.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct TrackInfo {
     /// The resolution of the track as a `TrackDataResolution` enum.
     pub resolution: TrackDataResolution,
@@ -109,6 +109,9 @@ pub(crate) enum TrackSectorScanResult {
         deleted_mark: bool,
         /// A boolean flag indicating whether the sector ID was matched, but no sector data was found.
         no_dam: bool,
+        /// A boolean flag indicating whether the matched sector ID represents the last sector on
+        /// the track.
+        last_sector: bool,
     },
     /// A variant indicating the specified sector ID was not found on the track.
     NotFound {
@@ -362,7 +365,7 @@ pub trait Track: DynClone + Any + Send + Sync {
     /// # Returns
     /// - `Ok(ReadTrackResult)` if the track was successfully read.
     /// - `Err(DiskImageError)` if an error occurred while reading the track.
-    fn read(&mut self, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError>;
+    fn read(&self, offset: Option<isize>, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError>;
 
     /// Read the entire track without decoding.
     /// Not valid for MetaSector resolution tracks, which will return `DiskImageError::UnsupportedFormat`.
@@ -374,7 +377,7 @@ pub trait Track: DynClone + Any + Send + Sync {
     /// # Returns
     /// - `Ok(ReadTrackResult)` if the track was successfully read.
     /// - `Err(DiskImageError)` if an error occurred while reading the track.
-    fn read_raw(&mut self, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError>;
+    fn read_raw(&self, overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError>;
 
     /// Return a boolean value indicating whether the track has bits set in its weak bit mask.
     fn has_weak_bits(&self) -> bool;

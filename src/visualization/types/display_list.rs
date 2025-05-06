@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -35,6 +35,7 @@ use crate::visualization::{
 
 /// A [VizElementDisplayList] is a list of [VizElement] objects to be rendered.
 /// Operations can be implemented on this list, such as scaling and rotation.
+#[derive(Clone)]
 pub struct VizElementDisplayList {
     pub turning: TurningDirection,
     pub side:    u8,

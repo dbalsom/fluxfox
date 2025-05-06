@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -307,7 +307,9 @@ impl SvgRenderer {
 
     /// Override the default styles with a custom set of styles. This must be a hash map of
     /// `GenericTrackElement` to `ElementStyle`.
-    pub fn with_styles(mut self, styles: FoxHashMap<GenericTrackElement, ElementStyle>) -> Self {
+    #[allow(unused_mut)]
+    pub fn with_styles(mut self, _styles: FoxHashMap<GenericTrackElement, ElementStyle>) -> Self {
+        // TODO: implement this
         self
     }
 
@@ -356,8 +358,8 @@ impl SvgRenderer {
             &display_list,
         );
 
-        /// Move this side's group over if we're rendering side-by-side, this the second side, and
-        /// we are rendering two sides.
+        // Move this side's group over if we're rendering side-by-side, this the second side, and
+        // we are rendering two sides.
         if (side > 0) && (self.total_sides_to_render > 1) && self.render_side_by_side {
             group = group.set(
                 "transform",
@@ -404,8 +406,8 @@ impl SvgRenderer {
             group = group.set("style", format!("mix-blend-mode: {};", mode));
         }
 
-        /// Move this side's group over if we're rendering side-by-side, this the second side, and
-        /// we are rendering two sides.
+        // Move this side's group over if we're rendering side-by-side, this the second side, and
+        // we are rendering two sides.
         if (side > 0) && (self.total_sides_to_render > 1) && self.render_side_by_side {
             group = group.set(
                 "transform",
@@ -661,6 +663,7 @@ impl SvgRenderer {
             println!("Rendering two sides in separate documents is not yet supported.");
         }
 
+        log::debug!("create_documents(): Created {} documents.", output_documents.len());
         Ok(output_documents)
     }
 }

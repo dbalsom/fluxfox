@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -28,24 +28,24 @@
 use egui::Layout;
 use fluxfox::{
     file_system::{fat::fat_fs::FatFileSystem, FileSystemArchive},
-    track::Track,
     DiskImage,
     DiskImageError,
     LoadingStatus,
 };
 use fluxfox_egui::{
-    widgets::{
+    controls::{
         boot_sector::BootSectorWidget,
         disk_info::DiskInfoWidget,
         error_banner::ErrorBanner,
         filesystem::FileSystemWidget,
-        header_group::HeaderGroup,
+        header_group::{HeaderFn, HeaderGroup},
     },
     SectorSelection,
     TrackListSelection,
     TrackSelection,
     TrackSelectionScope,
     UiEvent,
+    UiLockContext,
 };
 use std::{
     collections::VecDeque,
@@ -53,22 +53,24 @@ use std::{
     fmt,
     fmt::{Display, Formatter},
     path::PathBuf,
-    sync::{mpsc, Arc, RwLock},
+    sync::{mpsc, Arc},
 };
 
-#[cfg(not(target_arch = "wasm32"))]
-pub const APP_NAME: &str = "fluxfox-egui";
-#[cfg(not(target_arch = "wasm32"))]
-use crate::native::worker;
-#[cfg(target_arch = "wasm32")]
-use crate::wasm::worker;
 #[cfg(target_arch = "wasm32")]
 pub const APP_NAME: &str = "fluxfox-web";
+#[cfg(not(target_arch = "wasm32"))]
+pub const APP_NAME: &str = "fluxfox-egui";
+
+#[cfg(target_arch = "wasm32")]
+use crate::wasm::worker::{self, PlatformRenderCallback};
+
+#[cfg(not(target_arch = "wasm32"))]
+use crate::native::worker::{self, PlatformRenderCallback};
 
 use crate::{
-    lock::TrackingLock,
     widgets::{filename::FilenameWidget, hello::HelloWidget},
     windows::{
+        disk_visualization::VisualizationViewer,
         element_map::ElementMapViewer,
         file_viewer::FileViewer,
         new_viz::NewVizViewer,
@@ -76,10 +78,9 @@ use crate::{
         source_map::SourceMapViewer,
         track_timing_viewer::TrackTimingViewer,
         track_viewer::TrackViewer,
-        viz::VizViewer,
     },
 };
-use fluxfox_egui::widgets::track_list::TrackListWidget;
+use fluxfox_egui::{controls::track_list::TrackListWidget, tracking_lock::TrackingLock};
 
 pub const DEMO_IMAGE: &[u8] = include_bytes!("../../../resources/demo.imz");
 /// The number of selection slots available for disk images.
@@ -166,7 +167,6 @@ pub struct PersistentState {
     user_opts: AppUserOptions,
 }
 
-#[derive(Default)]
 pub struct AppWidgets {
     hello: HelloWidget,
     disk_info: DiskInfoWidget,
@@ -177,8 +177,19 @@ pub struct AppWidgets {
 }
 
 impl AppWidgets {
+    pub fn new(_ui_sender: mpsc::SyncSender<UiEvent>) -> Self {
+        Self {
+            hello: HelloWidget::default(),
+            disk_info: DiskInfoWidget::default(),
+            boot_sector: BootSectorWidget::default(),
+            track_list: TrackListWidget::default(),
+            file_system: FileSystemWidget::default(),
+            filename: FilenameWidget::default(),
+        }
+    }
+
     pub fn update_disk(&mut self, disk_lock: TrackingLock<DiskImage>, name: Option<String>) {
-        let disk = match disk_lock.read(Tool::App) {
+        let disk = match disk_lock.read(UiLockContext::App) {
             Ok(disk) => disk,
             Err(_) => {
                 log::error!("Failed to lock disk image for reading. Cannot update widgets.");
@@ -192,7 +203,7 @@ impl AppWidgets {
     }
 
     pub fn update_mut(&mut self, disk_lock: TrackingLock<DiskImage>) {
-        let mut fs = match FatFileSystem::mount(disk_lock, Tool::FileSystemViewer, None) {
+        let mut fs = match FatFileSystem::mount(disk_lock, UiLockContext::FileSystemViewer, None) {
             Ok(fs) => {
                 log::debug!("FAT filesystem mounted successfully!");
                 Some(fs)
@@ -219,9 +230,8 @@ impl AppWidgets {
     }
 }
 
-#[derive(Default)]
 pub struct AppWindows {
-    viz_viewer: VizViewer,
+    viz_viewer: VisualizationViewer,
     new_viz_viewer: NewVizViewer,
     sector_viewer: SectorViewer,
     track_viewer: TrackViewer,
@@ -232,6 +242,19 @@ pub struct AppWindows {
 }
 
 impl AppWindows {
+    pub fn new(_ui_sender: mpsc::SyncSender<UiEvent>) -> Self {
+        Self {
+            viz_viewer: VisualizationViewer::new(),
+            new_viz_viewer: NewVizViewer::default(),
+            sector_viewer: SectorViewer::default(),
+            track_viewer: TrackViewer::default(),
+            file_viewer: FileViewer::default(),
+            source_map: SourceMapViewer::default(),
+            element_map: ElementMapViewer::default(),
+            track_timing_viewer: TrackTimingViewer::default(),
+        }
+    }
+
     pub fn reset(&mut self) {
         self.viz_viewer.reset();
         self.new_viz_viewer.reset();
@@ -247,13 +270,16 @@ impl AppWindows {
     pub fn update_disk(&mut self, disk_lock: TrackingLock<DiskImage>, _name: Option<String>) {
         // The visualization viewer can hold a read lock in the background for rendering, so it
         // should be updated last.
-        match disk_lock.read(Tool::App) {
+        match disk_lock.read(UiLockContext::App) {
             Ok(disk) => self.source_map.update(&disk),
             Err(_) => {
                 log::error!("Failed to lock disk image for reading. Cannot update windows.");
                 return;
             }
         };
+
+        log::debug!("Updating track data viewer...");
+        self.track_viewer.update_disk(disk_lock.clone());
 
         log::debug!("Updating sector viewer...");
         self.sector_viewer.update(disk_lock.clone(), SectorSelection::default());
@@ -320,6 +346,9 @@ pub struct App {
     load_sender: Option<mpsc::SyncSender<ThreadLoadStatus>>,
     load_receiver: Option<mpsc::Receiver<ThreadLoadStatus>>,
 
+    tool_sender:   mpsc::SyncSender<UiEvent>,
+    tool_receiver: mpsc::Receiver<UiEvent>,
+
     /// The selected disk slot. This is used to track which disk image is currently selected for
     /// viewing and manipulation.
     pub(crate) selected_slot: usize,
@@ -329,7 +358,6 @@ pub struct App {
     supported_extensions: Vec<String>,
 
     widgets: AppWidgets,
-    viz_window_open: bool,
     windows: AppWindows,
 
     events: VecDeque<AppEvent>,
@@ -343,6 +371,7 @@ pub struct App {
 impl Default for App {
     fn default() -> Self {
         let (load_sender, load_receiver) = mpsc::sync_channel(128);
+        let (tool_sender, tool_receiver) = mpsc::sync_channel(16);
         Self {
             // Example stuff:
             p_state: PersistentState {
@@ -352,20 +381,20 @@ impl Default for App {
             ctx_init: false,
             dropped_files: Vec::new(),
 
-            load_status:   ThreadLoadStatus::Inactive,
-            load_sender:   Some(load_sender),
+            load_status: ThreadLoadStatus::Inactive,
+            load_sender: Some(load_sender),
             load_receiver: Some(load_receiver),
+
+            widgets: AppWidgets::new(tool_sender.clone()),
+            windows: AppWindows::new(tool_sender.clone()),
+            tool_sender,
+            tool_receiver,
 
             selected_slot: 0,
             disk_slots: Default::default(),
             old_locks: Vec::new(),
 
             supported_extensions: Vec::new(),
-
-            widgets: AppWidgets::default(),
-            viz_window_open: false,
-
-            windows: AppWindows::default(),
 
             events: VecDeque::new(),
             deferred_file_ui_event: None,
@@ -462,7 +491,14 @@ impl App {
             app_state.p_state = eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
         }
 
-        app_state.windows.viz_viewer.init(cc.egui_ctx.clone(), 512);
+        let render_callback = Arc::new(PlatformRenderCallback::default());
+
+        // Initialize the visualization viewer
+        app_state
+            .windows
+            .viz_viewer
+            .init(cc.egui_ctx.clone(), 512, app_state.tool_sender.clone(), render_callback);
+
         egui_extras::install_image_loaders(&cc.egui_ctx);
         // Set dark mode. This doesn't seem to work for some reason.
         // So we'll use a flag in state and do it on the first update().
@@ -575,7 +611,8 @@ impl eframe::App for App {
             });
         });
 
-        self.handle_events();
+        self.handle_ui_events();
+        self.handle_app_events();
     }
 
     /// Called by the framework to save persistent state before shutdown.
@@ -596,7 +633,6 @@ impl App {
         log::debug!("Resetting application state for new disk...");
         //self.disk_image_name = None;
         self.error_msg = None;
-        self.viz_window_open = false;
         self.widgets.reset();
         self.windows.reset();
     }
@@ -610,7 +646,6 @@ impl App {
         self.error_msg = None;
         self.load_status = ThreadLoadStatus::Inactive;
         self.run_mode = RunMode::Reactive;
-        self.viz_window_open = false;
         self.widgets.reset();
         self.windows.reset();
     }
@@ -710,7 +745,7 @@ impl App {
         });
     }
 
-    fn handle_events(&mut self) {
+    fn handle_app_events(&mut self) {
         while let Some(event) = self.events.pop_front() {
             match event {
                 AppEvent::Reset => {
@@ -759,8 +794,8 @@ impl App {
                     }
                 }
                 AppEvent::TrackSelected(selection) => {
-                    if let Some(disk) = self.selected_disk() {
-                        self.windows.track_viewer.update(disk.clone(), selection.clone());
+                    if let Some(_disk) = self.selected_disk() {
+                        self.windows.track_viewer.update_selection(selection.clone());
                         self.track_selection = Some(selection);
                         self.windows.track_viewer.set_open(true);
                     }
@@ -773,7 +808,7 @@ impl App {
                 }
                 AppEvent::TrackTimingsSelected(selection) => {
                     if let Some(disk) = self.selected_disk() {
-                        match disk.read(Tool::App) {
+                        match disk.read(UiLockContext::App) {
                             Ok(disk) => {
                                 if let Some(track) = disk.track(selection.phys_ch) {
                                     if let Some(track) = track.as_fluxstream_track() {
@@ -803,7 +838,7 @@ impl App {
                 |ui| {
                     self.widgets.disk_info.show(ui);
                 },
-                |_| {},
+                None::<HeaderFn>,
             );
         }
     }
@@ -815,8 +850,34 @@ impl App {
                 |ui| {
                     self.widgets.boot_sector.show(ui);
                 },
-                |_| {},
+                None::<HeaderFn>,
             );
+        }
+    }
+
+    /// Handle UI events - events sent from tools to the application.
+    fn handle_ui_events(&mut self) {
+        let mut keep_polling = true;
+        while keep_polling {
+            match self.tool_receiver.try_recv() {
+                Ok(event) => match event {
+                    UiEvent::SelectionChange(selection) => match selection {
+                        TrackListSelection::Track(track) => {
+                            self.events.push_back(AppEvent::TrackSelected(track));
+                        }
+                        TrackListSelection::Sector(sector) => {
+                            log::warn!("handle_ui_events(): Sector selected: {:?}", sector);
+                            self.events.push_back(AppEvent::SectorSelected(sector));
+                        }
+                    },
+                    _ => {
+                        log::warn!("Unhandled UiEvent: {:?}", event);
+                    }
+                },
+                Err(_) => {
+                    keep_polling = false;
+                }
+            }
         }
     }
 
@@ -876,7 +937,8 @@ impl App {
                     UiEvent::ExportFile(path) => {
                         log::debug!("Exporting file: {:?}", path);
 
-                        let mut fs = FatFileSystem::mount(disk.clone(), Tool::FileSystemOperation, None).unwrap();
+                        let mut fs =
+                            FatFileSystem::mount(disk.clone(), UiLockContext::FileSystemOperation, None).unwrap();
                         let file_data = match fs.read_file(&path) {
                             Ok(data) => data,
                             Err(e) => {
@@ -898,7 +960,7 @@ impl App {
                     UiEvent::SelectFile(file) => {
                         let selected_file = file.path().to_string();
                         log::debug!("Selected file: {:?}", selected_file);
-                        match FatFileSystem::mount(disk.clone(), Tool::FileSystemOperation, None) {
+                        match FatFileSystem::mount(disk.clone(), UiLockContext::FileSystemOperation, None) {
                             Ok(mut fs) => {
                                 log::debug!("FAT filesystem mounted successfully!");
                                 self.windows.file_viewer.update(&fs, selected_file);
@@ -911,29 +973,35 @@ impl App {
                             }
                         };
                     }
+                    #[cfg(feature = "archives")]
                     UiEvent::ExportDirAsArchive(path) => {
                         log::debug!("Exporting directory as archive: {:?}", path);
-                        let mut fs = FatFileSystem::mount(disk.clone(), Tool::FileSystemOperation, None).unwrap();
+                        match FatFileSystem::mount(disk.clone(), UiLockContext::FileSystemOperation, None) {
+                            Ok(mut fs) => {
+                                let archive_data = match fs.root_as_archive(self.p_state.user_opts.archive_format) {
+                                    Ok(data) => data,
+                                    Err(e) => {
+                                        log::error!("Error exporting directory as archive: {:?}", e);
+                                        return;
+                                    }
+                                };
+                                fs.unmount();
 
-                        let archive_data = match fs.root_as_archive(self.p_state.user_opts.archive_format) {
-                            Ok(data) => data,
-                            Err(e) => {
-                                log::error!("Error exporting directory as archive: {:?}", e);
-                                return;
+                                let slot = self.selected_slot();
+                                let mut zip_name = slot.image_name.clone().unwrap_or("disk".to_string());
+                                zip_name.push_str(self.p_state.user_opts.archive_format.ext());
+
+                                match App::save_file_as(&zip_name, &archive_data) {
+                                    Ok(_) => {
+                                        log::info!("Archive {} saved successfully!", zip_name);
+                                    }
+                                    Err(e) => {
+                                        log::error!("Error saving archive: {:?}", e);
+                                    }
+                                }
                             }
-                        };
-                        fs.unmount();
-
-                        let slot = self.selected_slot();
-                        let mut zip_name = slot.image_name.clone().unwrap_or("disk".to_string());
-                        zip_name.push_str(self.p_state.user_opts.archive_format.ext());
-
-                        match App::save_file_as(&zip_name, &archive_data) {
-                            Ok(_) => {
-                                log::info!("Archive {} saved successfully!", zip_name);
-                            }
                             Err(e) => {
-                                log::error!("Error saving archive: {:?}", e);
+                                log::error!("Error mounting FAT filesystem: {:?}", e);
                             }
                         }
                     }
@@ -957,8 +1025,8 @@ impl App {
                             ThreadLoadStatus::Loading(progress) => {
                                 log::debug!("Loading progress: {:.1}%", progress * 100.0);
 
-                                self.widgets = AppWidgets::default();
-                                self.viz_window_open = false;
+                                self.widgets = AppWidgets::new(self.tool_sender.clone());
+                                *self.windows.viz_viewer.open_mut() = false;
                                 ctx.request_repaint();
 
                                 match self.load_status {

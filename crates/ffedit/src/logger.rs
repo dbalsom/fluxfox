@@ -2,7 +2,7 @@
     ffedit
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -55,7 +55,8 @@ impl log::Log for TuiLogger {
         let from_ffedit = record.target().starts_with("ffedit");
         let message = if from_ffedit {
             format!("{}", record.args().to_string())
-        } else {
+        }
+        else {
             format!("[{}] {}", record.target().to_string(), record.args().to_string())
         };
         let log = match record.level() {

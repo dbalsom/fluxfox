@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -137,7 +137,7 @@ pub fn skia_render_element(
     }
 }
 
-/// Render a single data slice as an SVG path. Unlike a sector element, a data slice is a single
+/// Render a single data slice as a tiny_skia path. Unlike a sector element, a data slice is a single
 /// arc with a stroke rendered at the track width.
 pub fn skia_render_data_slice(
     pixmap: &mut Pixmap,
@@ -149,7 +149,8 @@ pub fn skia_render_data_slice(
     let mut path = PathBuilder::new();
     skia_render_quadratic_arc(&mut path, &slice.arc, false);
 
-    let v = ((slice.density * 1.5).clamp(0.0, 1.0) * 255.0) as u8;
+    //let v = ((slice.density * 1.5).clamp(0.0, 1.0) * 255.0) as u8;
+    let v = slice.mapped_density;
     paint.set_color(Color::from_rgba8(v, v, v, 255));
 
     if let Some(path) = path.finish() {

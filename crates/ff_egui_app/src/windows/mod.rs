@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -25,6 +25,7 @@
     --------------------------------------------------------------------------
 */
 
+pub mod disk_visualization;
 pub mod element_map;
 pub mod file_viewer;
 pub mod new_viz;
@@ -32,4 +33,3 @@ pub mod sector_viewer;
 pub mod source_map;
 pub mod track_timing_viewer;
 pub mod track_viewer;
-pub mod viz;

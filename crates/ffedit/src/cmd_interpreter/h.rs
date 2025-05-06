@@ -2,7 +2,7 @@
     ffedit
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -24,9 +24,11 @@
 
     --------------------------------------------------------------------------
 */
-use crate::app::{AppContext, AppEvent};
-use crate::cmd_interpreter::{Command, CommandArgs, CommandResult};
-use crate::disk_selection::SelectionLevel;
+use crate::{
+    app::{AppContext, AppEvent},
+    cmd_interpreter::{Command, CommandArgs, CommandResult},
+    disk_selection::SelectionLevel,
+};
 
 pub(crate) struct HeadCommand;
 
@@ -51,7 +53,8 @@ impl Command for HeadCommand {
             }
             app.selection.head = Some(new_head);
             Ok(CommandResult::Success(format!("Changed head to: {}", new_head)))
-        } else {
+        }
+        else {
             Err(format!("Usage: h {}", self.usage()))
         }
     }

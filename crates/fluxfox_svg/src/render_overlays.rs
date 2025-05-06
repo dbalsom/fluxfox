@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -34,14 +34,11 @@ use fluxfox::visualization::prelude::VizRect;
 use svg::{
     node::element::{Circle, Group, Path},
     parser::Event,
-    Document,
 };
 
 pub fn svg_to_group(svg_data: &str, viewbox: &VizRect<f32>, style: &ElementStyle) -> Result<Group, String> {
     log::debug!("svg_to_group: Got svg string: {:?}", svg_data);
     let parser = svg::read(svg_data).map_err(|e| format!("Failed to parse overlay SVG: {}", e))?;
-
-    let mut group = Group::new();
 
     //Scale overlay viewbox (0,0)-(100,100) to the provided viewbox
     let scale_x = viewbox.width() / 100.0;

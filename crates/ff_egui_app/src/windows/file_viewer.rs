@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -26,7 +26,7 @@
 */
 use egui::Grid;
 use fluxfox::file_system::fat::fat_fs::FatFileSystem;
-use fluxfox_egui::widgets::data_table::DataTableWidget;
+use fluxfox_egui::controls::data_table::DataTableWidget;
 
 #[derive(Default)]
 pub struct FileViewer {

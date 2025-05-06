@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -24,8 +24,22 @@
 
     --------------------------------------------------------------------------
 */
-use anyhow::Error;
+
 use std::thread::JoinHandle;
+
+use anyhow::Error;
+use fluxfox_egui::RenderCallback;
+
+#[derive(Default)]
+pub struct PlatformRenderCallback {}
+
+impl RenderCallback for PlatformRenderCallback {
+    fn spawn(&self, f: Box<dyn FnOnce() + Send + 'static>) {
+        std::thread::spawn(move || {
+            f();
+        });
+    }
+}
 
 pub(crate) fn spawn_closure_worker<F, T>(f: F) -> Result<JoinHandle<T>, Error>
 where

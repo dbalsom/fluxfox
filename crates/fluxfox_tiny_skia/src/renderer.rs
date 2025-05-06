@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -281,7 +281,9 @@ impl TinySkiaRenderer {
 
     /// Override the default styles with a custom set of styles. This must be a hash map of
     /// `GenericTrackElement` to `ElementStyle`.
+    #[allow(unused_mut)]
     pub fn with_styles(mut self, _styles: FoxHashMap<GenericTrackElement, ElementStyle>) -> Self {
+        // TODO: Implement this.
         self
     }
 

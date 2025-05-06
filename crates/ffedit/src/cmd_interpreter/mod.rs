@@ -2,7 +2,7 @@
     ffedit
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -81,7 +81,8 @@ impl CommandRegistry {
 
         if let Some(command) = self.commands.get(&cmd_args.command) {
             command.execute(app, cmd_args)
-        } else {
+        }
+        else {
             Err(format!("Unknown command: {} [Type ? for help]", &cmd_args.command))
         }
     }
@@ -146,11 +147,13 @@ impl CommandInterpreter {
 
         if resolved_command == "q" {
             CommandResult::UserExit
-        } else if resolved_command == "help" {
+        }
+        else if resolved_command == "help" {
             // Return help information by calling get_usage on the registry
             let help_message = self.registry.get_usage();
             CommandResult::Success(help_message)
-        } else {
+        }
+        else {
             self.registry
                 .dispatch(app, resolved_command)
                 .unwrap_or_else(|e| CommandResult::Error(format!("Error: {}", e)))
@@ -163,7 +166,8 @@ fn parse_input(input: &str) -> CommandArgs {
     let command = parts[0].clone();
     let argv = if parts.len() > 1 {
         Some(parts[1..].to_vec())
-    } else {
+    }
+    else {
         None
     };
     let raw_args = split_once(input).get(1).map(|s| s.clone());

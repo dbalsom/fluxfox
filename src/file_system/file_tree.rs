@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -182,6 +182,20 @@ impl FileTreeNode {
         }
         else {
             0
+        }
+    }
+
+    pub fn path(&self) -> &str {
+        match self {
+            FileTreeNode::File(entry) => &entry.path,
+            FileTreeNode::Directory { dfe, .. } => &dfe.path,
+        }
+    }
+
+    pub fn children(&self) -> Vec<&FileTreeNode> {
+        match self {
+            FileTreeNode::Directory { children, .. } => children.iter().collect(),
+            _ => Vec::new(),
         }
     }
 

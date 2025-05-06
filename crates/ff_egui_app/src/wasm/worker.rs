@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -28,87 +28,19 @@
 // Worker code adapted from
 // https://www.tweag.io/blog/2022-11-24-wasm-threads-and-messages/
 
-use eframe::wasm_bindgen;
-use eframe::wasm_bindgen::closure::Closure;
-use eframe::wasm_bindgen::prelude::wasm_bindgen;
-use eframe::wasm_bindgen::{JsCast, JsValue};
+use eframe::{
+    wasm_bindgen,
+    wasm_bindgen::{closure::Closure, prelude::wasm_bindgen, JsCast, JsValue},
+};
+use fluxfox_egui::RenderCallback;
 
-// Spawn a worker and communicate with it.
-#[allow(dead_code)]
-pub(crate) fn spawn_worker() {
-    let worker_opts = web_sys::WorkerOptions::new();
-    worker_opts.set_type(web_sys::WorkerType::Module);
-    let worker = match web_sys::Worker::new_with_options("./worker.js", &worker_opts) {
-        Ok(worker) => worker,
-        Err(e) => {
-            log::error!("failed to spawn worker: {:?}", e);
-            return;
-        }
-    };
+#[derive(Default)]
+pub struct PlatformRenderCallback {}
 
-    // let callback = Closure<FnMut(web_sys::MessageEvent)>::new(|msg| {
-    //     assert_eq!(msg.data.as_f64(), Some(2.0));
-    // });
-
-    let callback = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(|msg: web_sys::MessageEvent| {
-        log::debug!("Received result from worker: {:?}", msg);
-    });
-
-    // Set up a callback to be invoked whenever we receive a message from the worker.
-    // .as_ref().unchecked_ref() turns a wasm_bindgen::Closure into a &js_sys::Function
-    worker.set_onmessage(Some(callback.as_ref().unchecked_ref()));
-
-    // Send a message to the worker.
-    worker.post_message(&JsValue::from(1.0)).expect("failed to post");
-
-    // Did you notice that `set_onmessage` took a borrow? We still own `callback`, and we'd
-    // better not free it too soon! See also
-    // https://rustwasm.github.io/wasm-bindgen/reference/weak-references.html
-    std::mem::forget(callback); // FIXME: memory management is hard
-}
-
-// Spawn a worker and communicate with it.
-#[allow(dead_code)]
-pub(crate) fn spawn_loading_worker(bytes: &[u8]) {
-    let worker_opts = web_sys::WorkerOptions::new();
-    worker_opts.set_type(web_sys::WorkerType::Module);
-    let worker = match web_sys::Worker::new_with_options("./load_worker.js", &worker_opts) {
-        Ok(worker) => worker,
-        Err(e) => {
-            log::error!("failed to spawn worker: {:?}", e);
-            return;
-        }
-    };
-
-    // let callback = Closure<FnMut(web_sys::MessageEvent)>::new(|msg| {
-    //     assert_eq!(msg.data.as_f64(), Some(2.0));
-    // });
-
-    let callback = Closure::<dyn FnMut(web_sys::MessageEvent)>::new(|msg: web_sys::MessageEvent| {
-        log::debug!(
-            "Worker reports it received {} bytes.",
-            msg.data().as_f64().unwrap_or(0.0)
-        );
-    });
-
-    // Set up a callback to be invoked whenever we receive a message from the worker.
-    // .as_ref().unchecked_ref() turns a wasm_bindgen::Closure into a &js_sys::Function
-    worker.set_onmessage(Some(callback.as_ref().unchecked_ref()));
-
-    // Convert the `u8` slice to a `Uint8Array`.
-    //let data_array = unsafe { web_sys::js_sys::Uint8Array::view(bytes) };
-    log::debug!("Creating Uint8Array from {} bytes.", bytes.len());
-    let data_array = web_sys::js_sys::Uint8Array::from(bytes);
-
-    // Send the data to the worker.
-    worker.post_message(&data_array).expect("failed to post");
-
-    // Did you notice that `set_onmessage` took a borrow? We still own `callback`, and we'd
-    // better not free it too soon! See also
-    // https://rustwasm.github.io/wasm-bindgen/reference/weak-references.html
-    std::mem::forget(callback); // FIXME: memory management is hard
-
-    log::debug!("spawn_loading_worker(): finished");
+impl RenderCallback for PlatformRenderCallback {
+    fn spawn(&self, f: Box<dyn FnOnce() + Send + 'static>) {
+        spawn_closure_worker(f);
+    }
 }
 
 // Spawn a worker and communicate with it.

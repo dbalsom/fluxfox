@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -51,6 +51,8 @@ pub enum Platform {
     Macintosh,
     /// Atari ST
     AtariSt,
+    /// Apple II
+    AppleII,
 }
 
 impl Display for Platform {
@@ -60,6 +62,7 @@ impl Display for Platform {
             Platform::Amiga => write!(f, "Commodore Amiga"),
             Platform::Macintosh => write!(f, "Apple Macintosh"),
             Platform::AtariSt => write!(f, "Atari ST"),
+            Platform::AppleII => write!(f, "Apple II"),
         }
     }
 }

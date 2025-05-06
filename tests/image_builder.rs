@@ -1,4 +1,11 @@
-use fluxfox::{image_builder::ImageBuilder, prelude::*, DiskImageFileFormat, ImageFormatParser, StandardFormat};
+use fluxfox::{
+    file_system::FileSystemType,
+    image_builder::ImageBuilder,
+    prelude::*,
+    DiskImageFileFormat,
+    ImageFormatParser,
+    StandardFormat,
+};
 use std::io::Cursor;
 
 mod common;
@@ -15,7 +22,7 @@ fn test_image_builder() {
         .with_resolution(TrackDataResolution::BitStream)
         .with_standard_format(StandardFormat::PcFloppy360)
         .with_creator_tag("MartyPC ".as_bytes())
-        .with_formatted(true)
+        .with_filesystem(FileSystemType::Fat12)
         .build()
     {
         Ok(image) => image,

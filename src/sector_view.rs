@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -300,7 +300,7 @@ impl Seek for StandardSectorView {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prelude::*;
+    use crate::{file_system::FileSystemType, prelude::*};
     use std::sync::{Arc, RwLock};
 
     fn create_view() -> StandardSectorView {
@@ -313,7 +313,7 @@ mod tests {
         // Create a mock DiskImage for testing purposes
         let disk = ImageBuilder::new()
             .with_standard_format(StandardFormat::PcFloppy360)
-            .with_formatted(true)
+            .with_filesystem(FileSystemType::Fat12)
             .with_resolution(TrackDataResolution::BitStream)
             .build()
             .unwrap();

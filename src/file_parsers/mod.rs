@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -24,8 +24,6 @@
 
     --------------------------------------------------------------------------
 */
-use crate::io::SeekFrom;
-use bitflags::bitflags;
 
 pub mod r#as;
 pub mod compression;
@@ -50,11 +48,13 @@ use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "moof")]
 use r#as::moof;
+#[cfg(feature = "woz")]
+use r#as::woz;
 
 use pce::{pfi, pri, psi};
 
 use crate::{
-    io::{ReadSeek, ReadWriteSeek},
+    io::{ReadSeek, ReadWriteSeek, SeekFrom},
     types::Platform,
     DiskImage,
     DiskImageError,
@@ -62,6 +62,7 @@ use crate::{
     LoadingCallback,
 };
 
+use bitflags::bitflags;
 use strum::IntoEnumIterator;
 
 #[allow(dead_code)]
@@ -271,6 +272,8 @@ impl ImageFormatParser for DiskImageFileFormat {
             DiskImageFileFormat::IpfImage => ipf::IpFormat::capabilities(),
             #[cfg(feature = "moof")]
             DiskImageFileFormat::MoofImage => moof::MoofFormat::capabilities(),
+            #[cfg(feature = "woz")]
+            DiskImageFileFormat::WozImage => woz::WozFormat::capabilities(),
         }
     }
 
@@ -295,6 +298,8 @@ impl ImageFormatParser for DiskImageFileFormat {
             DiskImageFileFormat::IpfImage => ipf::IpFormat::platforms(),
             #[cfg(feature = "moof")]
             DiskImageFileFormat::MoofImage => moof::MoofFormat::platforms(),
+            #[cfg(feature = "woz")]
+            DiskImageFileFormat::WozImage => woz::WozFormat::platforms(),
         }
     }
 
@@ -319,6 +324,8 @@ impl ImageFormatParser for DiskImageFileFormat {
             DiskImageFileFormat::IpfImage => ipf::IpFormat::detect(image_buf),
             #[cfg(feature = "moof")]
             DiskImageFileFormat::MoofImage => moof::MoofFormat::detect(image_buf),
+            #[cfg(feature = "woz")]
+            DiskImageFileFormat::WozImage => woz::WozFormat::detect(image_buf),
         }
     }
 
@@ -343,6 +350,8 @@ impl ImageFormatParser for DiskImageFileFormat {
             DiskImageFileFormat::IpfImage => ipf::IpFormat::extensions(),
             #[cfg(feature = "moof")]
             DiskImageFileFormat::MoofImage => moof::MoofFormat::extensions(),
+            #[cfg(feature = "woz")]
+            DiskImageFileFormat::WozImage => woz::WozFormat::extensions(),
         }
     }
 
@@ -373,6 +382,8 @@ impl ImageFormatParser for DiskImageFileFormat {
             DiskImageFileFormat::IpfImage => ipf::IpFormat::load_image(read_buf, image, opts, callback),
             #[cfg(feature = "moof")]
             DiskImageFileFormat::MoofImage => moof::MoofFormat::load_image(read_buf, image, opts, callback),
+            #[cfg(feature = "woz")]
+            DiskImageFileFormat::WozImage => woz::WozFormat::load_image(read_buf, image, opts, callback),
         }
     }
 
@@ -437,6 +448,8 @@ impl ImageFormatParser for DiskImageFileFormat {
             DiskImageFileFormat::IpfImage => ipf::IpFormat::can_write(image),
             #[cfg(feature = "moof")]
             DiskImageFileFormat::MoofImage => moof::MoofFormat::can_write(image),
+            #[cfg(feature = "woz")]
+            DiskImageFileFormat::WozImage => woz::WozFormat::can_write(image),
         }
     }
 
@@ -466,6 +479,8 @@ impl ImageFormatParser for DiskImageFileFormat {
             DiskImageFileFormat::IpfImage => ipf::IpFormat::save_image(image, opts, write_buf),
             #[cfg(feature = "moof")]
             DiskImageFileFormat::MoofImage => moof::MoofFormat::save_image(image, opts, write_buf),
+            #[cfg(feature = "woz")]
+            DiskImageFileFormat::WozImage => woz::WozFormat::save_image(image, opts, write_buf),
         }
     }
 }

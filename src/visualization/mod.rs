@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -253,6 +253,9 @@ pub struct CommonVizParams {
     /// Width of the gap between tracks as a fraction of total track width (0.0 to 1.0)
     /// Track width itself is determined by the track count and the inner and outer radii.
     pub track_gap: f32,
+    /// Whether to allow tracks to overlap. If true, the track width will be increased slightly to
+    /// avoid rendering artifacts between tracks.
+    pub track_overlap: bool,
     /// How the data should visually turn on the disk surface, starting from the index position.
     /// Note: this is the logical reverse of the physical rotation of the disk.
     pub direction: TurningDirection,
@@ -269,6 +272,7 @@ impl Default for CommonVizParams {
             track_limit: None,
             pin_last_standard_track: true,
             track_gap: 0.1,
+            track_overlap: true,
             direction: TurningDirection::CounterClockwise,
         }
     }
@@ -279,6 +283,7 @@ impl CommonVizParams {
         let mut tp = InternalTrackParams::default();
         let track_limit = self.track_limit.unwrap_or(MAX_CYLINDER);
 
+        tp.track_gap = self.track_gap;
         tp.num_tracks = min(num_tracks, track_limit);
         if tp.num_tracks == 0 {
             return Err(DiskVisualizationError::NoTracks);
@@ -311,17 +316,20 @@ impl CommonVizParams {
         }
 
         // Calculate the rendered width of each track, excluding the track gap.
-        tp.render_track_width = (tp.max_radius - tp.min_radius) / num_tracks as f32;
+        tp.total_track_width = (tp.max_radius - tp.min_radius) / num_tracks as f32;
+        tp.render_track_width = tp.total_track_width * (1.0 - self.track_gap);
         if self.track_gap == 0.0 {
             // slightly increase the track width to avoid rendering sparkles between tracks if there's
             // 0 gap specified, due to floating point errors
-            tp.vector_track_width = tp.render_track_width * 1.01;
+            tp.radius_adjust = -(tp.total_track_width * 0.01) / 2.0;
+            tp.render_track_width = tp.total_track_width * 1.01;
         }
         else {
-            tp.vector_track_width = tp.render_track_width;
+            tp.radius_adjust = tp.total_track_width * (tp.track_gap / 2.0);
+            tp.render_track_width = tp.total_track_width * (1.0 - self.track_gap);
         }
 
-        if tp.vector_track_width == 0.0 {
+        if tp.total_track_width <= 0.0 {
             // Nothing to render!
             return Err(DiskVisualizationError::NotVisible);
         }
@@ -339,7 +347,8 @@ pub(crate) struct InternalTrackParams {
     pub(crate) center: VizPoint2d<f32>,
     pub(crate) total_track_width: f32,
     pub(crate) render_track_width: f32,
-    pub(crate) vector_track_width: f32,
+    pub(crate) radius_adjust: f32,
+    pub(crate) track_gap: f32,
     pub(crate) track_overlap: f32,
 }
 
@@ -392,6 +401,26 @@ impl InternalTrackParams {
         else {
             // Overlap - clip the angles to the quadrant
             (true, (angles.0.max(clip_start), angles.1.min(clip_end)))
+        }
+    }
+
+    /// Return the calculated outer, middle and inner radii for the given cylinder
+    pub(crate) fn radii(&self, cylinder: usize, vector: bool) -> (f32, f32, f32) {
+        match vector {
+            true => {
+                let outer = self.total_radius - (cylinder as f32 * self.total_track_width);
+                let inner = outer - self.total_track_width;
+                let middle = outer - self.total_track_width / 2.0;
+
+                (outer - self.radius_adjust, middle, inner + self.radius_adjust)
+            }
+            false => {
+                let outer = self.total_radius - (cylinder as f32 * self.total_track_width);
+                let inner = outer - self.total_track_width;
+                let middle = outer - self.total_track_width / 2.0;
+
+                (outer - self.radius_adjust, middle, inner + self.radius_adjust)
+            }
         }
     }
 }

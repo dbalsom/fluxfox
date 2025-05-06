@@ -2,7 +2,7 @@
     fftool
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -35,6 +35,7 @@ pub(crate) struct CreateParams {
     pub(crate) disk_format: StandardFormatParam,
     pub(crate) formatted:   bool,
     pub(crate) sector_test: bool,
+    pub(crate) from_dir:    Option<PathBuf>,
 }
 
 pub(crate) fn create_parser() -> impl Parser<CreateParams> {
@@ -44,11 +45,12 @@ pub(crate) fn create_parser() -> impl Parser<CreateParams> {
     let sector_test = long("sector_test")
         .switch()
         .help("Create a sector test image [internal use].");
-
+    let from_dir = from_dir_parser().optional();
     construct!(CreateParams {
         out_file,
         disk_format,
         formatted,
         sector_test,
+        from_dir
     })
 }

@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -37,6 +37,7 @@ use crate::{
         file_tree::{FileEntry, FileEntryType, FileNameType, FileTreeNode},
         FileSystemArchive,
         FileSystemError,
+        FsDateTime,
     },
     io::{Read, Seek},
     sector_view::StandardSectorView,
@@ -100,6 +101,61 @@ impl FatFileSystem {
 
     pub fn unmount(&mut self) {
         self.fat = None;
+    }
+
+    pub fn create_dir(&self, path: &str) -> Result<(), FileSystemError> {
+        if let Some(fat) = &self.fat {
+            fat.root_dir()
+                .create_dir(path)
+                .map_err(|e| FileSystemError::WriteError(e.to_string()))?;
+            Ok(())
+        }
+        else {
+            Err(FileSystemError::MountError("Filesystem not mounted".to_string()))
+        }
+    }
+
+    /// Create a new file at the specified path.
+    pub fn create_file(
+        &self,
+        path: &str,
+        modified: Option<FsDateTime>,
+        created: Option<FsDateTime>,
+    ) -> Result<(), FileSystemError> {
+        if let Some(fat) = &self.fat {
+            let mut file = fat
+                .root_dir()
+                .create_file(path)
+                .map_err(|e| FileSystemError::WriteError(e.to_string()))?;
+
+            if let Some(modified) = modified {
+                file.set_modified(modified.into());
+            }
+            if let Some(created) = created {
+                file.set_created(created.into());
+            }
+            Ok(())
+        }
+        else {
+            Err(FileSystemError::MountError("Filesystem not mounted".to_string()))
+        }
+    }
+
+    /// Write data to the file specified by `path`.
+    /// The file must already exist.
+    pub fn write_file(&self, path: &str, data: &[u8]) -> Result<(), FileSystemError> {
+        if let Some(fat) = &self.fat {
+            let mut file = fat
+                .root_dir()
+                .open_file(path)
+                .map_err(|e| FileSystemError::WriteError(e.to_string()))?;
+
+            file.write_all(data)?;
+            Ok(())
+        }
+        else {
+            Err(FileSystemError::MountError("Filesystem not mounted".to_string()))
+        }
     }
 
     pub fn read_file(&self, path: &str) -> Result<Vec<u8>, FileSystemError> {

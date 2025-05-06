@@ -2,7 +2,7 @@
     ffedit
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -25,11 +25,13 @@
     --------------------------------------------------------------------------
 */
 
-use crate::app::{App, AppEvent, ApplicationState};
-use crate::components::history::HistoryEntry;
-use crate::logger::LogEntry;
-use crate::modal::ModalState;
-use crate::util::strip_path;
+use crate::{
+    app::{App, AppEvent, ApplicationState},
+    components::history::HistoryEntry,
+    logger::LogEntry,
+    modal::ModalState,
+    util::strip_path,
+};
 
 impl App {
     pub(crate) fn handle_app_events(&mut self) {

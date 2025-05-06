@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -119,7 +119,12 @@ pub fn paint_shape(
         VizShape::QuadraticArc(arc, thickness) => {
             // For an arc, stroke becomes the "fill" and the fill color is the stroke color.
             let stroke = PathStroke::from(Stroke::new(*thickness * transform.scale().x, fill_color));
-            paint_quadratic_arc(painter, transform, rotation, &arc, &stroke)
+            paint_quadratic_arc(painter, transform, rotation, arc, &stroke)
+        }
+        VizShape::Circle(circle, thickness) => {
+            // For a circle, stroke becomes the "fill" and the fill color is the stroke color.
+            let stroke = Stroke::new(*thickness * transform.scale().x, fill_color);
+            paint_circle(painter, transform, circle, &stroke);
         }
         _ => {}
     }
@@ -194,6 +199,16 @@ pub fn paint_quadratic_arc(
     );
 }
 
+/// Renders a circle. Note no rotation parameter as rotating a circle does nothing.
+pub fn paint_circle(painter: &Painter, transform: &RectTransform, circle: &VizCircle, stroke: &Stroke) {
+    painter.circle(
+        to_pos2_transformed(&circle.center, transform),
+        circle.radius,
+        Color32::TRANSPARENT,
+        *stroke,
+    );
+}
+
 pub fn paint_elements(
     painter: &Painter,
     transform: &RectTransform,
@@ -225,8 +240,8 @@ pub fn paint_elements(
             // Paint normally.
             for element in elements {
                 let fill_color = if element.flags.contains(VizElementFlags::HIGHLIGHT) {
-                    log::warn!("Highlighting element: {:?}", element.info.element_type);
-                    Color32::from_white_alpha(128)
+                    //log::warn!("Highlighting element: {:?}", element.info.element_type);
+                    Color32::from_white_alpha(80)
                 }
                 else if let Some(color) = palette.get(&element.info.element_type) {
                     *color

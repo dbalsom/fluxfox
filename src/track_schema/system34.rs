@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -636,7 +636,9 @@ impl System34Schema {
                 continue;
             }
 
-            let TrackElementInstance { element, .. } = instance;
+            let TrackElementInstance {
+                element, last_sector, ..
+            } = instance;
             match element {
                 TrackElement::System34(System34Element::SectorHeader {
                     chsn,
@@ -661,8 +663,8 @@ impl System34Schema {
 
                         last_idam_matched = id.matches(chsn);
 
-                        // A bad header CRC will short-circuit the search.
-                        if *address_error {
+                        // A bad header CRC or missing DAM will short-circuit the search.
+                        if *address_error || *data_missing {
                             return TrackSectorScanResult::Found {
                                 ei,
                                 sector_chsn: *chsn,
@@ -670,6 +672,7 @@ impl System34Schema {
                                 data_error: false,
                                 deleted_mark: false,
                                 no_dam: *data_missing,
+                                last_sector: *last_sector,
                             };
                         }
                     }
@@ -698,6 +701,7 @@ impl System34Schema {
                             data_error: *data_error,
                             deleted_mark: *deleted,
                             no_dam: false,
+                            last_sector: *last_sector,
                         };
                     }
                 }
@@ -747,12 +751,43 @@ impl System34Schema {
     #[inline]
     pub(crate) fn encode_element(
         stream: &mut TrackDataStream,
-        element: &TrackElementInstance,
+        element: &mut TrackElementInstance,
         _scope: RwScope,
         buf: &[u8],
     ) -> usize {
         // TODO: Detect and properly encode markers
-        stream.write_encoded_buf(buf, element.start)
+
+        match &mut element.element {
+            TrackElement::System34(System34Element::SectorHeader { .. }) => {
+                // TODO: Implement marker writes
+                0
+            }
+            TrackElement::System34(System34Element::SectorData {
+                data_error, deleted, ..
+            }) => {
+                let marker_bytes = match deleted {
+                    true => &IDAM_MARKER_BYTES,
+                    false => &DAM_MARKER_BYTES,
+                };
+                let marker_crc = crc_ibm_3740(marker_bytes, None);
+
+                // Calculate the CRC16 of the data.
+                let crc = crc_ibm_3740(buf, Some(marker_crc));
+                log::debug!(
+                    "encode_element(): Calculated CRC16 over {} bytes: {:04X}",
+                    buf.len(),
+                    crc
+                );
+
+                let mut bytes = stream.write_encoded_buf(buf, element.start + mfm_offset!(4));
+                let crc_bytes = crc.to_be_bytes();
+
+                bytes += stream.write_encoded_buf(&crc_bytes, element.start + mfm_offset!(4 + buf.len()));
+                *data_error = false;
+                bytes
+            }
+            _ => stream.write_encoded_buf(buf, element.start),
+        }
     }
 
     #[allow(dead_code)]
@@ -859,29 +894,7 @@ impl System34Schema {
 
             if let TrackMarker::System34(sys34_marker) = marker.elem_type {
                 match (last_marker_opt, sys34_marker) {
-                    (Some(System34Marker::Idam), System34Marker::Idam) => {
-                        // Encountered IDAMs back to back. This is sometimes seen in copy-protection methods
-                        // such as XELOK v1.
-
-                        // Push a Sector Header metadata item spanning from last IDAM to this IDAM.
-                        let data_metadata = TrackElementInstance {
-                            element: TrackElement::System34(System34Element::SectorHeader {
-                                chsn: DiskChsn::from((
-                                    last_sector_id.c as u16,
-                                    last_sector_id.h,
-                                    last_sector_id.s,
-                                    last_sector_id.b,
-                                )),
-                                address_error: !last_sector_id.crc_valid,
-                                data_missing: true, // Flag data as missing.
-                            }),
-                            start: last_element_offset,
-                            end: element_offset,
-                            chsn: None,
-                        };
-                        elements.push(data_metadata)
-                    }
-                    (_, System34Marker::Idam) => {
+                    (prev_elem, System34Marker::Idam) => {
                         // Encountered a sector ID address mark (sector header), after any element.
                         let mut sector_header = [0; 8];
 
@@ -918,6 +931,30 @@ impl System34Schema {
                             crc,
                             calculated_crc
                         );
+
+                        if let Some(System34Marker::Idam) = prev_elem {
+                            // This sector header directly follows another header.
+                            // Push a Sector Header metadata item spanning from last IDAM to this IDAM.
+
+                            let metadata = TrackElementInstance {
+                                element: TrackElement::System34(System34Element::SectorHeader {
+                                    chsn: DiskChsn::from((
+                                        last_sector_id.c as u16,
+                                        last_sector_id.h,
+                                        last_sector_id.s,
+                                        last_sector_id.b,
+                                    )),
+                                    address_error: !last_sector_id.crc_valid,
+                                    data_missing: true, // Flag data as missing.
+                                }),
+                                start: last_element_offset,
+                                end: element_offset,
+                                chsn: None,
+                                last_sector: false,
+                            };
+                            elements.push(metadata)
+                        }
+
                         last_sector_id = sector_id;
                     }
                     (Some(System34Marker::Idam), System34Marker::Dam | System34Marker::Ddam) => {
@@ -928,7 +965,7 @@ impl System34Schema {
                         let log_prefix = match sys34_marker {
                             System34Marker::Dam => "",
                             System34Marker::Ddam => "Deleted ",
-                            _ => "UNKNOWN",
+                            _ => "UNKNOWN ",
                         };
 
                         log::trace!(
@@ -971,6 +1008,7 @@ impl System34Schema {
                             start: last_element_offset,
                             end: element_offset,
                             chsn: None,
+                            last_sector: false,
                         };
                         elements.push(data_metadata);
 
@@ -1010,6 +1048,7 @@ impl System34Schema {
                                 last_sector_id.s,
                                 last_sector_id.b,
                             )),
+                            last_sector: false,
                         };
                         elements.push(data_metadata);
                     }
@@ -1027,6 +1066,7 @@ impl System34Schema {
                         last_sector_id.s,
                         last_sector_id.b,
                     )),
+                    last_sector: false,
                 };
                 elements.push(marker_metadata);
 
@@ -1039,7 +1079,6 @@ impl System34Schema {
         if let Some(System34Marker::Idam) = last_marker_opt {
             // Track ends with an IDAM marker. Push a Sector Header metadata item spanning from last
             // IDAM to some point after (range is not important except for viz)
-
             let data_metadata = TrackElementInstance {
                 element: TrackElement::System34(System34Element::SectorHeader {
                     chsn: DiskChsn::from((
@@ -1054,12 +1093,19 @@ impl System34Schema {
                 start: last_element_offset,
                 end: last_element_offset + 256,
                 chsn: None,
+                last_sector: false,
             };
             elements.push(data_metadata)
         }
 
         // Sort elements by start offset.
         elements.sort_by(|a, b| a.start.cmp(&b.start));
+
+        // Mark the last elements as the last sector.
+        if let Some(last) = elements.last_mut() {
+            last.last_sector = true;
+        }
+
         elements
     }
 
@@ -1156,7 +1202,9 @@ impl System34Schema {
                                 "Matching DAM"
                             },
                             SourceValue::default(),
-                        );
+                        )
+                        .add_sibling("Start", SourceValue::u32(ei.start as u32))
+                        .add_sibling("End", SourceValue::u32(ei.end as u32));
                 }
                 TrackElement::System34(System34Element::SectorData {
                     chsn,
@@ -1179,7 +1227,9 @@ impl System34Schema {
                         .add_sibling(
                             if data_error { "Data Error" } else { "Data OK" },
                             SourceValue::default(),
-                        );
+                        )
+                        .add_sibling("Start", SourceValue::u32(ei.start as u32))
+                        .add_sibling("End", SourceValue::u32(ei.end as u32));
                 }
                 _ => {}
             }

@@ -1,0 +1,1 @@
+I'm a file in /dir_b/dir_b_c/

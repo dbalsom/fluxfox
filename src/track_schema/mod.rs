@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -107,8 +107,18 @@ impl TryFrom<Platform> for TrackSchema {
             Platform::Amiga => Ok(TrackSchema::Amiga),
             #[cfg(not(feature = "amiga"))]
             Platform::Amiga => Err(()),
-            Platform::Macintosh => Ok(TrackSchema::System34),
+            #[cfg(feature = "macintosh")]
+            Platform::Macintosh => Err(()),
+            #[cfg(not(feature = "macintosh"))]
+            Platform::Macintosh => Err(()),
+            #[cfg(feature = "atari_st")]
             Platform::AtariSt => Ok(TrackSchema::System34),
+            #[cfg(not(feature = "atari_st"))]
+            Platform::AtariSt => Err(()),
+            #[cfg(feature = "apple_ii")]
+            Platform::AppleII => Err(()),
+            #[cfg(not(feature = "apple_ii"))]
+            Platform::AppleII => Err(()),
         }
     }
 }
@@ -155,6 +165,12 @@ impl TrackMetadata {
         self.items.push(item);
     }
 
+    /// Get the `TrackElementInstance` at the specified element index, or `None` if the index is
+    /// out of bounds.
+    pub fn item(&self, index: usize) -> Option<&TrackElementInstance> {
+        self.items.get(index)
+    }
+
     /// Return a reference to the innermost metadata item that contains the specified index,
     /// along with a count of the total number of matching items (to handle overlapping items).
     /// # Arguments
@@ -197,7 +213,7 @@ impl TrackMetadata {
             .binary_search_by_key(&bit_index, |e| e.start)
             .unwrap_or_else(|x| x);
 
-        log::warn!("pos: {}", pos);
+        //log::debug!("pos: {}", pos);
 
         // Search backward and forward from `pos` for candidates containing `bit_index`
         let mut result: Option<(&TrackElementInstance, usize)> = None;
@@ -239,6 +255,17 @@ impl TrackMetadata {
         sector_ct
     }
 
+    pub fn markers(&self) -> Vec<TrackElementInstance> {
+        let mut markers = Vec::new();
+        for item in &self.items {
+            if item.element.is_sector_data_marker() {
+                markers.push(*item);
+            }
+        }
+        markers
+    }
+
+    /// Return a vector of [SectorMapEntry]s representing the sectors contained in the metadata
     pub fn sector_list(&self) -> Vec<SectorMapEntry> {
         let mut sector_list = Vec::new();
 
@@ -357,7 +384,7 @@ impl TrackMetadata {
     /// Primarily used as helper for disk visualization.
     /// # Returns
     /// A vector of tuples containing the start and end bit indices of sector data.
-    pub fn data_ranges(&self) -> Vec<(usize, usize)> {
+    pub fn data_ranges(&self) -> Vec<Range<usize>> {
         let mut data_ranges = Vec::new();
 
         for instance in &self.items {
@@ -365,11 +392,11 @@ impl TrackMetadata {
                 TrackElement::System34(System34Element::SectorData { .. }) => {
                     // Should the data range for a sector include the address mark?
                     // For now we will exclude it.
-                    data_ranges.push((instance.start + (4 * MFM_BYTE_LEN), instance.end));
+                    data_ranges.push(Range::from(instance.start + (4 * MFM_BYTE_LEN)..instance.end));
                 }
                 #[cfg(feature = "amiga")]
                 TrackElement::Amiga(AmigaElement::SectorData { .. }) => {
-                    data_ranges.push((instance.start, instance.end));
+                    data_ranges.push(Range::from(instance.start..instance.end));
                 }
                 _ => {}
             }
@@ -378,12 +405,24 @@ impl TrackMetadata {
         data_ranges
     }
 
-    pub fn marker_ranges(&self) -> Vec<(usize, usize)> {
-        let mut marker_ranges = Vec::new();
+    pub fn header_ranges(&self) -> Vec<Range<usize>> {
+        let mut header_ranges: Vec<Range<usize>> = Vec::new();
+
+        for item in &self.items {
+            if item.element.is_sector_header() {
+                header_ranges.push(Range::from(item.start..item.end));
+            }
+        }
+
+        header_ranges
+    }
+
+    pub fn marker_ranges(&self) -> Vec<Range<usize>> {
+        let mut marker_ranges: Vec<Range<usize>> = Vec::new();
 
         for item in &self.items {
             if let TrackElement::System34(System34Element::Marker { .. }) = item.element {
-                marker_ranges.push((item.start, item.end));
+                marker_ranges.push(Range::from(item.start..item.end));
             }
         }
 
@@ -407,11 +446,17 @@ pub struct TrackElementInstance {
     pub(crate) start: usize,
     pub(crate) end: usize,
     pub(crate) chsn: Option<DiskChsn>,
+    // A flag indicating that this element belongs to the last sector on the track
+    pub(crate) last_sector: bool,
 }
 
 impl TrackElementInstance {
     pub fn contains(&self, bit_index: usize) -> bool {
         self.start <= bit_index && self.end >= bit_index
+    }
+
+    pub fn range(&self) -> Range<usize> {
+        self.start..self.end
     }
 
     pub fn len(&self) -> usize {
@@ -458,6 +503,22 @@ pub enum GenericTrackElement {
     SectorBadDeletedData,
 }
 
+impl Display for GenericTrackElement {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        use GenericTrackElement::*;
+        match self {
+            NullElement => write!(f, "Null"),
+            Marker => write!(f, "Marker"),
+            SectorHeader => write!(f, "Sector Header"),
+            SectorBadHeader => write!(f, "Sector Header (Bad)"),
+            SectorData => write!(f, "Sector Data"),
+            SectorDeletedData => write!(f, "Deleted Sector Data"),
+            SectorBadData => write!(f, "Sector Data (Bad)"),
+            SectorBadDeletedData => write!(f, "Deleted Sector Data (Bad)"),
+        }
+    }
+}
+
 /// A [TrackElement] encompasses the concept of a track 'element', representing any notable region
 /// of the track such as markers, headers, sector data, syncs and gaps. [TrackElement]s may overlap
 /// and be nested within each other.
@@ -487,6 +548,15 @@ impl From<TrackElement> for GenericTrackElement {
 }
 
 impl TrackElement {
+    pub fn is_marker(&self) -> bool {
+        match self {
+            TrackElement::System34(System34Element::Marker { .. }) => true,
+            #[cfg(feature = "amiga")]
+            TrackElement::Amiga(AmigaElement::Marker { .. }) => true,
+            _ => false,
+        }
+    }
+
     pub fn is_sector_header(&self) -> bool {
         matches!(self, TrackElement::System34(System34Element::SectorHeader { .. }))
     }
@@ -509,6 +579,10 @@ impl TrackElement {
         match self {
             TrackElement::System34(System34Element::SectorHeader { chsn, .. }) => Some(*chsn),
             TrackElement::System34(System34Element::SectorData { chsn, .. }) => Some(*chsn),
+            #[cfg(feature = "amiga")]
+            TrackElement::Amiga(AmigaElement::SectorHeader { chsn, .. }) => Some(*chsn),
+            #[cfg(feature = "amiga")]
+            TrackElement::Amiga(AmigaElement::SectorData { chsn, .. }) => Some(*chsn),
             _ => None,
         }
     }
@@ -651,7 +725,8 @@ pub(crate) trait TrackSchemaParser: Send + Sync {
     fn encode_element(
         &self,
         stream: &mut TrackDataStream,
-        item: &TrackElementInstance,
+        item: &mut TrackElementInstance,
+        offset: usize,
         scope: RwScope,
         buf: &[u8],
     ) -> usize;

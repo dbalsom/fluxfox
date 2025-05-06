@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -24,13 +24,18 @@
 
     --------------------------------------------------------------------------
 */
-use crate::{app::Tool, lock::TrackingLock};
-use fluxfox::prelude::*;
-use fluxfox_egui::{
-    widgets::{data_table::DataTableWidget, error_banner::ErrorBanner},
-    SectorSelection,
+
+use fluxfox::{
+    prelude::*,
+    types::{IntegrityCheck, IntegrityField, ReadSectorResult},
 };
-use std::sync::{Arc, RwLock};
+use fluxfox_egui::{
+    controls::{data_table::DataTableWidget, error_banner::ErrorBanner},
+    tracking_lock::TrackingLock,
+    widgets::{chs::ChsWidget, pill::PillWidget},
+    SectorSelection,
+    UiLockContext,
+};
 
 #[derive(Default)]
 pub struct SectorViewer {
@@ -41,6 +46,7 @@ pub struct SectorViewer {
     open: bool,
     valid: bool,
     error_string: Option<String>,
+    read_result: Option<ReadSectorResult>,
 }
 
 impl SectorViewer {
@@ -54,11 +60,12 @@ impl SectorViewer {
             open: false,
             valid: false,
             error_string: None,
+            read_result: None,
         }
     }
 
     pub fn update(&mut self, disk_lock: TrackingLock<DiskImage>, selection: SectorSelection) {
-        match disk_lock.write(Tool::SectorViewer) {
+        match disk_lock.write(UiLockContext::SectorViewer) {
             Ok(mut disk) => {
                 self.phys_ch = selection.phys_ch;
                 let query = SectorIdQuery::new(
@@ -69,7 +76,7 @@ impl SectorViewer {
                 );
 
                 log::debug!("Reading sector: {:?}", query);
-                let rsr = match disk.read_sector(self.phys_ch, query, None, None, RwScope::DataOnly, false) {
+                let rsr = match disk.read_sector(self.phys_ch, query, None, None, RwScope::DataOnly, true) {
                     Ok(rsr) => rsr,
                     Err(e) => {
                         log::error!("Error reading sector: {:?}", e);
@@ -78,6 +85,8 @@ impl SectorViewer {
                         return;
                     }
                 };
+
+                self.read_result = Some(rsr.clone());
 
                 if rsr.not_found {
                     self.error_string = Some(format!("Sector {} not found", selection.sector_id));
@@ -119,9 +128,70 @@ impl SectorViewer {
                 if let Some(error_string) = &self.error_string {
                     ErrorBanner::new(error_string).small().show(ui);
                 }
-                ui.label(format!("Physical Track: {}", self.phys_ch));
-                ui.label(format!("Sector ID: {}", self.sector_id));
+                egui::Grid::new("sector_viewer_grid").show(ui, |ui| {
+                    ui.label("Physical Track:");
+                    ui.add(ChsWidget::from_ch(self.phys_ch));
+                    ui.end_row();
 
+                    ui.label("Sector ID:");
+                    ui.add(ChsWidget::from_chsn(self.sector_id));
+                    ui.end_row();
+
+                    if let Some(rsr) = &self.read_result {
+                        ui.label("Sector Size:");
+                        ui.label(format!("{} bytes", rsr.data_range.len()));
+                        ui.end_row();
+
+                        if let Some(check) = rsr.data_crc {
+                            let (valid, recorded, calculated) = match check {
+                                IntegrityCheck::Crc16(IntegrityField {
+                                    valid,
+                                    recorded,
+                                    calculated,
+                                }) => {
+                                    ui.label("CRC16:");
+                                    (valid, recorded, calculated)
+                                }
+                                IntegrityCheck::Checksum16(IntegrityField {
+                                    valid,
+                                    recorded,
+                                    calculated,
+                                }) => {
+                                    ui.label("Checksum16:");
+                                    (valid, recorded, calculated)
+                                }
+                            };
+
+                            if let Some(recorded_val) = recorded {
+                                ui.label("Recorded:");
+                                ui.add(PillWidget::new(&format!("{:04X}", recorded_val)).with_fill(if valid {
+                                    egui::Color32::DARK_GREEN
+                                }
+                                else {
+                                    egui::Color32::DARK_RED
+                                }));
+                            }
+                            else {
+                                ui.add(
+                                    PillWidget::new(if valid { "Valid" } else { "Invalid" }).with_fill(if valid {
+                                        egui::Color32::DARK_GREEN
+                                    }
+                                    else {
+                                        egui::Color32::DARK_RED
+                                    }),
+                                );
+                            }
+
+                            ui.end_row();
+                            ui.label("");
+                            ui.label("Calculated:");
+                            ui.label(format!("{:04X}", calculated));
+                            ui.end_row();
+                        }
+                    }
+                });
+
+                ui.separator();
                 self.table.show(ui);
             });
         });

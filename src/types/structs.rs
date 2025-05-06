@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -85,7 +85,7 @@ pub struct SectorMapEntry {
 }
 
 /// A DiskConsistency structure maintains information about the consistency of a disk image.
-#[derive(Default)]
+#[derive(Default, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DiskAnalysis {
     // A field to hold image format capability flags that this image requires in order to be represented.
@@ -189,9 +189,9 @@ impl Default for ScanSectorResult {
 /// check performed.
 #[derive(Copy, Clone, Debug)]
 pub struct IntegrityField<T> {
-    valid: bool,
-    recorded: Option<T>,
-    calculated: T,
+    pub valid: bool,
+    pub recorded: Option<T>,
+    pub calculated: T,
 }
 
 impl<T: PartialEq> From<(T, T)> for IntegrityField<T> {
@@ -279,15 +279,17 @@ pub struct ReadSectorResult {
     pub data_crc_error: bool,
     /// The CRC values for the sector data, if available.
     pub data_crc: Option<IntegrityCheck>,
-    /// Whether the specified sector ID was not matched, but a sector ID with a different cylinder
-    /// specifier was found.
+    /// Set when a sector ID with an unexpected specifier was encountered when searching for the
+    /// specified sector ID.
     pub wrong_cylinder: bool,
-    /// Whether the specified sector ID was not matched, but a sector ID with a bad cylinder
-    /// specifier was found.
+    /// Set when a sector ID with a bad cylinder specifier was encountered when searching for the
+    /// specified sector ID.
     pub bad_cylinder: bool,
-    /// Whether the specified sector ID was not matched, but a sector ID with a different head
-    /// specifier was found.
+    /// Set when a sector ID with an unexpected head specifier was encountered when searching for
+    /// the specified sector ID.
     pub wrong_head: bool,
+    /// Whether the sector read was the last sector on the track.
+    pub last_sector: bool,
     /// The index of the start of sector data within `read_buf`.
     pub data_range: Range<usize>,
     /// The data read for the sector, potentially including address mark and CRC bytes.
@@ -309,6 +311,7 @@ impl Default for ReadSectorResult {
             wrong_cylinder: false,
             bad_cylinder: false,
             wrong_head: false,
+            last_sector: false,
             data_range: 0..0,
             read_buf: Vec::new(),
         }

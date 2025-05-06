@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -44,6 +44,7 @@ use crate::{
     tree_map::{FoxTreeCursor, FoxTreeMap},
     FoxHashSet,
 };
+use dyn_clone::DynClone;
 use std::{
     any::Any,
     fmt::{Debug, Display},
@@ -91,6 +92,7 @@ impl Repr {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Scalar {
     U8(u8),
+    U16(u16),
     U32(u32),
     String(String),
 }
@@ -100,6 +102,7 @@ impl Scalar {
         use Scalar::*;
         match self {
             U8(v) => *v as u64,
+            U16(v) => *v as u64,
             U32(v) => *v as u64,
             String(_) => 0,
         }
@@ -195,27 +198,6 @@ impl SourceValue {
     }
     // Generators
 
-    /// Create a u32 value with the defaults.
-    #[inline]
-    pub fn u32(value: u32) -> Self {
-        Self::u32_base(value, Repr::default(), ValueState::Good, "")
-    }
-    /// Create a u32 with hexadecimal representation.
-    #[inline]
-    pub fn hex_u32(value: u32) -> Self {
-        Self::u32_base(value, Repr::Hex(8), ValueState::Good, "")
-    }
-    /// Base function for creating a u32 value with different parameters. Usually not called
-    /// directly.
-    pub fn u32_base(value: u32, repr: Repr, state: ValueState, tip: &str) -> Self {
-        SourceValue {
-            scalar: Some(Scalar::U32(value)),
-            repr,
-            tip: (!tip.is_empty()).then_some(tip.to_string()),
-            state,
-            comment: None,
-        }
-    }
     /// Create a u8 value with the defaults.
     #[inline]
     pub fn u8(value: u8) -> Self {
@@ -237,6 +219,51 @@ impl SourceValue {
             comment: None,
         }
     }
+
+    /// Create a u16 value with the defaults.
+    #[inline]
+    pub fn u16(value: u16) -> Self {
+        Self::u16_base(value, Repr::default(), ValueState::Good, "")
+    }
+    /// Create a u16 with hexadecimal representation.
+    #[inline]
+    pub fn hex_u16(value: u16) -> Self {
+        Self::u16_base(value, Repr::Hex(8), ValueState::Good, "")
+    }
+    /// Base function for creating a u16 value with different parameters. Usually not called
+    /// directly.
+    pub fn u16_base(value: u16, repr: Repr, state: ValueState, tip: &str) -> Self {
+        SourceValue {
+            scalar: Some(Scalar::U16(value)),
+            repr,
+            tip: (!tip.is_empty()).then_some(tip.to_string()),
+            state,
+            comment: None,
+        }
+    }
+
+    /// Create a u32 value with the defaults.
+    #[inline]
+    pub fn u32(value: u32) -> Self {
+        Self::u32_base(value, Repr::default(), ValueState::Good, "")
+    }
+    /// Create a u32 with hexadecimal representation.
+    #[inline]
+    pub fn hex_u32(value: u32) -> Self {
+        Self::u32_base(value, Repr::Hex(8), ValueState::Good, "")
+    }
+    /// Base function for creating a u32 value with different parameters. Usually not called
+    /// directly.
+    pub fn u32_base(value: u32, repr: Repr, state: ValueState, tip: &str) -> Self {
+        SourceValue {
+            scalar: Some(Scalar::U32(value)),
+            repr,
+            tip: (!tip.is_empty()).then_some(tip.to_string()),
+            state,
+            comment: None,
+        }
+    }
+
     /// Create a String scalar value with the defaults.
     pub fn string(value: &str) -> Self {
         SourceValue {
@@ -375,16 +402,17 @@ impl Debug for SourceMap {
     }
 }
 
+dyn_clone::clone_trait_object!(OptionalSourceMap);
+
 /// A trait for a source map that can be optionally created by a parser.
 /// We can create a null source map that does nothing, to avoid having a lot of conditional code
 /// in our parsers.
-pub trait OptionalSourceMap: Any + Send + Sync {
+pub trait OptionalSourceMap: Any + Send + Sync + DynClone {
     fn as_any(&self) -> &dyn Any;
     fn as_some(&self) -> Option<&SourceMap>;
     fn add_child(&mut self, parent: usize, name: &str, data: SourceValue) -> FoxTreeCursor<SourceValue>;
     fn debug_tree(&self);
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-
     fn last_node(&mut self) -> FoxTreeCursor<SourceValue>;
 }
 
@@ -418,6 +446,7 @@ impl OptionalSourceMap for SourceMap {
 }
 
 // Null implementation of SourceMap that does nothing
+#[derive(Clone)]
 pub struct NullSourceMap {
     tree: FoxTreeMap<SourceValue>,
 }

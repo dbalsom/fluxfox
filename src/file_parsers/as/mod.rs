@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -39,3 +39,5 @@ pub(crate) mod crc;
 pub(crate) mod flux;
 #[cfg(feature = "moof")]
 pub(crate) mod moof;
+#[cfg(feature = "woz")]
+pub(crate) mod woz;

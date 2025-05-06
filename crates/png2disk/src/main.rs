@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -135,6 +135,7 @@ fn main() {
         pin_last_standard_track: false,
         track_gap: 0.0,
         direction: TurningDirection::Clockwise,
+        ..CommonVizParams::default()
     };
 
     let mut data_params = RenderTrackDataParams {

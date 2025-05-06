@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -25,21 +25,8 @@
     --------------------------------------------------------------------------
 */
 
-pub mod boot_sector;
-pub mod data_table;
-pub mod data_visualizer;
-pub mod dir_tree;
-pub mod disk_info;
-pub mod disk_visualizer;
-pub mod error_banner;
-pub mod file_list;
-pub mod filesystem;
-pub mod header_group;
-pub mod path_selection;
-pub mod sector_status;
-pub mod source_map;
-pub mod tab_group;
-pub mod texture;
-pub mod track_list;
-#[cfg(feature = "egui_plot")]
-pub mod track_timing_chart;
+//! Module defining custom widgets. A widget is a control that implements the `Widget` trait
+//! and is designed to be added to a `ui` via `ui.add()`.
+
+pub mod chs;
+pub mod pill;

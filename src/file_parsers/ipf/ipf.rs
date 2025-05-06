@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -166,7 +166,7 @@ impl IpfParser {
         while let Ok(chunk) = Self::read_chunk(&mut reader) {
             match chunk.chunk_type {
                 Some(IpfChunkType::Info) => {
-                    let info_record: InfoRecord = chunk.into_inner::<InfoRecord>()?;
+                    let info_record: InfoRecord = chunk.into_inner()?;
                     info_record.write_to_map(disk_image.source_map_mut(), 0);
                     log::debug!("InfoRecord: {:#?}", info_record);
                     log::debug!(

@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -300,7 +300,31 @@ mod tests {
 
         // Access beyond wrap point should wrap around to the beginning
         for i in 0..16 {
+            if i == 8 {
+                assert_eq![ring[i], true]
+            }
             assert_eq!(ring[i], bits[i % 8]);
+        }
+    }
+
+    #[test]
+    fn test_wrap_behavior2() {
+        // Test wrapping behavior with no wrap_value set
+        let bits = BitVec::from_bytes(&[0b1111_1111, 0b0000_0000]); // 16 bits
+        let mut ring = BitRing::from(bits.clone());
+
+        // Set wrap point at 16 (length of BitVec)
+        ring.set_wrap(16);
+
+        // Access beyond wrap point should wrap around to the beginning
+        for i in 0..32 {
+            if i == 15 {
+                assert_eq![ring[i], false]
+            }
+            if i == 16 {
+                assert_eq![ring[i], true]
+            }
+            assert_eq!(ring[i], bits[i % 16]);
         }
     }
 

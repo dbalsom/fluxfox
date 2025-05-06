@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -599,11 +599,11 @@ impl Track for MetaSectorTrack {
         }
     }
 
-    fn read(&mut self, _overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
+    fn read(&self, _offset: Option<isize>, _overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 
-    fn read_raw(&mut self, _overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
+    fn read_raw(&self, _overdump: Option<usize>) -> Result<ReadTrackResult, DiskImageError> {
         Err(DiskImageError::UnsupportedFormat)
     }
 

@@ -2,7 +2,7 @@
     FluxFox
     https://github.com/dbalsom/fluxfox
 
-    Copyright 2024 Daniel Balsom
+    Copyright 2024-2025 Daniel Balsom
 
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the “Software”),
@@ -36,3 +36,5 @@ pub use tiny_skia;
 
 pub const DEFAULT_DATA_SLICES: usize = 1440;
 pub const DEFAULT_VIEW_BOX: f32 = 512.0;
+
+pub use styles::vizcolor_to_color;
