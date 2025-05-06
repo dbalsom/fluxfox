@@ -25,26 +25,9 @@
     --------------------------------------------------------------------------
 */
 
-use std::thread::JoinHandle;
-
-use anyhow::Error;
-use fluxfox_egui::RenderCallback;
-
-#[derive(Default)]
-pub struct PlatformRenderCallback {}
-
-impl RenderCallback for PlatformRenderCallback {
-    fn spawn(&self, f: Box<dyn FnOnce() + Send + 'static>) {
-        std::thread::spawn(move || {
-            f();
-        });
-    }
-}
-
-pub(crate) fn spawn_closure_worker<F, T>(f: F) -> Result<JoinHandle<T>, Error>
-where
-    F: FnOnce() -> T + Send + 'static,
-    T: Send + 'static,
-{
-    Ok(std::thread::spawn(f))
+/// The [RenderCallback] trait allows the consumer of `fluxfox_egui` to provide
+/// multithreading facilities for rendering the disk visualization in the background
+/// without relying on any specific threading implementation.
+pub trait RenderCallback: Send + Sync + 'static {
+    fn spawn(&self, f: Box<dyn FnOnce() + Send + 'static>);
 }

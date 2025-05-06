@@ -56,14 +56,16 @@ use std::{
     sync::{mpsc, Arc},
 };
 
-#[cfg(not(target_arch = "wasm32"))]
-pub const APP_NAME: &str = "fluxfox-egui";
-#[cfg(not(target_arch = "wasm32"))]
-use crate::native::worker;
-#[cfg(target_arch = "wasm32")]
-use crate::wasm::worker;
 #[cfg(target_arch = "wasm32")]
 pub const APP_NAME: &str = "fluxfox-web";
+#[cfg(not(target_arch = "wasm32"))]
+pub const APP_NAME: &str = "fluxfox-egui";
+
+#[cfg(target_arch = "wasm32")]
+use crate::wasm::worker::{self, PlatformRenderCallback};
+
+#[cfg(not(target_arch = "wasm32"))]
+use crate::native::worker::{self, PlatformRenderCallback};
 
 use crate::{
     widgets::{filename::FilenameWidget, hello::HelloWidget},
@@ -489,11 +491,13 @@ impl App {
             app_state.p_state = eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
         }
 
+        let render_callback = Arc::new(PlatformRenderCallback::default());
+
         // Initialize the visualization viewer
         app_state
             .windows
             .viz_viewer
-            .init(cc.egui_ctx.clone(), 512, app_state.tool_sender.clone());
+            .init(cc.egui_ctx.clone(), 512, app_state.tool_sender.clone(), render_callback);
 
         egui_extras::install_image_loaders(&cc.egui_ctx);
         // Set dark mode. This doesn't seem to work for some reason.
