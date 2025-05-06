@@ -53,7 +53,7 @@ pub fn list_files(path: impl AsRef<Path>, recursive: bool) -> Result<Vec<String>
     let mut files = Vec::new();
     let mut visited_dirs = FoxHashSet::new();
 
-    let base_path = path.to_string_lossy().to_string();
+    //let base_path = path.to_string_lossy().to_string();
 
     if recursive {
         list_files_recursive(dir, &mut files, &mut visited_dirs)?;

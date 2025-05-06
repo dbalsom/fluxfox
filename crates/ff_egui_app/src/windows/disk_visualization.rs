@@ -54,9 +54,8 @@ pub struct VisualizationViewer {
 
 impl VisualizationViewer {
     pub fn new() -> Self {
-        let mut viz = DiskVisualization::default();
         Self {
-            viz,
+            viz: DiskVisualization::default(),
             open: false,
             show_data_layer: true,
             show_metadata_layer: true,

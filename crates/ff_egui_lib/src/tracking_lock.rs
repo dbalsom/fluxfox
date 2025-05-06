@@ -28,7 +28,6 @@
 //! The tracking_lock module defines a [TrackingLock] that tracks lock usage by [Tool].
 
 use crate::UiLockContext;
-use egui::Ui;
 use fluxfox::{
     disk_lock::{DiskLock, LockContext, NonTrackingDiskLock},
     DiskImage,
