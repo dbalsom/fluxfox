@@ -41,7 +41,7 @@ use fluxfox::{prelude::*, track::TrackInfo};
 pub const TRACK_ENTRY_WIDTH_DEFAULT: f32 = 480.0;
 pub const SECTOR_STATUS_WRAP_DEFAULT: usize = 18;
 
-#[derive(PartialEq, Default)]
+#[derive(Copy, Clone, Debug, PartialEq, Default)]
 pub enum HeadFilter {
     Zero,
     One,
@@ -59,6 +59,7 @@ impl HeadFilter {
     }
 }
 
+#[derive(Clone)]
 struct TrackListItem {
     ch: DiskCh,
     info: TrackInfo,
@@ -172,6 +173,7 @@ impl TrackListControlBuilder {
 /// The user can optionally click on a sector status icon to generate a sector selection event.
 ///
 /// A [TrackListControl] must be built with [TrackListControlBuilder].
+#[derive(Clone)]
 pub struct TrackListControl {
     heads: u8,
     head_filter: HeadFilter,
