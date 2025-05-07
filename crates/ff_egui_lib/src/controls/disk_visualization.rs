@@ -43,6 +43,7 @@ use crate::{
     RenderCallback,
     SaveFileCallbackFn,
     SectorSelection,
+    SelectionSource,
     TrackListSelection,
     UiError,
     UiEvent,
@@ -839,12 +840,14 @@ impl DiskVisualization {
                                     // Send the selection event to the main app
                                     if let Some(sender) = context.ui_sender {
                                         if let Some(chsn) = selection.element_chsn {
-                                            let event =
-                                                UiEvent::SelectionChange(TrackListSelection::Sector(SectorSelection {
+                                            let event = UiEvent::SelectionChange(
+                                                TrackListSelection::Sector(SectorSelection {
                                                     phys_ch:    DiskCh::new(selection.c, selection.side),
                                                     sector_id:  chsn,
                                                     bit_offset: Some(selection.bitcell_idx),
-                                                }));
+                                                }),
+                                                SelectionSource::DiskVisualization,
+                                            );
 
                                             _ = sender.send(event);
                                         }

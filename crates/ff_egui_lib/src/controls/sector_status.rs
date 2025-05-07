@@ -41,13 +41,13 @@ const COLOR_BAD_HEADER: Color32 = Color32::RED;
 const COLOR_NO_DAM: Color32 = Color32::GRAY;
 
 /// Simple color swatch widget. Used for palette register display.
-pub fn sector_status(ui: &mut Ui, entry: &SectorMapEntry, open: bool) -> Response {
+pub fn sector_status(ui: &mut Ui, entry: &SectorMapEntry, open: bool, clickable: bool) -> Response {
     let size = ui.spacing().interact_size;
     let size = Vec2 { x: size.y, y: size.y }; // Make square
     let (rect, response) = ui.allocate_exact_size(
         size,
         Sense {
-            click: true,
+            click: clickable,
             drag: false,
             focusable: false,
         },
@@ -100,7 +100,9 @@ pub fn sector_status(ui: &mut Ui, entry: &SectorMapEntry, open: bool) -> Respons
             response.id.with("sector_attributes_tooltip"),
             |ui| {
                 ui.vertical(|ui| {
-                    ui.label(RichText::new("Click square to view sector").italics());
+                    if clickable {
+                        ui.label(RichText::new("Click square to view sector").italics());
+                    }
                     Grid::new("popup_sector_attributes_grid").show(ui, |ui| {
                         ui.label("ID");
                         ui.add(ChsWidget::from_chsn(entry.chsn));

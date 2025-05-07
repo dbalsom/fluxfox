@@ -41,6 +41,7 @@ use fluxfox_egui::{
         header_group::{HeaderFn, HeaderGroup},
     },
     SectorSelection,
+    SelectionSource,
     TrackListSelection,
     TrackSelection,
     TrackSelectionScope,
@@ -80,7 +81,11 @@ use crate::{
         track_viewer::TrackViewer,
     },
 };
-use fluxfox_egui::{controls::track_list::TrackListWidget, tracking_lock::TrackingLock};
+
+use fluxfox_egui::{
+    controls::track_list::{TrackListControl, TrackListControlBuilder},
+    tracking_lock::TrackingLock,
+};
 
 pub const DEMO_IMAGE: &[u8] = include_bytes!("../../../resources/demo.imz");
 /// The number of selection slots available for disk images.
@@ -171,18 +176,24 @@ pub struct AppWidgets {
     hello: HelloWidget,
     disk_info: DiskInfoWidget,
     boot_sector: BootSectorWidget,
-    track_list: TrackListWidget,
+    track_list: TrackListControl,
     file_system: FileSystemWidget,
     filename: FilenameWidget,
 }
 
 impl AppWidgets {
     pub fn new(_ui_sender: mpsc::SyncSender<UiEvent>) -> Self {
+        let track_list_control = TrackListControlBuilder::default()
+            .with_track_menu(true)
+            .with_header_text(true)
+            .with_view_sectors(true)
+            .build();
+
         Self {
             hello: HelloWidget::default(),
             disk_info: DiskInfoWidget::default(),
             boot_sector: BootSectorWidget::default(),
-            track_list: TrackListWidget::default(),
+            track_list: track_list_control,
             file_system: FileSystemWidget::default(),
             filename: FilenameWidget::default(),
         }
@@ -222,10 +233,16 @@ impl AppWidgets {
     }
 
     pub fn reset(&mut self) {
+        let track_list_control = TrackListControlBuilder::default()
+            .with_track_menu(true)
+            .with_header_text(true)
+            .with_view_sectors(true)
+            .build();
+
         self.filename = FilenameWidget::default();
         self.disk_info = DiskInfoWidget::default();
         self.boot_sector = BootSectorWidget::default();
-        self.track_list = TrackListWidget::default();
+        self.track_list = track_list_control;
         self.file_system = FileSystemWidget::default();
     }
 }
@@ -296,7 +313,7 @@ pub enum AppEvent {
     ResetDisk,
     /// A DiskImage has been successfully loaded into the specified slot index.
     ImageLoaded(usize),
-    SectorSelected(SectorSelection),
+    SectorSelected(SectorSelection, SelectionSource),
     TrackSelected(TrackSelection),
     TrackElementsSelected(TrackSelection),
     TrackTimingsSelected(TrackSelection),
@@ -785,11 +802,14 @@ impl App {
                         self.widgets.hello.set_small(true);
                     }
                 }
-                AppEvent::SectorSelected(selection) => {
+                AppEvent::SectorSelected(selection, source) => {
                     if let Some(disk) = self.selected_disk() {
                         self.windows.sector_viewer.update(disk.clone(), selection.clone());
+                        // Don't scroll the track list viewer if the track list made the selection.
+                        if !matches!(source, SelectionSource::TrackListViewer) {
+                            self.widgets.track_list.scroll_to(selection.ch());
+                        }
                         self.sector_selection = Some(selection);
-
                         self.windows.sector_viewer.set_open(true);
                     }
                 }
@@ -861,13 +881,13 @@ impl App {
         while keep_polling {
             match self.tool_receiver.try_recv() {
                 Ok(event) => match event {
-                    UiEvent::SelectionChange(selection) => match selection {
+                    UiEvent::SelectionChange(selection, source) => match selection {
                         TrackListSelection::Track(track) => {
                             self.events.push_back(AppEvent::TrackSelected(track));
                         }
                         TrackListSelection::Sector(sector) => {
                             log::warn!("handle_ui_events(): Sector selected: {:?}", sector);
-                            self.events.push_back(AppEvent::SectorSelected(sector));
+                            self.events.push_back(AppEvent::SectorSelected(sector, source));
                         }
                     },
                     _ => {
@@ -900,7 +920,8 @@ impl App {
                             _ => log::warn!("Unsupported TrackSelectionScope: {:?}", track.sel_scope),
                         },
                         TrackListSelection::Sector(sector) => {
-                            self.events.push_back(AppEvent::SectorSelected(sector));
+                            self.events
+                                .push_back(AppEvent::SectorSelected(sector, SelectionSource::TrackListViewer));
                         }
                     }
                 }

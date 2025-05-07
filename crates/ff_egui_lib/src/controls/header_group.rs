@@ -61,7 +61,7 @@ impl HeaderGroup {
         ui: &mut egui::Ui,
         body_content: impl FnOnce(&mut egui::Ui),
         header_content: Option<impl FnOnce(&mut egui::Ui, RichText)>,
-    ) {
+    ) -> egui::Response {
         // Add some margin space for the group
         let margin = ui.style().spacing.window_margin;
 
@@ -146,5 +146,7 @@ impl HeaderGroup {
             let rounding = Rounding::same(6.0); // Overall group rounding
             painter.rect_stroke(group_rect, rounding, stroke);
         }
+
+        response.response
     }
 }
