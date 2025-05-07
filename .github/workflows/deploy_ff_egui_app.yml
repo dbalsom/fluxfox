@@ -76,6 +76,14 @@ jobs:
           [ -f dist/index.html ] && echo "Found index.html" || echo "index.html missing"
           [ -f dist/ff_egui_app_bg.wasm ] && echo "Found ff_egui_app_bg.wasm" || echo "ff_egui_app_bg.wasm missing"
 
+      - name: Upload to Cloudflare Pages
+        uses: cloudflare/pages-action@1
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          projectName: fluxfox
+          directory: crates/ff_egui_app/dist/
+
       - name: Upload static files as artifact
         id: deployment
         uses: actions/upload-pages-artifact@v3
