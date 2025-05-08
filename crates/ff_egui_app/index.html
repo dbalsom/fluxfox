@@ -17,18 +17,12 @@
     <link data-trunk rel="icon" href="assets/favicon.ico">
 
     <link data-trunk rel="copy-file" href="assets/coi-serviceworker.js"/>
-    <link data-trunk rel="copy-file" href="assets/sw.js"/>
     <link data-trunk rel="copy-file" href="assets/base_url.js"/>
     <link data-trunk rel="copy-file" href="assets/worker.js"/>
     <link data-trunk rel="copy-file" href="assets/load_worker.js"/>
-    <link data-trunk rel="copy-file" href="assets/manifest.json" data-target-path="assets"/>
     <link data-trunk rel="copy-file" href="assets/fluxfox_logo.png" data-target-path="assets"/>
-    <link data-trunk rel="copy-file" href="assets/icon-1024.png" data-target-path="assets"/>
-    <link data-trunk rel="copy-file" href="assets/icon-256.png" data-target-path="assets"/>
     <link data-trunk rel="copy-file" href="assets/icon_ios_touch_192.png" data-target-path="assets"/>
-    <link data-trunk rel="copy-file" href="assets/maskable_icon_x512.png" data-target-path="assets"/>
 
-    <link rel="manifest" href="assets/manifest.json">
     <link rel="apple-touch-icon" href="assets/icon_ios_touch_192.png">
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="white">
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#404040">
@@ -137,16 +131,64 @@
 <!--COI Service Worker. this will reload the page and set the appropriate COI headers -->
 <script src="coi-serviceworker.js"></script>
 
-<!--Register Service Worker. this will cache the wasm / js scripts for offline use (for PWA functionality). -->
-<!-- Force refresh (Ctrl + F5) to load the latest files instead of cached files  -->
 <script>
-    // We disable caching during development so that we always view the latest version.
-    if ('serviceWorker' in navigator && window.location.hash !== "#dev") {
-        window.addEventListener('load', function () {
-            navigator.serviceWorker.register('sw.js');
-        });
-    }
+    (async () => {
+        if (!('serviceWorker' in navigator)) return;
+
+        const needsReload = sessionStorage.getItem('coi-needs-reload');
+        sessionStorage.removeItem('coi-needs-reload');
+
+        if (self.crossOriginIsolated) return; // already good
+
+        try {
+            const reg = await navigator.serviceWorker.register('/coi-serviceworker.js');
+
+            if (!navigator.serviceWorker.controller) {
+                navigator.serviceWorker.addEventListener("controllerchange", () => {
+                    sessionStorage.setItem("coi-needs-reload", "1");
+                    location.reload();
+                });
+                return;
+            }
+
+            // If we got here and still not crossOriginIsolated, show warning
+            if (!self.crossOriginIsolated && !needsReload) {
+                console.warn("Not crossOriginIsolated after SW registration. Showing reload prompt.");
+                showReloadOverlay();
+            }
+
+        } catch (err) {
+            console.error("SW registration failed:", err);
+            showReloadOverlay();
+        }
+
+        function showReloadOverlay() {
+            const div = document.createElement("div");
+            div.style.cssText = `
+              position: fixed;
+              top: 0; left: 0; right: 0; bottom: 0;
+              background: rgba(0, 0, 0, 0.9);
+              color: white;
+              font: 16px sans-serif;
+              z-index: 9999;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              text-align: center;
+              padding: 2em;
+            `;
+            div.innerHTML = `
+              <h2>Reload Required</h2>
+              <p>This page needs to be reloaded to enable advanced features.</p>
+              <button style="margin-top: 1em; padding: 0.5em 1em;">Reload Now</button>
+            `;
+            div.querySelector('button').onclick = () => location.reload();
+            document.body.appendChild(div);
+        }
+    })();
 </script>
+
 </body>
 
 </html>

@@ -70,7 +70,7 @@ use std::any::Any;
 
 /// A struct containing information about a track's encoding, data rate, density, RPM, bit length,
 /// and sector count.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct TrackInfo {
     /// The resolution of the track as a `TrackDataResolution` enum.
     pub resolution: TrackDataResolution,

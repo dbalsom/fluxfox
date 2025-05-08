@@ -748,7 +748,7 @@ pub fn rasterize_disk_selection(
 
     let (clip_start, clip_end) = match p.direction {
         TurningDirection::CounterClockwise => (0.0, TAU),
-        TurningDirection::Clockwise => (TAU, 0.0),
+        TurningDirection::Clockwise => (0.0, TAU),
     };
 
     for draw_markers in [false, true].iter() {
