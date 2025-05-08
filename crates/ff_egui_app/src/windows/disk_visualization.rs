@@ -86,6 +86,10 @@ impl VisualizationViewer {
         }));
     }
 
+    pub fn requests_repaint(&self) -> bool {
+        self.viz.requests_repaint()
+    }
+
     pub fn set_open(&mut self, state: bool) {
         self.open = state;
     }

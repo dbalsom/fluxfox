@@ -774,7 +774,6 @@ impl PixelCanvas {
                 }
             }
             PixelCanvasDepth::Rgba => {
-                log::debug!("PixelCanvas::unpack_pixels(): Unpacking RGBA data...");
                 for i in 0..self.view_dimensions.0 * self.view_dimensions.1 {
                     let idx = (i * 4) as usize;
                     let r = self.data_buf[idx];
