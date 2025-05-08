@@ -81,7 +81,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          command: pages deploy crates/ff_egui_app/dist/ --project-name=fluxfox
+          command: pages deploy crates/ff_egui_app/dist/
 
       - name: Upload static files as artifact
         id: deployment
