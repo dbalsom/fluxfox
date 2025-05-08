@@ -98,6 +98,7 @@ pub const DISK_SLOTS: usize = 2;
 /// Each tool has a unique identifier that can be used to track disk image locks for debugging.
 /// Each tool may correspond to one or more widgets or windows, but provides a shared pool of
 /// resources and communication channels.
+#[allow(dead_code)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Tool {
     /// App is not a tool per se, but represents locks made in the main application logic.
@@ -630,6 +631,13 @@ impl eframe::App for App {
 
         self.handle_ui_events();
         self.handle_app_events();
+
+        // Check if any of the widgets is requesting repaint (currently only the DiskVisualization viewer can)
+
+        let repaint_requested = self.windows.viz_viewer.requests_repaint();
+        if repaint_requested {
+            ctx.request_repaint();
+        }
     }
 
     /// Called by the framework to save persistent state before shutdown.

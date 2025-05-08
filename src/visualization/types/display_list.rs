@@ -63,7 +63,7 @@ impl VizElementDisplayList {
     pub fn len(&self) -> usize {
         let mut total = 0;
         for track in &self.tracks {
-            log::debug!("track.len() = {}", track.len());
+            //log::debug!("track.len() = {}", track.len());
             total += track.len()
         }
         total

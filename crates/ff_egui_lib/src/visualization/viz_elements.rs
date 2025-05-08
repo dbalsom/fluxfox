@@ -42,6 +42,11 @@ fn to_pos2_transformed(pt: &VizPoint2d<f32>, transform: &RectTransform) -> Pos2 
     transform.transform_pos(new_pt)
 }
 
+fn to_radius_transformed(radius: f32, transform: &RectTransform) -> f32 {
+    // Transform the radius by the scale of the transform.
+    radius * transform.scale().x
+}
+
 // Creates a [CubicBezierShape] from a [VizArc].
 pub fn make_arc(
     transform: &RectTransform,
@@ -203,7 +208,7 @@ pub fn paint_quadratic_arc(
 pub fn paint_circle(painter: &Painter, transform: &RectTransform, circle: &VizCircle, stroke: &Stroke) {
     painter.circle(
         to_pos2_transformed(&circle.center, transform),
-        circle.radius,
+        to_radius_transformed(circle.radius, transform),
         Color32::TRANSPARENT,
         *stroke,
     );
@@ -216,6 +221,7 @@ pub fn paint_elements(
     palette: &VizPalette,
     elements: &[VizElement],
     multiply: bool,
+    opacity: Option<u8>,
 ) {
     let stroke = PathStroke::NONE;
 
@@ -238,10 +244,11 @@ pub fn paint_elements(
         }
         false => {
             // Paint normally.
+            //log::debug!("Painting elements: {} elements", elements.len());
             for element in elements {
+                //log::debug!("painting element {:?}", element);
                 let fill_color = if element.flags.contains(VizElementFlags::HIGHLIGHT) {
-                    //log::warn!("Highlighting element: {:?}", element.info.element_type);
-                    Color32::from_white_alpha(80)
+                    Color32::from_white_alpha(opacity.unwrap_or(80))
                 }
                 else if let Some(color) = palette.get(&element.info.element_type) {
                     *color

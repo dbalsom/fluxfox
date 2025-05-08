@@ -506,6 +506,8 @@ pub enum RenderDiskSelectionType {
 pub struct RenderDiskSelectionParams {
     /// The selection type (Sector or Track)
     pub selection_type: RenderDiskSelectionType,
+    /// The type of geometry to generate for the selection
+    pub geometry: RenderGeometry,
     /// The physical cylinder and head to render
     pub ch: DiskCh,
     /// The physical sector index to render, 1-offset
@@ -519,6 +521,7 @@ impl Default for RenderDiskSelectionParams {
         Self {
             ch: DiskCh::new(0, 0),
             selection_type: RenderDiskSelectionType::default(),
+            geometry: RenderGeometry::default(),
             sector_idx: 1,
             color: VizColor::WHITE,
         }
@@ -552,6 +555,7 @@ pub struct DiskHitTestResult {
     pub display_list: Option<VizElementDisplayList>,
     pub angle: f32,
     pub bit_index: usize,
+    pub sector_index: Option<usize>,
     pub track: u16,
 }
 
