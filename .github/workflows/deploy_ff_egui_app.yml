@@ -77,12 +77,11 @@ jobs:
           [ -f dist/ff_egui_app_bg.wasm ] && echo "Found ff_egui_app_bg.wasm" || echo "ff_egui_app_bg.wasm missing"
 
       - name: Upload to Cloudflare Pages
-        uses: cloudflare/pages-action@1
+        uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          projectName: fluxfox
-          directory: crates/ff_egui_app/dist/
+          command: pages deploy crates/ff_egui_app/dist/ --project-name=fluxfox
 
       - name: Upload static files as artifact
         id: deployment
