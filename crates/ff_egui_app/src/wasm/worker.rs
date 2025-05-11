@@ -76,18 +76,3 @@ pub fn closure_worker_entry_point(ptr: u32) {
     let closure = unsafe { Box::from_raw(ptr as *mut Box<dyn FnOnce()>) };
     (*closure)();
 }
-
-// An entry point for the JavaScript worker to call back into WASM.
-#[wasm_bindgen]
-pub fn load_worker_entry_point(data: web_sys::js_sys::Uint8Array) {
-    log::debug!("In worker: received {} bytes.", data.length());
-    let rust_data: Vec<u8> = data.to_vec();
-
-    web_sys::js_sys::global()
-        .dyn_into::<web_sys::DedicatedWorkerGlobalScope>()
-        .unwrap()
-        .post_message(&JsValue::from(rust_data.len()))
-        .unwrap();
-
-    log::debug!("loading worker: completed");
-}
