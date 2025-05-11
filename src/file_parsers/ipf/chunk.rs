@@ -38,7 +38,7 @@ pub const MAXIMUM_CHUNK_SIZE: usize = 0x100000; // Set some reasonable limit for
 
 #[binrw]
 #[brw(big)]
-#[br(import(data_size_limit: u32))]
+#[br(import(data_size_limit: Option<u32>))]
 pub(crate) struct IpfChunk {
     pub id: [u8; 4],
     #[bw(ignore)]
@@ -48,10 +48,11 @@ pub(crate) struct IpfChunk {
     pub crc: u32,
     #[br(count = {
         let chunk_size = size.saturating_sub(12);
-        if data_size_limit == 0 {
+        if let Some(limit) = data_size_limit {
+            chunk_size.min(limit)
+        }
+        else {
             chunk_size
-        } else {
-            chunk_size.min(data_size_limit)
         }
     })]
     pub data: Vec<u8>,
@@ -181,8 +182,8 @@ impl IpfParser {
     pub(crate) fn read_chunk<RWS: ReadSeek>(image: &mut RWS) -> Result<IpfChunk, DiskImageError> {
         //let chunk_pos = image.stream_position()?;
 
-        //log::trace!("Reading chunk header...");
-        let chunk = IpfChunk::read_args(image, (0,))?;
+        // Read the chunk header with no data size limit (None parameter)
+        let chunk = IpfChunk::read_args(image, (None,))?;
         //log::debug!("Read chunk: {:?}", chunk);
 
         if chunk.chunk_type.is_none() {
