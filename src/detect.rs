@@ -174,6 +174,7 @@ pub fn detect_container_format<T: ReadSeek>(
 
     // Format is not an archive.
     for format in DiskImageFileFormat::iter() {
+        log::debug!("Testing format: {:?}", format);
         if format.detect(&mut *image_io) {
             // If this a Kryoflux stream file, we need to resolve the set of files it belongs to.
             if let DiskImageFileFormat::KryofluxStream = format {
