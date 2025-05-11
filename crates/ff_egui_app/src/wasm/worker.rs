@@ -69,7 +69,7 @@ pub(crate) fn spawn_closure_worker(f: impl FnOnce() + Send + 'static) -> Result<
     Ok(worker)
 }
 
-#[wasm_bindgen]
+#[wasm_bindgen(module = "/assets/worker.js")]
 pub fn closure_worker_entry_point(ptr: u32) {
     // Interpret the address we were given as a pointer to a closure to call.
     log::debug!("In closure worker!");
