@@ -37,7 +37,8 @@ members = [
     "crates/ff_egui_lib",
     "crates/fluxfox_svg",
     "examples/fat", 
-    "crates/fluxfox_svg"
+    "crates/fluxfox_svg",
+    "crates/pbm2track"
 ]
 
 # Required dependencies
