@@ -25,8 +25,7 @@
     --------------------------------------------------------------------------
 */
 
-use crate::prng::Rng;
-use crate::pbm::Pbm;
+use crate::{pbm::Pbm, prng::Rng};
 
 #[derive(Clone, Copy, Debug)]
 pub enum YMode {
@@ -63,7 +62,7 @@ pub enum SynthError {
 
 pub fn synthesize_flux_from_pbm(
     pbm: &Pbm,
-    bitcells: usize,
+    samples: usize,
     bitcell_seconds: f64,
     max_offset_seconds: f64,
     jitter_seconds: f64,
@@ -77,15 +76,14 @@ pub fn synthesize_flux_from_pbm(
     let w = pbm.width;
     let h = pbm.height;
     let mut acc: f64 = 0.0;
-    let mut flux: Vec<f64> = Vec::with_capacity(bitcells / 2);
+    let mut flux: Vec<f64> = Vec::with_capacity(samples / 2);
     let mut multi_alt: usize = 0;
 
-    for x in 0..bitcells {
-        let sx = ((x as u128) * (w as u128) / (bitcells as u128)) as usize;
+    for x in 0..samples {
+        let sx = ((x as u128) * (w as u128) / (samples as u128)) as usize;
         let sx = sx.min(w - 1);
 
-        let mut rows: Vec<usize> = Vec::new();
-        rows.reserve(h);
+        let mut rows: Vec<usize> = Vec::with_capacity(h);
         for r_from_bottom in 0..h {
             let y = (h - 1) - r_from_bottom;
             if pbm.at(sx, y) {
@@ -103,14 +101,16 @@ pub fn synthesize_flux_from_pbm(
             YMode::Alternate => {
                 let chosen = if rows.len() == 1 {
                     rows[0]
-                } else {
+                }
+                else {
                     let idx = multi_alt % rows.len();
                     multi_alt = multi_alt.wrapping_add(1);
                     rows[idx]
                 };
                 if h > 1 {
                     (chosen as f64) / ((h - 1) as f64)
-                } else {
+                }
+                else {
                     0.0
                 }
             }
@@ -119,7 +119,8 @@ pub fn synthesize_flux_from_pbm(
                 let mean = (sum as f64) / (rows.len() as f64);
                 if h > 1 {
                     mean / ((h - 1) as f64)
-                } else {
+                }
+                else {
                     0.0
                 }
             }
@@ -127,7 +128,8 @@ pub fn synthesize_flux_from_pbm(
                 let m = *rows.iter().min().unwrap();
                 if h > 1 {
                     (m as f64) / ((h - 1) as f64)
-                } else {
+                }
+                else {
                     0.0
                 }
             }
@@ -135,7 +137,8 @@ pub fn synthesize_flux_from_pbm(
                 let m = *rows.iter().max().unwrap();
                 if h > 1 {
                     (m as f64) / ((h - 1) as f64)
-                } else {
+                }
+                else {
                     0.0
                 }
             }

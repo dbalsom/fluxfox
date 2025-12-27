@@ -47,9 +47,9 @@ use regex::Regex;
 #[bpaf(options, version)]
 /// Convert a PBM (P1/P4) into a KryoFlux raw-stream file (.kfs)
 struct Cli {
-    /// Total bitcells across one full track (e.g. 100000)
-    #[bpaf(long("bitcells"), argument("N"))]
-    bitcells: usize,
+    /// Total samples across one full track (e.g. 100000)
+    #[bpaf(long("samples"), argument("N"))]
+    samples: usize,
 
     /// Nominal bitcell duration, microseconds (e.g. 4.0 for MFM)
     #[bpaf(long("bitcell-us"), argument("US"))]
@@ -124,7 +124,7 @@ fn main() {
 
     let one_rev_flux = match synthesize_flux_from_pbm(
         &pbm,
-        cli.bitcells,
+        cli.samples,
         bitcell_seconds,
         max_offset_seconds,
         jitter_seconds,
@@ -172,4 +172,8 @@ fn main() {
     }
 
     println!("OK: wrote {} bytes, {} rev(s) to {}", bytes.len(), cli.revs, cli.out);
+
+    let total_time_s: f64 = one_rev_flux.iter().sum();
+    println!("Track length: {:.4} ms", total_time_s * 1000.0);
+    println!("Total flux transitions: {}", one_rev_flux.len());
 }
