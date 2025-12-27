@@ -51,17 +51,17 @@ struct Cli {
     #[bpaf(long("samples"), argument("N"))]
     samples: usize,
 
-    /// Nominal bitcell duration, microseconds (e.g. 4.0 for MFM)
-    #[bpaf(long("bitcell-us"), argument("US"))]
-    bitcell_us: f64,
+    /// Minimum flux transition duration, microseconds
+    #[bpaf(long("min-ft"), argument("US"))]
+    min_ft_us: f64,
 
-    /// Extra delay at TOP row, microseconds (bottom row = 0)
-    #[bpaf(long("max-offset-us"), argument("US"))]
-    max_offset_us: f64,
+    /// Maximum flux transition duration, microseconds
+    #[bpaf(long("max-ft"), argument("US"))]
+    max_ft_us: f64,
 
     /// Uniform random jitter added to EACH flux (±J µs)
-    #[bpaf(long("jitter-us"), argument("US"), fallback(0.0))]
-    jitter_us: f64,
+    #[bpaf(long("jitter-us"), argument("US"))]
+    jitter_us: Option<f64>,
 
     /// RNG seed (u64)
     #[bpaf(long("seed"), argument("S"), fallback(0x00C0_FFEEu64))]
@@ -107,7 +107,6 @@ struct Cli {
 fn main() {
     let cli = cli().run();
 
-    // 1) Load PBM
     let pbm = match Pbm::load(&cli.pbm_path) {
         Ok(p) => p,
         Err(e) => {
@@ -116,16 +115,33 @@ fn main() {
         }
     };
 
-    // 2) Synthesize one-revolution flux with jitter and arbitrary vertical resolution
-    let bitcell_seconds = cli.bitcell_us * 1e-6;
-    let max_offset_seconds = cli.max_offset_us * 1e-6;
-    let jitter_seconds = cli.jitter_us * 1e-6;
+    let min_ft_seconds = cli.min_ft_us * 1e-6;
+    let max_ft_seconds = cli.max_ft_us * 1e-6;
+    let max_offset_seconds = max_ft_seconds - min_ft_seconds;
+
+    if max_offset_seconds < 0.0 {
+        eprintln!("Error: --max-ft must be >= --min-ft");
+        std::process::exit(1);
+    }
+
+    let jitter_seconds = match cli.jitter_us {
+        Some(us) => us * 1e-6,
+        None => {
+            if pbm.height > 0 {
+                max_offset_seconds / (pbm.height as f64) / 2.0
+            }
+            else {
+                0.0
+            }
+        }
+    };
+
     let mut rng = Rng::new(cli.seed);
 
     let one_rev_flux = match synthesize_flux_from_pbm(
         &pbm,
         cli.samples,
-        bitcell_seconds,
+        min_ft_seconds,
         max_offset_seconds,
         jitter_seconds,
         &mut rng,
@@ -141,7 +157,9 @@ fn main() {
     // Create encoder
     let encoder = kfx::KfxEncoder::new(cli.sck_hz, cli.ick_hz);
 
-    // 3) Encode multi-revolution stream
+    // Encode multi-revolution stream
+    // I tried using one stream just book-ended with index markers, but some tools complained
+    // Giving them three revolutions seems to appease them
     let bytes = match encoder.encode_multi_revs(&one_rev_flux, cli.revs) {
         Ok(v) => v,
         Err(e) => {
@@ -165,7 +183,6 @@ fn main() {
         std::process::exit(2);
     }
 
-    // 4) Write out
     if let Err(e) = fs::File::create(Path::new(&cli.out)).and_then(|mut f| f.write_all(&bytes)) {
         eprintln!("Write error: {e}");
         std::process::exit(6);
@@ -176,4 +193,5 @@ fn main() {
     let total_time_s: f64 = one_rev_flux.iter().sum();
     println!("Track length: {:.4} ms", total_time_s * 1000.0);
     println!("Total flux transitions: {}", one_rev_flux.len());
+    println!("Jitter: {:.4} us", jitter_seconds * 1e6);
 }

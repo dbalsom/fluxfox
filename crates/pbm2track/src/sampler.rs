@@ -63,7 +63,7 @@ pub enum SynthError {
 pub fn synthesize_flux_from_pbm(
     pbm: &Pbm,
     samples: usize,
-    bitcell_seconds: f64,
+    min_ft_seconds: f64,
     max_offset_seconds: f64,
     jitter_seconds: f64,
     rng: &mut Rng,
@@ -92,7 +92,7 @@ pub fn synthesize_flux_from_pbm(
         }
 
         if rows.is_empty() {
-            acc += bitcell_seconds;
+            acc += min_ft_seconds;
             continue;
         }
 
@@ -145,7 +145,7 @@ pub fn synthesize_flux_from_pbm(
         };
 
         let extra = row_frac * max_offset_seconds;
-        let mut delta = acc + bitcell_seconds + extra;
+        let mut delta = acc + min_ft_seconds + extra;
         acc = 0.0;
 
         if jitter_seconds > 0.0 {
