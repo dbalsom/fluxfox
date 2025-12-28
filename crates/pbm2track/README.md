@@ -127,10 +127,29 @@ make its way into the library at some point.
 We could use the rust [image](https://crates.io/crates/image) crate to support other input image file formats. Feel free
 to send a PR that does that if you feel so inclined.
 
+## Writing To Actual Floppies
+
 The tracks produced by this utility do not encode useful data - it's total gibberish, as far as a floppy disk controller
 is concerned. I make no guarantees you can actually write any of the files produced by this utility if your writing
 software/hardware doesn't like writing raw, unformatted flux nonsense.
 
+If you do want to attempt to write to a disk, I suggest setting the jitter-us parameter to 0 - the write process will
+introduce plenty of jitter on its own, and you don't really need to add any.
+
+This is currently the best result I've gotten using a GreaseWeazle 1.4:
+
+![cat_src](img/3cats_4x.png)
+![readback](img/readback_01.png)
+
+There's an interesting vertical smearing effect, and what almost seems like a 'echo' as well. Further research and
+experimentation is needed - let me know if you manage to get better results. Encoding something with this much detail
+may be difficult, but large, blocky letters should remain legible, at least, so have fun hiding text messages your
+disks.
+
 `pbm2track` is presented solely as a novelty with no guarantees of suitability for any purpose.
+
+## I don't see anything in HxC!
+
+Make sure you're in the "Stream View" not the "Track View".
 
 
