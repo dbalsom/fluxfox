@@ -1,0 +1,12 @@
+[package]
+name = "pbm2track"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+keywords.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+bpaf = { version = "0.9", features = ["derive"] }
+regex = "1"
