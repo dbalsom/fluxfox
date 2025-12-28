@@ -67,8 +67,8 @@ struct Cli {
     #[bpaf(long("seed"), argument("S"), fallback(0x00C0_FFEEu64))]
     seed: u64,
 
-    /// Vertical sampling: alternate|centroid|bottom|top
-    #[bpaf(long("y-mode"), argument("MODE"), fallback(YMode::Alternate))]
+    /// Vertical sampling: alternate|centroid|bottom|top|random
+    #[bpaf(long("y-mode"), argument("MODE"), fallback(YMode::Random))]
     y_mode: YMode,
 
     /// Output KryoFlux raw-stream file
@@ -88,11 +88,11 @@ struct Cli {
     index_seed: u32,
 
     /// Number of revolutions to export (repeat flux)
-    #[bpaf(long("revs"), argument("N"), fallback(1usize))]
+    #[bpaf(long("revs"), argument("N"), fallback(3usize))]
     revs: usize,
 
     /// KFInfo 'name'
-    #[bpaf(long("kf-name"), argument("NAME"), fallback("FluxPainter".to_string()))]
+    #[bpaf(long("kf-name"), argument("NAME"), fallback("pbm2track".to_string()))]
     kf_name: String,
 
     /// KFInfo 'version'
@@ -191,7 +191,12 @@ fn main() {
     println!("OK: wrote {} bytes, {} rev(s) to {}", bytes.len(), cli.revs, cli.out);
 
     let total_time_s: f64 = one_rev_flux.iter().sum();
-    println!("Track length: {:.4} ms", total_time_s * 1000.0);
+
+    println!(
+        "Track length: {:.4}ms ({:.2}) RPM",
+        total_time_s * 1000.0,
+        60.0 / total_time_s
+    );
     println!("Total flux transitions: {}", one_rev_flux.len());
     println!("Jitter: {:.4} us", jitter_seconds * 1e6);
 }

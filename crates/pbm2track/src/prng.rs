@@ -30,7 +30,6 @@
 pub struct Rng(u64);
 
 impl Rng {
-
     pub fn new(seed: u64) -> Self {
         Self(seed | 1)
     }

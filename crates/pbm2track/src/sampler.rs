@@ -33,6 +33,7 @@ pub enum YMode {
     Centroid,
     Bottom,
     Top,
+    Random,
 }
 
 impl std::str::FromStr for YMode {
@@ -44,8 +45,9 @@ impl std::str::FromStr for YMode {
             "centroid" => Ok(YMode::Centroid),
             "bottom" => Ok(YMode::Bottom),
             "top" => Ok(YMode::Top),
+            "random" => Ok(YMode::Random),
             other => Err(format!(
-                "unknown y-mode {other:?} (expected: alternate|centroid|bottom|top)"
+                "unknown y-mode {other:?} (expected: alternate|centroid|bottom|top|random)"
             )),
         }
     }
@@ -114,6 +116,16 @@ pub fn synthesize_flux_from_pbm(
                     0.0
                 }
             }
+            YMode::Random => {
+                let idx = (rng.next_u64() as usize) % rows.len();
+                let chosen = rows[idx];
+                if h > 1 {
+                    (chosen as f64) / ((h - 1) as f64)
+                }
+                else {
+                    0.0
+                }
+            }
             YMode::Centroid => {
                 let sum: usize = rows.iter().copied().sum();
                 let mean = (sum as f64) / (rows.len() as f64);
@@ -151,9 +163,11 @@ pub fn synthesize_flux_from_pbm(
         if jitter_seconds > 0.0 {
             let j = rng.uniform_range(-jitter_seconds, jitter_seconds);
             delta += j;
-            if delta <= 0.0 {
-                delta = 1e-9;
-            }
+        }
+
+        // Ensure delta is positive.
+        if delta <= 0.0 {
+            delta = 1e-9;
         }
         flux.push(delta);
     }
