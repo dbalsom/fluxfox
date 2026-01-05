@@ -10,16 +10,15 @@ publish = false
 [dependencies]
 bpaf = { version = "0.9", features = ["autocomplete"] }
 fluxfox = { path = "../..", features = ["viz", "tiny_skia"] }
-logger = "0.4"
 env_logger = "0.11"
-log = "0.4.22"
+log = "0.4"
 image = "0.25"
-fast_image_resize = "4.2.1"
+fast_image_resize = "4.2"
 crossbeam = "0.8.4"
 anyhow = "1.0"
 rusttype = "0.9"
 serde = { version = "1.0", features = ["derive"] }
-toml = "0.8.19"
+toml = "0.8"
 
 fluxfox_svg = { path = "../../crates/fluxfox_svg", optional = true }
 fluxfox_tiny_skia = { path = "../../crates/fluxfox_tiny_skia", optional = true }

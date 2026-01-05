@@ -37,13 +37,15 @@ tests/images/sector_test/sector_test_360k.dmk
 !tests/images/monster_disk
 !tests/images/monster_disk/monster_disk*
 
-# Ignore misc output and scratch files
+# Ignore misc output and scratch
+*.pbm
 *.png
 *.svg
 *.webp
 *.psd
 *.jpg
 *.csv
+*.exe
 /plots/*
 
 # Ignore scripts, except for published utilies in /scripts
@@ -61,5 +63,6 @@ tests/images/sector_test/sector_test_360k.dmk
 test*
 !/tests/
 
-# Added by cargo
-/target
+# Archived stuff
+/archive
+

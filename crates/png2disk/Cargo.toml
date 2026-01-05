@@ -11,7 +11,6 @@ readme = "README.md"
 fluxfox = { path = "../.." }
 fluxfox_tiny_skia = { path = "../fluxfox_tiny_skia" }
 bpaf = { version = "0.9", features = ["autocomplete"] }
-logger = "0.4"
 env_logger = "0.11"
 log = "0.4.22"
 anyhow = "1.0"

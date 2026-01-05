@@ -10,7 +10,6 @@ publish = false
 [dependencies]
 bpaf = { version = "0.9", features = ["autocomplete"] }
 fluxfox = { path = "../.." }
-logger = "0.4"
 env_logger = "0.11"
 log = "0.4.22"
 
