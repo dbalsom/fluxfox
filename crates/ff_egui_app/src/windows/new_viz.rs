@@ -158,7 +158,7 @@ impl NewVizViewer {
             egui::Window::new("New Disk Visualization")
                 .open(&mut self.open)
                 .show(ctx, |ui| {
-                    egui::menu::bar(ui, |ui| {
+                    egui::MenuBar::new().ui(ui, |ui| {
                         ui.menu_button("Layers", |ui| {
                             if ui.checkbox(self.viz.show_data_layer_mut(), "Data Layer").changed() {
                                 //self.viz.enable_data_layer(self.show_data_layer);

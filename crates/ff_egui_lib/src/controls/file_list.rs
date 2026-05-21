@@ -184,7 +184,7 @@ impl FileListWidget {
                                     if ui.button(save_label_text).clicked() {
                                         new_event =
                                             Some(UiEvent::ExportFile(self.file_list[row_index].path().to_string()));
-                                        ui.close_menu();
+                                        ui.close();
                                     }
                                 });
                             });

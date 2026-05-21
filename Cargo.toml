@@ -181,7 +181,7 @@ rand = "0.8"
 # web-time is a wasm-compatible replacement for std::time
 web-time = "1.1"
 # wasm-bindgen is used for the web buids of fluxfox_egui
-wasm-bindgen = { version = "=0.2.100" }
+wasm-bindgen = { version = "=0.2.108" }
 wasm-bindgen-futures = { version = "0.4" }
 
 # Dev dependencies

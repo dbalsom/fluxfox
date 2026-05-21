@@ -106,7 +106,7 @@ impl VisualizationViewer {
                 .open(&mut self.open)
                 .resizable([false, false])
                 .show(ctx, |ui| {
-                    egui::menu::bar(ui, |ui| {
+                    egui::MenuBar::new().ui(ui, |ui| {
                         ui.menu_button("Layers", |ui| {
                             if ui.checkbox(&mut self.show_data_layer, "Data Layer").changed() {
                                 self.viz.enable_data_layer(self.show_data_layer);
@@ -134,7 +134,7 @@ impl VisualizationViewer {
                                     if ui.button("PNG").clicked() {
                                         self.viz
                                             .save_side_as_png(&format!("fluxfox_viz_side{}.png", side), side);
-                                        ui.close_menu();
+                                        ui.close();
                                     }
                                     if ui.button("SVG").clicked() {
                                         match self
@@ -148,7 +148,7 @@ impl VisualizationViewer {
                                                 log::error!("Error saving SVG: {}", e);
                                             }
                                         }
-                                        ui.close_menu();
+                                        ui.close();
                                     }
                                 });
                             }

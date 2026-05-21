@@ -138,9 +138,9 @@ impl ErrorBanner {
                 text,
             } = self.size.layout();
 
-            egui::Frame::none()
+            egui::Frame::new()
                 .fill(egui::Color32::DARK_RED)
-                .rounding(rounding)
+                .corner_radius(rounding)
                 .inner_margin(margin)
                 .stroke(egui::Stroke::new(1.0, egui::Color32::GRAY))
                 .show(ui, |ui| {

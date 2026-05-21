@@ -227,7 +227,7 @@ impl PixelCanvas {
     }
 
     pub fn create_default_colorimage(dims: (u32, u32)) -> ColorImage {
-        ColorImage::new([dims.0 as usize, dims.1 as usize], Color32::BLACK)
+        ColorImage::filled([dims.0 as usize, dims.1 as usize], Color32::BLACK)
     }
 
     pub fn create_default_imagedata(dims: (u32, u32)) -> ImageData {
@@ -238,10 +238,10 @@ impl PixelCanvas {
         if !self.data_unpacked {
             log::warn!("PixelCanvas::update_imagedata(): Data was not unpacked before ColorImage update!");
         }
-        let color_image = ColorImage {
-            size:   [self.view_dimensions.0 as usize, self.view_dimensions.1 as usize],
-            pixels: self.backing_buf.clone(),
-        };
+        let color_image = ColorImage::new(
+            [self.view_dimensions.0 as usize, self.view_dimensions.1 as usize],
+            self.backing_buf.clone(),
+        );
         self.image_data = ImageData::Color(Arc::new(color_image));
     }
 
@@ -439,7 +439,7 @@ impl PixelCanvas {
                     mesh.indices.extend(&[0, 1, 2, 2, 3, 0]);
                     mesh.texture_id = texture.id();
 
-                    painter.add(Shape::Mesh(mesh));
+                    painter.add(Shape::Mesh(Arc::new(mesh)));
                 }
 
                 if let Some(mouse_pos) = response.hover_pos() {
@@ -602,7 +602,7 @@ impl PixelCanvas {
                         mesh.texture_id = texture.id();
 
                         // Add the mesh to the painter
-                        painter.add(Shape::Mesh(mesh));
+                        painter.add(Shape::Mesh(Arc::new(mesh)));
                     }
 
                     if response.secondary_clicked() {

@@ -116,8 +116,7 @@ impl DataTableWidget {
             2 => {
                 if self.viz_widget.is_some() {
                     self.viz_ui(ui);
-                }
-                else {
+                } else {
                     let id = format!(
                         "data_table_{},{}",
                         ui.next_widget_position().x as u32,
@@ -280,20 +279,16 @@ impl DataTableWidget {
                                 }
 
                                 ui.visuals_mut().override_text_color = Some(fg_color);
-                                if ui.add(element).hovered() {
+                                let response = ui.add(element);
+                                if response.hovered() {
                                     self.hover_address = Some(element_address);
 
                                     if hit_range {
-                                        egui::popup::show_tooltip(
-                                            ui.ctx(),
-                                            ui.layer_id(),
-                                            egui::Id::new("data_table_range_popup"),
-                                            |ui| {
-                                                ui.horizontal(|ui| {
-                                                    ui.label(range_text);
-                                                });
-                                            },
-                                        );
+                                        response.show_tooltip_ui(|ui| {
+                                            ui.horizontal(|ui| {
+                                                ui.label(range_text);
+                                            });
+                                        });
                                     }
 
                                     row_hovered_idx = Some(ei);
@@ -394,8 +389,7 @@ impl DataTableWidget {
         if row_response.clicked() {
             if self.selection.contains(&row_index) {
                 self.selection.remove(&row_index);
-            }
-            else {
+            } else {
                 self.selection.insert(row_index);
             }
         }

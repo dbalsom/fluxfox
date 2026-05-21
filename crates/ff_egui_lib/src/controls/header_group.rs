@@ -24,7 +24,7 @@
 
     --------------------------------------------------------------------------
 */
-use egui::{Pos2, Rect, RichText, Rounding, Stroke, TextStyle, Vec2};
+use egui::{CornerRadius, Pos2, Rect, RichText, Stroke, StrokeKind, Vec2};
 
 pub type HeaderFn = fn(&mut egui::Ui, default_text: RichText);
 
@@ -72,10 +72,10 @@ impl HeaderGroup {
             }
 
             ui.horizontal(|ui| {
-                ui.add_space(margin.left); // Left margin
+                ui.add_space(f32::from(margin.left)); // Left margin
                 ui.vertical(|ui| {
                     // Paint the heading
-                    ui.add_space(margin.top); // Top margin
+                    ui.add_space(f32::from(margin.top)); // Top margin
 
                     let mut text = RichText::new(&self.heading);
                     if self.strong {
@@ -95,7 +95,7 @@ impl HeaderGroup {
                         }
                     });
 
-                    ui.add_space(margin.top); // Top margin
+                    ui.add_space(f32::from(margin.top)); // Top margin
 
                     // Draw the custom content
                     ui.horizontal(|ui| {
@@ -103,7 +103,7 @@ impl HeaderGroup {
                         //ui.add_space(ui.available_width());
                     });
 
-                    ui.add_space(margin.bottom); // Bottom margin
+                    ui.add_space(f32::from(margin.bottom)); // Bottom margin
                 });
             });
         });
@@ -113,19 +113,19 @@ impl HeaderGroup {
 
         // Paint the header background
         if ui.is_rect_visible(group_rect) {
-            let header_height = ui.fonts(|fonts| fonts.row_height(&TextStyle::Heading.resolve(ui.style())));
+            let header_height = ui.text_style_height(&egui::TextStyle::Heading);
             let header_rect = Rect::from_min_size(
                 group_rect.min,
-                Vec2::new(group_rect.width(), header_height + margin.top * 2.0), // Include padding for margins
+                Vec2::new(group_rect.width(), header_height + f32::from(margin.top) * 2.0), // Include padding for margins
             );
             let painter = ui.painter();
             let visuals = ui.visuals();
             let bg_color = visuals.faint_bg_color.gamma_multiply(1.2); // Slightly brighter than the default background
-            let rounding = Rounding {
-                nw: 4.0, // Top-left corner
-                ne: 4.0, // Top-right corner
-                sw: 0.0, // Bottom-left corner
-                se: 0.0, // Bottom-right corner
+            let rounding = CornerRadius {
+                nw: 4, // Top-left corner
+                ne: 4, // Top-right corner
+                sw: 0, // Bottom-left corner
+                se: 0, // Bottom-right corner
             };
             painter.rect_filled(header_rect, rounding, bg_color);
 
@@ -143,8 +143,8 @@ impl HeaderGroup {
             let visuals = ui.visuals();
             let border_color = visuals.widgets.noninteractive.bg_stroke.color;
             let stroke = Stroke::new(1.0, border_color);
-            let rounding = Rounding::same(6.0); // Overall group rounding
-            painter.rect_stroke(group_rect, rounding, stroke);
+            let rounding = CornerRadius::same(6); // Overall group rounding
+            painter.rect_stroke(group_rect, rounding, stroke, StrokeKind::Inside);
         }
     }
 }
