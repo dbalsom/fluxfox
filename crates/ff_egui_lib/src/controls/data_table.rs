@@ -284,7 +284,7 @@ impl DataTableWidget {
                                     self.hover_address = Some(element_address);
 
                                     if hit_range {
-                                        response.show_tooltip_ui(|ui| {
+                                        let _ = response.clone().on_hover_ui(|ui| {
                                             ui.horizontal(|ui| {
                                                 ui.label(range_text);
                                             });

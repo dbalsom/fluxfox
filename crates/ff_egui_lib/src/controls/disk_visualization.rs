@@ -983,7 +983,7 @@ impl DiskVisualization {
 
                                 if !*context.context_menu_open {
                                     if let Some(selection) = &context.hover_selection {
-                                        response.show_tooltip_ui(|ui| {
+                                        let _ = response.clone().on_hover_ui(|ui| {
                                             ui.horizontal(|ui| {
                                                 ui.label(format!("{}", selection.element_type));
                                             });
