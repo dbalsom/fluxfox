@@ -40,7 +40,7 @@ use crate::{
     DiskImageFileFormat,
 };
 
-pub struct ImageWriter<'img, RWS: ReadWriteSeek> {
+pub struct ImageWriter<'img, RWS: ReadWriteSeek = Cursor<Vec<u8>>> {
     pub image:  &'img mut DiskImage,
     pub writer: Option<RWS>,
     pub path:   Option<PathBuf>,
@@ -62,9 +62,13 @@ impl<'img, RWS: ReadWriteSeek> ImageWriter<'img, RWS> {
         self
     }
 
-    pub fn with_writer(mut self, writer: RWS) -> Self {
-        self.writer = Some(writer);
-        self
+    pub fn with_writer<W: ReadWriteSeek>(self, writer: W) -> ImageWriter<'img, W> {
+        ImageWriter {
+            image:  self.image,
+            writer: Some(writer),
+            path:   self.path,
+            format: self.format,
+        }
     }
 
     pub fn with_path(self, path: PathBuf) -> Self {

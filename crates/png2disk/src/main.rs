@@ -246,7 +246,7 @@ fn main() {
             std::process::exit(1);
         });
 
-    match ImageWriter::new(&mut disk)
+    match ImageWriter::<Cursor<Vec<u8>>>::new(&mut disk)
         .with_format(output_format)
         .with_path(opts.out_disk)
         .write()

@@ -111,6 +111,14 @@ impl ImageBuilder {
         self
     }
 
+    /// Set whether the [DiskImage] to be built should be formatted using the default FAT12
+    /// filesystem.
+    pub fn with_formatted(mut self, formatted: bool) -> ImageBuilder {
+        self.formatted = formatted;
+        self.filesystem = formatted.then_some(FileSystemType::Fat12);
+        self
+    }
+
     /// Set whether the [DiskImage] to be built should be formatted as the specified [FileSystemType],
     /// containing files from the specified path.
     /// # Arguments:
