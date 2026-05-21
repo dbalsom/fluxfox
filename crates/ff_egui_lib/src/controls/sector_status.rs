@@ -44,14 +44,7 @@ const COLOR_NO_DAM: Color32 = Color32::GRAY;
 pub fn sector_status(ui: &mut Ui, entry: &SectorMapEntry, open: bool) -> Response {
     let size = ui.spacing().interact_size;
     let size = Vec2 { x: size.y, y: size.y }; // Make square
-    let (rect, response) = ui.allocate_exact_size(
-        size,
-        Sense {
-            click: true,
-            drag: false,
-            focusable: false,
-        },
-    );
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     //response.widget_info(|| WidgetInfo::new(WidgetType::ColorButton));
 
     ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
@@ -68,7 +61,7 @@ pub fn sector_status(ui: &mut Ui, entry: &SectorMapEntry, open: bool) -> Respons
 
         //painter.rect_filled(rect, 0.0, color);
 
-        let rounding = visuals.rounding.at_most(2.0);
+        let rounding = visuals.corner_radius.at_most(2);
 
         // pub chsn: DiskChsn,
         // pub address_crc_valid: bool,
@@ -89,54 +82,51 @@ pub fn sector_status(ui: &mut Ui, entry: &SectorMapEntry, open: bool) -> Respons
         };
 
         ui.painter().rect_filled(rect, rounding, color);
-        ui.painter().rect_stroke(rect, rounding, (2.0, visuals.bg_fill)); // fill is intentional, because default style has no border
+        ui.painter()
+            .rect_stroke(rect, rounding, (2.0, visuals.bg_fill), StrokeKind::Inside);
+        // fill is intentional, because default style has no border
     }
 
     // We don't use hovered_ui as it implements a delay.
     if response.hovered() {
-        show_tooltip(
-            &response.ctx,
-            ui.layer_id(),
-            response.id.with("sector_attributes_tooltip"),
-            |ui| {
-                ui.vertical(|ui| {
-                    ui.label(RichText::new("Click square to view sector").italics());
-                    Grid::new("popup_sector_attributes_grid").show(ui, |ui| {
-                        ui.label("ID");
-                        ui.add(ChsWidget::from_chsn(entry.chsn));
-                        ui.end_row();
+        response.show_tooltip_ui(|ui| {
+            ui.vertical(|ui| {
+                ui.label(RichText::new("Click square to view sector").italics());
+                Grid::new("popup_sector_attributes_grid").show(ui, |ui| {
+                    ui.label("ID");
+                    ui.add(ChsWidget::from_chsn(entry.chsn));
+                    ui.end_row();
 
-                        ui.label("Size");
-                        ui.label(entry.chsn.n_size().to_string());
-                        ui.end_row();
+                    ui.label("Size");
+                    ui.label(entry.chsn.n_size().to_string());
+                    ui.end_row();
 
-                        let good_color = Color32::DARK_GREEN;
-                        let bad_color = Color32::DARK_RED;
+                    let good_color = Color32::DARK_GREEN;
+                    let bad_color = Color32::DARK_RED;
 
-                        ui.label("Address integrity");
-                        match entry.attributes.address_error {
-                            true => ui.add(PillWidget::new("Bad").with_fill(bad_color)),
-                            false => ui.add(PillWidget::new("Good").with_fill(good_color)),
-                        };
-                        ui.end_row();
+                    ui.label("Address integrity");
+                    match entry.attributes.address_error {
+                        true => ui.add(PillWidget::new("Bad").with_fill(bad_color)),
+                        false => ui.add(PillWidget::new("Good").with_fill(good_color)),
+                    };
+                    ui.end_row();
 
-                        ui.label("Data integrity");
-                        match entry.attributes.data_error {
-                            true => ui.add(PillWidget::new("Bad").with_fill(bad_color)),
-                            false => ui.add(PillWidget::new("Good").with_fill(good_color)),
-                        };
-                        ui.end_row();
+                    ui.label("Data integrity");
+                    match entry.attributes.data_error {
+                        true => ui.add(PillWidget::new("Bad").with_fill(bad_color)),
+                        false => ui.add(PillWidget::new("Good").with_fill(good_color)),
+                    };
+                    ui.end_row();
 
-                        ui.label("Sector type");
-                        match entry.attributes.deleted_mark {
-                            true => ui.add(PillWidget::new("Deleted data").with_fill(bad_color)),
-                            false => ui.label("Normal data"),
-                        };
-                        ui.end_row();
-                    });
+                    ui.label("Sector type");
+                    match entry.attributes.deleted_mark {
+                        true => ui.add(PillWidget::new("Deleted data").with_fill(bad_color)),
+                        false => ui.label("Normal data"),
+                    };
+                    ui.end_row();
                 });
-            },
-        );
+            });
+        });
     }
     response
 }

@@ -37,6 +37,13 @@ tests/images/sector_test/sector_test_360k.dmk
 !tests/images/monster_disk
 !tests/images/monster_disk/monster_disk*
 
+# Ignore misc images littering root (clean this up!)
+*.img
+*.pri
+*.raw
+*.bak
+
+
 # Ignore misc output and scratch
 *.pbm
 *.png

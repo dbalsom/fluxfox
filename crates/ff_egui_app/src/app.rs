@@ -528,14 +528,16 @@ impl App {
 
 impl eframe::App for App {
     /// Called each time the UI needs repainting, which may be many times per second.
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+
         // Put your widgets into a `SidePanel`, `TopBottomPanel`, `CentralPanel`, `Window` or `Area`.
         // For inspiration and more examples, go to https://emilk.github.io/egui
 
         self.collect_garbage();
 
         if !self.ctx_init {
-            self.ctx_init(ctx);
+            self.ctx_init(&ctx);
         }
 
         if matches!(self.run_mode, RunMode::Continuous) {
@@ -544,24 +546,24 @@ impl eframe::App for App {
 
         // Show windows
         if self.have_disk_in_selected_slot() {
-            self.windows.source_map.show(ctx);
+            self.windows.source_map.show(&ctx);
         }
 
         #[cfg(feature = "devmode")]
         {
-            self.windows.new_viz_viewer.show(ctx);
+            self.windows.new_viz_viewer.show(&ctx);
         }
-        self.windows.viz_viewer.show(ctx);
-        self.windows.sector_viewer.show(ctx);
-        self.windows.track_viewer.show(ctx);
-        self.windows.file_viewer.show(ctx);
-        self.windows.element_map.show(ctx);
-        self.windows.track_timing_viewer.show(ctx);
+        self.windows.viz_viewer.show(&ctx);
+        self.windows.sector_viewer.show(&ctx);
+        self.windows.track_viewer.show(&ctx);
+        self.windows.file_viewer.show(&ctx);
+        self.windows.element_map.show(&ctx);
+        self.windows.track_timing_viewer.show(&ctx);
 
-        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+        egui::Panel::top("top_panel").show_inside(ui, |ui| {
             // The top panel is often a good place for a menu bar:
 
-            self.handle_menu(ctx, ui);
+            self.handle_menu(&ctx, ui);
 
             // Done with menu bar.
             if self.p_state.user_opts.logo_panel {
@@ -573,9 +575,9 @@ impl eframe::App for App {
             self.widgets.filename.show(ui);
         });
 
-        egui::SidePanel::left("disk_info_gallery")
-            .exact_width(250.0)
-            .show(ctx, |ui| {
+        egui::Panel::left("disk_info_gallery")
+            .exact_size(250.0)
+            .show_inside(ui, |ui| {
                 ui.with_layout(Layout::top_down(egui::Align::Center), |ui| {
                     ui.add_space(6.0);
                     self.handle_image_info(ui);
@@ -584,13 +586,13 @@ impl eframe::App for App {
                 });
             });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             // The central panel the region left after adding TopPanels and SidePanels
 
             self.show_error(ui);
 
             // Show dropped files (if any):
-            self.handle_dropped_files(ctx, None);
+            self.handle_dropped_files(&ctx, None);
             self.handle_loading_progress(ui);
 
             ui.with_layout(Layout::top_down_justified(egui::Align::Center), |ui| {
@@ -600,7 +602,7 @@ impl eframe::App for App {
                 });
             });
 
-            self.handle_load_messages(ctx);
+            self.handle_load_messages(&ctx);
 
             ui.with_layout(Layout::bottom_up(egui::Align::LEFT), |ui| {
                 egui::warn_if_debug_build(ui);
@@ -672,7 +674,7 @@ impl App {
     }
 
     fn handle_menu(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
-        egui::menu::bar(ui, |ui| {
+        egui::MenuBar::new().ui(ui, |ui| {
             // NOTE: no File->Quit on web pages!
             let is_web = cfg!(target_arch = "wasm32");
             if !is_web {
@@ -707,7 +709,7 @@ impl App {
                                 self.error_msg = Some(e.to_string());
                             });
 
-                        ui.close_menu();
+                        ui.close();
                     }
                 });
             }

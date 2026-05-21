@@ -287,7 +287,7 @@ impl TrackListWidget {
                                                         sel_scope: TrackSelectionScope::Elements,
                                                         phys_ch:   track.ch,
                                                     }));
-                                                    ui.close_menu();
+                                                    ui.close();
                                                 }
 
                                                 if ui.button("View Track Data Stream").clicked() {
@@ -295,7 +295,7 @@ impl TrackListWidget {
                                                         sel_scope: TrackSelectionScope::DecodedDataStream,
                                                         phys_ch:   track.ch,
                                                     }));
-                                                    ui.close_menu();
+                                                    ui.close();
                                                 }
 
                                                 if ui.button("View Track Flux Timings").clicked() {
@@ -303,7 +303,7 @@ impl TrackListWidget {
                                                         sel_scope: TrackSelectionScope::Timings,
                                                         phys_ch:   track.ch,
                                                     }));
-                                                    ui.close_menu();
+                                                    ui.close();
                                                 }
                                             }
                                             TrackDataResolution::BitStream => {

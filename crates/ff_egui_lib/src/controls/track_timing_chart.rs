@@ -61,7 +61,7 @@ impl TrackTimingChart {
             points.push([running_total, us]);
         }
 
-        let scatter = Points::new(PlotPoints::from(points))
+        let scatter = Points::new("flux transitions", PlotPoints::from(points))
             .color(egui::Color32::YELLOW) // LIGHT_YELLOW without transparency
             .shape(MarkerShape::Circle)
             .radius(1.5); // Set circle radius
@@ -69,7 +69,10 @@ impl TrackTimingChart {
         let mut markers = Vec::new();
         for marker in &self.markers {
             let x = marker.time * 1_000.0;
-            markers.push(Line::new(PlotPoints::from(vec![[x, 0.0], [x, 10.0]])).color(egui::Color32::LIGHT_BLUE));
+            markers.push(
+                Line::new(format!("marker {x}"), PlotPoints::from(vec![[x, 0.0], [x, 10.0]]))
+                    .color(egui::Color32::LIGHT_BLUE),
+            );
         }
 
         Plot::new("flux_timing_diagram")

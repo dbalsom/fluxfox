@@ -63,9 +63,9 @@ impl PillWidget {
     }
 
     pub fn show(&self, ui: &mut Ui) -> Response {
-        let frame = egui::Frame::none()
+        let frame = egui::Frame::new()
             .fill(self.fill)
-            .rounding(self.size.rounding())
+            .corner_radius(self.size.rounding())
             .inner_margin(self.size.padding())
             .outer_margin(egui::Margin::from(0.0));
 

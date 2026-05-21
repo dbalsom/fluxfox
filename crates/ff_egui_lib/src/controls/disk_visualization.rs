@@ -775,7 +775,6 @@ impl DiskVisualization {
                         // Adjust the angle for the turning direction of this side, then
                         // set the canvas rotation angle.
                         canvas.set_rotation(TurningDirection::from(side as u8).opposite().adjust_angle(self.angle));
-                        let layer_id = ui.layer_id();
                         let response = canvas.show_as_mesh2(
                             ui,
                             Some(|response: &egui::Response, _screen_pos: Pos2, virtual_pos: Pos2| {
@@ -806,16 +805,11 @@ impl DiskVisualization {
 
                                 if !*context.context_menu_open {
                                     if let Some(selection) = &context.hover_selection {
-                                        egui::popup::show_tooltip(
-                                            &response.ctx,
-                                            layer_id,
-                                            response.id.with("render_hover_tooltip"),
-                                            |ui| {
-                                                ui.horizontal(|ui| {
-                                                    ui.label(format!("{}", selection.element_type));
-                                                });
-                                            },
-                                        );
+                                        response.show_tooltip_ui(|ui| {
+                                            ui.horizontal(|ui| {
+                                                ui.label(format!("{}", selection.element_type));
+                                            });
+                                        });
                                     }
                                 }
                             }),
@@ -872,13 +866,13 @@ impl DiskVisualization {
                                     if let Some(callback) = self.save_file_callback.as_ref() {
                                         _ = callback(&file_name, &png_data);
                                     };
-                                    ui.close_menu();
+                                    ui.close();
                                 }
 
                                 #[cfg(feature = "svg")]
                                 if ui.button("Save as SVG").clicked() {
                                     svg_context = Some((format!("fluxfox_viz_side{}.svg", side), side));
-                                    ui.close_menu();
+                                    ui.close();
                                 }
                             });
                         };
