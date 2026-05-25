@@ -150,13 +150,7 @@ pub fn rasterize_track_data(
 
     let skia_color = rr.image_bg_color.map(|color| Color::from(color));
     let color_bg: PremultipliedColorU8 = match skia_color {
-        Some(color) => PremultipliedColorU8::from_rgba(
-            (color.red() * 255.0) as u8,
-            (color.green() * 255.0) as u8,
-            (color.blue() * 255.0) as u8,
-            (color.alpha() * 255.0) as u8,
-        )
-        .unwrap(),
+        Some(color) => color.premultiply().to_color_u8(),
         None => PremultipliedColorU8::from_rgba(0, 0, 0, 0).unwrap(),
     };
 
@@ -304,13 +298,7 @@ pub fn render_track_mask(
 
     let skia_color = rr.mask_color.map(|color| Color::from(color));
     let mask_color: PremultipliedColorU8 = match skia_color {
-        Some(color) => PremultipliedColorU8::from_rgba(
-            (color.red() * 255.0) as u8,
-            (color.green() * 255.0) as u8,
-            (color.blue() * 255.0) as u8,
-            (color.alpha() * 255.0) as u8,
-        )
-        .unwrap(),
+        Some(color) => color.premultiply().to_color_u8(),
         None => PremultipliedColorU8::from_rgba(0, 0, 0, 0).unwrap(),
     };
 
