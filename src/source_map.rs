@@ -44,6 +44,7 @@ use crate::{
     tree_map::{FoxTreeCursor, FoxTreeMap},
     FoxHashSet,
 };
+use dyn_clone::DynClone;
 use std::{
     any::Any,
     fmt::{Debug, Display},
@@ -401,16 +402,17 @@ impl Debug for SourceMap {
     }
 }
 
+dyn_clone::clone_trait_object!(OptionalSourceMap);
+
 /// A trait for a source map that can be optionally created by a parser.
 /// We can create a null source map that does nothing, to avoid having a lot of conditional code
 /// in our parsers.
-pub trait OptionalSourceMap: Any + Send + Sync {
+pub trait OptionalSourceMap: Any + Send + Sync + DynClone {
     fn as_any(&self) -> &dyn Any;
     fn as_some(&self) -> Option<&SourceMap>;
     fn add_child(&mut self, parent: usize, name: &str, data: SourceValue) -> FoxTreeCursor<SourceValue>;
     fn debug_tree(&self);
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-
     fn last_node(&mut self) -> FoxTreeCursor<SourceValue>;
 }
 
@@ -444,6 +446,7 @@ impl OptionalSourceMap for SourceMap {
 }
 
 // Null implementation of SourceMap that does nothing
+#[derive(Clone)]
 pub struct NullSourceMap {
     tree: FoxTreeMap<SourceValue>,
 }

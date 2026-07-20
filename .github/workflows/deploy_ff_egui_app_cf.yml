@@ -1,0 +1,86 @@
+name: deploy_ff_egui_app_cf.yml
+
+on:
+  push:
+    branches:
+      - pages_deploy
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin
+          key: ${{ runner.os }}-cargo-bin-trunk-0.21.4
+          restore-keys: |
+            ${{ runner.os }}-cargo-bin
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-0001-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-0001-
+
+      - name: Install Trunk
+        run: |
+          if ! command -v trunk &> /dev/null; then
+            cargo install trunk
+          else
+            echo "Trunk is cached and already installed."
+          fi
+
+      - name: Install wasm-bindgen-cli
+        run: |
+          if ! command -v wasm-bindgen &> /dev/null; then
+            cargo install wasm-bindgen-cli
+          else
+            echo "wasm-bindgen-cli is cached and already installed."
+          fi
+
+      - name: Install wasm-opt
+        run: |
+          if ! command -v wasm-opt &> /dev/null; then
+            cargo install wasm-opt
+          else
+            echo "wasm-opt is cached and already installed."
+          fi
+
+      - name: Build ff_egui_app with Trunk
+        working-directory: crates/ff_egui_app
+        # Note: --public-url is set to /fluxfox/ as a personal GitHub pages site is hosted at /repo-name/
+        env:
+          URL_PATH: "/" # URL_PATH should match public-url
+        run: trunk build --release --public-url /
+
+      - name: Optimize WASM with wasm-opt
+        working-directory: crates/ff_egui_app
+        run: wasm-opt -Oz -o dist/ff_egui_app_bg.wasm dist/ff_egui_app_bg.wasm
+
+      - name: Verify dist directory contents
+        working-directory: crates/ff_egui_app
+        run: |
+          echo "Verifying dist directory:"
+          ls -R dist
+          echo "Checking specific expected files:"
+          [ -f dist/index.html ] && echo "Found index.html" || echo "index.html missing"
+          [ -f dist/ff_egui_app_bg.wasm ] && echo "Found ff_egui_app_bg.wasm" || echo "ff_egui_app_bg.wasm missing"
+
+      - name: Upload to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          command: pages deploy crates/ff_egui_app/dist/ --project-name=fluxfox --branch=main
+
+

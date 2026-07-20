@@ -26,7 +26,6 @@
 */
 #![allow(dead_code)]
 
-use crate::app::Tool;
 use anyhow::Result;
 use fluxfox::{prelude::TrackDataResolution, visualization::prelude::*, DiskImage};
 use fluxfox_egui::{

@@ -119,6 +119,7 @@ impl DiskVisualizerWidget {
                     &self.palette,
                     track,
                     self.show_data_layer,
+                    None,
                 );
             }
         }

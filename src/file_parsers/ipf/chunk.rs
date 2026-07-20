@@ -38,7 +38,7 @@ pub const MAXIMUM_CHUNK_SIZE: usize = 0x100000; // Set some reasonable limit for
 
 #[binrw]
 #[brw(big)]
-#[br(import(data_size_limit: u32))]
+#[br(import(data_size_limit: Option<u32>))]
 pub(crate) struct IpfChunk {
     pub id: [u8; 4],
     #[bw(ignore)]
@@ -46,7 +46,15 @@ pub(crate) struct IpfChunk {
     pub chunk_type: Option<IpfChunkType>,
     pub size: u32,
     pub crc: u32,
-    #[br(if(data_size_limit > 0), count = size.saturating_sub(12).min(data_size_limit))]
+    #[br(count = {
+        let chunk_size = size.saturating_sub(12);
+        if let Some(limit) = data_size_limit {
+            chunk_size.min(limit)
+        }
+        else {
+            chunk_size
+        }
+    })]
     pub data: Vec<u8>,
     #[bw(ignore)]
     #[br(calc = IpfChunk::calculate_crc(&id, size, &data))] // Calculate the CRC based on fields
@@ -85,7 +93,17 @@ impl IpfChunk {
     }
 
     fn is_crc_valid(&self) -> bool {
-        self.crc == self.calculated_crc
+        if self.crc == self.calculated_crc {
+            true
+        }
+        else {
+            log::warn!(
+                "IpfChunk::is_crc_valid(): CRC mismatch: {:08X} != {:08X}",
+                self.crc,
+                self.calculated_crc
+            );
+            false
+        }
     }
 
     pub(crate) fn into_inner<T>(self) -> Result<T, DiskImageError>
@@ -164,15 +182,21 @@ impl IpfParser {
     pub(crate) fn read_chunk<RWS: ReadSeek>(image: &mut RWS) -> Result<IpfChunk, DiskImageError> {
         //let chunk_pos = image.stream_position()?;
 
-        //log::trace!("Reading chunk header...");
-        let chunk = IpfChunk::read(image)?;
+        // Read the chunk header with no data size limit (None parameter)
+        let chunk = IpfChunk::read_args(image, (None,))?;
         //log::debug!("Read chunk: {:?}", chunk);
 
         if chunk.chunk_type.is_none() {
+            log::error!("read_chunk(): Unknown chunk type: {:0X?}", chunk.id);
             log::warn!("Unknown chunk type: {:0X?}", chunk.id);
         }
 
         if chunk.size > MAXIMUM_CHUNK_SIZE as u32 {
+            log::error!(
+                "read_chunk(): Chunk length exceeds limit: {} > {}",
+                chunk.size,
+                MAXIMUM_CHUNK_SIZE
+            );
             return Err(DiskImageError::IncompatibleImage(format!(
                 "Chunk length exceeds limit: {} > {}",
                 chunk.size, MAXIMUM_CHUNK_SIZE,
@@ -180,6 +204,7 @@ impl IpfParser {
         }
 
         if !chunk.is_crc_valid() {
+            log::error!("read_chunk(): CRC mismatch in {:?} chunk", chunk.chunk_type);
             return Err(DiskImageError::ImageCorruptError(format!(
                 "CRC mismatch in {:?} chunk",
                 chunk

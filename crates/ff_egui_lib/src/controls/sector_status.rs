@@ -41,10 +41,11 @@ const COLOR_BAD_HEADER: Color32 = Color32::RED;
 const COLOR_NO_DAM: Color32 = Color32::GRAY;
 
 /// Simple color swatch widget. Used for palette register display.
-pub fn sector_status(ui: &mut Ui, entry: &SectorMapEntry, open: bool) -> Response {
+pub fn sector_status(ui: &mut Ui, entry: &SectorMapEntry, open: bool, clickable: bool) -> Response {
     let size = ui.spacing().interact_size;
     let size = Vec2 { x: size.y, y: size.y }; // Make square
-    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    let sense = if clickable { Sense::click() } else { Sense::hover() };
+    let (rect, response) = ui.allocate_exact_size(size, sense);
     //response.widget_info(|| WidgetInfo::new(WidgetType::ColorButton));
 
     ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
@@ -87,15 +88,15 @@ pub fn sector_status(ui: &mut Ui, entry: &SectorMapEntry, open: bool) -> Respons
         // fill is intentional, because default style has no border
     }
 
-    // We don't use hovered_ui as it implements a delay.
-    if response.hovered() {
-        response.show_tooltip_ui(|ui| {
-            ui.vertical(|ui| {
+    let response = response.on_hover_ui(|ui| {
+        ui.vertical(|ui| {
+            if clickable {
                 ui.label(RichText::new("Click square to view sector").italics());
-                Grid::new("popup_sector_attributes_grid").show(ui, |ui| {
-                    ui.label("ID");
-                    ui.add(ChsWidget::from_chsn(entry.chsn));
-                    ui.end_row();
+            }
+            Grid::new("popup_sector_attributes_grid").show(ui, |ui| {
+                ui.label("ID");
+                ui.add(ChsWidget::from_chsn(entry.chsn));
+                ui.end_row();
 
                     ui.label("Size");
                     ui.label(entry.chsn.n_size().to_string());
@@ -124,9 +125,8 @@ pub fn sector_status(ui: &mut Ui, entry: &SectorMapEntry, open: bool) -> Respons
                         false => ui.label("Normal data"),
                     };
                     ui.end_row();
-                });
             });
         });
-    }
+    });
     response
 }

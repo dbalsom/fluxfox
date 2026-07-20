@@ -34,6 +34,7 @@ use fluxfox_egui::{
         error_banner::ErrorBanner,
     },
     tracking_lock::TrackingLock,
+    RenderCallback,
     UiEvent,
 };
 
@@ -53,14 +54,8 @@ pub struct VisualizationViewer {
 
 impl VisualizationViewer {
     pub fn new() -> Self {
-        let mut viz = DiskVisualization::default();
-
-        viz.set_save_file_callback(Arc::new(|filename, data| {
-            _ = App::save_file_as(filename, data);
-        }));
-
         Self {
-            viz,
+            viz: DiskVisualization::default(),
             open: false,
             show_data_layer: true,
             show_metadata_layer: true,
@@ -76,9 +71,23 @@ impl VisualizationViewer {
         self.open = false;
     }
 
-    pub fn init(&mut self, ctx: egui::Context, resolution: u32, sender: mpsc::SyncSender<UiEvent>) {
-        self.viz = DiskVisualization::new(ctx, resolution);
+    pub fn init(
+        &mut self,
+        ctx: egui::Context,
+        resolution: u32,
+        sender: mpsc::SyncSender<UiEvent>,
+        render_callback: Arc<dyn RenderCallback>,
+    ) {
+        self.viz = DiskVisualization::new(ctx, resolution, render_callback);
         self.viz.set_event_sender(sender);
+        self.viz.set_save_file_callback(Arc::new(|filename, data| {
+            log::debug!("save_file_callback: filename: {}, data.len: {}", filename, data.len());
+            _ = App::save_file_as(filename, data);
+        }));
+    }
+
+    pub fn requests_repaint(&self) -> bool {
+        self.viz.requests_repaint()
     }
 
     pub fn set_open(&mut self, state: bool) {

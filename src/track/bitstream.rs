@@ -218,6 +218,7 @@ impl Track for BitStreamTrack {
         debug: bool,
     ) -> Result<ReadSectorResult, DiskImageError> {
         let mut read_vec = Vec::new();
+        let mut result_not_found = false;
         let mut result_data_error = false;
         let mut result_address_error = false;
         let mut result_deleted_mark = false;
@@ -228,6 +229,7 @@ impl Track for BitStreamTrack {
         let mut bad_cylinder = false;
         let mut wrong_head = false;
         let mut data_crc = None;
+        let mut last_sector_result = false;
 
         let schema = self.schema.ok_or(DiskImageError::SchemaError)?;
 
@@ -240,14 +242,18 @@ impl Track for BitStreamTrack {
                 address_error,
                 no_dam,
                 sector_chsn,
+                last_sector,
                 ..
             } if no_dam => {
                 // Sector id was matched, but has no associated data.
-                // Return an empty buffer with the `no_dam` flag set.
+                last_sector_result = last_sector;
+
+                // Return an empty buffer with the `no_dam` flag set.fs
                 return Ok(ReadSectorResult {
                     id_chsn: Some(sector_chsn),
                     no_dam,
                     address_crc_error: address_error,
+                    last_sector: last_sector_result,
                     ..ReadSectorResult::default()
                 });
             }
@@ -257,8 +263,10 @@ impl Track for BitStreamTrack {
                 address_error,
                 data_error,
                 deleted_mark,
+                last_sector,
                 ..
             } => {
+                last_sector_result = last_sector;
                 result_chsn = Some(sector_chsn);
                 // If there is a bad address mark, we do not read the sector data, unless the debug
                 // flag is set.
@@ -347,7 +355,7 @@ impl Track for BitStreamTrack {
                     bc,
                     wh
                 );
-
+                result_not_found = true;
                 wrong_cylinder = wc;
                 bad_cylinder = bc;
                 wrong_head = wh;
@@ -359,11 +367,9 @@ impl Track for BitStreamTrack {
 
         Ok(ReadSectorResult {
             id_chsn: result_chsn,
-            read_buf: read_vec,
-            data_range: result_data_range,
-            deleted_mark: result_deleted_mark,
-            not_found: false,
+            not_found: result_not_found,
             no_dam: false,
+            deleted_mark: result_deleted_mark,
             address_crc_error: result_address_error,
             address_crc: None,
             data_crc_error: result_data_error,
@@ -371,6 +377,9 @@ impl Track for BitStreamTrack {
             wrong_cylinder,
             bad_cylinder,
             wrong_head,
+            last_sector: last_sector_result,
+            data_range: result_data_range,
+            read_buf: read_vec,
         })
     }
 
@@ -467,7 +476,7 @@ impl Track for BitStreamTrack {
         id: DiskChsnQuery,
         offset: Option<usize>,
         write_data: &[u8],
-        _scope: RwScope,
+        scope: RwScope,
         write_deleted: bool,
         debug: bool,
     ) -> Result<WriteSectorResult, DiskImageError> {
@@ -476,12 +485,17 @@ impl Track for BitStreamTrack {
         let bad_cylinder = false;
         let mut wrong_head = false;
 
+        let schema = self.schema.ok_or(DiskImageError::SchemaError)?;
+
         // Find the bit offset of the requested sector
         let bit_index = self.scan_sector_element(id, offset.unwrap_or(0))?;
-
+        log::debug!("write_sector(): Bit index: {:?}", bit_index);
         match bit_index {
             TrackSectorScanResult::Found {
-                address_error, no_dam, ..
+                ei,
+                address_error,
+                no_dam,
+                ..
             } if no_dam => {
                 // No DAM found. Return an empty buffer.
                 Ok(WriteSectorResult {
@@ -494,6 +508,7 @@ impl Track for BitStreamTrack {
                 })
             }
             TrackSectorScanResult::Found {
+                ei,
                 sector_chsn,
                 address_error,
                 deleted_mark,
@@ -533,6 +548,13 @@ impl Track for BitStreamTrack {
                     );
                     return Err(DiskImageError::ParameterError);
                 }
+
+                let mut instance = self.element(ei).unwrap().clone();
+                let bytes_written = schema.encode_element(&mut self.data, &mut instance, 0, scope, &write_data);
+
+                *self.element_mut(ei).unwrap() = instance;
+
+                //decode_element(&self.data, instance, scope, &mut read_vec);
 
                 /*                self.data
                     .seek(SeekFrom::Start(((ei.start >> 1) + 32) as u64))
@@ -1224,6 +1246,7 @@ impl BitStreamTrack {
                             deleted,
                             ..
                         }),
+                    last_sector,
                     ..
                 } => {
                     if let Some(sector_chsn) = idam_chsn {
@@ -1234,6 +1257,7 @@ impl BitStreamTrack {
                             data_error: *data_error,
                             deleted_mark: *deleted,
                             no_dam: false,
+                            last_sector: *last_sector,
                         };
                     }
                 }

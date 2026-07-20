@@ -28,7 +28,8 @@ pub mod args;
 
 use crate::args::GlobalOptions;
 use anyhow::{anyhow, bail, Error};
-use fluxfox::prelude::*;
+use fluxfox::{file_system::FileSystemType, prelude::*};
+use std::fs::File;
 
 pub(crate) fn run(global: &GlobalOptions, params: &args::CreateParams) -> Result<(), Error> {
     // Get extension from output filename
@@ -59,12 +60,19 @@ pub(crate) fn run(global: &GlobalOptions, params: &args::CreateParams) -> Result
     global.loud(|| println!("Creating disk image of resolution {:?}", create_resolution));
 
     // Create a DiskImage using ImageBuilder
-    let mut disk = match ImageBuilder::new()
+    let mut builder = ImageBuilder::new()
         .with_resolution(create_resolution)
-        .with_standard_format(params.disk_format)
-        .with_formatted(params.formatted | params.sector_test)
-        .build()
-    {
+        .with_standard_format(params.disk_format);
+
+    if params.formatted | params.sector_test {
+        builder = builder.with_filesystem(FileSystemType::Fat12);
+    }
+
+    if let Some(dir) = &params.from_dir {
+        builder = builder.with_filesystem_from_path(dir, FileSystemType::Fat12, false, true, false);
+    }
+
+    let mut disk = match builder.build() {
         Ok(disk) => {
             log::debug!("Disk image created of Ch: {}", disk.geometry());
             global.loud(|| println!("Disk image created of Ch: {}", disk.geometry()));
@@ -96,7 +104,7 @@ pub(crate) fn run(global: &GlobalOptions, params: &args::CreateParams) -> Result
     }
 
     // Write the image with an ImageWriter
-    match ImageWriter::new(&mut disk)
+    match ImageWriter::<File>::new(&mut disk)
         .with_format(output_format)
         .with_path(params.out_file.clone())
         .write()

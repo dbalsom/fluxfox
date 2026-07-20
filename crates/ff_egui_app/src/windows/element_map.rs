@@ -24,7 +24,7 @@
 
     --------------------------------------------------------------------------
 */
-use crate::app::Tool;
+
 use fluxfox::DiskImage;
 use fluxfox_egui::{controls::source_map::SourceMapWidget, tracking_lock::TrackingLock, TrackSelection, UiLockContext};
 

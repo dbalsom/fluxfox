@@ -171,6 +171,26 @@ impl TrackMetadata {
         self.items.get(index)
     }
 
+    /// Get the sector index of the specified element index, or `None` if the index is not a sector
+    /// or is out of bounds.
+    pub fn sector_index_from_element_index(&self, index: usize) -> Option<usize> {
+        if index >= self.items.len() {
+            return None;
+        }
+
+        let mut sector_idx = 0;
+        for (i, item) in self.items.iter().enumerate() {
+            if index == i && item.element.is_sector_data() {
+                return Some(sector_idx);
+            }
+
+            if item.element.is_sector_data() {
+                sector_idx += 1;
+            }
+        }
+        None
+    }
+
     /// Return a reference to the innermost metadata item that contains the specified index,
     /// along with a count of the total number of matching items (to handle overlapping items).
     /// # Arguments
@@ -446,6 +466,8 @@ pub struct TrackElementInstance {
     pub(crate) start: usize,
     pub(crate) end: usize,
     pub(crate) chsn: Option<DiskChsn>,
+    // A flag indicating that this element belongs to the last sector on the track
+    pub(crate) last_sector: bool,
 }
 
 impl TrackElementInstance {
@@ -723,7 +745,8 @@ pub(crate) trait TrackSchemaParser: Send + Sync {
     fn encode_element(
         &self,
         stream: &mut TrackDataStream,
-        item: &TrackElementInstance,
+        item: &mut TrackElementInstance,
+        offset: usize,
         scope: RwScope,
         buf: &[u8],
     ) -> usize;

@@ -29,6 +29,7 @@ pub mod character_encoding;
 pub mod controls;
 mod range_check;
 pub mod tracking_lock;
+pub mod traits;
 pub mod visualization;
 pub mod widgets;
 
@@ -40,6 +41,14 @@ use std::{
 };
 
 use thiserror::Error;
+
+pub use traits::render_callback::RenderCallback;
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum SelectionSource {
+    DiskVisualization,
+    TrackListViewer,
+}
 
 #[derive(Debug, Copy, Clone, Default)]
 pub enum WidgetSize {
@@ -74,6 +83,12 @@ pub struct SectorSelection {
     pub bit_offset: Option<usize>,
 }
 
+impl SectorSelection {
+    pub fn ch(&self) -> DiskCh {
+        self.phys_ch
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub enum TrackSelectionScope {
     RawDataStream,
@@ -97,7 +112,7 @@ pub enum TrackListSelection {
 
 #[derive(Clone)]
 pub enum UiEvent {
-    SelectionChange(TrackListSelection),
+    SelectionChange(TrackListSelection, SelectionSource),
     ExportFile(String),
     SelectPath(String),
     SelectFile(FileEntry),
@@ -109,7 +124,7 @@ impl Debug for UiEvent {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         // Match on the enum to display only the variant name
         let variant_name = match self {
-            UiEvent::SelectionChange(_) => "SelectionChange",
+            UiEvent::SelectionChange(_, _) => "SelectionChange",
             UiEvent::ExportFile(_) => "ExportFile",
             UiEvent::SelectPath(_) => "SelectPath",
             UiEvent::SelectFile(_) => "SelectFile",

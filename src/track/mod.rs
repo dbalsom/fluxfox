@@ -70,7 +70,7 @@ use std::any::Any;
 
 /// A struct containing information about a track's encoding, data rate, density, RPM, bit length,
 /// and sector count.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct TrackInfo {
     /// The resolution of the track as a `TrackDataResolution` enum.
     pub resolution: TrackDataResolution,
@@ -109,6 +109,9 @@ pub(crate) enum TrackSectorScanResult {
         deleted_mark: bool,
         /// A boolean flag indicating whether the sector ID was matched, but no sector data was found.
         no_dam: bool,
+        /// A boolean flag indicating whether the matched sector ID represents the last sector on
+        /// the track.
+        last_sector: bool,
     },
     /// A variant indicating the specified sector ID was not found on the track.
     NotFound {

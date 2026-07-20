@@ -99,8 +99,8 @@ impl IpfParser {
         _ = image.seek(std::io::SeekFrom::Start(0));
 
         // The first chunk in an IPF file must be the CAPS chunk
-        // Pass a data limit of 0 so we don't end up reading a huge chunk from an invalid file.
-        if let Ok(file_header) = IpfChunk::read_args(&mut image, (0,)) {
+        // Pass a data limit of Some(0) so we don't end up reading a huge chunk from an invalid file.
+        if let Ok(file_header) = IpfChunk::read_args(&mut image, (Some(0),)) {
             if file_header.chunk_type == Some(IpfChunkType::Caps) {
                 detected = true;
             }
@@ -166,7 +166,7 @@ impl IpfParser {
         while let Ok(chunk) = Self::read_chunk(&mut reader) {
             match chunk.chunk_type {
                 Some(IpfChunkType::Info) => {
-                    let info_record: InfoRecord = chunk.into_inner::<InfoRecord>()?;
+                    let info_record: InfoRecord = chunk.into_inner()?;
                     info_record.write_to_map(disk_image.source_map_mut(), 0);
                     log::debug!("InfoRecord: {:#?}", info_record);
                     log::debug!(

@@ -26,7 +26,7 @@
 */
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     default::Default,
     f32::consts::TAU,
     ops::Range,
@@ -40,8 +40,10 @@ use crate::{
     },
     visualization::viz_elements::paint_elements,
     widgets::chs::ChsWidget,
+    RenderCallback,
     SaveFileCallbackFn,
     SectorSelection,
+    SelectionSource,
     TrackListSelection,
     UiError,
     UiEvent,
@@ -68,11 +70,8 @@ use egui::{emath::RectTransform, Align, Layout, Pos2, Rect, Vec2};
 
 // Conditional thread stuff
 use crate::tracking_lock::TrackingLock;
-#[cfg(target_arch = "wasm32")]
-use rayon::spawn;
-#[cfg(not(target_arch = "wasm32"))]
-use std::thread::spawn;
 
+pub const DEFAULT_FADE_RATE: u8 = 8;
 pub const VIZ_DATA_SUPERSAMPLE: u32 = 2;
 pub const VIZ_RESOLUTION: u32 = 512;
 pub const VIZ_SUPER_RESOLUTION: u32 = VIZ_RESOLUTION * VIZ_DATA_SUPERSAMPLE;
@@ -87,6 +86,11 @@ pub enum RenderMessage {
 pub enum VizEvent {
     NewSectorSelected { c: u8, h: u8, s_idx: u8 },
     SectorDeselected,
+}
+
+pub struct DisplayListFade {
+    pub display_list: VizElementDisplayList,
+    pub alpha: u8,
 }
 
 struct VisualizationContext<'a> {
@@ -112,8 +116,10 @@ struct SelectionContext {
     angle: f32,
     element_type: GenericTrackElement,
     element_range: Range<usize>,
+    #[allow(dead_code)]
     element_idx: usize,
     element_chsn: Option<DiskChsn>,
+    sector_idx: Option<usize>,
 }
 
 pub struct DiskVisualization {
@@ -126,7 +132,11 @@ pub struct DiskVisualization {
     pub data_img: [Arc<Mutex<Pixmap>>; 2],
     pub meta_img: [Arc<RwLock<Pixmap>>; 2],
     pub selection_img: [Arc<Mutex<Pixmap>>; 2],
-
+    pub access_img: [Arc<RwLock<Pixmap>>; 2],
+    pub fade_last_sector: [(DiskCh, u8); 2],
+    pub fade_deque: [VecDeque<DisplayListFade>; 2],
+    pub fade_passes: [usize; 2],
+    pub fade_rate: u8,
     pub composite_img: [Pixmap; 2],
     pub meta_palette: HashMap<GenericTrackElement, VizColor>,
     pub meta_display_list: [Arc<Mutex<Option<VizElementDisplayList>>>; 2],
@@ -151,14 +161,14 @@ pub struct DiskVisualization {
     /// A list of events that have occurred since the last frame.
     /// The main app should drain this list and process all events.
     events: Vec<VizEvent>,
-    /// A flag indicating whether we received a hit-tested selection.
-    got_hit: bool,
     /// The response rect received from the pixel canvas when we got a hit-tested selection.
     selection_rect_opt: Option<Rect>,
     angle: f32,
     zoom_quadrant: [Option<usize>; 2],
     selection: Option<SelectionContext>,
     save_file_callback: Option<SaveFileCallbackFn>,
+
+    render_callback: Option<Arc<dyn RenderCallback>>,
 }
 
 impl Default for DiskVisualization {
@@ -184,6 +194,17 @@ impl Default for DiskVisualization {
                 Arc::new(Mutex::new(Pixmap::new(VIZ_RESOLUTION, VIZ_RESOLUTION).unwrap())),
                 Arc::new(Mutex::new(Pixmap::new(VIZ_RESOLUTION, VIZ_RESOLUTION).unwrap())),
             ],
+            access_img: [
+                Arc::new(RwLock::new(Pixmap::new(VIZ_RESOLUTION, VIZ_RESOLUTION).unwrap())),
+                Arc::new(RwLock::new(Pixmap::new(VIZ_RESOLUTION, VIZ_RESOLUTION).unwrap())),
+            ],
+            fade_last_sector: [(DiskCh::default(), 0), (DiskCh::default(), 0)],
+            fade_deque: [
+                VecDeque::with_capacity(256 / DEFAULT_FADE_RATE as usize),
+                VecDeque::with_capacity(256 / DEFAULT_FADE_RATE as usize),
+            ],
+            fade_passes: [0, 0],
+            fade_rate: DEFAULT_FADE_RATE,
             composite_img: [
                 Pixmap::new(VIZ_RESOLUTION, VIZ_RESOLUTION).unwrap(),
                 Pixmap::new(VIZ_RESOLUTION, VIZ_RESOLUTION).unwrap(),
@@ -206,18 +227,18 @@ impl Default for DiskVisualization {
             last_event: None,
             context_menu_open: false,
             events: Vec::new(),
-            got_hit: false,
             selection_rect_opt: None,
             angle: 0.0,
             zoom_quadrant: [None, None],
             selection: None,
             save_file_callback: None,
+            render_callback: None,
         }
     }
 }
 
 impl DiskVisualization {
-    pub fn new(ctx: egui::Context, resolution: u32) -> Self {
+    pub fn new(ctx: egui::Context, resolution: u32, render_callback: Arc<dyn RenderCallback>) -> Self {
         assert_eq!(resolution % 2, 0);
 
         let viz_light_red: VizColor = VizColor::from_rgba8(180, 0, 0, 255);
@@ -259,6 +280,7 @@ impl DiskVisualization {
                 (GenericTrackElement::Marker, vis_purple),
             ]),
             canvas: [Some(canvas0), Some(canvas1)],
+            render_callback: Some(render_callback),
             ..DiskVisualization::default()
         }
     }
@@ -272,16 +294,35 @@ impl DiskVisualization {
         self.ui_sender = Some(sender);
     }
 
+    /// Query the visualization control to see if egui should be repainted. This will return true
+    /// if the visualization is performing animated effects like fading the recently active sector.
+    pub fn requests_repaint(&self) -> bool {
+        if self.disk.is_none() {
+            return false;
+        }
+
+        // Check if we are fading any of the pixmaps
+        for i in 0..self.sides {
+            if self.fade_passes[i] != 0 {
+                return true;
+            }
+        }
+        false
+    }
+
     #[allow(dead_code)]
     pub fn compatible(&self) -> bool {
         self.compatible
     }
 
-    pub fn update_disk(&mut self, disk_lock: TrackingLock<DiskImage>) {
+    pub fn update_disk(&mut self, disk_lock: impl Into<TrackingLock<DiskImage>>) {
+        let disk_lock = disk_lock.into();
+        self.disk = Some(disk_lock.clone());
+
         let disk = disk_lock.read(UiLockContext::DiskVisualization).unwrap();
         self.compatible = disk.can_visualize();
+        log::debug!("update_disk(): setting compatible flag to {}", self.compatible);
         self.sides = disk.heads() as usize;
-        self.disk = Some(disk_lock.clone());
 
         // Reset selections
         self.selection = None;
@@ -346,50 +387,53 @@ impl DiskVisualization {
         let inner_decode_data = self.decode_data_layer;
         let inner_angle = self.common_viz_params.index_angle;
 
-        // Render the main data layer.
-        spawn(move || {
-            let data_params = RenderTrackDataParams {
-                side: head,
-                decode: inner_decode_data,
-                slices: 1440,
-                ..Default::default()
-            };
+        if let Some(render_callback) = &self.render_callback {
+            log::debug!("Spawning rendering thread...");
+            // Render the main data layer.
+            render_callback.spawn(Box::new(move || {
+                let data_params = RenderTrackDataParams {
+                    side: head,
+                    decode: inner_decode_data,
+                    slices: 1440,
+                    ..Default::default()
+                };
 
-            let vector_params = RenderVectorizationParams::default();
+                let vector_params = RenderVectorizationParams::default();
 
-            let disk = render_lock.read(UiLockContext::DiskVisualization).unwrap();
-            let mut render_pixmap = render_target.lock().unwrap();
-            render_pixmap.fill(Color::TRANSPARENT);
+                let disk = render_lock.read(UiLockContext::DiskVisualization).unwrap();
+                let mut render_pixmap = render_target.lock().unwrap();
+                render_pixmap.fill(Color::TRANSPARENT);
 
-            match vectorize_disk_data(&disk, &inner_common_params, &data_params, &vector_params) {
-                Ok(display_list) => {
-                    log::debug!(
-                        "render worker: Data layer vectorized for side {}, created display list of {} elements",
-                        head,
-                        display_list.len()
-                    );
+                match vectorize_disk_data(&disk, &inner_common_params, &data_params, &vector_params) {
+                    Ok(display_list) => {
+                        log::debug!(
+                            "render worker: Data layer vectorized for side {}, created display list of {} elements",
+                            head,
+                            display_list.len()
+                        );
 
-                    // Disable antialiasing to reduce moiré. For antialiasing, use supersampling.
-                    let mut paint = Paint {
-                        anti_alias: false,
-                        ..Default::default()
-                    };
+                        // Disable antialiasing to reduce moiré. For antialiasing, use supersampling.
+                        let mut paint = Paint {
+                            anti_alias: false,
+                            ..Default::default()
+                        };
 
-                    match render_data_display_list(&mut render_pixmap, &mut paint, inner_angle, &display_list) {
-                        Ok(_) => {
-                            log::debug!("render worker: Data display list rendered for side {}", head);
-                            render_sender.send(RenderMessage::DataRenderComplete(head)).unwrap();
-                        }
-                        Err(e) => {
-                            log::error!("Error rendering display list: {}", e);
+                        match render_data_display_list(&mut render_pixmap, &mut paint, inner_angle, &display_list) {
+                            Ok(_) => {
+                                log::debug!("render worker: Data display list rendered for side {}", head);
+                                render_sender.send(RenderMessage::DataRenderComplete(head)).unwrap();
+                            }
+                            Err(e) => {
+                                log::error!("Error rendering display list: {}", e);
+                            }
                         }
                     }
-                }
-                Err(e) => {
-                    log::error!("Error rendering tracks: {}", e);
-                }
-            };
-        });
+                    Err(e) => {
+                        log::error!("Error rendering tracks: {}", e);
+                    }
+                };
+            }));
+        }
 
         // Clear pixmap before rendering
         self.meta_img[side].write().unwrap().fill(Color::TRANSPARENT);
@@ -484,6 +528,51 @@ impl DiskVisualization {
         self.zoom_quadrant[side] = quadrant;
     }
 
+    pub fn fade_deque(&mut self, side: usize) {
+        let mut pop_last = false;
+        let len = self.fade_deque[side].len();
+        for (i, display_list) in self.fade_deque[side].iter_mut().enumerate() {
+            display_list.alpha = display_list.alpha.saturating_sub(self.fade_rate);
+
+            // If this is the last item and has an alpha of 0, remove it from the deque.
+            if i == len - 1 && display_list.alpha == 0 {
+                pop_last = true;
+            }
+        }
+        if pop_last {
+            self.fade_deque[side].pop_back();
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn fade_pixmap(&mut self, pixmap: Arc<RwLock<Pixmap>>, rate: u8) -> bool {
+        let mut done_fading = true;
+        if let Ok(mut pixmap) = pixmap.write() {
+            // Fade the pixmap by decreasing the alpha channel of each pixel.
+            for pixel in pixmap.data_mut().chunks_exact_mut(4) {
+                let old_a = pixel[3] as u16;
+                if old_a == 0 {
+                    continue;
+                }
+                done_fading = false;
+                // new alpha
+                let new_a = old_a.saturating_sub(rate as u16);
+                // compute scale = new_a/old_a in fixed‐point
+                let scale = (new_a << 8) / old_a;
+                // rescale R,G,B
+                pixel[0] = ((pixel[0] as u16 * scale) >> 8) as u8;
+                pixel[1] = ((pixel[1] as u16 * scale) >> 8) as u8;
+                pixel[2] = ((pixel[2] as u16 * scale) >> 8) as u8;
+                pixel[3] = new_a as u8;
+            }
+        }
+        else {
+            log::warn!("Failed to acquire write lock on pixmap for fading");
+        }
+
+        done_fading
+    }
+
     pub fn clear_selection(&mut self, side: usize) {
         if let Ok(mut pixmap) = self.selection_img[side].try_lock() {
             pixmap.fill(Color::TRANSPARENT);
@@ -507,6 +596,7 @@ impl DiskVisualization {
                     Ok(mut data) => {
                         let render_selection_params = RenderDiskSelectionParams {
                             selection_type: RenderDiskSelectionType::Sector,
+                            geometry: RenderGeometry::Arc,
                             ch: DiskCh::new(c as u16, h),
                             sector_idx: s_idx as usize,
                             color: VizColor::from_rgba8(255, 255, 255, 255),
@@ -547,6 +637,69 @@ impl DiskVisualization {
         }
     }
 
+    pub fn update_active_sector(&mut self, ch: DiskCh, s_idx: u8) {
+        if self.disk.is_none() {
+            // No disk to render.
+            return;
+        }
+        let side = ch.h() as usize;
+        // Check if selection changed from last selection update
+        if self.fade_last_sector[side].0 == ch && self.fade_last_sector[side].1 == s_idx {
+            // No change, no need to update
+            return;
+        }
+
+        let passes_needed = (255 + self.fade_rate as usize) / self.fade_rate as usize;
+        self.fade_passes[side] = passes_needed;
+
+        let last_direction = self.common_viz_params.direction;
+        self.common_viz_params.direction = TurningDirection::from(ch.h());
+
+        match self.disk.as_ref().unwrap().read(UiLockContext::DiskVisualization) {
+            Ok(disk) => {
+                // Vectorize the disk selection
+                let render_selection_params = RenderDiskSelectionParams {
+                    selection_type: RenderDiskSelectionType::Track,
+                    geometry: RenderGeometry::Arc,
+                    ch,
+                    sector_idx: s_idx as usize,
+                    color: VizColor::from_rgba8(0, 255, 0, 255),
+                };
+
+                match vectorize_disk_selection(
+                    &disk,
+                    &self.common_viz_params,
+                    &render_selection_params,
+                    VizElementFlags::HIGHLIGHT,
+                ) {
+                    Ok(display_list) => {
+                        if display_list.len() == 0 {
+                            log::warn!("update_active_sector(): No display elements in display list!");
+                            return;
+                        }
+                        self.fade_deque[side].push_front(DisplayListFade {
+                            display_list,
+                            alpha: 255,
+                        });
+                    }
+                    Err(e) => {
+                        log::error!("Error vectorizing active sector: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                log::debug!(
+                    "Disk image could not be locked for reading! Locked by {:?}, deferring sector selection...",
+                    e
+                );
+                return;
+            }
+        };
+
+        self.common_viz_params.direction = last_direction;
+        self.fade_last_sector[side] = (ch, s_idx);
+    }
+
     fn composite(&mut self, side: usize) {
         // If we can acquire the data mutex, we can composite the data and metadata layers.
         match self.data_img[side].try_lock() {
@@ -577,6 +730,21 @@ impl DiskVisualization {
                         0,
                         0,
                         self.meta_img[side].read().unwrap().as_ref(),
+                        &paint,
+                        Transform::identity(),
+                        None,
+                    );
+                }
+                if self.fade_passes[side] > 0 {
+                    paint = PixmapPaint {
+                        opacity:    1.0,
+                        blend_mode: BlendMode::SourceOver,
+                        quality:    FilterQuality::Nearest,
+                    };
+                    self.composite_img[side].draw_pixmap(
+                        0,
+                        0,
+                        self.access_img[side].read().unwrap().as_ref(),
                         &paint,
                         Transform::identity(),
                         None,
@@ -717,15 +885,19 @@ impl DiskVisualization {
 
         let svg_data = documents[0].document.to_string();
 
+        log::debug!("Attempting to save SVG as {}", filename);
         if let Some(callback) = self.save_file_callback.as_ref() {
             _ = callback(filename, svg_data.as_bytes());
+        }
+        else {
+            log::error!("No save file callback set!");
         }
 
         Ok(())
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui) -> Option<VizEvent> {
-        let mut new_event = None;
+        let new_event = None;
         #[cfg(feature = "svg")]
         let mut svg_context = None;
 
@@ -745,6 +917,12 @@ impl DiskVisualization {
         // Clear the hover selection display list every frame. This avoids "sticky" ghost selections
         // if the mouse cursor rapidly leaves the window
         self.hover_display_list = None;
+
+        for side in 0..self.sides {
+            if self.fade_passes[side] > 0 {
+                self.fade_deque(side);
+            }
+        }
 
         let mut context = VisualizationContext {
             side_rects: [Rect::ZERO, Rect::ZERO],
@@ -805,7 +983,7 @@ impl DiskVisualization {
 
                                 if !*context.context_menu_open {
                                     if let Some(selection) = &context.hover_selection {
-                                        response.show_tooltip_ui(|ui| {
+                                        let _ = response.clone().on_hover_ui(|ui| {
                                             ui.horizontal(|ui| {
                                                 ui.label(format!("{}", selection.element_type));
                                             });
@@ -824,12 +1002,14 @@ impl DiskVisualization {
                                     // Send the selection event to the main app
                                     if let Some(sender) = context.ui_sender {
                                         if let Some(chsn) = selection.element_chsn {
-                                            let event =
-                                                UiEvent::SelectionChange(TrackListSelection::Sector(SectorSelection {
+                                            let event = UiEvent::SelectionChange(
+                                                TrackListSelection::Sector(SectorSelection {
                                                     phys_ch:    DiskCh::new(selection.c, selection.side),
                                                     sector_id:  chsn,
                                                     bit_offset: Some(selection.bitcell_idx),
-                                                }));
+                                                }),
+                                                SelectionSource::DiskVisualization,
+                                            );
 
                                             _ = sender.send(event);
                                         }
@@ -905,6 +1085,38 @@ impl DiskVisualization {
                     &Default::default(),
                     display_list.items(0).unwrap(),
                     false,
+                    None,
+                );
+            }
+        }
+
+        let mut _have_hover = false;
+
+        // Draw active sector deque
+        //log::debug!("Rendering fade_deque of len: {}", self.fade_deque[0].len());
+        for fade_display_list in &self.fade_deque[0] {
+            if let Some(canvas) = &self.canvas[fade_display_list.display_list.side as usize] {
+                let virtual_rect = canvas.virtual_rect();
+                let rect = context.side_rects[fade_display_list.display_list.side as usize];
+                let from_virtual = RectTransform::from_to(*virtual_rect, rect);
+
+                let rotation = VizRotation::new(
+                    TurningDirection::from(fade_display_list.display_list.side)
+                        .opposite()
+                        .adjust_angle(self.angle),
+                    VizPoint2d::new(VIZ_RESOLUTION as f32 / 2.0, VIZ_RESOLUTION as f32 / 2.0),
+                );
+
+                let selection_painter = ui.painter().with_clip_rect(rect);
+
+                paint_elements(
+                    &selection_painter,
+                    &from_virtual,
+                    &rotation,
+                    &Default::default(),
+                    fade_display_list.display_list.items(0).unwrap(),
+                    false,
+                    Some(fade_display_list.alpha),
                 );
             }
         }
@@ -913,28 +1125,10 @@ impl DiskVisualization {
         if let (Some(hover_display_list), Some(rect)) =
             (context.hover_display_list_opt.take(), context.hover_rect_opt.clone())
         {
-            //let resolution = Vec2::new(VIZ_RESOLUTION as f32, VIZ_RESOLUTION as f32);
-            // let viz_rect = if let Some(quadrant) = self.zoom_quadrant[hover_display_list.side as usize] {
-            //     match quadrant & 0x03 {
-            //         0 => Rect::from_min_size(Pos2::ZERO, resolution / 2.0),
-            //         1 => Rect::from_min_size(Pos2::new(resolution.x / 2.0, 0.0), resolution / 2.0),
-            //         2 => Rect::from_min_size(Pos2::new(0.0, resolution.y / 2.0), resolution / 2.0),
-            //         3 => Rect::from_min_size(Pos2::new(resolution.x / 2.0, resolution.y / 2.0), resolution / 2.0),
-            //         _ => unreachable!(),
-            //     }
-            // }
-            // else {
-            //     Rect::from_min_size(Pos2::ZERO, resolution)
-            // };
+            _have_hover = true;
 
             if let Some(canvas) = &self.canvas[hover_display_list.side as usize] {
-                //let canvas_transform = canvas.virtual_transform().inverse();
                 let virtual_rect = canvas.virtual_rect();
-                // let to_screen = RectTransform::from_to(
-                //     viz_rect, // Local space
-                //     *rect,    // Screen space
-                // );
-
                 let from_virtual = RectTransform::from_to(*virtual_rect, rect);
 
                 let rotation = VizRotation::new(
@@ -955,12 +1149,27 @@ impl DiskVisualization {
                         &Default::default(),
                         hover_display_list.items(0).unwrap(),
                         false,
+                        None,
                     );
                 }
             }
         }
 
         Self::show_info_pane(ui, &context);
+
+        // Uncomment to test active sector fading.
+
+        // if _have_hover {
+        //     // If we can acquire the selection image mutex, we can composite the data and metadata layers.
+        //     if let Some(ref hover_selection) = context.hover_selection {
+        //         if let Some(sector_idx) = hover_selection.sector_idx {
+        //             self.update_active_sector(
+        //                 DiskCh::new(hover_selection.c, hover_selection.side),
+        //                 (sector_idx + 1) as u8,
+        //             );
+        //         }
+        //     }
+        // }
 
         // Deferred SVG rendering from context menu
         #[cfg(feature = "svg")]
@@ -1050,13 +1259,14 @@ impl DiskVisualization {
                     ui.label("Sector size:");
                     ui.label(format!("{}", chsn.n_size()));
                     ui.end_row();
+
+                    if let Some(sector_idx) = selection.sector_idx {
+                        ui.label("Sector index:");
+                        ui.label(format!("{}", sector_idx));
+                        ui.end_row();
+                    }
                 }
             });
-    }
-
-    fn combine_transforms(transform_a: &RectTransform, transform_b: &RectTransform) -> RectTransform {
-        // Combine transformations by chaining their mappings
-        RectTransform::from_to(*transform_a.from(), transform_b.transform_rect(*transform_a.to()))
     }
 
     fn perform_hit_test(
@@ -1093,6 +1303,7 @@ impl DiskVisualization {
                             }),
                             element_idx: item.info.element_idx.unwrap_or(0),
                             element_chsn: item.info.chsn,
+                            sector_idx: hit.sector_index,
                         });
                     }
 

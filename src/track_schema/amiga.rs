@@ -542,7 +542,9 @@ impl AmigaSchema {
                 continue;
             }
 
-            let TrackElementInstance { element, .. } = instance;
+            let TrackElementInstance {
+                element, last_sector, ..
+            } = instance;
             match element {
                 TrackElement::Amiga(AmigaElement::SectorHeader {
                     chsn,
@@ -559,6 +561,7 @@ impl AmigaSchema {
                             address_error: *address_error,
                             data_error: false,
                             deleted_mark: false,
+                            last_sector: *last_sector,
                         };
                     }
 
@@ -616,6 +619,7 @@ impl AmigaSchema {
                             data_error: *data_error,
                             deleted_mark: false,
                             no_dam: false,
+                            last_sector: *last_sector,
                         };
                     }
                 }
@@ -870,6 +874,7 @@ impl AmigaSchema {
                     start: marker.start,
                     end: marker.start + mfm_offset!(10),
                     chsn: Some(chsn),
+                    last_sector: false,
                 });
 
                 elements.push(TrackElementInstance {
@@ -881,6 +886,7 @@ impl AmigaSchema {
                     start: marker.start + mfm_offset!(byte_index),
                     end: marker.start + mfm_offset!(byte_index + 4 + 512),
                     chsn: Some(chsn),
+                    last_sector: false,
                 });
             }
         }

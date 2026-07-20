@@ -32,7 +32,7 @@ use modular_bitfield::prelude::*;
 
 // Set a maximum sample size as sanity check. An extended density track could be 400,000+ bitcells
 // long, or around 50K.  So 100KiB feels like a reasonable limit.
-const MAX_SAMPLE_SIZE: usize = 100_000;
+//const MAX_SAMPLE_SIZE: usize = 100_000;
 
 #[derive(BitfieldSpecifier, Eq, PartialEq, Debug)]
 pub enum DataType {

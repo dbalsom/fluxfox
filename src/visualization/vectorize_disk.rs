@@ -693,13 +693,16 @@ pub fn vectorize_disk_selection(
     disk_image: &DiskImage,
     p: &CommonVizParams,
     r: &RenderDiskSelectionParams,
+    flags: VizElementFlags,
 ) -> Result<VizElementDisplayList, DiskVisualizationError> {
+    let tp = p.track_params(disk_image.track_ct(r.ch.h() as usize))?;
     let track = stream(r.ch, disk_image);
     let track_len = track.len();
     let r_metadata = metadata(r.ch, disk_image);
 
     let track_limit = p.track_limit.unwrap_or(MAX_CYLINDER);
     let num_tracks = min(disk_image.tracks(r.ch.h()) as usize, track_limit);
+    let cylinder = r.ch.c() as usize;
 
     if num_tracks == 0 {
         return Err(DiskVisualizationError::NoTracks);
@@ -712,49 +715,19 @@ pub fn vectorize_disk_selection(
     }
 
     let mut display_list = VizElementDisplayList::new(p.direction, r.ch.h(), num_tracks as u16);
-
-    // If no radius was specified, default to 0.5 - this creates a display list that is in the
-    // range [(0,0)-(1,1)], suitable for transformations as desired by the output rasterizer.
-    let total_radius = p.radius.unwrap_or(0.5);
-    let mut min_radius = p.min_radius_ratio * total_radius; // Scale min_radius to pixel value
-
-    // If pinning has been specified, adjust the minimum radius.
-    // We subtract any over-dumped tracks from the radius, so that the minimum radius fraction
-    // is consistent with the last standard track.
-    min_radius = if p.pin_last_standard_track {
-        let normalized_track_ct = match num_tracks {
-            0..50 => 40,
-            50..90 => 80,
-            90.. => 160,
-        };
-        let track_width = (total_radius - min_radius) / normalized_track_ct as f32;
-        let overdump = num_tracks.saturating_sub(normalized_track_ct);
-        p.min_radius_ratio * total_radius - (overdump as f32 * track_width)
-    }
-    else {
-        min_radius
-    };
-
-    let track_width = (total_radius - min_radius) / num_tracks as f32;
-    let center = VizPoint2d::from((total_radius, total_radius));
-
-    let (clip_start, clip_end) = match p.direction {
-        TurningDirection::Clockwise => (0.0, TAU),
-        TurningDirection::CounterClockwise => (0.0, TAU),
-    };
+    let (clip_start, clip_end) = (0.0, TAU);
+    let center = tp.center;
 
     for draw_markers in [false, true].iter() {
-        let ti = r.ch.c() as usize;
         let track_meta = r_metadata;
 
-        let outer_radius = total_radius - (ti as f32 * track_width);
-        let inner_radius = outer_radius - (track_width * (1.0 - p.track_gap));
+        let (outer_radius, mid_radius, inner_radius) = tp.radii(cylinder, true);
 
         let mut phys_s: u8 = 0; // Physical sector index, 0-indexed from first sector on track
 
         // Draw non-overlapping metadata.
-        for (_mi, meta_item) in track_meta.items.iter().enumerate() {
-            let generic_element = GenericTrackElement::from(meta_item.element);
+        for (ei_idx, ei) in track_meta.items.iter().enumerate() {
+            let generic_element = GenericTrackElement::from(ei.element);
 
             match generic_element {
                 GenericTrackElement::Marker { .. } if !*draw_markers => {
@@ -767,22 +740,26 @@ pub fn vectorize_disk_selection(
                 _ => {}
             }
 
-            // Advance physical sector number for each sector header encountered.
-            if meta_item.element.is_sector_header() {
+            // Advance physical sector number for each sector DAM encountered.
+            if ei.element.is_sector_data() {
                 phys_s = phys_s.wrapping_add(1);
             }
 
-            if !meta_item.element.is_sector_data() || ((phys_s as usize) < r.sector_idx) {
+            if !ei.element.is_sector_data() || ((phys_s as usize) < r.sector_idx) {
                 continue;
             }
 
-            let mut start_angle = ((meta_item.start as f32 / track_len as f32) * TAU) + p.index_angle;
-            let mut end_angle = ((meta_item.end as f32 / track_len as f32) * TAU) + p.index_angle;
+            let mut start_angle = ((ei.start as f32 / track_len as f32) * TAU) + p.index_angle;
+            let mut end_angle = ((ei.end as f32 / track_len as f32) * TAU) + p.index_angle;
 
-            if start_angle > end_angle {
-                std::mem::swap(&mut start_angle, &mut end_angle);
-            }
+            // Set a flag if the element is larger than the track. This will switch to circle rendering.
+            let wrapping_element = (end_angle - start_angle) > TAU;
 
+            // if start_angle > end_angle {
+            //     std::mem::swap(&mut start_angle, &mut end_angle);
+            // }
+
+            // Invert the angles for clockwise rotation
             (start_angle, end_angle) = match p.direction {
                 TurningDirection::Clockwise => (start_angle, end_angle),
                 TurningDirection::CounterClockwise => (TAU - start_angle, TAU - end_angle),
@@ -793,41 +770,53 @@ pub fn vectorize_disk_selection(
                 std::mem::swap(&mut start_angle, &mut end_angle);
             }
 
-            // Skip sectors that are outside the current quadrant
-            if end_angle <= clip_start || start_angle >= clip_end {
-                continue;
-            }
-
             // Clip the elements to one revolution
-            if start_angle < clip_start {
-                start_angle = clip_start;
-            }
+            let start_angle = start_angle.max(clip_start);
+            let end_angle = end_angle.min(clip_end);
 
-            if end_angle > clip_end {
-                end_angle = clip_end;
-            }
+            let shape = match r.geometry {
+                RenderGeometry::Sector => VizShape::Sector(VizSector::from_angles(
+                    &VizPoint2d::new(center.x, center.y),
+                    RenderWinding::Clockwise,
+                    start_angle,
+                    end_angle,
+                    inner_radius,
+                    outer_radius,
+                )),
+                RenderGeometry::Arc => {
+                    if wrapping_element {
+                        // If the element wraps around the track, render a full circle.
+                        // A circle is stroked on the outside, by default, so give the inner radius.
+                        VizShape::Circle(
+                            VizCircle::new(&VizPoint2d::new(center.x, center.y), inner_radius),
+                            outer_radius - inner_radius,
+                        )
+                    }
+                    else {
+                        VizShape::CubicArc(
+                            VizArc::from_angles(
+                                &VizPoint2d::new(center.x, center.y),
+                                mid_radius,
+                                start_angle,
+                                end_angle,
+                            ),
+                            outer_radius - inner_radius,
+                        )
+                    }
+                }
+            };
 
-            let element_sector = VizSector::from_angles(
-                &VizPoint2d::new(center.x, center.y),
-                RenderWinding::Clockwise,
-                start_angle,
-                end_angle,
-                inner_radius,
-                outer_radius,
-            );
-
-            let element_flags = VizElementFlags::default();
-            let element_info = VizElementInfo::new(
+            let info = VizElementInfo::new(
                 generic_element,
-                DiskCh::new(ti as u16, r.ch.h()),
-                meta_item.chsn,
+                DiskCh::new(cylinder as u16, r.ch.h()),
+                ei.chsn,
                 None,
-                None,
-                None,
+                Some(ei_idx),
+                Some(phys_s as usize),
             );
-            let element_metadata = VizElement::new(element_sector, element_flags, element_info);
+            let element = VizElement { shape, flags, info };
+            display_list.push(0, element);
 
-            display_list.push(ti, element_metadata);
             // Rendered one sector, stop.
             break;
         }
@@ -977,13 +966,13 @@ pub fn vectorize_disk_hit_test(
         };
 
         let element = VizElement { shape, flags, info };
-
         display_list.push(0, element);
 
         return Ok(DiskHitTestResult {
             display_list: Some(display_list),
             angle: normalized_angle,
             bit_index,
+            sector_index: r_metadata.sector_index_from_element_index(idx),
             track: cylinder as u16,
         });
     }
@@ -994,6 +983,7 @@ pub fn vectorize_disk_hit_test(
         display_list: None,
         bit_index,
         angle: normalized_angle,
+        sector_index: None,
         track: cylinder as u16,
     })
 }

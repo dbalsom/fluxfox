@@ -63,7 +63,7 @@ impl From<VizColor> for tiny_skia::Color {
 }
 
 bitflags! {
-    #[derive (Clone, Debug, Default)]
+    #[derive (Copy, Clone, Debug, Default)]
     pub struct VizElementFlags: u32 {
         // No flags set
         const NONE = 0b0000_0000;
