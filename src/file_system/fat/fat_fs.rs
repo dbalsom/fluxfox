@@ -91,7 +91,7 @@ impl FatFileSystem {
             .map_err(|e| FileSystemError::MountError(e.to_string()))?;
 
         // Mount the filesystem
-        let fat = match FileSystem::new(view, FsOptions::new()) {
+        let fat = match FileSystem::new(view, FsOptions::new().strict(false)) {
             Ok(fs) => fs,
             Err(e) => return Err(FileSystemError::MountError(e.to_string())),
         };

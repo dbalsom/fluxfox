@@ -115,7 +115,7 @@ svg = { workspace = true, optional = true }
 [dependencies.fluxfox_fat]
 git = "https://github.com/dbalsom/fluxfox_fat.git"
 package = "fatfs"
-branch = "bpb_fix"
+branch = "attributes"
 default-features = false
 features = ["std", "alloc", "log_level_debug"]
 optional = true

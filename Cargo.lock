@@ -1808,7 +1808,7 @@ dependencies = [
 [[package]]
 name = "fatfs"
 version = "0.4.0"
-source = "git+https://github.com/dbalsom/fluxfox_fat.git?branch=bpb_fix#e098397c0d83c2a55a851b1d76b6e1ac10c5a6d5"
+source = "git+https://github.com/dbalsom/fluxfox_fat.git?branch=attributes#8b852390eade777af36d1913310290e2a648b61b"
 dependencies = [
  "bitflags 2.10.0",
  "log",
