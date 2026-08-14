@@ -114,8 +114,8 @@ svg = { workspace = true, optional = true }
 # fluxfox_fat is a fork of rust-fatfs with a few fixes for reading older/odd boot sectors
 [dependencies.fluxfox_fat]
 git = "https://github.com/dbalsom/fluxfox_fat.git"
-package = "fatfs"
-branch = "attributes"
+package = "fluxfox-fat"
+branch = "sn_access"
 default-features = false
 features = ["std", "alloc", "log_level_debug"]
 optional = true
@@ -189,6 +189,7 @@ wasm-bindgen-futures = { version = "0.4" }
 [dev-dependencies]
 sha1 = "0.10"
 hex = "0.4"    # or the latest version
+tempfile = "3.14"
 
 [features]
 # core features should always be enabled first if default-features is false

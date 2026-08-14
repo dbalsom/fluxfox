@@ -36,9 +36,11 @@ pub mod date_time;
 pub mod fat;
 pub mod file_tree;
 pub mod native;
+#[cfg(feature = "zip")]
+pub(crate) mod zip_source;
 
 pub use date_time::FsDateTime;
-pub use file_tree::{FileEntry, FileNameType, FileTreeNode};
+pub use file_tree::{FileEntry, FileEntryAttributes, FileNameType, FileTreeNode};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum FileSystemType {
@@ -86,6 +88,8 @@ pub enum FileSystemError {
     ReadError(String),
     #[error("An error occurred writing a file: {0}")]
     WriteError(String),
+    #[error("There is not enough free space in the filesystem")]
+    NotEnoughSpace,
     #[error("An archive error occurred: {0}")]
     ArchiveError(String),
     #[error("The requested path was not found: {0}")]
@@ -96,6 +100,21 @@ pub enum FileSystemError {
     CycleError,
     #[error("A filesystem object was detected that was not a file or directory: {0}")]
     UnsupportedFileObject(String),
+    #[error("DOS boot system files must form one complete, unmixed pair; found: {0}")]
+    InvalidBootFileSet(String),
+    #[error("An invalid boot sector was supplied: {0}")]
+    InvalidBootSector(String),
+}
+
+/// Return whether a root-level source file is reserved as boot-sector metadata.
+///
+/// DOS source trees conventionally use either `bootsector.bin` or a more specific name ending in
+/// `_bootsector.bin`. Matching is ASCII case-insensitive to suit DOS-hosted source collections.
+pub(crate) fn is_boot_sector_filename(name: &str) -> bool {
+    name.eq_ignore_ascii_case("bootsector.bin")
+        || name
+            .get(name.len().saturating_sub("_bootsector.bin".len())..)
+            .is_some_and(|suffix| suffix.eq_ignore_ascii_case("_bootsector.bin"))
 }
 
 impl From<crate::io::Error> for FileSystemError {

@@ -130,7 +130,19 @@ pub(crate) fn out_file_parser() -> impl Parser<PathBuf> {
 pub(crate) fn from_dir_parser() -> impl Parser<PathBuf> {
     long("from_dir")
         .argument::<PathBuf>("FROM_DIR")
-        .help("Path to source directory")
+        .help("Build a formatted FAT12 image from this source directory")
+}
+
+pub(crate) fn from_archive_parser() -> impl Parser<PathBuf> {
+    long("from_archive")
+        .argument::<PathBuf>("FROM_ARCHIVE")
+        .help("Build a formatted FAT12 image from this ZIP archive")
+}
+
+pub(crate) fn bootsector_parser() -> impl Parser<PathBuf> {
+    long("bootsector")
+        .argument::<PathBuf>("BOOTSECTOR_FILE")
+        .help("Use this 512-byte file as the boot sector")
 }
 
 pub(crate) fn command_parser() -> impl Parser<AppParams> {

@@ -35,20 +35,27 @@
 //! For IBM PC disk images, a creator tag can be specified which will be
 //! displayed during boot if the disk is left in the drive.
 
+#[cfg(feature = "fat")]
 use crate::{
     disk_lock::{DiskLock, NonTrackingDiskLock, NullContext},
-    file_system,
-    file_system::{fat::fat_fs::FatFileSystem, FileSystemError, FileSystemType, FileTreeNode},
+    file_system::fat::fat_fs::FatFileSystem,
+};
+use crate::{
+    file_system::{self, FileSystemType},
     types::{DiskImageFlags, TrackDataResolution},
     DiskImage,
     DiskImageError,
     StandardFormat,
 };
 use std::{
-    collections::HashSet,
     fs,
     path::{Path, PathBuf},
 };
+
+#[cfg(feature = "zip")]
+use std::io::Read;
+
+const BOOT_SECTOR_SIZE: usize = 512;
 
 /// Implements the Builder pattern for [DiskImage] objects.
 /// [ImageBuilder] for creation of blank or pre-formatted [DiskImage]s.
@@ -74,6 +81,10 @@ pub struct ImageBuilder {
     /// Specify whether we should attempt to create a bootable disk image if `from_path` or
     /// `from_archive` are specified.
     pub bootable: bool,
+    /// An explicit boot sector to install and patch with the selected disk format's BPB.
+    /// If omitted, a boot sector is discovered from the source root, or the bundled fox boot
+    /// sector is used as a final fallback.
+    pub boot_sector: Option<Vec<u8>>,
     /// Specify whether the files should be added recursively from the specified path
     /// or archive. If false, only files in the root directory will be added.
     pub recursive: bool,
@@ -125,11 +136,20 @@ impl ImageBuilder {
     /// * `path` - The path to the directory containing the files to be added to the [DiskImage].
     /// * `filesystem` - The [FileSystemType] to use for the [DiskImage].
     /// * `recursive` - If `true`, files will be added recursively from the specified path, creating
-    ///      subdirectories as necessary. If `false`, only files in the specified directory will be
-    ///      added in the root directory of the [DiskImage].
+    ///   subdirectories as necessary. If `false`, only files in the specified directory will be
+    ///   added in the root directory of the [DiskImage].
     /// * `must_fit` - Whether the files must fit on the disk image. If false, files will be added
-    ///      to the disk image until it is full. If true, an error will be returned if the
-    ///      files do not fit on the disk image.
+    ///   to the disk image until it is full. If true, an error will be returned if the
+    ///   files do not fit on the disk image.
+    ///
+    /// A complete `IO.SYS`/`MSDOS.SYS` or `IBMIO.SYS`/`IBMDOS.SYS` pair in the source root is
+    /// written first and marked read-only, hidden, and system. Incomplete or mixed pairs are
+    /// rejected.
+    ///
+    /// A root-level `bootsector.bin` or `*_bootsector.bin` is installed as the image boot sector,
+    /// patched with the selected format's BPB, and omitted from the FAT filesystem. If `bootable`
+    /// is true, the absence of such a file (or an explicit [`ImageBuilder::with_bootsector`]
+    /// override) is an error.
     pub fn with_filesystem_from_path(
         mut self,
         path: impl AsRef<Path>,
@@ -142,23 +162,30 @@ impl ImageBuilder {
         self.from_path = Some(path.as_ref().to_path_buf());
         self.from_archive = None;
         self.formatted = true;
+        self.bootable = bootable;
         self.recursive = recursive;
         self.must_fit = must_fit;
         self
     }
 
     /// Set whether the [DiskImage] to be built should be formatted as the specified [FileSystemType],
-    /// containing files from the specified archive. The archive must be in a format supported and
-    /// enabled by the correct feature flag.
+    /// containing files from the specified ZIP archive. This requires the `zip` feature.
     /// # Arguments:
-    /// * `path` - The path to the directory containing the archive to be added to the [DiskImage].
+    /// * `path` - The path to the ZIP archive containing files to be added to the [DiskImage].
     /// * `filesystem` - The [FileSystemType] to use for the [DiskImage].
     /// * `recursive` - If `true`, files will be added recursively from the specified path, creating
-    ///      subdirectories as necessary. If `false`, only files in the specified directory will be
-    ///      added in the root directory of the [DiskImage].
+    ///   subdirectories as necessary. If `false`, only files in the specified directory will be
+    ///   added in the root directory of the [DiskImage].
     /// * `must_fit` - Whether the files must fit on the disk image. If false, files will be added
-    ///      to the disk image until it is full. If true, an error will be returned if the
-    ///      files do not fit on the disk image.
+    ///   to the disk image until it is full. If true, an error will be returned if the
+    ///   files do not fit on the disk image.
+    ///
+    /// A complete `IO.SYS`/`MSDOS.SYS` or `IBMIO.SYS`/`IBMDOS.SYS` pair in the archive root is
+    /// written first and marked read-only, hidden, and system. Incomplete or mixed pairs are
+    /// rejected.
+    ///
+    /// A root-level `bootsector.bin` or `*_bootsector.bin` is installed as the image boot sector,
+    /// patched with the selected format's BPB, and omitted from the FAT filesystem.
     pub fn with_filesystem_from_archive(
         mut self,
         path: impl AsRef<Path>,
@@ -186,8 +213,35 @@ impl ImageBuilder {
         self
     }
 
+    /// Install the supplied 512-byte boot sector and patch its BPB for the selected disk format.
+    ///
+    /// This explicit value takes precedence over any boot-sector binary in a source directory or
+    /// ZIP archive. The length is validated by [`ImageBuilder::build`].
+    pub fn with_bootsector(mut self, boot_sector: &[u8]) -> ImageBuilder {
+        self.boot_sector = Some(boot_sector.to_vec());
+        self.bootable = true;
+        self
+    }
+
     /// Build the [`DiskImage`] using the specified parameters.
     pub fn build(self) -> Result<DiskImage, DiskImageError> {
+        if let Some(boot_sector) = self.boot_sector.as_deref() {
+            Self::validate_boot_sector(boot_sector, "with_bootsector()")?;
+        }
+        if let Some(path) = self.from_path.as_ref() {
+            if !path.is_dir() {
+                return Err(DiskImageError::FilesystemError(
+                    file_system::FileSystemError::PathNotFound(path.display().to_string()),
+                ));
+            }
+        }
+        if let Some(path) = self.from_archive.as_ref() {
+            if !path.is_file() {
+                return Err(DiskImageError::FilesystemError(
+                    file_system::FileSystemError::PathNotFound(path.display().to_string()),
+                ));
+            }
+        }
         if self.resolution.is_none() {
             log::error!("DiskDataResolution not set");
             return Err(DiskImageError::ParameterError);
@@ -209,6 +263,41 @@ impl ImageBuilder {
         let format = self.standard_format.unwrap();
         let mut disk_image = DiskImage::create(format);
         disk_image.set_resolution(TrackDataResolution::BitStream);
+
+        // An explicit sector wins. Otherwise discover one in the source root, falling back to the
+        // bundled fox sector when bootability was not required.
+        let discovered_boot_sector = if self.boot_sector.is_none() {
+            if let Some(path) = self.from_path.as_deref() {
+                Self::discover_boot_sector_from_directory(path)?
+            }
+            else if let Some(path) = self.from_archive.as_deref() {
+                #[cfg(feature = "zip")]
+                {
+                    Self::discover_boot_sector_from_zip(path)?
+                }
+                #[cfg(not(feature = "zip"))]
+                {
+                    let _ = path;
+                    None
+                }
+            }
+            else {
+                None
+            }
+        }
+        else {
+            None
+        };
+        let boot_sector = self.boot_sector.as_deref().or(discovered_boot_sector.as_deref());
+
+        if self.bootable && boot_sector.is_none() {
+            return Err(DiskImageError::FilesystemError(
+                file_system::FileSystemError::InvalidBootSector(
+                    "bootable image requested, but no bootsector.bin or *_bootsector.bin was found in the source root"
+                        .to_string(),
+                ),
+            ));
+        }
 
         let chsn = format.layout();
         let encoding = format.encoding();
@@ -238,7 +327,7 @@ impl ImageBuilder {
                 format,
                 TrackDataResolution::BitStream,
                 self.filesystem.unwrap(),
-                None,
+                boot_sector,
                 self.creator_tag.as_ref(),
             )?;
             disk_image.post_load_process();
@@ -265,7 +354,18 @@ impl ImageBuilder {
                         "ImageBuilder::build_bitstream(): Injecting files from path {:?} into FAT12 filesystem",
                         path
                     );
-                    disk_image = Self::inject_files_from_path_fat(&path, disk_image, self.recursive, self.must_fit)?;
+                    #[cfg(feature = "fat")]
+                    {
+                        disk_image =
+                            Self::inject_files_from_path_fat(&path, disk_image, self.recursive, self.must_fit)?;
+                    }
+                    #[cfg(not(feature = "fat"))]
+                    {
+                        let _ = (path, disk_image);
+                        return Err(DiskImageError::FilesystemError(
+                            crate::file_system::FileSystemError::FeatureError("fat".to_string()),
+                        ));
+                    }
                 }
                 None => {
                     log::error!("ImageBuilder::build_bitstream(): No filesystem specified for file injection!");
@@ -273,6 +373,42 @@ impl ImageBuilder {
                 }
                 _ => {
                     log::error!("ImageBuilder::build_bitstream(): Unsupported filesystem type for file injection");
+                    return Err(DiskImageError::UnsupportedFilesystem);
+                }
+            }
+        }
+        else if let Some(path) = self.from_archive {
+            match self.filesystem {
+                Some(FileSystemType::Fat12) => {
+                    log::debug!(
+                        "ImageBuilder::build_bitstream(): Injecting files from ZIP archive {:?} into FAT12 filesystem",
+                        path
+                    );
+                    #[cfg(all(feature = "fat", feature = "zip"))]
+                    {
+                        disk_image = Self::inject_files_from_zip_fat(&path, disk_image, self.recursive, self.must_fit)?;
+                    }
+                    #[cfg(not(feature = "fat"))]
+                    {
+                        let _ = (path, disk_image);
+                        return Err(DiskImageError::FilesystemError(
+                            crate::file_system::FileSystemError::FeatureError("fat".to_string()),
+                        ));
+                    }
+                    #[cfg(all(feature = "fat", not(feature = "zip")))]
+                    {
+                        let _ = (path, disk_image);
+                        return Err(DiskImageError::FilesystemError(
+                            crate::file_system::FileSystemError::FeatureError("zip".to_string()),
+                        ));
+                    }
+                }
+                None => {
+                    log::error!("ImageBuilder::build_bitstream(): No filesystem specified for archive injection!");
+                    return Err(DiskImageError::ParameterError);
+                }
+                _ => {
+                    log::error!("ImageBuilder::build_bitstream(): Unsupported filesystem type for archive injection");
                     return Err(DiskImageError::UnsupportedFilesystem);
                 }
             }
@@ -285,6 +421,121 @@ impl ImageBuilder {
         disk_image.clear_flag(DiskImageFlags::DIRTY);
 
         Ok(disk_image)
+    }
+
+    fn validate_boot_sector(boot_sector: &[u8], source: &str) -> Result<(), DiskImageError> {
+        if boot_sector.len() != BOOT_SECTOR_SIZE {
+            return Err(DiskImageError::FilesystemError(
+                file_system::FileSystemError::InvalidBootSector(format!(
+                    "{source} is {} bytes; expected {BOOT_SECTOR_SIZE}",
+                    boot_sector.len()
+                )),
+            ));
+        }
+        Ok(())
+    }
+
+    fn select_boot_sector_candidate(mut candidates: Vec<(String, Vec<u8>)>) -> Result<Option<Vec<u8>>, DiskImageError> {
+        candidates.sort_by(|(left, _), (right, _)| left.cmp(right));
+        if candidates.len() > 1 {
+            let names = candidates
+                .iter()
+                .map(|(name, _)| name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(DiskImageError::FilesystemError(
+                file_system::FileSystemError::InvalidBootSector(format!(
+                    "multiple boot-sector candidates were found: {names}"
+                )),
+            ));
+        }
+
+        let Some((name, bytes)) = candidates.pop()
+        else {
+            return Ok(None);
+        };
+        Self::validate_boot_sector(&bytes, &name)?;
+        Ok(Some(bytes))
+    }
+
+    fn discover_boot_sector_from_directory(path: &Path) -> Result<Option<Vec<u8>>, DiskImageError> {
+        let mut candidates = Vec::new();
+        for entry in fs::read_dir(path)? {
+            let entry = entry?;
+            if !entry.file_type()?.is_file() {
+                continue;
+            }
+            let name = entry.file_name().into_string().map_err(|name| {
+                DiskImageError::FilesystemError(file_system::FileSystemError::UnsupportedFileObject(
+                    name.to_string_lossy().into_owned(),
+                ))
+            })?;
+            if file_system::is_boot_sector_filename(&name) {
+                let size = entry.metadata()?.len();
+                if size != BOOT_SECTOR_SIZE as u64 {
+                    return Err(DiskImageError::FilesystemError(
+                        file_system::FileSystemError::InvalidBootSector(format!(
+                            "{name} is {size} bytes; expected {BOOT_SECTOR_SIZE}"
+                        )),
+                    ));
+                }
+                candidates.push((name, fs::read(entry.path())?));
+            }
+        }
+        Self::select_boot_sector_candidate(candidates)
+    }
+
+    #[cfg(feature = "zip")]
+    fn discover_boot_sector_from_zip(path: &Path) -> Result<Option<Vec<u8>>, DiskImageError> {
+        let file = fs::File::open(path)?;
+        let mut archive = zip::ZipArchive::new(file)
+            .map_err(file_system::FileSystemError::from)
+            .map_err(DiskImageError::FilesystemError)?;
+        let mut candidate_indices = Vec::new();
+
+        for index in 0..archive.len() {
+            let entry = archive
+                .by_index(index)
+                .map_err(file_system::FileSystemError::from)
+                .map_err(DiskImageError::FilesystemError)?;
+            let Some(enclosed_path) = entry.enclosed_name()
+            else {
+                continue;
+            };
+            if !entry.is_file() || enclosed_path.components().count() != 1 {
+                continue;
+            }
+            let Some(name) = enclosed_path.file_name().and_then(|name| name.to_str())
+            else {
+                continue;
+            };
+            if file_system::is_boot_sector_filename(name) {
+                candidate_indices.push((name.to_string(), index));
+            }
+        }
+
+        let mut candidates = Vec::with_capacity(candidate_indices.len());
+        for (name, index) in candidate_indices {
+            let mut entry = archive
+                .by_index(index)
+                .map_err(file_system::FileSystemError::from)
+                .map_err(DiskImageError::FilesystemError)?;
+            if entry.size() != BOOT_SECTOR_SIZE as u64 {
+                return Err(DiskImageError::FilesystemError(
+                    file_system::FileSystemError::InvalidBootSector(format!(
+                        "{name} is {} bytes; expected {BOOT_SECTOR_SIZE}",
+                        entry.size()
+                    )),
+                ));
+            }
+            let mut bytes = Vec::with_capacity(BOOT_SECTOR_SIZE);
+            entry
+                .read_to_end(&mut bytes)
+                .map_err(file_system::FileSystemError::from)
+                .map_err(DiskImageError::FilesystemError)?;
+            candidates.push((name, bytes));
+        }
+        Self::select_boot_sector_candidate(candidates)
     }
 
     fn build_metasector(self) -> Result<DiskImage, DiskImageError> {
@@ -305,6 +556,7 @@ impl ImageBuilder {
         Ok(disk_image)
     }
 
+    #[cfg(feature = "fat")]
     fn inject_files_from_path_fat(
         path: impl AsRef<Path>,
         mut disk_image: DiskImage,
@@ -312,60 +564,29 @@ impl ImageBuilder {
         must_fit: bool,
     ) -> Result<DiskImage, DiskImageError> {
         let path = path.as_ref();
-        let base_path = path.to_path_buf().to_string_lossy().to_string();
 
         // Get the list of files to add to the disk image, honoring the 'recursive' flag
-        let files = file_system::native::build_file_tree(path).map_err(|e| DiskImageError::FilesystemError(e))?;
+        let files = file_system::native::build_file_tree_with_options(path, recursive)
+            .map_err(DiskImageError::FilesystemError)?;
 
         // Mount the filesystem
         let arc = disk_image.into_arc();
         let lock = NonTrackingDiskLock::new(arc);
 
         let mut fs = FatFileSystem::mount(lock.clone(), NullContext::default(), None)
-            .map_err(|e| DiskImageError::FilesystemError(e))?;
+            .map_err(DiskImageError::FilesystemError)?;
 
-        // match files.iter().try_for_each(|filename| {
-        //     let relative_filename = filename.trim_start_matches(&base_path);
-        //
-        //     log::debug!(
-        //         "ImageBuilder::inject_files_from_path(): Adding file {:?} to disk image at {}",
-        //         filename,
-        //         relative_filename
-        //     );
-        //
-        //     fs.create_file(filename, None, None)
-        //         .map_err(|e| DiskImageError::FilesystemError(e))?;
-        //
-        //     let data = fs::read(filename).map_err(|e| DiskImageError::IoError(e.to_string()))?;
-        //
-        //     match fs.write_file(relative_filename, &data) {
-        //         Ok(_) => Ok(()),
-        //         Err(e) => {
-        //             if must_fit {
-        //                 Err(DiskImageError::FilesystemError(e))
-        //             }
-        //             else {
-        //                 Ok(())
-        //             }
-        //         }
-        //     }
-        // }) {
-        //     Ok(_) => {
-        //         // There's no good way to get the disk image back out of the lock, so we'll just clone it
-        //         disk_image = match lock.read(NullContext::default()) {
-        //             Ok(disk_image) => disk_image.clone(),
-        //             Err(_) => {
-        //                 log::error!("ImageBuilder::inject_files_from_path(): Failed to get disk image from lock");
-        //                 return Err(DiskImageError::ParameterError);
-        //             }
-        //         };
-        //
-        //         Ok(disk_image)
-        //     }
-        //     Err(e) => Err(e),
-        // }
-
-        Self::build_fat(&files, &mut fs, &HashSet::new()).map_err(|e| DiskImageError::FilesystemError(e))?;
+        let report = fs
+            .write_file_tree(path, &files, must_fit)
+            .map_err(DiskImageError::FilesystemError)?;
+        log::debug!(
+            "ImageBuilder::inject_files_from_path_fat(): Wrote {} files, {} directories, and {} bytes (complete: {})",
+            report.files_written,
+            report.directories_written,
+            report.bytes_written,
+            report.complete
+        );
+        fs.unmount();
 
         disk_image = match lock.read(NullContext::default()) {
             Ok(disk_image) => disk_image.clone(),
@@ -375,45 +596,49 @@ impl ImageBuilder {
             }
         };
 
+        disk_image.post_load_process();
+
         Ok(disk_image)
     }
 
-    fn build_fat(
-        dir_node: &FileTreeNode,
-        fs: &mut FatFileSystem,
-        visited: &HashSet<String>,
-    ) -> Result<(), FileSystemError> {
-        for (i, entry) in dir_node.children().iter().enumerate() {
-            log::debug!("Processing child #{}, {}", i, entry.path());
+    #[cfg(all(feature = "fat", feature = "zip"))]
+    fn inject_files_from_zip_fat(
+        path: impl AsRef<Path>,
+        mut disk_image: DiskImage,
+        recursive: bool,
+        must_fit: bool,
+    ) -> Result<DiskImage, DiskImageError> {
+        let mut source =
+            file_system::zip_source::ZipFileSource::open(path, recursive).map_err(DiskImageError::FilesystemError)?;
+        let files = source.tree().clone();
 
-            match entry {
-                FileTreeNode::File(file) => {
-                    let path = file.path();
-                    if visited.contains(path) {
-                        log::debug!("Skipping previously installed file: {:?}", path);
-                        continue;
-                    }
-                    log::debug!("Adding file {:?}", path);
-                    let data = fs::read(file.path())?;
-                    fs.create_file(path, None, None)?;
-                    fs.write_file(path, &data)?;
-                }
-                FileTreeNode::Directory { dfe: dir, children: _ } => {
-                    let path = dir.path();
-                    if path != "/" {
-                        if visited.contains(path) {
-                            log::debug!("Skipping previously installed directory: {:?}", path);
-                            continue;
-                        }
-                        log::debug!("Adding directory {:?}", path);
-                        fs.create_dir(path)?;
-                    }
+        let arc = disk_image.into_arc();
+        let lock = NonTrackingDiskLock::new(arc);
+        let mut fs = FatFileSystem::mount(lock.clone(), NullContext::default(), None)
+            .map_err(DiskImageError::FilesystemError)?;
 
-                    Self::build_fat(entry, fs, visited)?;
-                }
+        let report = fs
+            .write_file_tree_with(&files, must_fit, |entry| source.read_file(entry))
+            .map_err(DiskImageError::FilesystemError)?;
+        log::debug!(
+            "ImageBuilder::inject_files_from_zip_fat(): Wrote {} files, {} directories, and {} bytes (complete: {})",
+            report.files_written,
+            report.directories_written,
+            report.bytes_written,
+            report.complete
+        );
+        fs.unmount();
+
+        disk_image = match lock.read(NullContext::default()) {
+            Ok(disk_image) => disk_image.clone(),
+            Err(_) => {
+                log::error!("ImageBuilder::inject_files_from_zip_fat(): Failed to get disk image from lock");
+                return Err(DiskImageError::ParameterError);
             }
-        }
-        Ok(())
+        };
+
+        disk_image.post_load_process();
+        Ok(disk_image)
     }
 }
 

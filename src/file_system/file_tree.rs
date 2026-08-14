@@ -24,8 +24,19 @@
 
     --------------------------------------------------------------------------
 */
-use crate::file_system::date_time::FsDateTime;
+use crate::file_system::{date_time::FsDateTime, FileSystemError};
 use std::fmt::{Display, Formatter, Result};
+
+bitflags::bitflags! {
+    /// Settable DOS file attributes carried by a filesystem tree entry.
+    #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+    pub struct FileEntryAttributes: u8 {
+        const READ_ONLY = 0x01;
+        const HIDDEN    = 0x02;
+        const SYSTEM    = 0x04;
+        const ARCHIVE   = 0x20;
+    }
+}
 
 #[derive(Copy, Clone, Debug)]
 pub enum FileEntryType {
@@ -49,6 +60,7 @@ pub struct FileEntry {
     pub(crate) size: u64,
     pub(crate) created: Option<FsDateTime>,
     pub(crate) modified: Option<FsDateTime>,
+    pub(crate) attributes: FileEntryAttributes,
 }
 
 impl Display for FileEntry {
@@ -136,6 +148,10 @@ impl FileEntry {
     pub fn created(&self) -> Option<&FsDateTime> {
         self.created.as_ref()
     }
+
+    pub fn attributes(&self) -> FileEntryAttributes {
+        self.attributes
+    }
 }
 
 #[derive(Clone)]
@@ -155,10 +171,80 @@ impl Default for FileTreeNode {
                 size: 0,
                 created: None,
                 modified: None,
+                attributes: FileEntryAttributes::default(),
             },
             children: Vec::new(),
         }
     }
+}
+
+const MS_DOS_BOOT_FILES: [&str; 2] = ["IO.SYS", "MSDOS.SYS"];
+const IBM_DOS_BOOT_FILES: [&str; 2] = ["IBMIO.SYS", "IBMDOS.SYS"];
+
+/// Validate DOS boot-system files in the tree root and move a complete pair to the front.
+///
+/// A recognized file is only valid as part of exactly one complete pair. The Microsoft and IBM
+/// variants may not be mixed. Valid system files are marked read-only, hidden, and system.
+pub(crate) fn prioritize_boot_system_files(tree: &mut FileTreeNode) -> std::result::Result<(), FileSystemError> {
+    let FileTreeNode::Directory { children, .. } = tree
+    else {
+        return Ok(());
+    };
+
+    let recognized = children
+        .iter()
+        .filter_map(|node| match node {
+            FileTreeNode::File(entry)
+                if MS_DOS_BOOT_FILES
+                    .iter()
+                    .chain(IBM_DOS_BOOT_FILES.iter())
+                    .any(|name| entry.short_name().eq_ignore_ascii_case(name)) =>
+            {
+                Some(entry.short_name().to_string())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    if recognized.is_empty() {
+        return Ok(());
+    }
+
+    let count = |name: &str| {
+        recognized
+            .iter()
+            .filter(|entry_name| entry_name.eq_ignore_ascii_case(name))
+            .count()
+    };
+    let ms_complete = MS_DOS_BOOT_FILES.iter().all(|name| count(name) == 1);
+    let ibm_complete = IBM_DOS_BOOT_FILES.iter().all(|name| count(name) == 1);
+    let pair = match (ms_complete, ibm_complete, recognized.len()) {
+        (true, false, 2) => MS_DOS_BOOT_FILES,
+        (false, true, 2) => IBM_DOS_BOOT_FILES,
+        _ => {
+            return Err(FileSystemError::InvalidBootFileSet(recognized.join(", ")));
+        }
+    };
+
+    let system_attributes = FileEntryAttributes::READ_ONLY | FileEntryAttributes::HIDDEN | FileEntryAttributes::SYSTEM;
+    let mut boot_nodes = Vec::with_capacity(pair.len());
+    for boot_name in pair {
+        let index = children
+            .iter()
+            .position(|node| match node {
+                FileTreeNode::File(entry) => entry.short_name().eq_ignore_ascii_case(boot_name),
+                _ => false,
+            })
+            .expect("validated boot file must remain in the root directory");
+        let mut node = children.remove(index);
+        if let FileTreeNode::File(entry) = &mut node {
+            entry.attributes.insert(system_attributes);
+        }
+        boot_nodes.push(node);
+    }
+    children.splice(0..0, boot_nodes);
+
+    Ok(())
 }
 
 impl Display for FileTreeNode {

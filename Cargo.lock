@@ -1806,15 +1806,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fatfs"
-version = "0.4.0"
-source = "git+https://github.com/dbalsom/fluxfox_fat.git?branch=attributes#8b852390eade777af36d1913310290e2a648b61b"
-dependencies = [
- "bitflags 2.10.0",
- "log",
-]
-
-[[package]]
 name = "fax"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1932,8 +1923,8 @@ dependencies = [
  "bytemuck",
  "dyn-clone",
  "env_logger",
- "fatfs",
  "flate2",
+ "fluxfox-fat",
  "getrandom 0.2.16",
  "hex",
  "histogram",
@@ -1951,6 +1942,7 @@ dependencies = [
  "strum",
  "svg",
  "tar",
+ "tempfile",
  "thiserror 2.0.17",
  "tiny-skia",
  "tokio",
@@ -1958,6 +1950,15 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "zip",
+]
+
+[[package]]
+name = "fluxfox-fat"
+version = "0.4.2"
+source = "git+https://github.com/dbalsom/fluxfox_fat.git?branch=sn_access#e9813d48454676998aec28aad9c1398da0379e49"
+dependencies = [
+ "bitflags 2.10.0",
+ "log",
 ]
 
 [[package]]

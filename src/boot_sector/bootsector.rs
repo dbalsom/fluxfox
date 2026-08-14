@@ -119,7 +119,7 @@ impl BootSector {
     /// string "fluxfox ". This can be overridden to identify the application using fluxfox to
     /// create disk images. If your string is shorter than 8 characters, pad with spaces.
     pub(crate) fn set_creator(&mut self, creator: &[u8; 8]) -> Result<(), DiskImageError> {
-        let creator_offset = 0x147;
+        let creator_offset = 0x149;
         eprintln!(
             "Creator offset: {} into {} bytes",
             creator_offset,

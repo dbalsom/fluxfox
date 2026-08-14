@@ -31,10 +31,12 @@ use crate::io::Write;
 #[cfg(feature = "tar")]
 use crate::io::Cursor;
 
+use std::{fs, path::Path};
+
 use crate::{
     disk_lock::{DiskLock, LockContext, NonTrackingDiskLock},
     file_system::{
-        file_tree::{FileEntry, FileEntryType, FileNameType, FileTreeNode},
+        file_tree::{FileEntry, FileEntryAttributes, FileEntryType, FileNameType, FileTreeNode},
         FileSystemArchive,
         FileSystemError,
         FsDateTime,
@@ -44,13 +46,51 @@ use crate::{
     DiskImage,
     StandardFormat,
 };
-use fluxfox_fat::{Dir, FileSystem, FsOptions, OemCpConverter, ReadWriteSeek, StdIoWrapper, TimeProvider};
+use fluxfox_fat::{
+    DefaultTimeProvider,
+    Dir,
+    Error as FatError,
+    FileAttributes as FatFileAttributes,
+    FileSystem,
+    FsOptions,
+    LossyOemCpConverter,
+    OemCpConverter,
+    ReadWriteSeek,
+    StdIoWrapper,
+    TimeProvider,
+    Write as FatWrite,
+};
+
+type MountedDir<'a> = Dir<'a, StdIoWrapper<StandardSectorView>, DefaultTimeProvider, LossyOemCpConverter>;
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct FileTreeWriteReport {
+    pub files_written: usize,
+    pub directories_written: usize,
+    pub bytes_written: u64,
+    pub complete: bool,
+}
 
 pub struct FatFileSystem {
     fat: Option<FileSystem<StdIoWrapper<StandardSectorView>>>,
 }
 
 impl FatFileSystem {
+    fn map_write_error(error: FatError<std::io::Error>) -> FileSystemError {
+        match error {
+            FatError::NotEnoughSpace => FileSystemError::NotEnoughSpace,
+            other => FileSystemError::WriteError(other.to_string()),
+        }
+    }
+
+    fn supported_datetime(datetime: &FsDateTime) -> Option<fluxfox_fat::DateTime> {
+        (1980..=2107).contains(&datetime.year).then(|| datetime.clone().into())
+    }
+
+    fn fat_attributes(attributes: FileEntryAttributes) -> FatFileAttributes {
+        FatFileAttributes::from_bits_truncate(attributes.bits())
+    }
+
     /// Mount a FAT filesystem from a disk image.
     ///
     /// # Arguments
@@ -150,7 +190,7 @@ impl FatFileSystem {
                 .open_file(path)
                 .map_err(|e| FileSystemError::WriteError(e.to_string()))?;
 
-            file.write_all(data)?;
+            FatWrite::write_all(&mut file, data).map_err(Self::map_write_error)?;
             Ok(())
         }
         else {
@@ -158,6 +198,108 @@ impl FatFileSystem {
         }
     }
 
+    /// Copy a native file tree into the mounted FAT filesystem.
+    ///
+    /// The FAT implementation generates each file's short alias when the file is created. The
+    /// actual alias is retained from the returned file handle so an incomplete file can be removed
+    /// reliably if the volume fills up.
+    pub fn write_file_tree(
+        &self,
+        source_root: impl AsRef<Path>,
+        tree: &FileTreeNode,
+        must_fit: bool,
+    ) -> Result<FileTreeWriteReport, FileSystemError> {
+        let source_root = source_root.as_ref();
+        self.write_file_tree_with(tree, must_fit, |file_entry| {
+            Ok(fs::read(source_root.join(file_entry.path()))?)
+        })
+    }
+
+    /// Copy a file tree into the mounted FAT filesystem, obtaining file data from `read_file`.
+    pub(crate) fn write_file_tree_with(
+        &self,
+        tree: &FileTreeNode,
+        must_fit: bool,
+        mut read_file: impl FnMut(&FileEntry) -> Result<Vec<u8>, FileSystemError>,
+    ) -> Result<FileTreeWriteReport, FileSystemError> {
+        let fat = self
+            .fat
+            .as_ref()
+            .ok_or_else(|| FileSystemError::MountError("Filesystem not mounted".to_string()))?;
+        let root_dir = fat.root_dir();
+        let mut report = FileTreeWriteReport::default();
+        report.complete = Self::write_tree_directory(&root_dir, tree, must_fit, &mut report, &mut read_file)?;
+        Ok(report)
+    }
+
+    fn write_tree_directory(
+        destination: &MountedDir<'_>,
+        node: &FileTreeNode,
+        must_fit: bool,
+        report: &mut FileTreeWriteReport,
+        read_file: &mut impl FnMut(&FileEntry) -> Result<Vec<u8>, FileSystemError>,
+    ) -> Result<bool, FileSystemError> {
+        let FileTreeNode::Directory { children, .. } = node
+        else {
+            return Err(FileSystemError::WriteError(
+                "Expected a directory node while copying a file tree".to_string(),
+            ));
+        };
+
+        for entry in children {
+            match entry {
+                FileTreeNode::File(file_entry) => {
+                    let data = read_file(file_entry)?;
+                    let boot_attributes =
+                        FileEntryAttributes::READ_ONLY | FileEntryAttributes::HIDDEN | FileEntryAttributes::SYSTEM;
+                    let required_boot_file = file_entry.attributes().contains(boot_attributes);
+                    let mut destination_file = match destination.create_file(file_entry.short_name()) {
+                        Ok(file) => file,
+                        Err(FatError::NotEnoughSpace) if !must_fit && !required_boot_file => return Ok(false),
+                        Err(error) => return Err(Self::map_write_error(error)),
+                    };
+                    let destination_name = destination_file.short_file_name();
+
+                    let mut write_result = FatWrite::write_all(&mut destination_file, &data);
+                    if write_result.is_ok() {
+                        if let Some(created) = file_entry.created().and_then(Self::supported_datetime) {
+                            destination_file.set_created(created);
+                        }
+                        if let Some(modified) = file_entry.modified().and_then(Self::supported_datetime) {
+                            destination_file.set_modified(modified);
+                        }
+                        destination_file.set_attributes(Self::fat_attributes(file_entry.attributes()));
+                        write_result = FatWrite::flush(&mut destination_file);
+                    }
+                    drop(destination_file);
+
+                    if let Err(error) = write_result {
+                        let _ = destination.remove(&destination_name);
+                        if matches!(error, FatError::NotEnoughSpace) && !must_fit && !required_boot_file {
+                            return Ok(false);
+                        }
+                        return Err(Self::map_write_error(error));
+                    }
+
+                    report.files_written += 1;
+                    report.bytes_written += data.len() as u64;
+                }
+                FileTreeNode::Directory { dfe, .. } => {
+                    let child_dir = match destination.create_dir(dfe.short_name()) {
+                        Ok(dir) => dir,
+                        Err(FatError::NotEnoughSpace) if !must_fit => return Ok(false),
+                        Err(error) => return Err(Self::map_write_error(error)),
+                    };
+                    report.directories_written += 1;
+                    if !Self::write_tree_directory(&child_dir, entry, must_fit, report, read_file)? {
+                        return Ok(false);
+                    }
+                }
+            }
+        }
+
+        Ok(true)
+    }
     pub fn read_file(&self, path: &str) -> Result<Vec<u8>, FileSystemError> {
         if let Some(fat) = &self.fat {
             let mut file = fat
@@ -255,6 +397,7 @@ impl FatFileSystem {
                     path: full_path,
                     created: None, // Created date was not implemented by DOS. Added in NT + later
                     modified: Some(entry.modified().into()),
+                    attributes: FileEntryAttributes::from_bits_truncate(entry.attributes().bits()),
                 }));
             }
         }
@@ -273,6 +416,9 @@ impl FatFileSystem {
                 size: 0, // Directory size can be calculated if needed
                 created: None,
                 modified: dir_entry.map(|e| e.modified().into()),
+                attributes: dir_entry
+                    .map(|entry| FileEntryAttributes::from_bits_truncate(entry.attributes().bits()))
+                    .unwrap_or_default(),
             },
             children,
         };

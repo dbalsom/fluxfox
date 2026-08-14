@@ -13,6 +13,11 @@
 
 [org 0x100]                     ; Allow Boot-Sector as COM-File
 
+; Select the boot artwork. Override with -DUSE_FOX_ART=0 to build the cow.
+%ifndef USE_FOX_ART
+    %define USE_FOX_ART 1
+%endif
+
 section .text
 
 begin:
@@ -48,7 +53,7 @@ start:
 
 entry:
     sti                         ; Start Interrupts again
-    mov     si, ascii_cow       ; Move SI to cow
+    mov     si, ascii_art       ; Move SI to art
     call    output              ; Display to screen
     mov     si, text1           ; Move SI to text
     call    output              ; Display to screen
@@ -56,7 +61,7 @@ entry:
     mov     cx, 1               ; CH=0 (Track), CL=1 (Sector)
     mov     dx, 0x80            ; DH=0 (Head), DL=80h (Fixed Disk C)
     xor     bx, bx              ; BX=0
-    mov     es, bx		        ; Segment of Transfer buffer (0000)
+    mov     es, bx		          ; Segment of Transfer buffer (0000)
     mov     bx, 0x7C00          ; Offset of Transfer buffer
     push    es
     push    bx
@@ -99,12 +104,21 @@ loop_d:
     pop     si                  ; Restore SI
     jmp     short loop_o        ; Repeat loop
 
-ascii_cow:
+ascii_art:
+%if USE_FOX_ART
+    db '   |\|\', 10,13
+    db '  _/oo \_____', 10,13
+    db ' ', 0xEC, '__.       _`-----.', 10,13
+    db '    // /--\ \\      )', 10,13
+    db '   /_\_\   \_\`"uuu"', 10,13, 0
+%else
     db '\|/          (__)', 10,13
     db '     `\------(oo)', 10,13
     db '       ||    (__)', 10,13
     db '       ||w--||     \|/', 10,13
     db '   \|/', 10,13, 0
+    db 0, 0                    ; Keep following data aligned with the fox artwork
+%endif
 
 text1:
     db      'Disk image created by fluxfox ', 0x20, 10, 13

@@ -31,11 +31,15 @@ use std::path::PathBuf;
 
 #[derive(Clone, Debug)]
 pub(crate) struct CreateParams {
-    pub(crate) out_file:    PathBuf,
+    pub(crate) out_file: PathBuf,
     pub(crate) disk_format: StandardFormatParam,
-    pub(crate) formatted:   bool,
+    pub(crate) formatted: bool,
     pub(crate) sector_test: bool,
-    pub(crate) from_dir:    Option<PathBuf>,
+    pub(crate) from_dir: Option<PathBuf>,
+    pub(crate) from_archive: Option<PathBuf>,
+    pub(crate) bootsector: Option<PathBuf>,
+    pub(crate) no_recursive: bool,
+    pub(crate) must_fit: bool,
 }
 
 pub(crate) fn create_parser() -> impl Parser<CreateParams> {
@@ -46,11 +50,24 @@ pub(crate) fn create_parser() -> impl Parser<CreateParams> {
         .switch()
         .help("Create a sector test image [internal use].");
     let from_dir = from_dir_parser().optional();
+    let from_archive = from_archive_parser().optional();
+    let bootsector = bootsector_parser().optional();
+    let no_recursive = long("no_recursive")
+        .switch()
+        .help("Only copy files from the source root");
+    let must_fit = long("must_fit")
+        .switch()
+        .help("Fail instead of creating a partial image when the source is too large");
+
     construct!(CreateParams {
         out_file,
         disk_format,
         formatted,
         sector_test,
-        from_dir
+        from_dir,
+        from_archive,
+        bootsector,
+        no_recursive,
+        must_fit
     })
 }

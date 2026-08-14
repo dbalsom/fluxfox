@@ -33,7 +33,15 @@ use std::{
 };
 
 use crate::{
-    file_system::{file_tree::FileEntryType, FileEntry, FileSystemError, FileTreeNode, FsDateTime},
+    file_system::{
+        file_tree::{prioritize_boot_system_files, FileEntryType},
+        is_boot_sector_filename,
+        FileEntry,
+        FileEntryAttributes,
+        FileSystemError,
+        FileTreeNode,
+        FsDateTime,
+    },
     FoxHashSet,
 };
 
@@ -120,105 +128,142 @@ pub fn list_files_recursive(
     Ok(())
 }
 
+/// Build a recursive, image-relative tree from a native directory.
 pub fn build_file_tree(path: impl AsRef<Path>) -> Result<FileTreeNode, FileSystemError> {
-    let path = PathBuf::from(path.as_ref());
-    let root_dir = fs::read_dir(&path)?;
-    let mut path_stack = Vec::new();
-    build_file_tree_recursive(None, root_dir, &mut path_stack)
+    build_file_tree_with_options(path, true)
 }
 
-pub fn build_file_tree_recursive(
-    dir_entry: Option<&fs::DirEntry>,
-    dir: fs::ReadDir,
-    path_stack: &mut Vec<String>,
-) -> Result<FileTreeNode, FileSystemError> {
-    let mut children = Vec::new();
-
-    if let Some(dir_entry) = dir_entry {
-        path_stack.push(dir_entry.file_name().to_string_lossy().to_string());
+/// Build an image-relative tree from a native directory.
+///
+/// Directory entries are sorted before traversal so consumers can reproduce the same insertion
+/// order. Symlinks and other non-file objects are rejected instead of being followed implicitly.
+pub fn build_file_tree_with_options(path: impl AsRef<Path>, recursive: bool) -> Result<FileTreeNode, FileSystemError> {
+    let root = path.as_ref();
+    if !root.is_dir() {
+        return Err(FileSystemError::PathNotFound(root.display().to_string()));
     }
 
-    for entry in dir {
-        match entry {
-            Ok(entry) => {
-                let entry_name = entry.file_name().to_string_lossy().to_string();
-                let entry_size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+    let canonical_root = root.canonicalize()?;
+    let mut visited_dirs = FoxHashSet::new();
+    visited_dirs.insert(canonical_root);
 
-                let full_path = if path_stack.is_empty() {
-                    entry_name.clone()
-                }
-                else {
-                    format!("{}/{}", path_stack.join("/"), entry_name)
-                };
+    let mut tree = build_file_tree_recursive(root, None, &mut Vec::new(), recursive, &mut visited_dirs)?;
+    prioritize_boot_system_files(&mut tree)?;
+    Ok(tree)
+}
 
-                if let Ok(file_type) = entry.file_type() {
-                    if file_type.is_dir() {
-                        // Ignore the current and parent directory entries to avoid infinite recursion
-                        if entry_name == "." || entry_name == ".." {
-                            continue;
-                        }
-                        log::debug!("Descending into dir: {}", full_path);
-                        let sub_dir = fs::read_dir(entry.path())?;
-                        let new_node = build_file_tree_recursive(Some(&entry), sub_dir, path_stack)?;
-                        log::debug!("Adding child directory: {}", new_node.path());
-                        children.push(new_node);
-                    }
-                    else if file_type.is_file() {
-                        // log::debug!(
-                        //     "adding file: {} modified date: {}",
-                        //     entry_name,
-                        //     FsDateTime::from(entry.modified())
-                        // );
-                        children.push(FileTreeNode::File(FileEntry {
-                            e_type: FileEntryType::File,
-                            short_name: entry_name,
-                            long_name: Some(entry.file_name().to_string_lossy().to_string()),
-                            size: entry_size,
-                            path: full_path,
-                            created: None, // Created date was not implemented by DOS. Added in NT + later
-                            modified: entry
-                                .metadata()
-                                .ok()
-                                .and_then(|md| md.modified().ok())
-                                .and_then(|st| FsDateTime::try_from(st).ok()),
-                        }));
-                    }
-                }
-            }
-            Err(e) => {
-                log::error!("error reading directory entry: {}", e);
+fn build_file_tree_recursive(
+    dir_path: &Path,
+    dir_entry: Option<&fs::DirEntry>,
+    path_stack: &mut Vec<String>,
+    recursive: bool,
+    visited_dirs: &mut FoxHashSet<PathBuf>,
+) -> Result<FileTreeNode, FileSystemError> {
+    let dir_name = match dir_entry {
+        Some(entry) => Some(
+            entry
+                .file_name()
+                .into_string()
+                .map_err(|name| FileSystemError::UnsupportedFileObject(name.to_string_lossy().into_owned()))?,
+        ),
+        None => None,
+    };
+
+    if let Some(name) = &dir_name {
+        path_stack.push(name.clone());
+    }
+
+    let mut entries = fs::read_dir(dir_path)?.collect::<Result<Vec<_>, _>>()?;
+    entries.sort_by_key(|entry| entry.file_name());
+
+    let mut children = Vec::new();
+    for entry in entries {
+        let entry_path = entry.path();
+        let entry_name = entry
+            .file_name()
+            .into_string()
+            .map_err(|name| FileSystemError::UnsupportedFileObject(name.to_string_lossy().into_owned()))?;
+        let file_type = entry.file_type()?;
+
+        if file_type.is_symlink() {
+            return Err(FileSystemError::UnsupportedFileObject(entry_path.display().to_string()));
+        }
+
+        let full_path = if path_stack.is_empty() {
+            entry_name.clone()
+        }
+        else {
+            format!("{}/{}", path_stack.join("/"), entry_name)
+        };
+
+        if file_type.is_dir() {
+            if !recursive {
                 continue;
             }
+
+            let canonical_path = entry_path.canonicalize()?;
+            if !visited_dirs.insert(canonical_path) {
+                return Err(FileSystemError::CycleError);
+            }
+
+            log::debug!("Descending into dir: {}", full_path);
+            let child = build_file_tree_recursive(&entry_path, Some(&entry), path_stack, true, visited_dirs)?;
+            children.push(child);
+        }
+        else if file_type.is_file() {
+            // A root-level boot-sector binary configures the image and is not copied into FAT.
+            if path_stack.is_empty() && is_boot_sector_filename(&entry_name) {
+                continue;
+            }
+            let metadata = entry.metadata()?;
+            children.push(FileTreeNode::File(FileEntry {
+                e_type: FileEntryType::File,
+                short_name: entry_name.clone(),
+                long_name: Some(entry_name),
+                size: metadata.len(),
+                path: full_path,
+                created: metadata.created().ok().and_then(|time| FsDateTime::try_from(time).ok()),
+                modified: metadata
+                    .modified()
+                    .ok()
+                    .and_then(|time| FsDateTime::try_from(time).ok()),
+                attributes: FileEntryAttributes::default(),
+            }));
+        }
+        else {
+            return Err(FileSystemError::UnsupportedFileObject(entry_path.display().to_string()));
         }
     }
 
+    let node_path = if path_stack.is_empty() {
+        "/".to_string()
+    }
+    else {
+        path_stack.join("/")
+    };
+    let metadata = dir_entry.and_then(|entry| entry.metadata().ok());
     let node = FileTreeNode::Directory {
         dfe: FileEntry {
             e_type: FileEntryType::Directory,
-            short_name: dir_entry
-                .map(|e| e.file_name().to_string_lossy().to_string())
-                .unwrap_or_default(),
-            long_name: dir_entry
-                .map(|e| Some(e.file_name().to_string_lossy().to_string()))
-                .unwrap_or_else(|| None),
-            path: if path_stack.len() < 1 {
-                "/".to_string()
-            }
-            else {
-                path_stack.join("/")
-            },
-            size: 0, // Directory size can be calculated if needed
-            created: None,
-            modified: dir_entry
-                .and_then(|e| e.metadata().ok())
-                .and_then(|md| md.modified().ok())
-                .and_then(|st| FsDateTime::try_from(st).ok()),
+            short_name: dir_name.clone().unwrap_or_else(|| "/".to_string()),
+            long_name: Some(dir_name.unwrap_or_else(|| "/".to_string())),
+            path: node_path,
+            size: 0,
+            created: metadata
+                .as_ref()
+                .and_then(|metadata| metadata.created().ok())
+                .and_then(|time| FsDateTime::try_from(time).ok()),
+            modified: metadata
+                .and_then(|metadata| metadata.modified().ok())
+                .and_then(|time| FsDateTime::try_from(time).ok()),
+            attributes: FileEntryAttributes::default(),
         },
         children,
     };
 
-    // Pop the current directory name from the path stack
-    path_stack.pop();
+    if dir_entry.is_some() {
+        path_stack.pop();
+    }
 
     Ok(node)
 }

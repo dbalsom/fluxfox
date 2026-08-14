@@ -29,9 +29,31 @@ pub mod args;
 use crate::args::GlobalOptions;
 use anyhow::{anyhow, bail, Error};
 use fluxfox::{file_system::FileSystemType, prelude::*};
-use std::fs::File;
+use std::{fs, fs::File, path::Path};
+
+const BOOT_SECTOR_SIZE: usize = 512;
+
+fn read_bootsector(path: &Path) -> Result<Vec<u8>, Error> {
+    let bootsector =
+        fs::read(path).map_err(|error| anyhow!("Failed to read boot sector '{}': {}", path.display(), error))?;
+    if bootsector.len() != BOOT_SECTOR_SIZE {
+        bail!(
+            "Boot sector '{}' is {} bytes; expected exactly {} bytes",
+            path.display(),
+            bootsector.len(),
+            BOOT_SECTOR_SIZE
+        );
+    }
+    Ok(bootsector)
+}
 
 pub(crate) fn run(global: &GlobalOptions, params: &args::CreateParams) -> Result<(), Error> {
+    if params.from_dir.is_some() && params.from_archive.is_some() {
+        bail!("--from_dir and --from_archive are mutually exclusive");
+    }
+
+    let bootsector = params.bootsector.as_deref().map(read_bootsector).transpose()?;
+
     // Get extension from output filename
     let ext_str = params
         .out_file
@@ -64,12 +86,21 @@ pub(crate) fn run(global: &GlobalOptions, params: &args::CreateParams) -> Result
         .with_resolution(create_resolution)
         .with_standard_format(params.disk_format);
 
-    if params.formatted | params.sector_test {
+    if params.formatted || params.sector_test || bootsector.is_some() {
         builder = builder.with_filesystem(FileSystemType::Fat12);
     }
 
     if let Some(dir) = &params.from_dir {
-        builder = builder.with_filesystem_from_path(dir, FileSystemType::Fat12, false, true, false);
+        builder =
+            builder.with_filesystem_from_path(dir, FileSystemType::Fat12, false, !params.no_recursive, params.must_fit);
+    }
+    else if let Some(archive) = &params.from_archive {
+        builder =
+            builder.with_filesystem_from_archive(archive, FileSystemType::Fat12, !params.no_recursive, params.must_fit);
+    }
+
+    if let Some(bootsector) = bootsector.as_deref() {
+        builder = builder.with_bootsector(bootsector);
     }
 
     let mut disk = match builder.build() {
@@ -116,5 +147,40 @@ pub(crate) fn run(global: &GlobalOptions, params: &args::CreateParams) -> Result
         Err(e) => {
             bail!("Error opening disk image for writing: {}", e);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_bootsector_accepts_exactly_512_bytes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("bootsector.bin");
+        fs::write(&path, [0xA5; BOOT_SECTOR_SIZE]).unwrap();
+
+        assert_eq!(read_bootsector(&path).unwrap(), vec![0xA5; BOOT_SECTOR_SIZE]);
+    }
+
+    #[test]
+    fn read_bootsector_rejects_other_sizes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("bootsector.bin");
+        fs::write(&path, [0; BOOT_SECTOR_SIZE - 1]).unwrap();
+
+        let error = read_bootsector(&path).unwrap_err().to_string();
+        assert!(error.contains("511 bytes"));
+        assert!(error.contains("expected exactly 512 bytes"));
+    }
+
+    #[test]
+    fn read_bootsector_reports_the_missing_path() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("missing.bin");
+
+        let error = read_bootsector(&path).unwrap_err().to_string();
+        assert!(error.contains("Failed to read boot sector"));
+        assert!(error.contains("missing.bin"));
     }
 }

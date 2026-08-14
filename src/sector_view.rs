@@ -119,20 +119,19 @@ impl StandardSectorView {
         if DiskChs::from((self.track_cursor, self.sector_id_cursor)) != chs {
             log::trace!("seek_to_offset(): Seeking to CHS: {}", chs);
 
+            // Commit the current sector before changing either cursor. commit_sector() addresses
+            // the sector through the current cursor values.
+            self.commit_sector().map_err(std::io::Error::other)?;
+
             // Do we need to switch tracks?
             if chs.ch() != self.track_cursor {
                 // Update the track cursor
                 self.track_cursor = DiskCh::from(chs);
             }
 
-            // Commit the current sector
-            self.commit_sector()
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-
             // Read the specified sector on this track into the sector buffer.
             self.sector_id_cursor = chs.s();
-            self.read_sector(self.sector_id_cursor)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            self.read_sector(self.sector_id_cursor).map_err(std::io::Error::other)?;
         }
 
         // Set the sector byte cursor to the specified offset.
@@ -194,6 +193,9 @@ impl StandardSectorView {
     }
 
     fn next_sector(&mut self) -> Result<(), DiskImageError> {
+        // Commit the current buffer while the cursors still identify its sector.
+        self.commit_sector()?;
+
         self.sector_id_cursor += 1;
         if self.sector_id_cursor > self.spt {
             // Standard sector ids are 1-indexed.
@@ -201,9 +203,6 @@ impl StandardSectorView {
             self.eod = !self.track_cursor.seek_next_track(self.disk_format);
             log::trace!("next_sector(): Seek to new track: {}", self.track_cursor);
         }
-
-        // Commit the sector if needed.
-        self.commit_sector()?;
 
         if !self.eod {
             self.read_sector(self.sector_id_cursor)?;
@@ -348,6 +347,26 @@ mod tests {
         let read_result = sector_view.read(&mut read_data);
         assert!(read_result.is_ok());
         assert_eq!(read_result.unwrap(), data.len());
+    }
+
+    #[test]
+    fn test_writes_commit_before_crossing_sector_and_track_boundaries() {
+        let mut sector_view = create_view();
+        let sector_size = sector_view.format().sector_size();
+        let sectors_per_track = sector_view.format().layout().s() as usize;
+
+        for (offset, value) in [(0, 0x11), (sector_size, 0x22), (sector_size * sectors_per_track, 0x33)] {
+            sector_view.seek(std::io::SeekFrom::Start(offset as u64)).unwrap();
+            sector_view.write_all(&vec![value; sector_size]).unwrap();
+        }
+        sector_view.flush().unwrap();
+
+        for (offset, value) in [(0, 0x11), (sector_size, 0x22), (sector_size * sectors_per_track, 0x33)] {
+            let mut actual = vec![0; sector_size];
+            sector_view.seek(std::io::SeekFrom::Start(offset as u64)).unwrap();
+            sector_view.read_exact(&mut actual).unwrap();
+            assert_eq!(actual, vec![value; sector_size]);
+        }
     }
 
     #[test]
