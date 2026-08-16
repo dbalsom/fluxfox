@@ -53,7 +53,7 @@ use std::{
 };
 
 #[cfg(feature = "zip")]
-use std::io::Read;
+use std::io::{Cursor, Read, Seek};
 
 const BOOT_SECTOR_SIZE: usize = 512;
 
@@ -73,13 +73,16 @@ pub struct ImageBuilder {
     /// Required if `formatted` is true.
     pub filesystem: Option<FileSystemType>,
     /// Specify whether the [DiskImage] should be created from a directory of files.
-    /// Mutually exclusive with `from_archive`.
+    /// Mutually exclusive with `from_archive_path` and `from_archive`.
     pub from_path: Option<PathBuf>,
     /// Specify whether the [DiskImage] should be created from an archive file.
-    /// Mutually exclusive with `from_path`.
-    pub from_archive: Option<PathBuf>,
-    /// Specify whether we should attempt to create a bootable disk image if `from_path` or
-    /// `from_archive` are specified.
+    /// Mutually exclusive with `from_path` and `from_archive`.
+    pub from_archive_path: Option<PathBuf>,
+    /// Specify whether the [DiskImage] should be created from an archive held in memory.
+    /// Mutually exclusive with `from_path` and `from_archive_path`.
+    pub from_archive: Option<Vec<u8>>,
+    /// Specify whether we should attempt to create a bootable disk image if `from_path`,
+    /// `from_archive_path`, or `from_archive` are specified.
     pub bootable: bool,
     /// An explicit boot sector to install and patch with the selected disk format's BPB.
     /// If omitted, a boot sector is discovered from the source root, or the bundled fox boot
@@ -117,6 +120,7 @@ impl ImageBuilder {
     pub fn with_filesystem(mut self, filesystem: FileSystemType) -> ImageBuilder {
         self.filesystem = Some(filesystem);
         self.from_path = None;
+        self.from_archive_path = None;
         self.from_archive = None;
         self.formatted = true;
         self
@@ -160,6 +164,7 @@ impl ImageBuilder {
     ) -> ImageBuilder {
         self.filesystem = Some(filesystem);
         self.from_path = Some(path.as_ref().to_path_buf());
+        self.from_archive_path = None;
         self.from_archive = None;
         self.formatted = true;
         self.bootable = bootable;
@@ -186,7 +191,7 @@ impl ImageBuilder {
     ///
     /// A root-level `bootsector.bin` or `*_bootsector.bin` is installed as the image boot sector,
     /// patched with the selected format's BPB, and omitted from the FAT filesystem.
-    pub fn with_filesystem_from_archive(
+    pub fn with_filesystem_from_archive_path(
         mut self,
         path: impl AsRef<Path>,
         filesystem: FileSystemType,
@@ -194,7 +199,37 @@ impl ImageBuilder {
         must_fit: bool,
     ) -> ImageBuilder {
         self.filesystem = Some(filesystem);
-        self.from_archive = Some(path.as_ref().to_path_buf());
+        self.from_archive_path = Some(path.as_ref().to_path_buf());
+        self.from_archive = None;
+        self.from_path = None;
+        self.formatted = true;
+        self.recursive = recursive;
+        self.must_fit = must_fit;
+        self
+    }
+
+    /// Set whether the [DiskImage] to be built should be formatted as the specified [FileSystemType],
+    /// containing files from the supplied ZIP archive bytes. This requires the `zip` feature.
+    ///
+    /// The archive bytes are copied into the builder so that the resulting [`ImageBuilder`] does
+    /// not borrow the caller's buffer.
+    ///
+    /// A complete `IO.SYS`/`MSDOS.SYS` or `IBMIO.SYS`/`IBMDOS.SYS` pair in the archive root is
+    /// written first and marked read-only, hidden, and system. Incomplete or mixed pairs are
+    /// rejected.
+    ///
+    /// A root-level `bootsector.bin` or `*_bootsector.bin` is installed as the image boot sector,
+    /// patched with the selected format's BPB, and omitted from the FAT filesystem.
+    pub fn with_filesystem_from_archive(
+        mut self,
+        archive: &[u8],
+        filesystem: FileSystemType,
+        recursive: bool,
+        must_fit: bool,
+    ) -> ImageBuilder {
+        self.filesystem = Some(filesystem);
+        self.from_archive = Some(archive.to_vec());
+        self.from_archive_path = None;
         self.from_path = None;
         self.formatted = true;
         self.recursive = recursive;
@@ -235,7 +270,7 @@ impl ImageBuilder {
                 ));
             }
         }
-        if let Some(path) = self.from_archive.as_ref() {
+        if let Some(path) = self.from_archive_path.as_ref() {
             if !path.is_file() {
                 return Err(DiskImageError::FilesystemError(
                     file_system::FileSystemError::PathNotFound(path.display().to_string()),
@@ -270,14 +305,25 @@ impl ImageBuilder {
             if let Some(path) = self.from_path.as_deref() {
                 Self::discover_boot_sector_from_directory(path)?
             }
-            else if let Some(path) = self.from_archive.as_deref() {
+            else if let Some(path) = self.from_archive_path.as_deref() {
                 #[cfg(feature = "zip")]
                 {
-                    Self::discover_boot_sector_from_zip(path)?
+                    Self::discover_boot_sector_from_zip_path(path)?
                 }
                 #[cfg(not(feature = "zip"))]
                 {
                     let _ = path;
+                    None
+                }
+            }
+            else if let Some(archive) = self.from_archive.as_deref() {
+                #[cfg(feature = "zip")]
+                {
+                    Self::discover_boot_sector_from_zip(archive)?
+                }
+                #[cfg(not(feature = "zip"))]
+                {
+                    let _ = archive;
                     None
                 }
             }
@@ -377,7 +423,7 @@ impl ImageBuilder {
                 }
             }
         }
-        else if let Some(path) = self.from_archive {
+        else if let Some(path) = self.from_archive_path {
             match self.filesystem {
                 Some(FileSystemType::Fat12) => {
                     log::debug!(
@@ -386,7 +432,9 @@ impl ImageBuilder {
                     );
                     #[cfg(all(feature = "fat", feature = "zip"))]
                     {
-                        disk_image = Self::inject_files_from_zip_fat(&path, disk_image, self.recursive, self.must_fit)?;
+                        let source = file_system::zip_source::ZipFileSource::open(&path, self.recursive)
+                            .map_err(DiskImageError::FilesystemError)?;
+                        disk_image = Self::inject_files_from_zip_fat(source, disk_image, self.must_fit)?;
                     }
                     #[cfg(not(feature = "fat"))]
                     {
@@ -398,6 +446,43 @@ impl ImageBuilder {
                     #[cfg(all(feature = "fat", not(feature = "zip")))]
                     {
                         let _ = (path, disk_image);
+                        return Err(DiskImageError::FilesystemError(
+                            crate::file_system::FileSystemError::FeatureError("zip".to_string()),
+                        ));
+                    }
+                }
+                None => {
+                    log::error!("ImageBuilder::build_bitstream(): No filesystem specified for archive injection!");
+                    return Err(DiskImageError::ParameterError);
+                }
+                _ => {
+                    log::error!("ImageBuilder::build_bitstream(): Unsupported filesystem type for archive injection");
+                    return Err(DiskImageError::UnsupportedFilesystem);
+                }
+            }
+        }
+        else if let Some(archive) = self.from_archive {
+            match self.filesystem {
+                Some(FileSystemType::Fat12) => {
+                    log::debug!(
+                        "ImageBuilder::build_bitstream(): Injecting files from an in-memory ZIP archive into FAT12 filesystem"
+                    );
+                    #[cfg(all(feature = "fat", feature = "zip"))]
+                    {
+                        let source = file_system::zip_source::ZipFileSource::from_bytes(archive, self.recursive)
+                            .map_err(DiskImageError::FilesystemError)?;
+                        disk_image = Self::inject_files_from_zip_fat(source, disk_image, self.must_fit)?;
+                    }
+                    #[cfg(not(feature = "fat"))]
+                    {
+                        let _ = (archive, disk_image);
+                        return Err(DiskImageError::FilesystemError(
+                            crate::file_system::FileSystemError::FeatureError("fat".to_string()),
+                        ));
+                    }
+                    #[cfg(all(feature = "fat", not(feature = "zip")))]
+                    {
+                        let _ = (archive, disk_image);
                         return Err(DiskImageError::FilesystemError(
                             crate::file_system::FileSystemError::FeatureError("zip".to_string()),
                         ));
@@ -486,9 +571,19 @@ impl ImageBuilder {
     }
 
     #[cfg(feature = "zip")]
-    fn discover_boot_sector_from_zip(path: &Path) -> Result<Option<Vec<u8>>, DiskImageError> {
+    fn discover_boot_sector_from_zip_path(path: &Path) -> Result<Option<Vec<u8>>, DiskImageError> {
         let file = fs::File::open(path)?;
-        let mut archive = zip::ZipArchive::new(file)
+        Self::discover_boot_sector_from_zip_reader(file)
+    }
+
+    #[cfg(feature = "zip")]
+    fn discover_boot_sector_from_zip(bytes: &[u8]) -> Result<Option<Vec<u8>>, DiskImageError> {
+        Self::discover_boot_sector_from_zip_reader(Cursor::new(bytes))
+    }
+
+    #[cfg(feature = "zip")]
+    fn discover_boot_sector_from_zip_reader<R: Read + Seek>(reader: R) -> Result<Option<Vec<u8>>, DiskImageError> {
+        let mut archive = zip::ZipArchive::new(reader)
             .map_err(file_system::FileSystemError::from)
             .map_err(DiskImageError::FilesystemError)?;
         let mut candidate_indices = Vec::new();
@@ -602,14 +697,11 @@ impl ImageBuilder {
     }
 
     #[cfg(all(feature = "fat", feature = "zip"))]
-    fn inject_files_from_zip_fat(
-        path: impl AsRef<Path>,
+    fn inject_files_from_zip_fat<R: Read + Seek>(
+        mut source: file_system::zip_source::ZipFileSource<R>,
         mut disk_image: DiskImage,
-        recursive: bool,
         must_fit: bool,
     ) -> Result<DiskImage, DiskImageError> {
-        let mut source =
-            file_system::zip_source::ZipFileSource::open(path, recursive).map_err(DiskImageError::FilesystemError)?;
         let files = source.tree().clone();
 
         let arc = disk_image.into_arc();

@@ -33,13 +33,20 @@ fn build_from_archive(path: &Path, recursive: bool, must_fit: bool) -> Result<Di
     ImageBuilder::new()
         .with_resolution(TrackDataResolution::BitStream)
         .with_standard_format(StandardFormat::PcFloppy360)
-        .with_filesystem_from_archive(path, FileSystemType::Fat12, recursive, must_fit)
+        .with_filesystem_from_archive_path(path, FileSystemType::Fat12, recursive, must_fit)
         .build()
 }
 
-fn create_zip(path: &Path, entries: &[(&str, Option<&[u8]>)]) {
-    let file = fs::File::create(path).unwrap();
-    let mut writer = zip::ZipWriter::new(file);
+fn build_from_archive_bytes(bytes: &[u8], recursive: bool, must_fit: bool) -> Result<DiskImage, DiskImageError> {
+    ImageBuilder::new()
+        .with_resolution(TrackDataResolution::BitStream)
+        .with_standard_format(StandardFormat::PcFloppy360)
+        .with_filesystem_from_archive(bytes, FileSystemType::Fat12, recursive, must_fit)
+        .build()
+}
+
+fn create_zip_bytes(entries: &[(&str, Option<&[u8]>)]) -> Vec<u8> {
+    let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
     let options = zip::write::SimpleFileOptions::default();
 
     for (name, data) in entries {
@@ -51,7 +58,11 @@ fn create_zip(path: &Path, entries: &[(&str, Option<&[u8]>)]) {
             writer.add_directory(*name, options).unwrap();
         }
     }
-    writer.finish().unwrap();
+    writer.finish().unwrap().into_inner()
+}
+
+fn create_zip(path: &Path, entries: &[(&str, Option<&[u8]>)]) {
+    fs::write(path, create_zip_bytes(entries)).unwrap();
 }
 
 fn with_mounted_fat<T>(disk: DiskImage, callback: impl FnOnce(&FatFileSystem) -> T) -> T {
@@ -336,6 +347,25 @@ fn test_build_fat_from_zip_recursive() {
 
         let tree = fs.build_file_tree_from_root().unwrap();
         assert!(tree.node("EMPTY").is_some(), "empty ZIP directories should be retained");
+    });
+}
+
+#[test]
+fn test_build_fat_from_in_memory_zip_recursive() {
+    let boot_sector = marked_boot_sector(0x7A);
+    let archive = create_zip_bytes(&[
+        ("bootsector.bin", Some(&boot_sector)),
+        ("hello.txt", Some(b"root")),
+        ("dir_a/dir_b/deep.txt", Some(b"deep")),
+    ]);
+
+    let disk = build_from_archive_bytes(&archive, true, true).expect("in-memory ZIP image should build");
+    assert_eq!(boot_sector_bytes(&disk)[0x100], 0x7A);
+    with_mounted_fat(disk, |fs| {
+        let paths = short_file_paths(fs);
+        assert_eq!(paths, vec!["DIR_A/DIR_B/DEEP.TXT", "HELLO.TXT"]);
+        assert_eq!(fs.read_file("HELLO.TXT").unwrap(), b"root");
+        assert_eq!(fs.read_file("DIR_A/DIR_B/DEEP.TXT").unwrap(), b"deep");
     });
 }
 

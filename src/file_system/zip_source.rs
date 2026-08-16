@@ -30,7 +30,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fs::File,
-    io::Read,
+    io::{Cursor, Read, Seek},
     path::{Component, Path},
 };
 
@@ -64,16 +64,28 @@ enum ArchiveNode {
 }
 
 /// A ZIP archive paired with the image-relative file tree represented by its entries.
-pub(crate) struct ZipFileSource {
-    archive: zip::ZipArchive<File>,
+pub(crate) struct ZipFileSource<R: Read + Seek> {
+    archive: zip::ZipArchive<R>,
     indices: HashMap<String, usize>,
     tree:    FileTreeNode,
 }
 
-impl ZipFileSource {
+impl ZipFileSource<File> {
     pub(crate) fn open(path: impl AsRef<Path>, recursive: bool) -> Result<Self, FileSystemError> {
         let file = File::open(path)?;
-        let mut archive = zip::ZipArchive::new(file)?;
+        Self::from_reader(file, recursive)
+    }
+}
+
+impl ZipFileSource<Cursor<Vec<u8>>> {
+    pub(crate) fn from_bytes(bytes: Vec<u8>, recursive: bool) -> Result<Self, FileSystemError> {
+        Self::from_reader(Cursor::new(bytes), recursive)
+    }
+}
+
+impl<R: Read + Seek> ZipFileSource<R> {
+    fn from_reader(reader: R, recursive: bool) -> Result<Self, FileSystemError> {
+        let mut archive = zip::ZipArchive::new(reader)?;
         let mut root = ArchiveDirectory::default();
 
         for archive_index in 0..archive.len() {

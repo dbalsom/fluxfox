@@ -95,8 +95,12 @@ pub(crate) fn run(global: &GlobalOptions, params: &args::CreateParams) -> Result
             builder.with_filesystem_from_path(dir, FileSystemType::Fat12, false, !params.no_recursive, params.must_fit);
     }
     else if let Some(archive) = &params.from_archive {
-        builder =
-            builder.with_filesystem_from_archive(archive, FileSystemType::Fat12, !params.no_recursive, params.must_fit);
+        builder = builder.with_filesystem_from_archive_path(
+            archive,
+            FileSystemType::Fat12,
+            !params.no_recursive,
+            params.must_fit,
+        );
     }
 
     if let Some(bootsector) = bootsector.as_deref() {
